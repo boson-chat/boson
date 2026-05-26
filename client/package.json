@@ -2,6 +2,18 @@
   "name": "boson-client",
   "version": "0.0.2",
   "private": true,
+  "description": "Boson — desktop IRC client.",
+  "homepage": "https://boson.chat",
+  "author": {
+    "name": "Boson",
+    "email": "hi@boson.chat",
+    "url": "https://boson.chat"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/boson-chat/boson.git",
+    "directory": "client"
+  },
   "main": "out/main/index.js",
   "type": "module",
   "scripts": {

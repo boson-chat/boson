@@ -19,6 +19,9 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Same rationale as release-client.yml — tag-pushed-by-workflow doesn't
+  # chain-trigger, so we expose a manual rerun path.
+  workflow_dispatch:
 
 permissions:
   contents: read

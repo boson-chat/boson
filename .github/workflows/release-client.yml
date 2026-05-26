@@ -11,6 +11,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Lets us re-run a tag's build via `gh workflow run "Release Electron
+  # client" --ref vX.Y.Z`. Needed because semantic-release pushes tags
+  # using GITHUB_TOKEN, which deliberately does not chain-trigger other
+  # workflows — so the tag-triggered run only fires when a human pushes
+  # the tag directly.
+  workflow_dispatch:
 
 permissions:
   contents: write   # upload assets to the GitHub Release
