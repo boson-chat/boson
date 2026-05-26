@@ -1,0 +1,15 @@
+# Cloudflare Workers config — the website ships as a Worker with Static
+# Assets (no script needed, just the built Vite output). Deploys to the
+# existing `boson-chat` Worker so the custom domain on that service stays
+# attached. Switch back to Pages by deleting this file and reverting
+# .github/workflows/deploy-website.yml to `wrangler pages deploy`.
+
+name = "boson-chat"
+compatibility_date = "2024-12-01"
+
+[assets]
+directory = "./dist"
+# SPA fallback — preact-iso owns client-side routing, so requests for
+# unknown paths should serve index.html and let the router decide what
+# to render (the 404 page included).
+not_found_handling = "single-page-application"

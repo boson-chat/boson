@@ -1,15 +1,16 @@
-# Builds the marketing site (website/) and deploys it to Cloudflare Pages
-# on every push to main. Pull-request commits get a preview deployment
-# under the same Cloudflare project, so reviewers can click through to
-# the rendered site before merging.
+# Builds the marketing site (website/) and deploys it to the existing
+# Cloudflare Worker `boson-chat` using the Workers Static Assets feature
+# (configured in website/wrangler.toml). The custom domain attached to
+# that Worker stays in place — no DNS changes required between releases.
 #
 # Required secrets:
-#   - CLOUDFLARE_API_TOKEN  : API token with "Pages — Edit" permission
-#   - CLOUDFLARE_ACCOUNT_ID : your Cloudflare account UUID
-#
-# Required Cloudflare setup (one-time):
-#   - Create a Pages project named "boson-chat" in the Cloudflare dashboard.
-#   - Bind your custom domain to that project under Custom Domains.
+#   - CLOUDFLARE_API_TOKEN  : API token with "Workers Scripts — Edit"
+#                             (Account scope) + "User Details — Read".
+#                             A token created with only "Pages — Edit"
+#                             will fail; the deploy is a Workers deploy.
+#   - CLOUDFLARE_ACCOUNT_ID : 32-char hex account ID (no dashes), copy
+#                             from the dash.cloudflare.com URL after
+#                             logging in.
 name: Deploy website
 
 on:
@@ -47,7 +48,9 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # `wrangler pages deploy` uploads the static bundle. The branch
-          # arg controls which Cloudflare deployment slot it lands in:
-          # `main` → production, anything else → preview.
-          command: pages deploy website/dist --project-name=boson-chat --branch=${{ github.head_ref || github.ref_name }}
+          workingDirectory: website
+          # `wrangler deploy` (no subcommand) uploads the Worker described
+          # by website/wrangler.toml — for us that's a Workers Static
+          # Assets bundle pointing at website/dist. Non-main branches
+          # land as preview-version deployments under boson-chat-<hash>.
+          command: deploy
