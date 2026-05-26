@@ -229,8 +229,11 @@ export function AboutPage() {
                 code, run an IRCd, register it, tell us what we got wrong.
               </p>
               <p class="essay-signoff">
-                — The Boson team · <span class="num">github.com/boson-chat/boson</span> ·{' '}
-                <a href="mailto:hi@boson.chat">hi@boson.chat</a>
+                — The Boson team ·{' '}
+                <a class="num" href="https://github.com/boson-chat/boson" rel="noopener">
+                  github.com/boson-chat/boson
+                </a>{' '}
+                · <a href="mailto:hi@boson.chat">hi@boson.chat</a>
               </p>
             </article>
           </div>

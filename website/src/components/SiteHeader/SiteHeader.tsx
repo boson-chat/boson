@@ -12,7 +12,7 @@ const NAV_LINKS: NavLink[] = [
   { href: '/', label: 'Overview' },
   { href: '/docs', label: 'Docs' },
   { href: '/about', label: 'About' },
-  { href: 'https://github.com', label: 'GitHub', external: true },
+  { href: 'https://github.com/boson-chat/boson', label: 'GitHub', external: true },
 ];
 
 export function SiteHeader() {

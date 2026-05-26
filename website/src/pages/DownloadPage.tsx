@@ -2,16 +2,25 @@ import { Card, Badge } from '@boson/shared';
 import { Terminal, Line, C } from '../components/Terminal/Terminal';
 import './DownloadPage.css';
 
+// Single source of truth for what the page advertises. Bump these two when
+// publishing a new release; everything below derives from them.
+const RELEASE_VERSION = '0.0.1';
+const RELEASE_DATE = '2026-05-26';
+const REPO_URL = 'https://github.com/boson-chat/boson';
+const RELEASE_URL = `${REPO_URL}/releases/tag/v${RELEASE_VERSION}`;
+const LATEST_URL = `${REPO_URL}/releases/latest`;
+const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`;
+
 export function DownloadPage() {
   return (
     <>
       <section class="section hero download-hero">
         <div class="container" style="max-width: 720px;">
-          <p class="eyebrow">Download · v0.4.2 · 2026-05-22</p>
+          <p class="eyebrow">Download · v{RELEASE_VERSION} · {RELEASE_DATE}</p>
           <h1>Get the Boson desktop client.</h1>
           <p class="lead" style="margin-top: 20px;">
-            Native binaries for macOS, Windows, and Linux. The full app is about 110 MB and ships
-            as a signed package — Electron UI, local Go process, OS keychain bindings.
+            Native installers for macOS, Windows, and Linux — Electron UI with the local Go IRC
+            bridge bundled in. Pick your platform; assets live on the GitHub release page.
           </p>
         </div>
       </section>
@@ -25,12 +34,13 @@ export function DownloadPage() {
                   <MacIcon />
                   <Badge tone="info">Recommended</Badge>
                   <h3>macOS</h3>
-                  <span class="dl-arch">Universal · Intel + Apple Silicon · 12.0+</span>
+                  <span class="dl-arch">Intel + Apple Silicon · 12.0+</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href="#">Download Boson-0.4.2.dmg</a>
-                    <a class="btn btn-secondary btn-sm" href="#">Homebrew cask</a>
+                    <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
+                      Download .dmg
+                    </a>
                   </div>
-                  <span class="dl-bytes">112 MB · SHA256 <span class="num">9f1c…3c4a</span></span>
+                  <span class="dl-bytes">Unsigned for v0.0.x · right-click → Open on first launch</span>
                 </div>
               </Card>
             </article>
@@ -42,10 +52,11 @@ export function DownloadPage() {
                   <h3>Windows</h3>
                   <span class="dl-arch">x64 · Windows 10 / 11</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href="#">Download Boson-0.4.2-Setup.exe</a>
-                    <a class="btn btn-secondary btn-sm" href="#">winget install Boson</a>
+                    <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
+                      Download installer
+                    </a>
                   </div>
-                  <span class="dl-bytes">108 MB · signed by Boson Labs Ltd.</span>
+                  <span class="dl-bytes">Unsigned for v0.0.x · SmartScreen will warn on first launch</span>
                 </div>
               </Card>
             </article>
@@ -55,22 +66,24 @@ export function DownloadPage() {
                 <div class="dl-card">
                   <LinuxIcon />
                   <h3>Linux</h3>
-                  <span class="dl-arch">x64 · AppImage · deb · rpm</span>
+                  <span class="dl-arch">x64 · AppImage · deb</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href="#">Boson-0.4.2.AppImage</a>
-                    <a class="btn btn-secondary btn-sm" href="#">.deb / .rpm packages</a>
+                    <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
+                      Download AppImage / .deb
+                    </a>
                   </div>
-                  <span class="dl-bytes">115 MB · GPG signed</span>
+                  <span class="dl-bytes">AppImage is self-contained; .deb installs for Debian/Ubuntu</span>
                 </div>
               </Card>
             </article>
           </div>
           <p class="meta dl-meta-row">
-            Need source?{' '}
-            <a href="https://github.com" rel="noopener" class="dl-source-link">
+            Source:{' '}
+            <a href={REPO_URL} rel="noopener" class="dl-source-link">
               github.com/boson-chat/boson
             </a>{' '}
-            · <span class="num">v0.4.2</span> tagged 2026-05-22 · MIT
+            · <a class="num" href={RELEASE_URL} rel="noopener">v{RELEASE_VERSION}</a>{' '}
+            tagged {RELEASE_DATE} · MIT
           </p>
         </div>
       </section>
@@ -124,38 +137,37 @@ export function DownloadPage() {
               <h3 style="margin-bottom: 12px; font-size: 16px;">macOS · Linux</h3>
               <Terminal>
                 <Line><C tone="cmt"># 1. compute the SHA-256 of the package you downloaded</C></Line>
-                <Line prompt>shasum -a 256 Boson-0.4.2.dmg</Line>
-                <Line><C tone="ok">9f1c0a4b…3c4a</C> &nbsp;Boson-0.4.2.dmg</Line>
+                <Line prompt>shasum -a 256 Boson-{RELEASE_VERSION}.dmg</Line>
+                <Line><C tone="ok">…</C> &nbsp;Boson-{RELEASE_VERSION}.dmg</Line>
                 <Line />
-                <Line><C tone="cmt"># 2. compare to the published checksum below</C></Line>
+                <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
+                <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
                 <Line />
-                <Line><C tone="cmt"># 3. verify the codesign / GPG signature</C></Line>
-                <Line prompt>codesign --verify --deep --strict Boson.app</Line>
+                <Line><C tone="cmt"># 3. v0.0.x ships unsigned — Gatekeeper will prompt</C></Line>
+                <Line><C tone="cmt">#    right-click → Open the first time to bypass</C></Line>
               </Terminal>
             </div>
             <div>
               <h3 style="margin-bottom: 12px; font-size: 16px;">Windows (PowerShell)</h3>
               <Terminal>
                 <Line><C tone="cmt"># 1. compute the SHA-256 hash</C></Line>
-                <Line prompt>Get-FileHash Boson-0.4.2-Setup.exe -Algorithm SHA256</Line>
+                <Line prompt>Get-FileHash Boson-Setup-{RELEASE_VERSION}.exe -Algorithm SHA256</Line>
                 <Line />
-                <Line><C tone="cmt"># 2. confirm publisher in the installer</C></Line>
-                <Line>&nbsp;&nbsp;&nbsp;Right-click → Properties → Digital Signatures</Line>
-                <Line>
-                  &nbsp;&nbsp;&nbsp;Signer: <C tone="ok">Boson Labs Ltd.</C>
-                </Line>
+                <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
+                <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
                 <Line />
-                <Line><C tone="cmt"># 3. SmartScreen may prompt on first launch — that's expected</C></Line>
-                <Line><C tone="cmt">#    for new releases until the reputation builds.</C></Line>
+                <Line><C tone="cmt"># 3. v0.0.x ships unsigned — SmartScreen will warn</C></Line>
+                <Line><C tone="cmt">#    "More info" → "Run anyway" the first time</C></Line>
               </Terminal>
             </div>
           </div>
           <Card>
             <div class="checksum-block">
-              <h4>Published checksums · v0.4.2</h4>
-              <pre>{`Boson-0.4.2.dmg                9f1c0a4b6f53e8f3a91d70b8e6cd2f44ab193e62b5a8e4c19e3d4d5f223c4a
-Boson-0.4.2-Setup.exe          e08bd1a5fc7f4283c91ef1d4067b65c2a5e4f9b3d6f81720c4d3e1aa7f88b2c1
-Boson-0.4.2.AppImage           74a3c2e5f1b8d069e3a4c2b91d57f8e0c6d4a9b2e3f5c1d7a8e6b94f0c2d3a5b`}</pre>
+              <h4>Checksums</h4>
+              <p style="margin: 0;">
+                SHA-256 checksums and the full asset list are published on the GitHub release page:{' '}
+                <a href={LATEST_URL} rel="noopener">{LATEST_URL}</a>
+              </p>
             </div>
           </Card>
         </div>
@@ -168,43 +180,19 @@ Boson-0.4.2.AppImage           74a3c2e5f1b8d069e3a4c2b91d57f8e0c6d4a9b2e3f5c1d7a
               <p class="eyebrow">Release notes</p>
               <h2>Recent builds.</h2>
             </div>
-            <a class="btn btn-ghost btn-arrow" href="https://github.com" rel="noopener">
+            <a class="btn btn-ghost btn-arrow" href={CHANGELOG_URL} rel="noopener">
               Full changelog
             </a>
           </div>
           <div>
             <ReleaseRow
-              date="2026-05-22"
-              title="v0.4.2 — keychain re-bind on OS upgrade"
+              date={RELEASE_DATE}
+              title={`v${RELEASE_VERSION} — initial release`}
               platforms="all platforms"
             >
-              macOS 14 → 15 upgrades no longer require re-entering the platform password. Fixes
-              Linux libsecret silent-fail on missing collection.
-            </ReleaseRow>
-            <ReleaseRow
-              date="2026-05-08"
-              title="v0.4.1 — directory search relevance"
-              platforms="all platforms"
-            >
-              Tag and language filters now combine with full-text search. Health-status freshness
-              window dropped from 60 to 15 minutes.
-            </ReleaseRow>
-            <ReleaseRow
-              date="2026-04-19"
-              title="v0.4.0 — manual mode"
-              platforms="all platforms"
-            >
-              Switch any server to manual credential mode. Boson stops deriving, you store the
-              password yourself. Includes the NickServ <span class="num">SET PASSWORD</span>{' '}
-              handoff.
-            </ReleaseRow>
-            <ReleaseRow
-              date="2026-04-02"
-              title="v0.3.7 — guided reclaim"
-              platforms="all platforms"
-            >
-              When you lose your password, walk through per-server NickServ recovery without
-              leaving the app. Email and admin-contact flows both supported.
+              First public build. Multi-server IRC chat, server directory, guest mode, local Go
+              IRC bridge bundled as a sidecar. See the{' '}
+              <a href={RELEASE_URL} rel="noopener">release page</a> for the asset list.
             </ReleaseRow>
           </div>
         </div>
@@ -217,7 +205,9 @@ Boson-0.4.2.AppImage           74a3c2e5f1b8d069e3a4c2b91d57f8e0c6d4a9b2e3f5c1d7a
             loudest there.
           </h2>
           <div class="hero-cta" style="justify-content: center;">
-            <a class="btn btn-primary" href="#">Download for your OS</a>
+            <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
+              Download for your OS
+            </a>
             <a class="btn btn-secondary" href="/docs">Self-hosting guide</a>
           </div>
         </div>

@@ -36,7 +36,7 @@ export function SiteFooter() {
             <ul>
               <li><a href="/about">About</a></li>
               <li><a href="/about#security">Security model</a></li>
-              <li><a href="https://github.com" rel="noopener">GitHub</a></li>
+              <li><a href="https://github.com/boson-chat/boson" rel="noopener">GitHub</a></li>
             </ul>
           </div>
         </div>
