@@ -74,10 +74,10 @@ export function DownloadPage() {
                   <h3>Linux</h3>
                   <span class="dl-arch">x64 · AppImage or Debian/Ubuntu</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={DL('Boson-linux-x64.AppImage')} rel="noopener">
+                    <a class="btn btn-primary" href={DL('Boson-linux-x86_64.AppImage')} rel="noopener">
                       AppImage
                     </a>
-                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-x64.deb')} rel="noopener">
+                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-amd64.deb')} rel="noopener">
                       .deb (Debian/Ubuntu)
                     </a>
                   </div>
