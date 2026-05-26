@@ -3,13 +3,16 @@ import { Terminal, Line, C } from '../components/Terminal/Terminal';
 import './DownloadPage.css';
 
 // Single source of truth for what the page advertises. Bump these two when
-// publishing a new release; everything below derives from them.
-const RELEASE_VERSION = '0.0.1';
+// publishing a new release; everything below derives from them. Download
+// URLs are version-less — electron-builder emits stable filenames so the
+// /releases/latest/download/<file> pattern works for every release.
+const RELEASE_VERSION = '0.0.3';
 const RELEASE_DATE = '2026-05-26';
 const REPO_URL = 'https://github.com/boson-chat/boson';
 const RELEASE_URL = `${REPO_URL}/releases/tag/v${RELEASE_VERSION}`;
 const LATEST_URL = `${REPO_URL}/releases/latest`;
 const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`;
+const DL = (name: string) => `${REPO_URL}/releases/latest/download/${name}`;
 
 export function DownloadPage() {
   return (
@@ -34,10 +37,13 @@ export function DownloadPage() {
                   <MacIcon />
                   <Badge tone="info">Recommended</Badge>
                   <h3>macOS</h3>
-                  <span class="dl-arch">Intel + Apple Silicon · 12.0+</span>
+                  <span class="dl-arch">12.0+ · Apple Silicon or Intel</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
-                      Download .dmg
+                    <a class="btn btn-primary" href={DL('Boson-mac-arm64.dmg')} rel="noopener">
+                      Apple Silicon (.dmg)
+                    </a>
+                    <a class="btn btn-secondary btn-sm" href={DL('Boson-mac-x64.dmg')} rel="noopener">
+                      Intel (.dmg)
                     </a>
                   </div>
                   <span class="dl-bytes">Unsigned for v0.0.x · right-click → Open on first launch</span>
@@ -52,8 +58,8 @@ export function DownloadPage() {
                   <h3>Windows</h3>
                   <span class="dl-arch">x64 · Windows 10 / 11</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
-                      Download installer
+                    <a class="btn btn-primary" href={DL('Boson-Setup.exe')} rel="noopener">
+                      Installer (.exe)
                     </a>
                   </div>
                   <span class="dl-bytes">Unsigned for v0.0.x · SmartScreen will warn on first launch</span>
@@ -66,13 +72,16 @@ export function DownloadPage() {
                 <div class="dl-card">
                   <LinuxIcon />
                   <h3>Linux</h3>
-                  <span class="dl-arch">x64 · AppImage · deb</span>
+                  <span class="dl-arch">x64 · AppImage or Debian/Ubuntu</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
-                      Download AppImage / .deb
+                    <a class="btn btn-primary" href={DL('Boson-linux-x64.AppImage')} rel="noopener">
+                      AppImage
+                    </a>
+                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-x64.deb')} rel="noopener">
+                      .deb (Debian/Ubuntu)
                     </a>
                   </div>
-                  <span class="dl-bytes">AppImage is self-contained; .deb installs for Debian/Ubuntu</span>
+                  <span class="dl-bytes">AppImage is self-contained; .deb installs system-wide</span>
                 </div>
               </Card>
             </article>
@@ -206,7 +215,7 @@ export function DownloadPage() {
           </h2>
           <div class="hero-cta" style="justify-content: center;">
             <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
-              Download for your OS
+              See all platforms on GitHub
             </a>
             <a class="btn btn-secondary" href="/docs">Self-hosting guide</a>
           </div>
