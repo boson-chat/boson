@@ -1,0 +1,948 @@
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+/* The connecting / disconnected variants share the splash + log layout. */
+.chat-area-engine {
+  background: var(--bg);
+}
+
+.chat-engine-splash {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8);
+  text-align: center;
+}
+
+.chat-engine-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.chat-engine-dot-pulse {
+  animation: chat-engine-pulse 1.4s var(--ease-standard) infinite;
+}
+
+.chat-engine-dot-down {
+  background: var(--muted);
+  opacity: 0.6;
+}
+
+@keyframes chat-engine-pulse {
+  0%   { transform: scale(1);   opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent), transparent 60%); }
+  70%  { transform: scale(1.4); opacity: 0.5; box-shadow: 0 0 0 12px color-mix(in oklab, var(--accent), transparent 100%); }
+  100% { transform: scale(1);   opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent), transparent 100%); }
+}
+
+.chat-engine-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: var(--tracking-display);
+}
+
+.chat-engine-server-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  margin-left: var(--space-3);
+}
+
+.chat-engine-reconnect {
+  padding: var(--space-2) var(--space-5);
+  background: var(--accent);
+  color: var(--accent-on);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.chat-engine-reconnect:hover { opacity: 0.9; }
+
+/* Disconnect-reason line beneath the "Disconnected from …" title. Surfaces
+   the engine/IRC error so the splash isn't just "Disconnected" with no why. */
+.chat-engine-reason {
+  max-width: 560px;
+  padding: var(--space-2) var(--space-4);
+  background: var(--bg-2);
+  border: 1px solid var(--danger, var(--accent));
+  border-radius: var(--radius-sm);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: center;
+  word-break: break-word;
+}
+
+/* Live tail of recent engine events shown inside the splash. Monospace,
+   dim — matches the dev-tools log panel below. */
+.chat-engine-tail {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  text-align: left;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.chat-engine-tail-row {
+  display: flex;
+  gap: var(--space-3);
+  align-items: baseline;
+  line-height: 1.4;
+}
+
+.chat-engine-tail-kind {
+  color: var(--accent);
+  flex-shrink: 0;
+  min-width: 70px;
+}
+
+.chat-engine-tail-message {
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+/* Right-side group in the chat header — pairs the Log toggle with the
+   "connected" indicator. */
+.chat-header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.chat-log-toggle {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  color: var(--fg-3);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.chat-log-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.chat-log-toggle-active {
+  background: var(--surface-raised);
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+/* The log panel is a developer tool. Do not redesign it. Monospace, dim,
+   no flourishes — the point is to read what the engine actually sent. */
+.chat-log-panel {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 80%;
+  background: var(--surface);
+  border-left: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  z-index: 10;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.25);
+}
+
+.chat-log-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.chat-log-panel-title {
+  color: var(--fg-2);
+  font-weight: 600;
+}
+
+.chat-log-panel-count {
+  color: var(--fg-3);
+  margin-right: auto;
+}
+
+.chat-log-panel-action {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  color: var(--fg-3);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.chat-log-panel-action:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+
+.chat-log-panel-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-log-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-log-panel-empty {
+  color: var(--fg-3);
+  opacity: 0.6;
+  text-align: center;
+  padding: var(--space-4);
+}
+
+.chat-log-panel-row {
+  display: grid;
+  grid-template-columns: 70px 90px 90px 1fr;
+  gap: var(--space-2);
+  align-items: baseline;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.chat-log-panel-kind { color: var(--accent); }
+.chat-log-panel-from { color: var(--info); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-log-panel-target { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-log-panel-message { color: var(--fg-2); }
+
+.chat-area-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.chat-area-empty-state {
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.chat-header {
+  padding: var(--space-3) var(--space-6);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.chat-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.chat-channel-hash {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: var(--tracking-display);
+}
+
+.chat-channel-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-status {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-transform: lowercase;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.messages-inner {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6);
+}
+
+/* Spacing is row-margin rather than flex gap so grouped messages can collapse
+   to a tighter vertical rhythm. */
+.message-row,
+.message-action,
+.message-system {
+  margin-top: var(--space-4);
+}
+
+.message-row:first-child,
+.message-action:first-child,
+.message-system:first-child {
+  margin-top: 0;
+}
+
+/* Grouped messages collapse to flush vertical spacing — no top margin, no
+   top padding, and the row above (if it's the group-starter) also drops its
+   bottom padding via :has(). The result reads like a multi-line paragraph
+   from one author, not three separate messages stacked close together.
+   Browsers without :has() (none of our supported targets) gracefully degrade
+   to the small `margin-top: 2px` rhythm we had before. */
+.message-row-grouped {
+  margin-top: 0;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.message-row:has(+ .message-row-grouped) {
+  padding-bottom: 1px;
+}
+
+.message-row-grouped:has(+ .message-row-grouped) {
+  padding-bottom: 1px;
+}
+
+/* Grouped messages: time pinned to the right, text never reflows under it.
+   Grid keeps the two columns explicit — text grows to fill, time has its
+   own track with a fixed minimum width (so a long line wraps cleanly inside
+   the text column instead of crashing into the timestamp). */
+.message-row-grouped .message-row-text {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: var(--space-3);
+}
+
+.message-row-grouped-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  opacity: 0.3;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+  grid-column: 2;
+  align-self: baseline;
+}
+
+/* The body wrapper is just there to give grid one explicit child for the
+   text column (so the auto-placed multi-span renderedText doesn't fragment
+   into separate cells). In non-grouped rows it's a no-op inline span. */
+.message-row-text-body { min-width: 0; word-break: break-word; }
+
+.message-row-grouped:hover .message-row-grouped-time { opacity: 1; }
+
+.message-row {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin: 0 calc(var(--space-3) * -1);
+  border-radius: var(--radius-sm);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.message-row:hover { background: var(--surface-hover); }
+
+/* Mention highlight: tint the row + accent the left edge so the user catches
+   their own pings while scanning. The inline .mention-self pill is bolder. */
+.message-row-mention {
+  background: color-mix(in oklab, var(--accent), transparent 92%);
+  border-left: 2px solid var(--accent);
+  margin-left: calc(var(--space-3) * -1 - 2px);
+  padding-left: calc(var(--space-3) - 0px);
+}
+
+.message-action-mention {
+  background: color-mix(in oklab, var(--accent), transparent 92%);
+}
+
+.mention-self {
+  color: var(--accent);
+  font-weight: 600;
+  background: color-mix(in oklab, var(--accent), transparent 85%);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+/* Markdown formatting inside messages. */
+.md-bold   { font-weight: 700; color: var(--fg); }
+.md-italic { font-style: italic; }
+.md-strike { text-decoration: line-through; opacity: 0.7; }
+
+.md-inline-code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--surface-raised);
+  padding: 1px var(--space-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+}
+
+.md-code-block {
+  display: block;
+  margin: var(--space-2) 0;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+.md-code-block code { font-family: inherit; }
+
+.md-link {
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.md-link:hover { color: var(--accent); }
+
+.message-row-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.message-row-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.message-row-mine .message-row-name { color: var(--accent); }
+
+.message-row-handle {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+
+.message-row-time {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-left: auto;
+  flex-shrink: 0;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* Ensure the nick + handle truncate before they can push the timestamp off
+   the row. min-width:0 unlocks shrinkability on flex children. */
+.message-row-header .message-row-name,
+.message-row-header .message-row-handle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-row-text {
+  font-size: var(--text-base);
+  color: var(--fg);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.message-row-notice .message-row-text {
+  color: var(--fg-2);
+  font-style: italic;
+}
+
+.message-system {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  padding: var(--space-1) 0;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.message-action {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  margin: 0 calc(var(--space-3) * -1);
+  border-radius: var(--radius-sm);
+  font-style: italic;
+  color: var(--fg-2);
+  font-size: var(--text-base);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.message-action:hover { background: var(--surface-hover); }
+
+.message-action-star { color: var(--muted); }
+
+.message-action-name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-style: normal;
+  color: var(--fg);
+}
+
+.message-action-mine .message-action-name { color: var(--accent); }
+
+.message-action-text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  padding-right: var(--space-3);
+}
+
+/* In an action row, the time sits at the far right and never gets compressed
+   by the text. .message-row-time already has flex-shrink: 0 above. */
+.message-action .message-row-time { margin-left: auto; }
+
+.chat-input-bar {
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+/* Transient banner — slash-command errors, surfaced above the input. */
+.chat-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  animation: chat-banner-slide-in 150ms var(--ease-standard);
+}
+
+.chat-banner-error {
+  color: var(--danger);
+  background: color-mix(in oklab, var(--danger), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--danger), transparent 80%);
+  border-left: 3px solid var(--danger);
+}
+
+.chat-banner-text { flex: 1; }
+
+.chat-banner-dismiss {
+  background: transparent;
+  border: none;
+  color: currentColor;
+  font-size: var(--text-base);
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+
+.chat-banner-dismiss:hover { opacity: 1; }
+
+@keyframes chat-banner-slide-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-input-wrap {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  transition: border-color var(--motion-fast) var(--ease-standard);
+  width: 100%;
+}
+
+.chat-input-wrap:focus-within { border-color: var(--accent); }
+
+.input-actions {
+  display: flex;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.input-action {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-base);
+  font-family: var(--font-mono);
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.input-action:hover:not(:disabled) { background: var(--surface-hover); color: var(--fg); }
+.input-action:disabled { cursor: not-allowed; opacity: 0.4; }
+
+.chat-textarea-wrap {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+
+/* Both the textarea and the overlay must share the EXACT same font metrics,
+   padding, and wrapping so the painted text aligns with the textarea's
+   caret. Any divergence causes the overlay to drift from where the user
+   is actually typing. */
+.chat-textarea,
+.chat-textarea-overlay {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  padding: 2px 0;
+  min-height: 24px;
+  max-height: 160px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  margin: 0;
+  border: none;
+  box-sizing: border-box;
+}
+
+.chat-textarea {
+  background: none;
+  color: transparent;
+  caret-color: var(--fg);
+  resize: none;
+  outline: none;
+  position: relative;
+  z-index: 1;
+}
+
+.chat-textarea::selection { color: var(--bg); background: var(--accent); }
+.chat-textarea::placeholder { color: var(--fg-3); -webkit-text-fill-color: var(--fg-3); }
+
+.chat-textarea-overlay {
+  position: absolute;
+  inset: 0;
+  color: var(--fg);
+  pointer-events: none;
+  overflow-y: auto;
+  z-index: 0;
+  /* The overlay scrolls programmatically when the textarea scrolls; hide
+     its own scrollbar so it doesn't show through. */
+  scrollbar-width: none;
+}
+.chat-textarea-overlay::-webkit-scrollbar { width: 0; height: 0; }
+
+/* Token colors only — NO font-weight/style changes here. The transparent
+   textarea above renders text at uniform metrics; if a span is bold here
+   the overlay drifts a few pixels per token and the visible caret no
+   longer sits where the textarea thinks it does. */
+.chat-token { white-space: inherit; font-weight: inherit; font-style: inherit; }
+.chat-token-text    { color: inherit; }
+.chat-token-mention { color: var(--accent); }
+.chat-token-channel { color: var(--info); }
+.chat-token-command { color: var(--accent); }
+
+/* Autocomplete popup floats above the input. */
+.slash-autocomplete {
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  bottom: calc(100% + 8px);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.slash-ac-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  border-left: 2px solid transparent;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.slash-ac-item:hover { background: var(--surface-hover); }
+
+.slash-ac-item-selected {
+  background: var(--surface-hover);
+  border-left-color: var(--accent);
+  color: var(--fg);
+}
+
+.slash-ac-usage {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.slash-ac-desc {
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mention autocomplete shares the slash-AC chrome but is simpler — just
+   a list of nicks. */
+.mention-autocomplete {
+  position: absolute;
+  left: -8px;
+  right: -8px;
+  bottom: calc(100% + 8px);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.mention-ac-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  border-left: 2px solid transparent;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.mention-ac-item:hover { background: var(--surface-hover); }
+
+.mention-ac-item-selected {
+  background: var(--surface-hover);
+  border-left-color: var(--accent);
+  color: var(--fg);
+}
+
+.mention-ac-at { color: var(--accent); }
+.mention-ac-nick { color: var(--fg); font-weight: 600; }
+
+.chat-textarea::placeholder { color: var(--fg-3); }
+
+.chat-send-btn {
+  padding: var(--space-2) var(--space-5);
+  background: var(--accent);
+  color: var(--accent-on);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+  flex-shrink: 0;
+}
+
+.chat-send-btn:hover:not(:disabled) { opacity: 0.9; }
+.chat-send-btn:disabled { opacity: 0.25; cursor: default; }
+
+/* Small "via solanum 1.0 · Libera.Chat" badge in the chat header — sits
+   between the Log toggle and the "connected" pill. Becomes a button when a
+   click handler is wired (opens the Server details modal). */
+.chat-server-info {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 320px;
+}
+
+.chat-server-info-button {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--fg-3);
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.chat-server-info-button:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+  border-color: var(--border-soft);
+}
+
+/* IRCv3 typing indicator row, slotted between the message list and the
+   input bar. Always rendered so the input bar position is stable; the
+   `data-active` attribute drives opacity + background fade. Visual language
+   matches the design system — amber accent, sharp 4px radii, mono type. */
+.chat-typing {
+  height: var(--space-8);
+  padding: 0 var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  user-select: none;
+  pointer-events: none;
+  background: transparent;
+  border-top: 1px solid transparent;
+  opacity: 0;
+  transition:
+    opacity var(--motion-base) var(--ease-standard),
+    background-color var(--motion-base) var(--ease-standard),
+    border-color var(--motion-base) var(--ease-standard);
+}
+
+.chat-typing[data-active="1"] {
+  opacity: 1;
+  background: color-mix(in oklab, var(--accent), transparent 94%);
+  border-top-color: var(--border-soft);
+}
+
+/* The dots sit before the label. No pill container — the row's amber tint
+   is the single highlight; layering a second one would feel doubled. */
+.chat-typing-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  height: 18px;
+}
+
+.chat-typing-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.4;
+  animation: chat-typing-bounce 1.2s var(--ease-standard) infinite;
+}
+.chat-typing-dot:nth-child(2) { animation-delay: 150ms; }
+.chat-typing-dot:nth-child(3) { animation-delay: 300ms; }
+
+@keyframes chat-typing-bounce {
+  0%, 70%, 100% { transform: translateY(0);    opacity: 0.4; }
+  35%           { transform: translateY(-3px); opacity: 1;   }
+}
+
+/* IRCv3 typing indicator row, slotted between the message list and the
+   input bar. Always rendered so the bar position is stable; nbsp keeps the
+   row height when no one is typing. */
+.chat-typing {
+  height: 1.4em;
+  padding: 0 var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  user-select: none;
+  pointer-events: none;
+}
+.chat-typing[data-active="0"] { color: transparent; }
+.chat-typing-dots {
+  letter-spacing: 0.1em;
+  animation: chat-typing-pulse 1.2s ease-in-out infinite;
+}
+@keyframes chat-typing-pulse {
+  0

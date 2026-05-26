@@ -1,0 +1,53 @@
+# Builds the marketing site (website/) and deploys it to Cloudflare Pages
+# on every push to main. Pull-request commits get a preview deployment
+# under the same Cloudflare project, so reviewers can click through to
+# the rendered site before merging.
+#
+# Required secrets:
+#   - CLOUDFLARE_API_TOKEN  : API token with "Pages — Edit" permission
+#   - CLOUDFLARE_ACCOUNT_ID : your Cloudflare account UUID
+#
+# Required Cloudflare setup (one-time):
+#   - Create a Pages project named "boson" in the Cloudflare dashboard.
+#   - Bind your custom domain to that project under Custom Domains.
+name: Deploy website
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  # wrangler's preview-deploy comment needs write access on PRs.
+  deployments: write
+  pull-requests: write
+
+concurrency:
+  group: deploy-website-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build + deploy to Cloudflare Pages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: build
+        working-directory: website
+        run: npm run build
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # `wrangler pages deploy` uploads the static bundle. The branch
+          # arg controls which Cloudflare deployment slot it lands in:
+          # `main` → production, anything else → preview.
+          command: pages deploy website/dist --project-name=boson --branch=${{ github.head_ref || github.ref_name }}

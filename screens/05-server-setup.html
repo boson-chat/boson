@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boson — Server Setup</title>
+<style>
+:root {
+  --bg: #070709;
+  --surface: #0D0D11;
+  --surface-raised: #141418;
+  --surface-hover: #1A1A20;
+  --border: #24242E;
+  --border-soft: #1C1C24;
+  --fg: #E2E2EA;
+  --fg-2: #9898A8;
+  --fg-3: #686878;
+  --muted: #444452;
+  --meta: #363644;
+  --accent: #D97706;
+  --accent-on: #070709;
+  --accent-dim: color-mix(in oklab, var(--accent), transparent 85%);
+  --success: #10B981;
+  --warn: #F59E0B;
+  --danger: #EF4444;
+  --info: #3B82F6;
+  --font-display: 'JetBrains Mono', ui-monospace, monospace;
+  --font-body: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+  --leading-body: 1.5;
+  --leading-tight: 1.25;
+  --tracking-display: -0.01em;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --focus-ring: 0 0 0 2px color-mix(in oklab, var(--accent), transparent 50%);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+.container { max-width: 720px; margin: 0 auto; padding: var(--space-12) var(--space-6); }
+
+.setup-prompt { color: var(--accent); font-family: var(--font-mono); font-size: var(--text-sm); letter-spacing: 0.02em; margin-bottom: var(--space-2); }
+.setup-header { margin-bottom: var(--space-10); }
+.setup-title { font-family: var(--font-display); font-size: var(--text-3xl); font-weight: 700; letter-spacing: -0.03em; margin-bottom: var(--space-3); }
+.setup-desc { font-size: var(--text-lg); color: var(--fg-2); max-width: 560px; }
+
+.stepper {
+  display: flex;
+  gap: var(--space-4);
+  margin-bottom: var(--space-10);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--border);
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  opacity: 0.5;
+}
+
+.step.active { opacity: 1; color: var(--fg); }
+.step.complete { opacity: 1; color: var(--success); }
+.step-number {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+.step.active .step-number { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
+.step.complete .step-number { background: var(--success); color: var(--accent-on); border-color: var(--success); }
+.step-label { font-weight: 500; }
+
+.setup-step { display: none; }
+.setup-step.active { display: block; }
+
+.step-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-8);
+  margin-bottom: var(--space-6);
+}
+
+.step-card-title { font-family: var(--font-display); font-size: var(--text-xl); font-weight: 700; letter-spacing: var(--tracking-display); margin-bottom: var(--space-2); }
+.step-card-desc { font-size: var(--text-sm); color: var(--fg-3); margin-bottom: var(--space-6); line-height: 1.5; }
+
+.form-field { margin-bottom: var(--space-5); }
+.form-label { display: block; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-3); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: var(--space-2); }
+
+.form-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  outline: none;
+  transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.form-input::placeholder { color: var(--fg-3); }
+.form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent), transparent 50%); }
+.form-hint { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); margin-top: var(--space-2); line-height: 1.4; }
+
+.dns-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-5);
+  margin: var(--space-5) 0;
+}
+
+.dns-record {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  margin: var(--space-3) 0;
+  word-break: break-all;
+  border-left: 3px solid var(--accent);
+}
+
+.dns-label { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--muted); margin-bottom: var(--space-2); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.connection-test { margin: var(--space-6) 0; }
+
+.test-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-3);
+}
+
+.test-result.success { border-left: 3px solid var(--success); }
+.test-result.error { border-left: 3px solid var(--danger); }
+.test-result.pending { border-left: 3px solid var(--warn); }
+
+.test-icon { font-size: var(--text-xl); }
+.test-text { font-family: var(--font-mono); font-size: var(--text-sm); }
+.test-text.success { color: var(--success); }
+.test-text.error { color: var(--danger); }
+.test-text.pending { color: var(--warn); }
+
+.manual-mode {
+  background: color-mix(in oklab, var(--warn), transparent 92%);
+  border: 1px solid var(--warn);
+  border-radius: var(--radius-md);
+  padding: var(--space-6);
+  margin-top: var(--space-6);
+}
+
+.manual-title { font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; color: var(--warn); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }
+.manual-text { font-size: var(--text-sm); color: var(--fg-2); line-height: 1.5; margin-bottom: var(--space-4); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+  letter-spacing: 0.02em;
+}
+
+.btn:hover { opacity: 0.9; }
+.btn-primary { background: var(--accent); color: var(--accent-on); }
+.btn-secondary { background: var(--surface-raised); color: var(--fg-2); border: 1px solid var(--border); }
+
+.btn-row { display: flex; gap: var(--space-3); margin-top: var(--space-6); }
+
+.tag-input-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  min-height: 48px;
+  align-items: center;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+
+.tag-input-container:focus-within { border-color: var(--accent); }
+.tag { display: inline-flex; align-items: center; gap: var(--space-1); padding: 2px var(--space-2); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-2); }
+.tag-remove { cursor: pointer; color: var(--muted); font-size: var(--text-base); line-height: 1; }
+.tag-remove:hover { color: var(--danger); }
+.tag-input { flex: 1; min-width: 120px; background: none; border: none; color: var(--fg); font-family: var(--font-mono); font-size: var(--text-sm); outline: none; }
+
+.setup-success { text-align: center; padding: var(--space-10) 0; }
+.success-icon { width: 80px; height: 80px; background: color-mix(in oklab, var(--success), transparent 90%); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 36px; margin: 0 auto var(--space-6); color: var(--success); }
+
+.nav-back {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  text-decoration: none;
+  z-index: 100;
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.nav-back:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<a href="index.html" class="nav-back">← All screens</a>
+
+<div class="container">
+  <div class="setup-prompt">$ boson server register</div>
+  <div class="setup-header">
+    <h1 class="setup-title">Register Your Server</h1>
+    <p class="setup-desc">Add your self-hosted IRC server to the Boson directory. You'll need DNS access to verify ownership.</p>
+  </div>
+
+  <div class="stepper">
+    <div class="step active" data-step="1"><div class="step-number">1</div><div class="step-label">Details</div></div>
+    <div class="step" data-step="2"><div class="step-number">2</div><div class="step-label">DNS Verify</div></div>
+    <div class="step" data-step="3"><div class="step-number">3</div><div class="step-label">Test</div></div>
+    <div class="step" data-step="4"><div class="step-number">4</div><div class="step-label">Done</div></div>
+  </div>
+
+  <div class="setup-step active" id="step-1">
+    <div class="step-card">
+      <div class="step-card-title">Server details</div>
+      <div class="step-card-desc">Tell us about your IRC server. This info will be visible in the directory.</div>
+
+      <div class="form-field">
+        <label class="form-label">Server name</label>
+        <input type="text" class="form-input" placeholder="My IRC Network">
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Description</label>
+        <input type="text" class="form-input" placeholder="A community for developers and hackers">
+        <div class="form-hint">One sentence. Shown in directory search results.</div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Hostname</label>
+        <input type="text" class="form-input" placeholder="irc.example.com">
+        <div class="form-hint">The public hostname. Must resolve to a valid IP.</div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-4);">
+        <div class="form-field">
+          <label class="form-label">Port</label>
+          <input type="text" class="form-input" value="6697">
+        </div>
+        <div class="form-field">
+          <label class="form-label">TLS</label>
+          <select class="form-input">
+            <option>Required (6697)</option>
+            <option>Optional (6667)</option>
+            <option>TLS + NoTLS</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Tags</label>
+        <div class="tag-input-container">
+          <span class="tag">irc <span class="tag-remove">×</span></span>
+          <span class="tag">english <span class="tag-remove">×</span></span>
+          <input type="text" class="tag-input" placeholder="Add tag + Enter">
+        </div>
+        <div class="form-hint">Press Enter to add tags. Helps users discover your server.</div>
+      </div>
+
+      <div class="form-field">
+        <label class="toggle" style="display:flex;align-items:center;gap:var(--space-3);">
+          <input type="checkbox">
+          <div class="toggle-track"><div class="toggle-thumb"></div></div>
+          <span style="font-family:var(--font-mono);font-size:var(--text-sm);color:var(--fg-2);">Mark as NSFW</span>
+        </label>
+      </div>
+
+      <div class="btn-row"><button class="btn btn-primary" onclick="goToStep(2)">Continue</button></div>
+    </div>
+  </div>
+
+  <div class="setup-step" id="step-2">
+    <div class="step-card">
+      <div class="step-card-title">DNS verification</div>
+      <div class="step-card-desc">Add a TXT record to your domain to prove you own this server.</div>
+
+      <div class="dns-card">
+        <div class="dns-label">Add this TXT record:</div>
+        <div class="dns-record">boson._dns.example.com → "v=bos1;ch=server-uuid-1234"</div>
+        <div class="form-hint" style="margin-top:var(--space-3);">Replace example.com with your actual domain. TTL doesn't matter — we cache verification.</div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Your domain</label>
+        <input type="text" class="form-input" placeholder="example.com">
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goToStep(1)">Back</button>
+        <button class="btn btn-primary" onclick="goToStep(3)">Verify DNS</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="setup-step" id="step-3">
+    <div class="step-card">
+      <div class="step-card-title">Testing connection</div>
+      <div class="step-card-desc">We'll verify DNS, test TLS connectivity, and check the server is responding.</div>
+
+      <div class="connection-test">
+        <div class="test-result pending">
+          <span class="test-icon">⟳</span>
+          <span class="test-text pending">Checking DNS TXT record...</span>
+        </div>
+        <div class="test-result" style="margin-top:var(--space-2);">
+          <span class="test-icon" style="color:var(--muted);">○</span>
+          <span class="test-text" style="color:var(--muted);">Testing TLS connection on port 6697</span>
+        </div>
+        <div class="test-result" style="margin-top:var(--space-2);">
+          <span class="test-icon" style="color:var(--muted);">○</span>
+          <span class="test-text" style="color:var(--muted);">Verifying server capabilities</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goToStep(2)">Back</button>
+        <button class="btn btn-primary" onclick="goToStep(4)">Register server</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="setup-step" id="step-4">
+    <div class="step-card">
+      <div class="setup-success">
+        <div class="success-icon">✓</div>
+        <div class="step-card-title">Server registered!</div>
+        <div class="step-card-desc" style="margin-bottom:var(--space-6);">Your server is now in the directory. It may take a few minutes to propagate.</div>
+
+        <div class="dns-card" style="text-align:left;">
+          <div class="dns-label">Server info:</div>
+          <div style="font-family:var(--font-mono);font-size:var(--text-sm);color:var(--fg-2);line-height:1.8;">
+            Name: My IRC Network<br>
+            Host: irc.example.com:6697<br>
+            Status: <span style="color:var(--success);">● online</span><br>
+            ID: server-uuid-1234
+          </div>
+        </div>
+
+        <div class="btn-row" style="justify-content:center;margin-top:var(--space-8);">
+          <button class="btn btn-secondary">View in directory</button>
+          <button class="btn btn-primary" style="margin-left:var(--space-3);">Back to chat</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="manual-mode">
+      <div class="manual-title">⚠ No DNS access? Use manual mode</div>
+      <div class="manual-text">If you can't add DNS records, you can manually register your server. This requires admin approval and limits some features.</div>
+      <button class="btn btn-secondary" style="margin-top:var(--space-4);">Register manually</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let currentStep = 1;
+
+  function goToStep(step) {
+    document.querySelectorAll('.step').forEach(s => {
+      const stepNum = parseInt(s.dataset.step);
+      s.classList.remove('active', 'complete');
+      if (stepNum === step) s.classList.add('active');
+      else if (stepNum < step) s.classList.add('complete');
+    });
+
+    document.querySelectorAll('.setup-step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step-' + step).classList.add('active');
+    currentStep = step;
+  }
+
+  const tagInput = document.querySelector('.tag-input');
+  if (tagInput) {
+    tagInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && tagInput.value.trim()) {
+        e.preventDefault();
+        const container = tagInput.parentElement;
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.innerHTML = tagInput.value.trim() + ' <span class="tag-remove">×</span>';
+        container.insertBefore(tag, tagInput);
+        tagInput.value = '';
+        tag.querySelector('.tag-remove').addEventListener('click', () => tag.remove());
+      }
+    });
+  }
+</script>
+</body>
+</html>

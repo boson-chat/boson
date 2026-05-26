@@ -1,0 +1,83 @@
+# Minimal ergo IRCd config for local E2E tests — plain TCP on 6667, no TLS,
+# anonymous connections allowed, channels auto-created. NOT for production.
+network:
+  name: BosonTest
+
+server:
+  name: ergo.test
+  listeners:
+    ":6667":
+      tls:
+        cert: ""
+        key: ""
+      proxy: false
+
+  max-sendq: 96k
+
+  ip-cloaking:
+    enabled: false
+
+accounts:
+  registration:
+    enabled: true
+    enabled-callbacks:
+      - none
+    bcrypt-cost: 4
+  authentication-enabled: true
+  require-sasl:
+    enabled: false
+  multiclient:
+    enabled: true
+    allowed-by-default: true
+  nick-reservation:
+    enabled: false
+  default-user-modes: ""
+  login-throttling:
+    enabled: false
+
+channels:
+  default-modes: ""
+  registration:
+    enabled: true
+  list-delay: 0s
+
+opers: {}
+
+limits:
+  nicklen: 32
+  identlen: 20
+  channellen: 64
+  awaylen: 390
+  kicklen: 390
+  topiclen: 390
+  monitor-entries: 100
+  whowas-entries: 100
+  chan-list-modes: 60
+  registration-messages: 1024
+  multiline:
+    max-bytes: 4096
+    max-lines: 100
+
+fakelag:
+  enabled: false
+  window: 1s
+  burst-limit: 5
+  messages-per-window: 2
+  cooldown: 2s
+
+history:
+  enabled: false
+  channel-length: 0
+  client-length: 0
+  autoresize-window: 0s
+  autoreplay-on-join: 0
+  chathistory-maxmessages: 0
+  znc-maxmessages: 0
+
+logging:
+  - method: stderr
+    level: info
+    type: "* -userinput -useroutput"
+
+datastore:
+  path: /ircd/ircd.db

@@ -1,0 +1,35 @@
+.bds-field {
+  margin-bottom: var(--space-5);
+}
+
+.bds-field-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.bds-field-optional {
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bds-field-hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-2);
+  line-height: 1.4;
+}
+
+.bds-field-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--danger);
+  margin-top: var(--space-2);
+  line-height: 1.4;
+}

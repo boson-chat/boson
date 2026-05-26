@@ -1,0 +1,28 @@
+.bds-divider {
+  height: 1px;
+  background: var(--border);
+  width: 100%;
+}
+
+.bds-divider-labeled {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+  background: transparent;
+  height: auto;
+}
+
+.bds-divider-labeled::before,
+.bds-divider-labeled::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.bds-divider-label {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}

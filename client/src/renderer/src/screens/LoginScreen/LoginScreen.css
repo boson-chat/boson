@@ -1,0 +1,84 @@
+.login-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background: var(--bg);
+  padding: var(--space-4);
+}
+
+.login-container {
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-8);
+}
+
+.login-container .bds-logo {
+  margin-bottom: var(--space-10);
+}
+
+.login-container .bds-tabs {
+  margin-bottom: var(--space-6);
+}
+
+.login-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.login-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--danger);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in oklab, var(--danger), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--danger), transparent 80%);
+  border-left: 3px solid var(--danger);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: var(--space-4) 0;
+}
+
+.login-error-action {
+  margin-top: var(--space-3);
+}
+
+/* Guest mode entry — appears below the auth Card. Initially a small link;
+   on click it reveals a one-field nick form to enter the app without an
+   account. Local-only; data stays on the device. */
+.login-guest {
+  margin-top: var(--space-5);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.login-guest-toggle {
+  background: transparent;
+  border: none;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  padding: var(--space-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.login-guest-toggle:hover { color: var(--fg); }
+
+.login-guest-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  text-align: left;
+}
+
+.login-guest-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}

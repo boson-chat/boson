@@ -1,0 +1,13 @@
+.bds-card {
+  border-radius: var(--radius-sm);
+  padding: var(--space-6);
+}
+
+.bds-card-flat {
+  background: transparent;
+}
+
+.bds-card-raised {
+  background: var(--surface);
+  border: 1px solid var(--border);
+}

@@ -1,0 +1,417 @@
+.channel-sidebar {
+  width: 240px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  user-select: none;
+  min-height: 0;
+}
+
+.channel-sidebar-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.channel-sidebar-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: var(--tracking-display);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-sidebar-settings {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-3);
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.channel-sidebar-settings:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
+  border-color: var(--border);
+}
+
+.channel-sidebar-settings:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.channel-sidebar-search {
+  margin-top: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  outline: none;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+
+.channel-sidebar-search::placeholder { color: var(--fg-3); }
+.channel-sidebar-search:focus { border-color: var(--accent); }
+
+.channel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.channel-list::-webkit-scrollbar { width: 4px; }
+.channel-list::-webkit-scrollbar-track { background: transparent; }
+.channel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.channel-empty {
+  padding: var(--space-3);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.channel-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.channel-section {
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.channel-add {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fg-3);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 700;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  line-height: 1;
+}
+
+.channel-add:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
+  border-color: var(--border);
+}
+
+.channel-join-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.channel-join-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+/* Search-driven channel browser inside the Join modal. Top: prominent
+   search input. Middle: scrollable result list (taller than a typical
+   modal so the list is the point of the screen, not an afterthought).
+   Bottom: action row pinned. Keyboard nav highlights one row at a time. */
+.channel-join-browser {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+}
+
+.channel-join-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.channel-join-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--danger, #ef4444);
+}
+
+.channel-join-results-head {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.channel-join-results {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  max-height: 420px;
+  min-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.channel-join-empty {
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--fg-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+}
+
+/* Result row visual hierarchy:
+   - line 1: channel name (bold, prominent) · user count (small, muted)
+   - line 2: topic (normal-weight body text, slightly smaller, dim) */
+.channel-join-result {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  align-items: baseline;
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+  font-family: inherit;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.channel-join-result + .channel-join-result { border-top: 1px solid var(--border-soft); }
+.channel-join-result-active { background: var(--surface-hover); }
+.channel-join-result:hover { background: var(--surface-hover); }
+
+.channel-join-result-name {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  color: var(--fg);
+}
+
+.channel-join-result-active .channel-join-result-name { color: var(--accent); }
+
+.channel-join-result-users {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--fg-3);
+  justify-self: end;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.channel-join-result-topic {
+  grid-column: 1 / -1;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pagination strip under the result list. Visible only when totalPages > 1.
+   Keyboard shortcuts: PageDown / PageUp also advance pages. */
+.channel-join-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+}
+
+.channel-join-page-status {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  text-align: center;
+  flex: 1;
+}
+
+.channel-join-page-range { color: var(--fg-3); }
+
+.channel-join-page-btn {
+  background: transparent;
+  border: 1px solid var(--border-soft);
+  color: var(--fg-2);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  white-space: nowrap;
+}
+
+.channel-join-page-btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--fg);
+  border-color: var(--fg-3);
+}
+
+.channel-join-page-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  border-left: 2px solid transparent;
+}
+
+.channel-item:hover {
+  background: var(--surface-hover);
+  color: var(--fg-2);
+}
+
+.channel-item-active {
+  color: var(--fg);
+  background: var(--surface-raised);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.channel-hash {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  width: 24px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.channel-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-leave {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: var(--text-base);
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+  cursor: pointer;
+}
+
+.channel-item:hover .channel-leave { opacity: 1; }
+.channel-leave:hover { color: var(--danger); background: var(--surface-hover); }
+
+/* Unread / mention indicators.
+   - Ambient unread (just new messages): bright channel name + small dot.
+   - Mention (someone said your nick): bright channel name + amber counter
+     badge with the mention count. Mentions are louder than ambient unread
+     because they're directed at you. */
+.channel-item-unread .channel-name {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.channel-unread-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fg-2);
+}
+
+.channel-mention-count {
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-on);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+/* When the leave-(×) button reveals on hover, suppress the indicator so
+   the row doesn't show both at once and feel crowded. */
+.channel-item:hover .channel-unread-dot,
+.channel-item:hover .channel-mention-count { display: none; }
+
+/* The synthetic `~server` pseudo-channel: holds NickServ + server-source
+   NOTICEs so they don't pollute real channel + DM lists. Distinct visual
+   treatment — dimmer text, no leave button, monospace `*` prefix in muted
+   colour. Sits at the very top of the channel list so it's discoverable
+   without being loud. */
+.channel-item-service {
+  color: var(--fg-3);
+  font-style: italic;
+  border-bottom: 1px solid var(--border-soft);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.channel-item-service .channel-name {
+  font-weight: 500;
+}
+.channel-hash-service {
+  color: var(--muted);
+}
+

@@ -1,0 +1,19 @@
+.bds-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+}
+
+.bds-badge-ops      { background: color-mix(in oklab, var(--danger),  transparent 85%); color: var(--danger); }
+.bds-badge-mod      { background: color-mix(in oklab, var(--info),    transparent 85%); color: var(--info); }
+.bds-badge-verified { background: color-mix(in oklab, var(--success), transparent 85%); color: var(--success); }
+.bds-badge-info     { background: color-mix(in oklab, var(--info),    transparent 85%); color: var(--info); }
+.bds-badge-danger   { background: color-mix(in oklab, var(--danger),  transparent 85%); color: var(--danger); }
+.bds-badge-warn     { background: color-mix(in oklab, var(--warn),    transparent 85%); color: var(--warn); }
+.bds-badge-success  { background: color-mix(in oklab, var(--success), transparent 85%); color: var(--success); }

@@ -1,0 +1,68 @@
+# Builds + pushes the backend Docker image to the self-hosted Harbor
+# registry at harbor.floret.dev (project: boson) on every v*.*.* tag.
+# Image is tagged with the exact version AND `latest`. Multi-arch
+# (linux/amd64 + linux/arm64) so M-series Macs can pull it locally
+# without emulation.
+#
+# The engine intentionally is NOT containerised here — it ships embedded
+# inside the Electron app, see .github/workflows/release-client.yml. The
+# engine/Dockerfile in the repo is retained as an escape hatch for
+# operators who want a remote engine, but no CI builds it.
+#
+# Required secrets:
+#   - HARBOR_USERNAME : Harbor user or robot account name
+#   - HARBOR_PASSWORD : matching password or robot CLI secret
+# Both need push rights to the `boson` project in Harbor.
+name: Release Docker images
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-docker-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: harbor.floret.dev
+  PROJECT: boson
+  IMAGE: backend
+
+jobs:
+  build:
+    name: backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Log in to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+      - name: Resolve tag (strip leading v)
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Build + push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.PROJECT }}/${{ env.IMAGE }}:${{ steps.ver.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.PROJECT }}/${{ env.IMAGE }}:latest
+          # Build-cache backed by the registry so subsequent releases reuse
+          # most layers. `mode=max` caches intermediate stages too.
+          cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.PROJECT }}/${{ env.IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.PROJECT }}/${{ env.IMAGE }}:buildcache,mode=max

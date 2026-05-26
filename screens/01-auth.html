@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boson — Auth</title>
+<style>
+:root {
+  --bg: #070709;
+  --surface: #0D0D11;
+  --surface-raised: #141418;
+  --surface-hover: #1A1A20;
+  --border: #24242E;
+  --border-soft: #1C1C24;
+  --fg: #E2E2EA;
+  --fg-2: #9898A8;
+  --fg-3: #686878;
+  --muted: #444452;
+  --meta: #363644;
+  --accent: #D97706;
+  --accent-on: #070709;
+  --accent-dim: color-mix(in oklab, var(--accent), transparent 85%);
+  --success: #10B981;
+  --warn: #F59E0B;
+  --danger: #EF4444;
+  --info: #3B82F6;
+  --font-display: 'JetBrains Mono', ui-monospace, monospace;
+  --font-body: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+  --leading-body: 1.5;
+  --leading-tight: 1.25;
+  --tracking-display: -0.01em;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --focus-ring: 0 0 0 2px color-mix(in oklab, var(--accent), transparent 50%);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--fg);
+  background: var(--bg);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-font-smoothing: antialiased;
+}
+
+.auth-container {
+  width: 100%;
+  max-width: 400px;
+  padding: var(--space-8);
+}
+
+.auth-logo {
+  text-align: center;
+  margin-bottom: var(--space-10);
+}
+
+.auth-logo-mark {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--accent);
+  margin-bottom: var(--space-2);
+}
+
+.auth-logo-tagline {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.auth-tabs {
+  display: flex;
+  margin-bottom: var(--space-8);
+  border-bottom: 1px solid var(--border);
+}
+
+.auth-tab {
+  flex: 1;
+  padding: var(--space-3) 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  background: none;
+  border: none;
+  text-align: center;
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  position: relative;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.auth-tab::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: transparent;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.auth-tab:hover { color: var(--fg-2); }
+.auth-tab.active { color: var(--accent); }
+.auth-tab.active::after { background: var(--accent); }
+
+.auth-form { display: none; }
+.auth-form.active { display: block; }
+
+.form-group { margin-bottom: var(--space-5); }
+
+.form-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-2);
+}
+
+.form-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  outline: none;
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.form-input::placeholder { color: var(--fg-3); }
+.form-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+
+.form-hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-top: var(--space-2);
+  line-height: 1.4;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  letter-spacing: 0.02em;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-on);
+  width: 100%;
+  padding: var(--space-4);
+  font-size: var(--text-base);
+}
+
+.btn-primary:hover { opacity: 0.9; }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin: var(--space-6) 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.social-btn {
+  width: 100%;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  margin-bottom: var(--space-3);
+}
+
+.social-btn:hover { border-color: var(--fg-3); color: var(--fg); }
+
+.handle-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.handle-check.available { color: var(--success); }
+.handle-check.taken { color: var(--danger); }
+.handle-check.reserved { color: var(--warn); }
+
+.auth-warning {
+  background: color-mix(in oklab, var(--warn), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--warn), transparent 80%);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-6) 0;
+}
+
+.auth-warning-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--warn);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.auth-warning-text {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  line-height: 1.5;
+}
+
+.totp-inputs {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
+  margin: var(--space-6) 0;
+}
+
+.totp-input {
+  width: 48px;
+  height: 56px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  outline: none;
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.totp-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-dim); }
+
+.auth-footer {
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.auth-footer-text {
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+.nav-back {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  text-decoration: none;
+  z-index: 100;
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.nav-back:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+<a href="index.html" class="nav-back">← All screens</a>
+
+<div class="auth-container">
+  <div class="auth-logo">
+    <div class="auth-logo-mark">Boson</div>
+    <div class="auth-logo-tagline">IRC, modernized</div>
+  </div>
+
+  <div class="auth-tabs">
+    <button class="auth-tab active" data-tab="login">Login</button>
+    <button class="auth-tab" data-tab="signup">Signup</button>
+    <button class="auth-tab" data-tab="recovery">Recovery</button>
+  </div>
+
+  <div class="auth-form active" id="form-login">
+    <div class="form-group">
+      <label class="form-label">Handle</label>
+      <input type="text" class="form-input" placeholder="your_handle" autocomplete="username">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input type="password" class="form-input" placeholder="Enter password" autocomplete="current-password">
+      <div class="form-hint">This encrypts your identity key. Store it in your keychain.</div>
+    </div>
+
+    <button class="btn btn-primary">Sign in</button>
+
+    <div class="divider">or</div>
+
+    <button class="social-btn">Continue with Google</button>
+    <button class="social-btn">Continue with GitHub</button>
+
+    <div class="auth-footer">
+      <div class="auth-footer-text">First time? Choose Signup above.</div>
+    </div>
+  </div>
+
+  <div class="auth-form" id="form-signup">
+    <div class="form-group">
+      <label class="form-label">Choose a handle</label>
+      <input type="text" class="form-input" id="signup-handle" placeholder="your_handle" autocomplete="username">
+      <div class="handle-check" id="handle-check"></div>
+      <div class="form-hint">3+ characters, alphanumeric + underscore. Changes cost 90 days.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Display name <span style="color:var(--muted)">(optional)</span></label>
+      <input type="text" class="form-input" placeholder="Your display name">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Password</label>
+      <input type="password" class="form-input" placeholder="Create a strong password" autocomplete="new-password">
+      <div class="form-hint">This encrypts your identity key. Lose it → lose access to all servers.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Confirm password</label>
+      <input type="password" class="form-input" placeholder="Confirm password" autocomplete="new-password">
+    </div>
+
+    <button class="btn btn-primary">Create account</button>
+
+    <div class="auth-warning">
+      <div class="auth-warning-title">No password recovery</div>
+      <div class="auth-warning-text">Your identity key is encrypted with your password. If you forget it, you'll need to reclaim each server identity via NickServ or admin contact.</div>
+    </div>
+
+    <div class="auth-footer">
+      <div class="auth-footer-text">Already have an account? Choose Login above.</div>
+    </div>
+  </div>
+
+  <div class="auth-form" id="form-recovery">
+    <div class="auth-warning">
+      <div class="auth-warning-title">Guided identity reclaim</div>
+      <div class="auth-warning-text">Since your password is unrecoverable, we'll help you reclaim each server identity through NickServ or admin contact.</div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Your handle</label>
+      <input type="text" class="form-input" placeholder="your_handle">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Recovery email</label>
+      <input type="email" class="form-input" placeholder="you@example.com">
+      <div class="form-hint">We'll send a recovery code to this address.</div>
+    </div>
+
+    <button class="btn btn-primary">Send recovery code</button>
+
+    <div style="margin-top: var(--space-6);">
+      <div class="form-label" style="margin-bottom: var(--space-4);">Or use TOTP</div>
+      <div class="totp-inputs">
+        <input type="text" class="totp-input" maxlength="1" autofocus>
+        <input type="text" class="totp-input" maxlength="1">
+        <input type="text" class="totp-input" maxlength="1">
+        <input type="text" class="totp-input" maxlength="1">
+        <input type="text" class="totp-input" maxlength="1">
+        <input type="text" class="totp-input" maxlength="1">
+      </div>
+    </div>
+
+    <div class="auth-footer" style="margin-top: var(--space-6);">
+      <div class="auth-footer-text">Need help? Contact <span style="color:var(--accent)">support@boson</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.auth-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.auth-form').forEach(f => f.classList.remove('active'));
+      tab.classList.add('active');
+      document.getElementById('form-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+
+  const handleInput = document.getElementById('signup-handle');
+  const handleCheck = document.getElementById('handle-check');
+  let checkTimeout;
+
+  handleInput.addEventListener('input', () => {
+    clearTimeout(checkTimeout);
+    const handle = handleInput.value.trim();
+    handleCheck.innerHTML = '';
+
+    if (handle.length < 3) {
+      handleCheck.className = 'handle-check taken';
+      handleCheck.textContent = '• Minimum 3 characters';
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(handle)) {
+      handleCheck.className = 'handle-check taken';
+      handleCheck.textContent = '• Only alphanumeric + underscore';
+      return;
+    }
+
+    checkTimeout = setTimeout(() => {
+      const reserved = ['admin', 'support', 'mod', 'staff'];
+      if (reserved.includes(handle.toLowerCase())) {
+        handleCheck.className = 'handle-check reserved';
+        handleCheck.textContent = '• Reserved word';
+      } else {
+        handleCheck.className = 'handle-check available';
+        handleCheck.textContent = '• Available ✓';
+      }
+    }, 500);
+  });
+
+  document.querySelectorAll('.totp-input').forEach((input, idx, inputs) => {
+    input.addEventListener('input', () => {
+      if (input.value && inputs[idx + 1]) inputs[idx + 1].focus();
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Backspace' && !input.value && inputs[idx - 1]) inputs[idx - 1].focus();
+    });
+  });
+</script>
+</body>
+</html>

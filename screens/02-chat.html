@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Boson — Chat</title>
+<style>
+:root {
+  --bg: #070709;
+  --surface: #0D0D11;
+  --surface-raised: #141418;
+  --surface-hover: #1A1A20;
+  --border: #24242E;
+  --border-soft: #1C1C24;
+  --fg: #E2E2EA;
+  --fg-2: #9898A8;
+  --fg-3: #686878;
+  --muted: #444452;
+  --meta: #363644;
+  --accent: #D97706;
+  --accent-on: #070709;
+  --accent-dim: color-mix(in oklab, var(--accent), transparent 85%);
+  --success: #10B981;
+  --warn: #F59E0B;
+  --danger: #EF4444;
+  --info: #3B82F6;
+  --font-display: 'JetBrains Mono', ui-monospace, monospace;
+  --font-body: 'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+  --leading-body: 1.5;
+  --leading-tight: 1.25;
+  --tracking-display: -0.01em;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --focus-ring: 0 0 0 2px color-mix(in oklab, var(--accent), transparent 50%);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Nav back ─── */
+.nav-back {
+  position: fixed;
+  top: var(--space-4);
+  left: var(--space-4);
+  z-index: 100;
+}
+
+.nav-back a {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  text-decoration: none;
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+
+.nav-back a:hover { color: var(--accent); }
+
+/* ═══════════════════════════════════════════
+   4-COLUMN APP SHELL
+   72px server rail | 240px channels | flex chat | 240px users
+   ═══════════════════════════════════════════ */
+.app-shell {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── 1. SERVER RAIL ── */
+.server-rail {
+  width: 72px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3) 0;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  user-select: none;
+  overflow-y: auto;
+}
+
+.server-rail::-webkit-scrollbar { width: 0; }
+
+.server-item {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--fg-3);
+  background: var(--surface-hover);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  position: relative;
+}
+
+.server-item:hover {
+  background: var(--bg);
+  border-color: var(--fg-3);
+  color: var(--fg);
+}
+
+.server-item.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.server-item.active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 28px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+}
+
+.server-item:hover::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 8px;
+  background: var(--fg-3);
+  border-radius: 0 2px 2px 0;
+  transition: height var(--motion-fast) var(--ease-standard);
+}
+
+.server-item.active:hover::before {
+  height: 28px;
+  background: var(--accent);
+}
+
+.server-item.unread::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+}
+
+/* ── 2. CHANNEL SIDEBAR ── */
+.channel-sidebar {
+  width: 240px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.channel-sidebar-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.channel-sidebar-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: var(--tracking-display);
+}
+
+.channel-sidebar-search {
+  margin-top: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  outline: none;
+  transition: border-color var(--motion-fast) var(--ease-standard);
+}
+
+.channel-sidebar-search::placeholder { color: var(--fg-3); }
+.channel-sidebar-search:focus { border-color: var(--accent); }
+
+.channel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.channel-list::-webkit-scrollbar { width: 4px; }
+.channel-list::-webkit-scrollbar-track { background: transparent; }
+.channel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.channel-section {
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  border-left: 2px solid transparent;
+}
+
+.channel-item:hover {
+  background: var(--surface-hover);
+  color: var(--fg-2);
+}
+
+.channel-item.active {
+  color: var(--fg);
+  background: var(--surface-raised);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}
+
+.channel-item.unread {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.channel-item.unread::after {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.channel-hash {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  width: 14px;
+  text-align: center;
+}
+
+/* ── 3. CHAT AREA ── */
+.chat-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.chat-header {
+  padding: var(--space-3) var(--space-6);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.chat-header-left {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.chat-channel-hash {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--muted);
+  letter-spacing: var(--tracking-display);
+}
+
+.chat-channel-label {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+}
+
+.chat-topic {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  margin-left: var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border-soft);
+}
+
+.chat-member-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.member-count-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.messages-inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.message-row {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  margin: 0 calc(var(--space-3) * -1);
+  border-radius: var(--radius-sm);
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.message-row:hover { background: var(--surface-hover); }
+
+.message-row-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.message-row-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: -0.01em;
+}
+
+.message-row-handle {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+
+.message-row-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.message-row-badge.ops { background: color-mix(in oklab, var(--danger), transparent 85%); color: var(--danger); }
+.message-row-badge.mod { background: color-mix(in oklab, var(--info), transparent 85%); color: var(--info); }
+.message-row-badge.verified { background: color-mix(in oklab, var(--success), transparent 85%); color: var(--success); }
+
+.message-row-text {
+  font-size: var(--text-base);
+  color: var(--fg);
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.message-row-text code {
+  font-family: var(--font-mono);
+  background: var(--surface-raised);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--accent);
+  border: 1px solid var(--border-soft);
+}
+
+.message-row-action .message-row-text {
+  color: var(--fg-2);
+  font-style: italic;
+}
+
+.message-row-action .message-row-text::before {
+  content: '* ';
+  color: var(--muted);
+}
+
+.message-system {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  padding: var(--space-1) 0;
+  text-align: center;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.message-system .sys-action { color: var(--accent); }
+
+.message-code-block {
+  margin-top: var(--space-2);
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+
+.message-connector { display: none; }
+
+/* ── Input bar ── */
+.chat-input-bar {
+  padding: var(--space-3) var(--space-6);
+  border-top: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.chat-input-wrap {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  transition: border-color var(--motion-fast) var(--ease-standard);
+  width: 100%;
+}
+
+.chat-input-wrap:focus-within { border-color: var(--accent); }
+
+.input-actions {
+  display: flex;
+  gap: 2px;
+  padding-bottom: 2px;
+}
+
+.input-action {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: var(--text-base);
+  font-family: var(--font-mono);
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.input-action:hover { background: var(--surface-hover); color: var(--fg); }
+
+.chat-textarea {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  resize: none;
+  outline: none;
+  min-height: 24px;
+  max-height: 160px;
+  padding: 2px 0;
+}
+
+.chat-textarea::placeholder { color: var(--fg-3); }
+
+.chat-send-btn {
+  padding: var(--space-2) var(--space-5);
+  background: var(--accent);
+  color: var(--accent-on);
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+  flex-shrink: 0;
+}
+
+.chat-send-btn:hover { opacity: 0.9; }
+.chat-send-btn:disabled { opacity: 0.25; cursor: default; }
+
+/* ── 4. USER PANEL ── */
+.user-panel {
+  width: 240px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.user-panel-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.user-panel-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--fg-2);
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+}
+
+.user-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-3) 0;
+}
+
+.user-panel-list::-webkit-scrollbar { width: 4px; }
+.user-panel-list::-webkit-scrollbar-track { background: transparent; }
+.user-panel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.user-panel-group {
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-top: var(--space-3);
+}
+
+.user-panel-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.user-panel-item:hover { background: var(--surface-hover); }
+
+.upa-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.upa-name.online { color: var(--fg); }
+.upa-name.away { color: var(--warn); }
+.upa-name.offline { color: var(--muted); }
+
+.upa-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.upa-status.online { background: var(--success); }
+.upa-status.away { background: var(--warn); }
+.upa-status.offline { background: var(--muted); }
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
+</style>
+</head>
+<body>
+<a href="index.html" class="nav-back">Back</a>
+
+<div class="app-shell">
+
+  <!-- 1. SERVER RAIL -->
+  <nav class="server-rail">
+    <div class="server-item active" data-server="boson-hq">BQ</div>
+    <div class="server-item unread" data-server="irc-general">IR</div>
+    <div class="server-item" data-server="dev-tools">DT</div>
+    <div class="server-item" data-server="rust-lang">RS</div>
+    <div class="server-item" data-server="gophers">GH</div>
+    <div class="server-item" data-server="local">LC</div>
+  </nav>
+
+  <!-- 2. CHANNEL SIDEBAR -->
+  <aside class="channel-sidebar">
+    <div class="channel-sidebar-header">
+      <div class="channel-sidebar-title">Boson HQ</div>
+      <input type="text" class="channel-sidebar-search" placeholder="Find channel...">
+    </div>
+    <div class="channel-list">
+      <div class="channel-section">Channels</div>
+      <div class="channel-item active" data-channel="general">
+        <span class="channel-hash">#</span>
+        <span>general</span>
+      </div>
+      <div class="channel-item" data-channel="tech">
+        <span class="channel-hash">#</span>
+        <span>tech</span>
+      </div>
+      <div class="channel-item unread" data-channel="off-topic">
+        <span class="channel-hash">#</span>
+        <span>off-topic</span>
+      </div>
+      <div class="channel-item" data-channel="random">
+        <span class="channel-hash">#</span>
+        <span>random</span>
+      </div>
+      <div class="channel-section">Direct Messages</div>
+      <div class="channel-item" data-channel="dm-alice">
+        <span class="channel-hash">[DM]</span>
+        <span>alice</span>
+      </div>
+      <div class="channel-item" data-channel="dm-bob">
+        <span class="channel-hash">[DM]</span>
+        <span>bob</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- 3. CHAT AREA -->
+  <main class="chat-area">
+    <div class="chat-header">
+      <div class="chat-header-left">
+        <span class="chat-channel-hash">#</span>
+        <span class="chat-channel-label" id="channel-label">general</span>
+        <span class="chat-topic" id="channel-topic">Boson discussion — all channels welcome</span>
+      </div>
+      <div class="chat-member-count">
+        <span class="member-count-dot"></span>
+        <span>24 online</span>
+      </div>
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+      <div class="messages-inner">
+        <div class="message-system">
+          <span class="sys-action">System:</span> Channel created. Welcome to #general!
+        </div>
+
+        <div class="message-connector"></div>
+        <div class="message-row">
+          <div class="message-row-header">
+            <span class="message-row-name">alice</span>
+            <span class="message-row-handle">~alice</span>
+          </div>
+          <div class="message-row-text">Hey everyone! Just set up Boson on my server. The IRC backend is seamless — nobody even knows it's IRC.</div>
+        </div>
+
+        <div class="message-connector"></div>
+        <div class="message-row">
+          <div class="message-row-header">
+            <span class="message-row-name">bob</span>
+            <span class="message-row-badge mod">mod</span>
+            <span class="message-row-handle">~bob</span>
+          </div>
+          <div class="message-row-text">Nice! How's the DNS verification process? I just got mine approved.</div>
+        </div>
+
+        <div class="message-connector"></div>
+        <div class="message-row">
+          <div class="message-row-header">
+            <span class="message-row-name">alice</span>
+            <span class="message-row-handle">~alice</span>
+          </div>
+          <div class="message-row-text">Pretty smooth. Just add the TXT record and click verify. Took about 2 minutes.</div>
+          <div class="message-code-block">TXT boson._dns.example.com "v=bos1;ch=server-uuid-1234"</div>
+        </div>
+
+        <div class="message-connector"></div>
+        <div class="message-row message-row-action">
+          <div class="message-row-header">
+            <span class="message-row-name">james</span>
+            <span class="message-row-badge ops">ops</span>
+            <span class="message-row-handle">~james</span>
+          </div>
+          <div class="message-row-text">That's the one. If you hit any issues with the Go process, check the logs at <code>~/.boson/logs</code></div>
+        </div>
+
+        <div class="message-connector"></div>
+        <div class="message-row">
+          <div class="message-row-header">
+            <span class="message-row-name">charlie</span>
+            <span class="message-row-badge verified">v</span>
+            <span class="message-row-handle">~charlie</span>
+          </div>
+          <div class="message-row-text">Quick question — can I run ergo and still use Boson? Or is it limited to specific IRCds?</div>
+        </div>
+
+        <div class="message-connector"></div>
+        <div class="message-row">
+          <div class="message-row-header">
+            <span class="message-row-name">alice</span>
+            <span class="message-row-handle">~alice</span>
+          </div>
+          <div class="message-row-text">Ergo works great! Boson supports any IRCd that does SASL auth. ergo, ngircd, charybdis, unreal — all good.</div>
+        </div>
+
+        <div class="message-system">
+          <span class="sys-action">bob</span> joined the channel
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-bar">
+      <div class="chat-input-wrap">
+        <div class="input-actions">
+          <button class="input-action" title="Attach">[+]</button>
+          <button class="input-action" title="Emoji">[e]</button>
+        </div>
+        <textarea class="chat-textarea" id="chat-input" placeholder="Message #general" rows="1"></textarea>
+        <button class="chat-send-btn" id="send-btn" disabled>Send</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- 4. USER PANEL -->
+  <aside class="user-panel">
+    <div class="user-panel-header">
+      <div class="user-panel-title">Members — 24</div>
+    </div>
+    <div class="user-panel-list">
+      <div class="user-panel-group">Online — 12</div>
+      <div class="user-panel-item">
+        <span class="upa-name online">james</span>
+        <span class="upa-status online"></span>
+      </div>
+      <div class="user-panel-item">
+        <span class="upa-name online">alice</span>
+        <span class="upa-status online"></span>
+      </div>
+      <div class="user-panel-item">
+        <span class="upa-name online">charlie</span>
+        <span class="upa-status online"></span>
+      </div>
+      <div class="user-panel-group">Away — 3</div>
+      <div class="user-panel-item">
+        <span class="upa-name away">bob</span>
+        <span class="upa-status away"></span>
+      </div>
+      <div class="user-panel-group">Offline — 9</div>
+      <div class="user-panel-item">
+        <span class="upa-name offline">dave</span>
+        <span class="upa-status offline"></span>
+      </div>
+      <div class="user-panel-item">
+        <span class="upa-name offline">eve</span>
+        <span class="upa-status offline"></span>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+(function() {
+  const chatMessages = document.getElementById('chat-messages');
+  const chatInput = document.getElementById('chat-input');
+  const sendBtn = document.getElementById('send-btn');
+  const channelLabel = document.getElementById('channel-label');
+  const channelTopic = document.getElementById('channel-topic');
+
+  // ─── Auto-resize textarea ───
+  chatInput.addEventListener('input', function() {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 160) + 'px';
+    sendBtn.disabled = chatInput.value.trim() === '';
+  });
+
+  // ─── Escape HTML ───
+  function escapeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // ─── Send message ───
+  function sendMessage() {
+    var text = chatInput.value.trim();
+    if (!text) return;
+
+    var inner = chatMessages.querySelector('.messages-inner');
+    var connector = document.createElement('div');
+    connector.className = 'message-connector';
+    inner.appendChild(connector);
+
+    var msg = document.createElement('div');
+    msg.className = 'message-row';
+    msg.innerHTML = '<div class="message-row-header">' +
+      '<span class="message-row-name">james</span>' +
+      '<span class="message-row-badge ops">ops</span>' +
+      '<span class="message-row-handle">~james</span>' +
+      '</div>' +
+      '<div class="message-row-text">' + escapeHtml(text) + '</div>';
+
+    inner.appendChild(msg);
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+    sendBtn.disabled = true;
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  }
+
+  chatInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+  sendBtn.addEventListener('click', sendMessage);
+
+  // ─── Channel topics ───
+  var channelTopics = {
+    'general': 'Boson discussion — all channels welcome',
+    'tech': 'Tech talk: hardware, software, everything',
+    'off-topic': 'No topic limits here',
+    'random': 'Random stuff',
+    'dm-alice': 'Direct message with alice',
+    'dm-bob': 'Direct message with bob'
+  };
+
+  var serverNames = {
+    'boson-hq': 'Boson HQ',
+    'irc-general': 'irc-general',
+    'dev-tools': 'dev-tools',
+    'rust-lang': 'rust-lang',
+    'gophers': 'gophers',
+    'local': 'local-network'
+  };
+
+  // ─── Switch channels ───
+  document.querySelectorAll('.channel-item[data-channel]').forEach(function(item) {
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.channel-item').forEach(function(c) { c.classList.remove('active'); });
+      item.classList.add('active');
+      var ch = item.dataset.channel;
+      var name = item.querySelector('span:last-child').textContent.trim();
+      channelLabel.textContent = name.replace(/^#/, '');
+      channelTopic.textContent = channelTopics[ch] || '';
+      chatInput.placeholder = 'Message #' + name;
+      item.classList.remove('unread');
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
+  });
+
+  // ─── Switch servers ───
+  document.querySelectorAll('.server-item[data-server]').forEach(function(item) {
+    item.addEventListener('click', function() {
+      document.querySelectorAll('.server-item').forEach(function(s) { s.classList.remove('active'); });
+      item.classList.add('active');
+      var server = item.dataset.server;
+      document.querySelector('.channel-sidebar-title').textContent = serverNames[server] || server;
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    });
+  });
+
+  // ─── Initial scroll ───
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+})();
+</script>
+</body>
+</html>

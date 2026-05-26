@@ -1,0 +1,51 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import '@boson/shared/design-system/tokens.css';
+
+/* Legacy aliases — DirectoryScreen still references these. Remove when DirectoryScreen is redesigned. */
+:root {
+  --bg-elev: var(--surface-raised);
+  --text: var(--fg);
+  --text-dim: var(--fg-2);
+  --accent-hover: var(--accent);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #app { height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button { font: inherit; cursor: pointer; }
+input, textarea { font: inherit; color: inherit; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
+
+.loading { color: var(--fg-2); padding: var(--space-8); text-align: center; }
+
+/* App shell — TitleBar at the top, everything else fills the rest. The
+   body uses flex so the body region absorbs all remaining height without
+   needing absolute positioning. */
+.app-frame {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.app-frame-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+

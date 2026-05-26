@@ -1,0 +1,67 @@
+.bds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-6);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+  letter-spacing: 0.02em;
+  background: transparent;
+  color: var(--fg);
+  user-select: none;
+  white-space: nowrap;
+}
+
+.bds-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.bds-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.bds-btn-primary {
+  background: var(--accent);
+  color: var(--accent-on);
+  padding: var(--space-4);
+  font-size: var(--text-base);
+}
+.bds-btn-primary:hover:not(:disabled) { opacity: 0.9; }
+
+.bds-btn-secondary {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--fg-2);
+  padding: var(--space-3);
+}
+.bds-btn-secondary:hover:not(:disabled) { border-color: var(--fg-3); color: var(--fg); }
+
+.bds-btn-ghost {
+  background: transparent;
+  color: var(--fg-3);
+  padding: var(--space-2) var(--space-3);
+}
+.bds-btn-ghost:hover:not(:disabled) { color: var(--fg); background: var(--surface-hover); }
+
+.bds-btn-fullwidth { width: 100%; }
+
+/* Size override — applied LAST so it wins over the variant-specific padding
+   bumps (.bds-btn-primary, .bds-btn-secondary, .bds-btn-ghost). Use 'sm'
+   for inline contexts: card footers, list-row actions, modal toolbars. */
+.bds-btn-size-sm {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.bds-btn-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  animation: bds-btn-spin 700ms linear infinite;
+}
+
+@keyframes bds-btn-spin { to { transform: rotate(360deg); } }

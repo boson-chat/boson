@@ -1,0 +1,59 @@
+# Binaries + build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/main
+/boson
+/bin/
+
+# Node deps + build output
+node_modules/
+dist/
+out/
+.vite/
+*.local
+
+# Local tool state (not source-controlled)
+.claude/
+.tanrenai/
+.playwright-mcp/
+.playwright/
+test-results/
+
+# Loose dev screenshots (use docs/ for screenshots that should ship)
+/chat-*.png
+/directory-*.png
+/message-grouping-*.png
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+
+# Environment
+.env
+.env.local
+config/config.dev.json
+
+# Local data
+postgres-data/
+
+# Supabase local state (config.toml should be committed)
+supabase/.branches
+supabase/.temp
+.env.supabase
+
+# Electron installer artifacts + bundled engine sidecar (built per-platform
+# in CI by .github/workflows/release-client.yml).
+client/dist/
+client/resources/engine/
+
+# Release tooling
+CHANGELOG.md.bak

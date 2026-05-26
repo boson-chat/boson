@@ -1,0 +1,94 @@
+.user-panel {
+  width: 220px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  user-select: none;
+  min-height: 0;
+}
+
+.user-panel-header {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.user-panel-title {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--fg-2);
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) 0 var(--space-4);
+}
+
+.user-panel-list::-webkit-scrollbar { width: 4px; }
+.user-panel-list::-webkit-scrollbar-track { background: transparent; }
+.user-panel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.user-panel-placeholder {
+  padding: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  line-height: 1.5;
+}
+
+.user-panel-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.user-panel-group + .user-panel-group {
+  margin-top: var(--space-3);
+}
+
+.user-panel-group-header {
+  padding: var(--space-2) var(--space-4) var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.user-panel-item {
+  padding: var(--space-1) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  cursor: default;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+
+.user-panel-item:hover { background: var(--surface-hover); color: var(--fg); }
+
+.user-panel-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+}
+
+/* Subtle role coloring — visible at a glance but not loud. Hover tooltip
+   spells it out explicitly. */
+.user-panel-item-founder .user-panel-name { color: var(--danger); font-weight: 700; }
+.user-panel-item-admin .user-panel-name   { color: var(--warn); font-weight: 700; }
+.user-panel-item-op .user-panel-name      { color: var(--accent); font-weight: 600; }
+.user-panel-item-halfop .user-panel-name  { color: var(--info); }
+.user-panel-item-voice .user-panel-name   { color: var(--success); }
+.user-panel-item-regular .user-panel-name { color: var(--fg-2); }
+
+.user-panel-item:hover .user-panel-name { color: var(--fg); }

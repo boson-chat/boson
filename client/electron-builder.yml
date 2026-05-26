@@ -1,0 +1,69 @@
+# electron-builder config — used by `npm run build:installer` and by the
+# release-client GitHub workflow on every v*.*.* tag. Output goes to
+# client/dist/ as platform-native installers (the GitHub release uploader
+# then attaches them to the just-published release).
+#
+# Code-signing is intentionally OFF for v0.x:
+#   - macOS: ships unsigned. Users right-click → Open the first time.
+#   - Windows: ships unsigned. Users will see SmartScreen warnings.
+#   - Linux: AppImage is self-contained, no signing concept.
+# Add CSC_* + APPLE_* secrets to the workflow when ready to sign.
+
+appId: chat.boson.app
+productName: Boson
+copyright: Copyright © 2026 Boson
+
+# electron-vite builds main + preload + renderer into out/.
+directories:
+  buildResources: build
+  output: dist
+
+# Bundle the built JS + node_modules production deps. electron-builder
+# auto-detects which deps are runtime vs dev from package.json.
+files:
+  - out/**
+  - package.json
+  - "!**/.vite/**"
+  - "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+  - "!**/node_modules/*.d.ts"
+  - "!**/node_modules/.bin"
+
+# Sidecar binaries — the IRC engine is a Go process that ships embedded
+# in the app. resources/engine/ is populated by the release-client
+# workflow ahead of `electron-builder` (see the "build engine sidecar"
+# steps). At runtime, the main process picks the binary that matches
+# process.platform + process.arch and spawns it as a child process.
+extraResources:
+  - from: resources/engine
+    to: engine
+    filter:
+      - "**/*"
+
+# Disable auto-update for v0.x — we don't have a release server yet.
+publish: null
+
+mac:
+  category: public.app-category.social-networking
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+  # CSC_IDENTITY_AUTO_DISCOVERY=false in the workflow disables ad-hoc
+  # signing attempts; without that env, electron-builder tries to sign
+  # with whatever it finds in the runner's keychain and fails.
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+linux:
+  category: Network
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]

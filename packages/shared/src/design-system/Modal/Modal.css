@@ -1,0 +1,74 @@
+.bds-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--bg), transparent 30%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: var(--space-4);
+}
+
+.bds-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  /* Stable size — modal width is the same whichever section the user is
+     looking at. Caps at the viewport so it never clips on tiny screens.
+     Height grows to content but never exceeds the viewport; inner sections
+     own their internal scrolling (logs, long channel lists). */
+  width: min(720px, calc(100vw - 64px));
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  outline: none;
+}
+
+/* Wide variant — for content that needs extra horizontal room (the server
+   directory card grid is the canonical case). Still bounded by viewport so
+   it stays readable on small screens. */
+.bds-modal-wide {
+  width: min(960px, calc(100vw - 64px));
+}
+
+.bds-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.bds-modal-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: var(--tracking-display);
+}
+
+.bds-modal-close {
+  background: none;
+  border: none;
+  color: var(--fg-3);
+  font-size: var(--text-xl);
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+}
+
+.bds-modal-close:hover { color: var(--fg); background: var(--surface-hover); }
+
+.bds-modal-body {
+  padding: var(--space-5);
+  /* Only scroll the body if the content actually overflows. min-height: 0
+     lets a flex column shrink so an inner scroller inside the body works. */
+  min-height: 0;
+  overflow-y: auto;
+}

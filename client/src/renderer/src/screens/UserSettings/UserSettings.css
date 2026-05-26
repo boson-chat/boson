@@ -1,0 +1,133 @@
+/* Global user settings modal — mirrors the Server settings layout
+   (left menu + body) but lives inside a Modal so it's reachable from any
+   screen via the title-bar gear icon. */
+
+.user-settings {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  /* Stable height so switching sections doesn't make the modal jump.
+     Sections shorter than this just leave whitespace at the bottom;
+     longer sections own their internal scrolling. */
+  height: 440px;
+  gap: 0;
+}
+
+.user-settings-menu {
+  width: 200px;
+  flex-shrink: 0;
+  padding-right: var(--space-3);
+  border-right: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.user-settings-menu-item {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--fg-2);
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.user-settings-menu-item:hover { background: var(--surface-hover); color: var(--fg); }
+.user-settings-menu-item-active {
+  background: var(--surface-raised);
+  color: var(--fg);
+  border-color: var(--border);
+}
+.user-settings-menu-item-active .user-settings-menu-label { color: var(--accent); }
+
+.user-settings-menu-label {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+}
+.user-settings-menu-desc {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+
+.user-settings-body {
+  flex: 1;
+  min-width: 0;
+  padding-left: var(--space-5);
+  overflow-y: auto;
+}
+
+.user-settings-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.user-settings-section-head { display: flex; flex-direction: column; gap: var(--space-1); }
+.user-settings-section-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: var(--tracking-display);
+}
+.user-settings-section-desc {
+  margin: 0;
+  color: var(--fg-3);
+  font-size: var(--text-sm);
+  font-family: var(--font-body);
+}
+
+.user-settings-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+
+.user-settings-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--space-4);
+  align-items: baseline;
+  margin: 0;
+}
+.user-settings-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+.user-settings-value {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.user-settings-empty { color: var(--fg-3); font-style: italic; }
+
+.user-settings-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.user-settings-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.user-settings-saved {
+  color: var(--success, #10b981);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.user-settings-actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}

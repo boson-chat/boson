@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Boson pre-commit hook: runs Go vet + Go unit tests + TS typecheck + TS unit tests.
+# Skips E2E (slow + requires running stack). Skip the whole hook with `git commit --no-verify`.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+# Restrict PATH to user-installed tools that may not be in CI defaults.
+export PATH="$HOME/.npm-global/bin:$HOME/.nvm/versions/node/$(node --version 2>/dev/null | tr -d v)/bin:$PATH"
+
+echo "==> go vet"
+go vet ./...
+
+echo "==> go test (-p 1 because tests share a Postgres database)"
+go test -p 1 -count=1 ./...
+
+if [ -d client ]; then
+  echo "==> client typecheck"
+  (cd client && npm run typecheck)
+
+  echo "==> client vitest"
+  (cd client && npm test --silent)
+fi
+
+echo "OK"

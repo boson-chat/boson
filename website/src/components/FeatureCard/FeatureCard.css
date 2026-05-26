@@ -1,0 +1,27 @@
+.feature .feature-mark {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--fg);
+  margin-bottom: var(--gap-md);
+  background: var(--surface);
+}
+
+.feature .feature-mark svg {
+  width: 18px;
+  height: 18px;
+}
+
+.feature h3 {
+  margin-bottom: 8px;
+}
+
+.feature p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.55;
+}

@@ -1,0 +1,89 @@
+# Gate every PR + main push on the same checks the pre-commit hook runs
+# locally: go vet + go test, client/website typecheck + unit tests. E2E
+# (Playwright) is intentionally out of scope here — it needs the full
+# Supabase + ergo + backend stack and adds ~5 min to every PR.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (vet + test)
+    runs-on: ubuntu-latest
+    # Real Postgres for the repository/integration tests under
+    # backend/internal/services/*. testutil/db.go skips DB-backed tests when
+    # Postgres is unreachable, but we want them exercised in CI.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: boson
+          POSTGRES_PASSWORD: boson
+          POSTGRES_DB: boson
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U boson -d boson"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: go mod tidy (verify lockfile is in sync)
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - name: go vet
+        run: go vet ./...
+      # -p 1 serialises packages because they share the boson_test database.
+      - name: go test
+        run: go test -p 1 ./...
+
+  client:
+    name: Client (typecheck + vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: typecheck
+        working-directory: client
+        run: npm run typecheck
+      - name: vitest
+        working-directory: client
+        run: npm test
+
+  website:
+    name: Website (typecheck + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: typecheck
+        working-directory: website
+        run: npm run typecheck
+      - name: build
+        working-directory: website
+        run: npm run build

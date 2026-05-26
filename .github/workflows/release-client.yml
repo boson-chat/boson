@@ -1,0 +1,100 @@
+# Builds Electron installers for macOS, Windows, and Linux on every
+# v*.*.* tag, then attaches them to the matching GitHub Release. The
+# release was opened by .github/workflows/release.yml (semantic-release).
+#
+# v0.x ships unsigned — see comments in client/electron-builder.yml.
+# Replace `CSC_IDENTITY_AUTO_DISCOVERY: false` with real signing creds
+# once Apple Developer + Windows EV cert are in place.
+name: Release Electron client
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write   # upload assets to the GitHub Release
+
+concurrency:
+  group: release-client-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: install
+        run: npm ci
+      # The engine ships inside the Electron app as a sidecar binary —
+      # electron-builder picks it up via extraResources in
+      # client/electron-builder.yml. On macOS we cross-compile both arches
+      # so the same installer build can target Intel + Apple Silicon
+      # without rebuilding the engine separately; on Linux/Windows the
+      # host arch is the only one we ship.
+      - name: build engine sidecar (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p client/resources/engine
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o client/resources/engine/engine-darwin-arm64 ./engine/cmd/engine
+            CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o client/resources/engine/engine-darwin-amd64 ./engine/cmd/engine
+          else
+            CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64  ./engine/cmd/engine
+          fi
+      - name: build engine sidecar (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path client/resources/engine | Out-Null
+          $env:CGO_ENABLED = '0'
+          $env:GOOS = 'windows'
+          $env:GOARCH = 'amd64'
+          go build -o client/resources/engine/engine-windows-amd64.exe ./engine/cmd/engine
+      - name: build installer
+        working-directory: client
+        env:
+          # Skip code-sign discovery on macOS — we don't ship signed
+          # builds yet and the runner has no Apple Developer cert.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Vite bakes VITE_* env vars into the renderer bundle at build
+          # time, so the released installer connects to the production
+          # backend instead of localhost. Engine URL/token aren't set
+          # here — those come from the spawned-sidecar discovery flow
+          # at runtime (see resources/engine/).
+          VITE_BOSON_API_URL: https://api.boson.chat
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # Pin the version into the installer so it matches the tag.
+          # electron-builder reads version from client/package.json, which
+          # semantic-release has already synced via scripts/sync-version.cjs
+          # — but the tag-triggered run checks out the tagged commit, so
+          # the right value is already on disk. No extra step needed.
+        run: npm run build:installer
+      - name: upload installers to release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Match every artifact electron-builder produces, regardless of
+          # platform — keep this glob loose so adding a new target above
+          # doesn't require updating the workflow.
+          files: |
+            client/dist/*.dmg
+            client/dist/*.zip
+            client/dist/*.exe
+            client/dist/*.AppImage
+            client/dist/*.deb
+          fail_on_unmatched_files: false

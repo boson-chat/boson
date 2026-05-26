@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Boson — message grouping preview</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" />
+  <link rel="stylesheet" href="../src/renderer/src/design-system/tokens.css" />
+  <link rel="stylesheet" href="../src/renderer/src/screens/ChatLayout/ChatArea.css" />
+  <style>
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: var(--font-body); }
+    body { padding: 40px; }
+    .preview-frame {
+      width: 720px;
+      margin: 0 auto 40px;
+      background: var(--bg);
+      border: 1px solid var(--border-soft);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .preview-label {
+      padding: var(--space-3) var(--space-6);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border-soft);
+      font-family: var(--font-mono);
+      font-size: var(--text-xs);
+      color: var(--fg-3);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .chat-messages {
+      padding: var(--space-6);
+    }
+    .messages-inner { display: flex; flex-direction: column; }
+  </style>
+</head>
+<body>
+  <div class="preview-frame">
+    <div class="preview-label">Tight burst from one sender (4 lines within 30s)</div>
+    <div class="chat-messages"><div class="messages-inner">
+      <div class="message-row">
+        <div class="message-row-header">
+          <span class="message-row-name">alice</span>
+          <span class="message-row-handle">~alice</span>
+          <span class="message-row-time">13:42</span>
+        </div>
+        <div class="message-row-text"><span class="message-row-text-body">hey, got a sec?</span></div>
+      </div>
+      <div class="message-row message-row-grouped">
+        <div class="message-row-text">
+          <span class="message-row-text-body">i think the engine reconnect logic is racing the session restore</span>
+          <span class="message-row-grouped-time">13:42</span>
+        </div>
+      </div>
+      <div class="message-row message-row-grouped">
+        <div class="message-row-text">
+          <span class="message-row-text-body">we end up calling connect() before the WS is up so it drops silently</span>
+          <span class="message-row-grouped-time">13:42</span>
+        </div>
+      </div>
+      <div class="message-row message-row-grouped">
+        <div class="message-row-text">
+          <span class="message-row-text-body">can you take a look?</span>
+          <span class="message-row-grouped-time">13:43</span>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="preview-frame">
+    <div class="preview-label">Two senders interleaved (no grouping across speakers)</div>
+    <div class="chat-messages"><div class="messages-inner">
+      <div class="message-row">
+        <div class="message-row-header">
+          <span class="message-row-name">alice</span>
+          <span class="message-row-handle">~alice</span>
+          <span class="message-row-time">13:42</span>
+        </div>
+        <div class="message-row-text"><span class="message-row-text-body">first thought</span></div>
+      </div>
+      <div class="message-row">
+        <div class="message-row-header">
+          <span class="message-row-name">bob</span>
+          <span class="message-row-handle">~bob</span>
+          <span class="message-row-time">13:42</span>
+        </div>
+        <div class="message-row-text"><span class="message-row-text-body">interrupting!</span></div>
+      </div>
+      <div class="message-row">
+        <div class="message-row-header">
+          <span class="message-row-name">alice</span>
+          <span class="message-row-handle">~alice</span>
+          <span class="message-row-time">13:42</span>
+        </div>
+        <div class="message-row-text"><span class="message-row-text-body">second thought (still alice but new group)</span></div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="preview-frame">
+    <div class="preview-label">Long line in a grouped row — text must not overflow into timestamp</div>
+    <div class="chat-messages"><div class="messages-inner">
+      <div class="message-row">
+        <div class="message-row-header">
+          <span class="message-row-name">carol</span>
+          <span class="message-row-handle">~carol</span>
+          <span class="message-row-time">14:01</span>
+        </div>
+        <div class="message-row-text"><span class="message-row-text-body">short opener</span></div>
+      </div>
+      <div class="message-row message-row-grouped">
+        <div class="message-row-text">
+          <span class="message-row-text-body">this is a very long sentence designed to stress the layout — it should wrap inside the text column and the timestamp must remain pinned on the right hand side regardless of how many characters we throw at it. word break should kick in if needed.</span>
+          <span class="message-row-grouped-time">14:01</span>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="preview-frame">
+    <div class="preview-label">Very long nickname — should ellipsis-truncate, not push the timestamp off</div>
+    <div class="chat-messages"><div class="messages-inner">
+      <div class="message-row">
+        <div class="message-row-header">
+          <span class="message-row-name">ridiculously_long_irc_nickname_xx</span>
+          <span class="message-row-handle">~ridiculously_long_irc_nickname_xx</span>
+          <span class="message-row-time">15:00</span>
+        </div>
+        <div class="message-row-text"><span class="message-row-text-body">checking that nick truncation works</span></div>
+      </div>
+    </div></div>
+  </div>
+</body>
+</html>

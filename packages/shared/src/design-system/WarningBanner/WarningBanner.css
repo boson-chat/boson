@@ -1,0 +1,39 @@
+.bds-warning {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--space-4) var(--space-5);
+  margin: var(--space-6) 0;
+}
+
+.bds-warning-warn {
+  background: color-mix(in oklab, var(--warn), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--warn), transparent 80%);
+  border-left: 3px solid var(--warn);
+}
+.bds-warning-warn .bds-warning-title { color: var(--warn); }
+
+.bds-warning-danger {
+  background: color-mix(in oklab, var(--danger), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--danger), transparent 80%);
+  border-left: 3px solid var(--danger);
+}
+.bds-warning-danger .bds-warning-title { color: var(--danger); }
+
+.bds-warning-info {
+  background: color-mix(in oklab, var(--info), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--info), transparent 80%);
+  border-left: 3px solid var(--info);
+}
+.bds-warning-info .bds-warning-title { color: var(--info); }
+
+.bds-warning-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.bds-warning-text {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  line-height: 1.5;
+}

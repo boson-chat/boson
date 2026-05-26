@@ -1,0 +1,56 @@
+.bds-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  cursor: pointer;
+  user-select: none;
+}
+
+.bds-toggle-disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bds-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.bds-toggle-track {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  transition: background var(--motion-base) var(--ease-standard), border-color var(--motion-base) var(--ease-standard);
+}
+
+.bds-toggle-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--fg-3);
+  border-radius: 50%;
+  transition: transform var(--motion-base) var(--ease-standard), background var(--motion-base) var(--ease-standard);
+}
+
+.bds-toggle-input:checked + .bds-toggle-track {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.bds-toggle-input:checked + .bds-toggle-track .bds-toggle-thumb {
+  background: var(--accent-on);
+  transform: translateX(14px);
+}
+
+.bds-toggle-input:focus-visible + .bds-toggle-track { box-shadow: var(--focus-ring); }
+
+.bds-toggle-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}

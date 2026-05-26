@@ -1,0 +1,56 @@
+# Runs semantic-release on every push to main. Conventional-commit messages
+# determine the bump (feat → minor, fix → patch). semantic-release writes
+# CHANGELOG.md, syncs the version into every package.json via
+# scripts/sync-version.cjs, commits the bump back to main with [skip ci],
+# pushes a tag (vX.Y.Z), and creates the GitHub Release.
+#
+# Tagging is the trigger for the downstream artifact workflows
+# (release-docker, release-client) — they publish to the GitHub Release
+# this workflow just opened. No coordination via inputs/outputs needed.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Don't double-publish if main updates while a release is mid-flight.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write       # commit CHANGELOG + push tag
+  issues: write         # comment on closed issues
+  pull-requests: write  # comment on merged PRs
+  id-token: write       # provenance (future-proof for npm publish)
+
+jobs:
+  release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    # Skip the release loop on the commits semantic-release itself pushed
+    # — they carry "[skip ci]" in the subject but we also gate explicitly
+    # in case someone uses that string for unrelated reasons.
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # semantic-release needs full history to walk commits since the
+          # last tag.
+          fetch-depth: 0
+          # Use a PAT (or rely on the default GITHUB_TOKEN — the workflow's
+          # `contents: write` perm is sufficient for pushing to main).
+          persist-credentials: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      # Install only the root deps (semantic-release + its plugins). We do
+      # NOT need to install the workspaces here because semantic-release
+      # only touches package.json metadata + the changelog.
+      - name: install
+        run: npm ci --ignore-scripts
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release

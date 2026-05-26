@@ -1,0 +1,35 @@
+.bds-input {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  outline: none;
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+
+.bds-input::placeholder { color: var(--fg-3); }
+
+.bds-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.bds-input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bds-input-md {
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-base);
+}
+
+.bds-input-sm {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.bds-input-invalid,
+.bds-input-invalid:focus {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--danger), transparent 70%);
+}

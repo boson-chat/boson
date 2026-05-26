@@ -1,0 +1,41 @@
+.steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--gap-xl);
+  counter-reset: step;
+}
+
+@media (max-width: 920px) {
+  .steps {
+    grid-template-columns: 1fr;
+    gap: var(--gap-lg);
+  }
+}
+
+.step {
+  position: relative;
+  padding-top: 24px;
+  border-top: 1px solid var(--fg);
+}
+
+.step .step-num {
+  position: absolute;
+  top: -10px;
+  left: 0;
+  background: var(--bg);
+  padding-right: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.step h3 {
+  margin: 8px 0 8px;
+}
+
+.step p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}

@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: boson
+      POSTGRES_PASSWORD: boson
+      POSTGRES_DB: boson
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U boson -d boson"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+    networks:
+      - boson-network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      PORT: 3000
+      ENV: development
+      DBHOST: postgres
+      DBPORT: 5432
+      DBNAME: boson
+      DBUSERNAME: boson
+      DBPASSWORD: boson
+      DBSSLMODE: disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - boson-network
+
+  # Local IRC server for E2E tests. Plain TCP on 6667; do not expose externally.
+  ergo:
+    image: ghcr.io/ergochat/ergo:stable
+    ports:
+      - '6667:6667'
+    volumes:
+      - ./infra/ergo/ircd.yaml:/ircd/ircd.yaml:ro
+      - ergo_data:/ircd
+    networks:
+      - boson-network
+    profiles:
+      - testing
+
+networks:
+  boson-network:
+
+volumes:
+  postgres_data:
+  ergo_data:

@@ -1,0 +1,72 @@
+/* ─────────────────────────────────────────────────────────────────────────
+ * Boson Design System — terminal-modern
+ * Dark, sharp, monospace-heavy. Not Discord. Not Slack. IRC-native.
+ * ─────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Surface ramp — near-black, no pure black */
+  --bg:         #070709;
+  --surface:    #0D0D11;
+  --surface-raised: #141418;
+  --surface-hover: #1A1A20;
+  --border:     #24242E;
+  --border-soft:#1C1C24;
+  --fg:         #E2E2EA;
+  --fg-2:       #9898A8;
+  --fg-3:       #686878;
+  --muted:      #444452;
+  --meta:       #363644;
+
+  /* Accent — amber phosphor */
+  --accent:     #D97706;
+  --accent-on:  #070709;
+  --accent-dim: color-mix(in oklab, var(--accent), transparent 85%);
+
+  /* Semantic */
+  --success:    #10B981;
+  --warn:       #F59E0B;
+  --danger:     #EF4444;
+  --info:       #3B82F6;
+
+  /* Typography */
+  --font-display: 'JetBrains Mono', ui-monospace, monospace;
+  --font-body:    'Inter', -apple-system, system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 18px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
+
+  --leading-body: 1.5;
+  --leading-tight: 1.25;
+  --tracking-display: -0.01em;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Radius — sharp */
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+
+  /* Motion */
+  --motion-fast: 100ms;
+  --motion-base: 150ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 2px color-mix(in oklab, var(--accent), transparent 50%);
+}
