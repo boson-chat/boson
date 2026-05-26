@@ -78,7 +78,7 @@ jobs:
           # at runtime (see resources/engine/).
           VITE_BOSON_API_URL: https://api.boson.chat
           VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           # Pin the version into the installer so it matches the tag.
           # electron-builder reads version from client/package.json, which
           # semantic-release has already synced via scripts/sync-version.cjs
