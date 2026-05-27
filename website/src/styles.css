@@ -162,3 +162,36 @@ h1, h2, h3, h4 { text-wrap: balance; }
 .code .c-acc { color: var(--frame-acc); }
 .code .c-ok  { color: var(--frame-str); }
 .code .prompt::before { content: '$ '; color: var(--frame-cmt); }
+
+/* ---------- Page transitions ---------- */
+/* Two layers, applied per the comment in src/hooks/usePageTransitions.ts:
+   1. Modern browsers run the route change inside
+      document.startViewTransition(...), which uses the rule below to
+      crossfade between the old and new view-transition-name 'page'.
+   2. Browsers without that API still re-mount <main> on every route
+      change (the React-style key forces it) and the keyframe below
+      runs once per mount — fade-up entrance, no exit transition. */
+main.route-content {
+  view-transition-name: page;
+  animation: page-enter 280ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+}
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Native View Transitions API: tune the auto-generated old/new pseudo
+   element timings. Without this the default is ~300ms ease, which is
+   fine; we just nudge to match the keyframe above so feel is
+   consistent regardless of which path runs. */
+::view-transition-old(page),
+::view-transition-new(page) {
+  animation-duration: 240ms;
+  animation-timing-function: cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  main.route-content { animation: none; }
+  ::view-transition-old(page),
+  ::view-transition-new(page) { animation-duration: 0s; }
+}

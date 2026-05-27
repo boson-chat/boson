@@ -1,7 +1,7 @@
 .topnav {
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 30;
   background: color-mix(in oklab, var(--bg) 88%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -46,8 +46,179 @@
   color: var(--fg);
 }
 
+/* Hamburger — hidden on desktop, shown on mobile. Three lines that
+   collapse + rotate into an X when .is-open is set. Pure CSS, no SVG
+   morphing libraries. The button itself is 40x40 so it satisfies the
+   recommended 44px tap target with some forgiving padding. */
+.topnav-burger {
+  display: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  position: relative;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease),
+              background-color var(--motion-fast) var(--ease);
+}
+.topnav-burger:hover { border-color: var(--fg-3); }
+
+.topnav-burger-line {
+  position: absolute;
+  left: 50%;
+  width: 18px;
+  height: 1.5px;
+  background: var(--fg);
+  border-radius: 1px;
+  transform-origin: center;
+  transform: translateX(-50%);
+  transition:
+    top var(--motion-base) var(--ease),
+    bottom var(--motion-base) var(--ease),
+    transform var(--motion-base) var(--ease),
+    opacity var(--motion-fast) var(--ease);
+}
+.topnav-burger-line:nth-child(1) { top: 12px; }
+.topnav-burger-line:nth-child(2) { top: 50%; transform: translate(-50%, -50%); }
+.topnav-burger-line:nth-child(3) { bottom: 12px; }
+
+.topnav-burger.is-open .topnav-burger-line:nth-child(1) {
+  top: 50%;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.topnav-burger.is-open .topnav-burger-line:nth-child(2) {
+  opacity: 0;
+  /* Slide out as it fades so the X looks intentional rather than
+     three lines collapsing on top of each other. */
+  transform: translate(-50%, -50%) scaleX(0.4);
+}
+.topnav-burger.is-open .topnav-burger-line:nth-child(3) {
+  bottom: 50%;
+  transform: translate(-50%, 50%) rotate(-45deg);
+}
+
 @media (max-width: 720px) {
-  .topnav-nav {
-    display: none;
-  }
+  /* Need .topnav prefix so we beat the global `.btn { display: inline-flex }`
+     specificity that applies to .topnav-download (which also carries .btn). */
+  .topnav .topnav-nav,
+  .topnav .topnav-download { display: none; }
+  .topnav-burger { display: inline-flex; align-items: center; justify-content: center; }
+}
+
+/* --------------- Mobile menu overlay --------------- */
+/* Full-screen drawer. Always in the DOM so we can animate both enter
+   and exit (display:none would lose the exit transition). When closed:
+   pointer-events off + opacity 0 + visibility hidden. When open: the
+   whole thing fades in, the panel slides up, the nav items stagger
+   in one after the other. */
+.mobile-menu {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in oklab, var(--bg) 96%, transparent);
+  backdrop-filter: blur(20px);
+  padding: 88px var(--gap-lg) var(--gap-xl);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity var(--motion-base) var(--ease),
+    visibility 0s linear var(--motion-base);
+}
+
+.mobile-menu.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  /* Reverse the visibility delay so it shows immediately on open
+     and only hides after the fade-out has finished on close. */
+  transition:
+    opacity var(--motion-base) var(--ease),
+    visibility 0s linear 0s;
+}
+
+.mobile-menu-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-xl);
+  transform: translateY(12px);
+  opacity: 0;
+  transition:
+    transform var(--motion-base) var(--ease),
+    opacity var(--motion-base) var(--ease);
+}
+.mobile-menu.is-open .mobile-menu-panel {
+  transform: translateY(0);
+  opacity: 1;
+  /* Wait for the backdrop fade to start before the panel rises,
+     so the entrance reads as "fade in, then content arrives." */
+  transition-delay: 60ms;
+}
+
+.mobile-menu-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.mobile-menu-nav a {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 5.5vw, 28px);
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--fg);
+  padding: 18px 0;
+  border-bottom: 1px solid var(--border);
+  /* Stagger via --i (set inline). Each link is offset 60ms after the
+     previous so the menu unfurls from top to bottom rather than
+     popping in at once. */
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity var(--motion-base) var(--ease),
+    transform var(--motion-base) var(--ease),
+    color var(--motion-fast) var(--ease);
+  transition-delay: calc(120ms + var(--i, 0) * 60ms);
+}
+.mobile-menu-nav a:hover,
+.mobile-menu-nav a:active,
+.mobile-menu-nav a[aria-current='page'] {
+  color: var(--accent);
+}
+.mobile-menu.is-open .mobile-menu-nav a {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.mobile-menu-cta {
+  align-self: stretch;
+  text-align: center;
+  font-size: 16px !important;
+  padding: 16px 24px !important;
+  margin-top: auto;
+  opacity: 0;
+  transform: translateY(16px);
+  transition:
+    opacity var(--motion-base) var(--ease),
+    transform var(--motion-base) var(--ease);
+  transition-delay: calc(120ms + var(--i, 0) * 60ms);
+}
+.mobile-menu.is-open .mobile-menu-cta {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Reduce motion: skip the slide/stagger; keep the opacity so the
+   menu visibly opens but without anything moving. */
+@media (prefers-reduced-motion: reduce) {
+  .mobile-menu-panel,
+  .mobile-menu-nav a,
+  .mobile-menu-cta { transform: none !important; transition-delay: 0s !important; }
+  .topnav-burger-line { transition-duration: 0s !important; }
 }
