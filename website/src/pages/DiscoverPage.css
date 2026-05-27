@@ -56,19 +56,11 @@
   background: var(--accent);
 }
 
+/* Wrapper exists so the design-system Toggle sits on its own grid
+   column in .discover-controls. The Toggle itself owns the styling. */
 .discover-nsfw {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--muted);
-  cursor: pointer;
-  user-select: none;
-}
-.discover-nsfw input {
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
 }
 
 /* ---------- States ---------- */

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { AtomLoader, Badge, Card } from '@boson/shared';
+import { AtomLoader, Badge, Card, Toggle } from '@boson/shared';
 import { useLatestRelease } from '../hooks/useLatestRelease';
 import './DiscoverPage.css';
 
@@ -150,14 +150,9 @@ export function DiscoverPage() {
                 </button>
               ))}
             </div>
-            <label class="discover-nsfw">
-              <input
-                type="checkbox"
-                checked={showNsfw}
-                onChange={(e) => setShowNsfw((e.target as HTMLInputElement).checked)}
-              />
-              <span>Show NSFW</span>
-            </label>
+            <div class="discover-nsfw">
+              <Toggle checked={showNsfw} onChange={setShowNsfw} label="Show NSFW" />
+            </div>
           </div>
 
           {error ? (
