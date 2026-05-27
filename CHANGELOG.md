@@ -1,3 +1,9 @@
+## [0.3.0](https://github.com/boson-chat/boson/compare/v0.2.0...v0.3.0) (2026-05-27)
+
+### Features
+
+* DNS-TXT server verification + boson:// auth deep-link ([76a0969](https://github.com/boson-chat/boson/commit/76a0969456071e6229f3ad33c54666a2de2aa8a8))
+
 ## [0.2.0](https://github.com/boson-chat/boson/compare/v0.1.3...v0.2.0) (2026-05-27)
 
 ### Features
