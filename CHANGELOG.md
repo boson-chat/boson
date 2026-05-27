@@ -1,3 +1,9 @@
+## [0.1.2](https://github.com/boson-chat/boson/compare/v0.1.1...v0.1.2) (2026-05-27)
+
+### Bug Fixes
+
+* **ci:** drop invalid `--options runtime=no` from sidecar codesign ([fd6665d](https://github.com/boson-chat/boson/commit/fd6665d6b78389bd6841d97f3a69e8093bc98488))
+
 ## [0.1.1](https://github.com/boson-chat/boson/compare/v0.1.0...v0.1.1) (2026-05-27)
 
 ### Bug Fixes
