@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Card, Badge } from '@boson/shared';
 import { Terminal, Line, C } from '../components/Terminal/Terminal';
+import { useLatestRelease } from '../hooks/useLatestRelease';
 import './DownloadPage.css';
 
 type DetectedOS = 'mac' | 'windows' | 'linux' | null;
@@ -23,14 +24,11 @@ function detectOS(): DetectedOS {
   return null;
 }
 
-// Single source of truth for what the page advertises. Bump these two when
-// publishing a new release; everything below derives from them. Download
-// URLs are version-less — electron-builder emits stable filenames so the
-// /releases/latest/download/<file> pattern works for every release.
-const RELEASE_VERSION = '0.0.3';
-const RELEASE_DATE = '2026-05-26';
+// Repo + download URL templates. Versionless paths (releases/latest/...)
+// are what we hand visitors so each link keeps working across every
+// future release; the eyebrow / changelog row pull the actual
+// version+date from the live GitHub Releases API via useLatestRelease.
 const REPO_URL = 'https://github.com/boson-chat/boson';
-const RELEASE_URL = `${REPO_URL}/releases/tag/v${RELEASE_VERSION}`;
 const LATEST_URL = `${REPO_URL}/releases/latest`;
 const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`;
 const DL = (name: string) => `${REPO_URL}/releases/latest/download/${name}`;
@@ -41,6 +39,10 @@ export function DownloadPage() {
   // re-renders with the detected OS so the matching card lights up.
   const [os, setOS] = useState<DetectedOS>(null);
   useEffect(() => { setOS(detectOS()); }, []);
+  const release = useLatestRelease();
+  const releaseUrl = release.source === 'github'
+    ? release.url
+    : `${REPO_URL}/releases/tag/v${release.version}`;
   const wrapClass = (target: DetectedOS) =>
     `dl-card-wrap${os === target ? ' featured' : ''}`;
   const cardVariant = (target: DetectedOS) => (os === target ? 'raised' : undefined);
@@ -50,7 +52,9 @@ export function DownloadPage() {
     <>
       <section class="section hero download-hero">
         <div class="container" style="max-width: 720px;">
-          <p class="eyebrow">Download · v{RELEASE_VERSION} · {RELEASE_DATE}</p>
+          <p class="eyebrow">
+            Download · v{release.version}{release.releaseDate ? ` · ${release.releaseDate}` : ''}
+          </p>
           <h1>Get the Boson desktop client.</h1>
           <p class="lead" style="margin-top: 20px;">
             Native installers for macOS, Windows, and Linux — Electron UI with the local Go IRC
@@ -127,8 +131,8 @@ export function DownloadPage() {
             <a href={REPO_URL} rel="noopener" class="dl-source-link">
               github.com/boson-chat/boson
             </a>{' '}
-            · <a class="num" href={RELEASE_URL} rel="noopener">v{RELEASE_VERSION}</a>{' '}
-            tagged {RELEASE_DATE} · MIT
+            · <a class="num" href={releaseUrl} rel="noopener">v{release.version}</a>
+            {release.releaseDate ? ` tagged ${release.releaseDate}` : ''} · MIT
           </p>
         </div>
       </section>
@@ -182,8 +186,8 @@ export function DownloadPage() {
               <h3 style="margin-bottom: 12px; font-size: 16px;">macOS · Linux</h3>
               <Terminal>
                 <Line><C tone="cmt"># 1. compute the SHA-256 of the package you downloaded</C></Line>
-                <Line prompt>shasum -a 256 Boson-{RELEASE_VERSION}.dmg</Line>
-                <Line><C tone="ok">…</C> &nbsp;Boson-{RELEASE_VERSION}.dmg</Line>
+                <Line prompt>shasum -a 256 Boson-mac-arm64.dmg</Line>
+                <Line><C tone="ok">…</C> &nbsp;Boson-mac-arm64.dmg</Line>
                 <Line />
                 <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
                 <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
@@ -196,7 +200,7 @@ export function DownloadPage() {
               <h3 style="margin-bottom: 12px; font-size: 16px;">Windows (PowerShell)</h3>
               <Terminal>
                 <Line><C tone="cmt"># 1. compute the SHA-256 hash</C></Line>
-                <Line prompt>Get-FileHash Boson-Setup-{RELEASE_VERSION}.exe -Algorithm SHA256</Line>
+                <Line prompt>Get-FileHash Boson-Setup.exe -Algorithm SHA256</Line>
                 <Line />
                 <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
                 <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
@@ -270,13 +274,14 @@ export function DownloadPage() {
           </div>
           <div>
             <ReleaseRow
-              date={RELEASE_DATE}
-              title={`v${RELEASE_VERSION} — initial release`}
+              date={release.releaseDate || '—'}
+              title={`v${release.version} — latest`}
               platforms="all platforms"
             >
-              First public build. Multi-server IRC chat, server directory, guest mode, local Go
-              IRC bridge bundled as a sidecar. See the{' '}
-              <a href={RELEASE_URL} rel="noopener">release page</a> for the asset list.
+              The current desktop build. Multi-server IRC chat, server directory, guest mode,
+              local Go IRC bridge bundled as a sidecar. See the{' '}
+              <a href={releaseUrl} rel="noopener">release page</a> for the full asset list and
+              the changelog entry for what's new.
             </ReleaseRow>
           </div>
         </div>

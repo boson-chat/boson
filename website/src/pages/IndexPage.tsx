@@ -3,15 +3,11 @@ import { FeatureCard } from '../components/FeatureCard/FeatureCard';
 import { ScreenshotFrame } from '../components/ScreenshotFrame/ScreenshotFrame';
 import { Step, Steps } from '../components/StepList/StepList';
 import { Terminal, Line, C } from '../components/Terminal/Terminal';
-import pkg from '../../package.json';
+import { useLatestRelease } from '../hooks/useLatestRelease';
 import './IndexPage.css';
 
-// Pulled at build time from website/package.json, which semantic-release
-// keeps in sync with the latest tag via scripts/sync-version.cjs. So the
-// homepage badge always matches whatever client release is on GitHub.
-const VERSION = pkg.version;
-
 export function IndexPage() {
+  const { version } = useLatestRelease();
   return (
     <>
       <section class="section hero">
@@ -19,7 +15,7 @@ export function IndexPage() {
           <div>
             <span class="hero-availability">
               <span class="badge-dot" />
-              Early access · v{VERSION} · macOS, Windows, Linux
+              Early access · v{version} · macOS, Windows, Linux
             </span>
             <h1>A modern chat client. On infrastructure you can host.</h1>
             <p class="lead" style="margin-top: 20px;">
