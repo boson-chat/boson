@@ -1,3 +1,9 @@
+## [0.1.0](https://github.com/boson-chat/boson/compare/v0.0.3...v0.1.0) (2026-05-27)
+
+### Features
+
+* chat polish, away tracking, macOS install fix, website restructure ([3af45ac](https://github.com/boson-chat/boson/commit/3af45ac296a29086e62929444c44537dc87d0eb8))
+
 ## [0.0.3](https://github.com/boson-chat/boson/compare/v0.0.2...v0.0.3) (2026-05-26)
 
 ### Bug Fixes
