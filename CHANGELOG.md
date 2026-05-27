@@ -1,3 +1,9 @@
+## [0.1.1](https://github.com/boson-chat/boson/compare/v0.1.0...v0.1.1) (2026-05-27)
+
+### Bug Fixes
+
+* **website:** fetch latest version from GitHub releases API at runtime ([8deac2e](https://github.com/boson-chat/boson/commit/8deac2e6cdebd62e3141fa35670cd00939341dc5))
+
 ## [0.1.0](https://github.com/boson-chat/boson/compare/v0.0.3...v0.1.0) (2026-05-27)
 
 ### Features
