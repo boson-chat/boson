@@ -1,3 +1,9 @@
+## [0.1.3](https://github.com/boson-chat/boson/compare/v0.1.2...v0.1.3) (2026-05-27)
+
+### Bug Fixes
+
+* **client:** ad-hoc sign macOS .app via afterSign hook ([270553e](https://github.com/boson-chat/boson/commit/270553eceb4d6ec43421dc3e16e934e2dc36f735))
+
 ## [0.1.2](https://github.com/boson-chat/boson/compare/v0.1.1...v0.1.2) (2026-05-27)
 
 ### Bug Fixes
