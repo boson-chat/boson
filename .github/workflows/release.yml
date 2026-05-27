@@ -23,6 +23,7 @@ permissions:
   issues: write         # comment on closed issues
   pull-requests: write  # comment on merged PRs
   id-token: write       # provenance (future-proof for npm publish)
+  actions: write        # `gh workflow run` the downstream tag builds
 
 jobs:
   release:
@@ -50,7 +51,34 @@ jobs:
       # only touches package.json metadata + the changelog.
       - name: install
         run: npm ci --ignore-scripts
+      # Capture the latest tag *before* semantic-release runs so we can
+      # detect whether a new tag was actually published. Plain commits
+      # (chore:, docs:) don't produce a release — when that happens the
+      # post-tag matches and we skip the downstream dispatch.
+      - name: latest tag (pre)
+        id: tag_pre
+        run: echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
       - name: semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npx semantic-release
+      # Re-read the latest tag. semantic-release pushes via GITHUB_TOKEN,
+      # which deliberately doesn't chain-trigger `push: tags` workflows
+      # (a GitHub-Actions safety to prevent infinite recursion). So if a
+      # tag was just cut, we have to dispatch the downstream artifact
+      # builds ourselves.
+      - name: latest tag (post)
+        id: tag_post
+        run: |
+          git fetch --tags --quiet
+          echo "tag=$(git describe --tags --abbrev=0 2>/dev/null || echo none)" >> "$GITHUB_OUTPUT"
+      - name: Dispatch tag-triggered workflows
+        if: steps.tag_post.outputs.tag != steps.tag_pre.outputs.tag && steps.tag_post.outputs.tag != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_TAG: ${{ steps.tag_post.outputs.tag }}
+        run: |
+          set -e
+          echo "Dispatching downstream builds for $NEW_TAG"
+          gh workflow run "Release Electron client" --ref "$NEW_TAG"
+          gh workflow run "Release Docker images"   --ref "$NEW_TAG"
