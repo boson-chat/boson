@@ -4,17 +4,47 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/boson-chat/boson/backend/internal/services/server/dns"
 )
+
+// stubVerifier lets the service-level tests assert how Verify dispatches
+// without spinning up a real DNS server (that's the dns package's job —
+// see backend/internal/services/server/dns/verify_test.go).
+type stubVerifier struct {
+	calls  int
+	report dns.Report
+	err    error
+}
+
+func (s *stubVerifier) Verify(_ context.Context, _, _ string, _ dns.Mode) (dns.Report, error) {
+	s.calls++
+	return s.report, s.err
+}
+
+// newServiceForTest wires a ServerService with a fixed clock + stub
+// verifier so the timestamps and DNS outcomes in tests are deterministic.
+func newServiceForTest(repo *stubRepo, now time.Time, verifier dns.Verifier) *ServerService {
+	return &ServerService{
+		Repository: repo,
+		Verifier:   verifier,
+		now:        func() time.Time { return now },
+	}
+}
 
 type stubRepo struct {
 	list        func(ctx context.Context, f ListFilter) ([]*Server, error)
 	findByID    func(ctx context.Context, id uuid.UUID) (*Server, error)
 	create      func(ctx context.Context, s *Server) error
+	update      func(ctx context.Context, s *Server) error
+	listByOwner func(ctx context.Context, principalID uuid.UUID) ([]*Server, error)
 	createCalls []*Server
+	updateCalls []*Server
 }
 
 func (s *stubRepo) List(ctx context.Context, f ListFilter) ([]*Server, error) {
@@ -29,6 +59,19 @@ func (s *stubRepo) Create(ctx context.Context, srv *Server) error {
 		return s.create(ctx, srv)
 	}
 	return nil
+}
+func (s *stubRepo) Update(ctx context.Context, srv *Server) error {
+	s.updateCalls = append(s.updateCalls, srv)
+	if s.update != nil {
+		return s.update(ctx, srv)
+	}
+	return nil
+}
+func (s *stubRepo) ListByOwner(ctx context.Context, principalID uuid.UUID) ([]*Server, error) {
+	if s.listByOwner != nil {
+		return s.listByOwner(ctx, principalID)
+	}
+	return nil, nil
 }
 
 func TestServerService_List_PassesFilterThrough(t *testing.T) {
@@ -112,4 +155,222 @@ func TestServerService_Create_RepoErrorPropagates(t *testing.T) {
 		Name:     "Test",
 	})
 	assert.ErrorIs(t, err, boom)
+}
+
+func TestServerService_Create_GeneratesTokenAndIssuedAt(t *testing.T) {
+	repo := &stubRepo{}
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(repo, now, &stubVerifier{})
+
+	srv, err := svc.Create(context.Background(), uuid.New(), CreateInput{
+		Hostname: "irc.example.org",
+		Port:     6697,
+		TLS:      true,
+		Name:     "Test",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, srv.VerificationToken)
+	assert.NotEmpty(t, *srv.VerificationToken)
+	require.NotNil(t, srv.VerificationTokenIssuedAt)
+	assert.Equal(t, now, *srv.VerificationTokenIssuedAt)
+	assert.Equal(t, "pending", srv.VerificationStatus)
+}
+
+func TestServerService_RegenerateToken_RotatesAndRewindsStatus(t *testing.T) {
+	owner := uuid.New()
+	serverID := uuid.New()
+	originalToken := "original-token-value"
+	originalIssued := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	originalChecked := originalIssued.Add(time.Hour)
+	stored := &Server{
+		ID:                        serverID,
+		Hostname:                  "irc.example.org",
+		Port:                      6697,
+		RegisteredBy:              &owner,
+		VerificationStatus:        "verified", // proves we rewind to pending
+		VerificationToken:         &originalToken,
+		VerificationTokenIssuedAt: &originalIssued,
+		VerificationLastCheckedAt: &originalChecked,
+	}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(repo, now, &stubVerifier{})
+
+	out, err := svc.RegenerateToken(context.Background(), serverID, owner)
+	require.NoError(t, err)
+	require.NotNil(t, out.VerificationToken)
+	assert.NotEqual(t, originalToken, *out.VerificationToken)
+	require.NotNil(t, out.VerificationTokenIssuedAt)
+	assert.Equal(t, now, *out.VerificationTokenIssuedAt)
+	assert.Equal(t, "pending", out.VerificationStatus, "should rewind to pending")
+	assert.Nil(t, out.VerificationLastCheckedAt, "should clear last-checked")
+	require.Len(t, repo.updateCalls, 1)
+}
+
+func TestServerService_RegenerateToken_RejectsNonOwner(t *testing.T) {
+	owner := uuid.New()
+	intruder := uuid.New()
+	stored := &Server{RegisteredBy: &owner}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	svc := newServiceForTest(repo, time.Now(), &stubVerifier{})
+
+	_, err := svc.RegenerateToken(context.Background(), uuid.New(), intruder)
+	assert.ErrorIs(t, err, ErrNotOwner)
+	assert.Empty(t, repo.updateCalls, "non-owner attempt must not persist anything")
+}
+
+func TestServerService_Verify_SuccessTransitionsToVerified(t *testing.T) {
+	owner := uuid.New()
+	token := "tok"
+	issued := time.Date(2026, 5, 27, 10, 0, 0, 0, time.UTC) // 2h ago
+	stored := &Server{
+		Hostname:                  "irc.example.org",
+		RegisteredBy:              &owner,
+		VerificationStatus:        "pending",
+		VerificationToken:         &token,
+		VerificationTokenIssuedAt: &issued,
+	}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	verifier := &stubVerifier{report: dns.Report{Success: true, Results: map[string]dns.Result{}}}
+	now := time.Date(2026, 5, 27, 12, 0, 0, 0, time.UTC)
+	svc := newServiceForTest(repo, now, verifier)
+
+	srv, report, err := svc.Verify(context.Background(), uuid.New(), owner, dns.ModeStrict)
+	require.NoError(t, err)
+	assert.True(t, report.Success)
+	assert.Equal(t, "verified", srv.VerificationStatus)
+	require.NotNil(t, srv.VerificationLastCheckedAt)
+	assert.Equal(t, now, *srv.VerificationLastCheckedAt)
+}
+
+func TestServerService_Verify_FailKeepsPending(t *testing.T) {
+	owner := uuid.New()
+	token := "tok"
+	issued := time.Date(2026, 5, 27, 10, 0, 0, 0, time.UTC)
+	stored := &Server{
+		Hostname:                  "irc.example.org",
+		RegisteredBy:              &owner,
+		VerificationStatus:        "pending",
+		VerificationToken:         &token,
+		VerificationTokenIssuedAt: &issued,
+	}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	verifier := &stubVerifier{report: dns.Report{Success: false, Results: map[string]dns.Result{}}}
+	svc := newServiceForTest(repo, time.Now(), verifier)
+
+	srv, report, err := svc.Verify(context.Background(), uuid.New(), owner, dns.ModeStrict)
+	require.NoError(t, err)
+	assert.False(t, report.Success)
+	assert.Equal(t, "pending", srv.VerificationStatus, "failed verify must NOT promote to verified")
+	assert.NotNil(t, srv.VerificationLastCheckedAt, "last-checked still bumped on failure")
+}
+
+func TestServerService_Verify_FailWhileVerifiedStaysVerified(t *testing.T) {
+	// Re-verify path (cron worker, mode=lenient). A soft miss must NOT
+	// demote a verified row — the lapsed transition is owned by the
+	// worker logic in phase 3, not by Verify itself.
+	owner := uuid.New()
+	token := "tok"
+	issued := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
+	stored := &Server{
+		Hostname:                  "irc.example.org",
+		RegisteredBy:              &owner,
+		VerificationStatus:        "verified",
+		VerificationToken:         &token,
+		VerificationTokenIssuedAt: &issued,
+	}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	verifier := &stubVerifier{report: dns.Report{Success: false, Results: map[string]dns.Result{}}}
+	svc := newServiceForTest(repo, time.Now(), verifier)
+
+	srv, _, err := svc.Verify(context.Background(), uuid.New(), owner, dns.ModeLenient)
+	require.NoError(t, err)
+	assert.Equal(t, "verified", srv.VerificationStatus, "soft miss must not demote a verified row")
+}
+
+func TestServerService_Verify_TokenExpiredAfter72h(t *testing.T) {
+	owner := uuid.New()
+	token := "tok"
+	issued := time.Date(2026, 5, 24, 12, 0, 0, 0, time.UTC) // 73h ago
+	stored := &Server{
+		Hostname:                  "irc.example.org",
+		RegisteredBy:              &owner,
+		VerificationStatus:        "pending",
+		VerificationToken:         &token,
+		VerificationTokenIssuedAt: &issued,
+	}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	verifier := &stubVerifier{}
+	now := time.Date(2026, 5, 27, 13, 0, 0, 0, time.UTC) // 73h after issue
+	svc := newServiceForTest(repo, now, verifier)
+
+	_, _, err := svc.Verify(context.Background(), uuid.New(), owner, dns.ModeStrict)
+	assert.ErrorIs(t, err, ErrTokenExpired)
+	assert.Equal(t, 0, verifier.calls, "expired token must short-circuit before hitting DNS")
+}
+
+func TestServerService_Verify_RejectsNonOwner(t *testing.T) {
+	owner := uuid.New()
+	intruder := uuid.New()
+	stored := &Server{RegisteredBy: &owner}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	verifier := &stubVerifier{}
+	svc := newServiceForTest(repo, time.Now(), verifier)
+
+	_, _, err := svc.Verify(context.Background(), uuid.New(), intruder, dns.ModeStrict)
+	assert.ErrorIs(t, err, ErrNotOwner)
+	assert.Equal(t, 0, verifier.calls, "non-owner must not be allowed to trigger DNS lookups")
+}
+
+func TestServerService_ListByOwner_PassesThrough(t *testing.T) {
+	owner := uuid.New()
+	want := []*Server{{Name: "A"}, {Name: "B"}}
+	repo := &stubRepo{
+		listByOwner: func(_ context.Context, p uuid.UUID) ([]*Server, error) {
+			assert.Equal(t, owner, p)
+			return want, nil
+		},
+	}
+	svc := newServiceForTest(repo, time.Now(), &stubVerifier{})
+
+	got, err := svc.ListByOwner(context.Background(), owner)
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestServer_ToOwnerView_IncludesTokenOnlyForPending(t *testing.T) {
+	token := "tok"
+	issued := time.Now()
+	pending := &Server{
+		VerificationStatus:        "pending",
+		VerificationToken:         &token,
+		VerificationTokenIssuedAt: &issued,
+	}
+	view := pending.ToOwnerView()
+	withToken, ok := view.(ServerWithToken)
+	require.True(t, ok, "pending row should marshal as ServerWithToken; got %T", view)
+	assert.Equal(t, token, withToken.VerificationToken)
+
+	verified := &Server{
+		VerificationStatus:        "verified",
+		VerificationToken:         &token,
+		VerificationTokenIssuedAt: &issued,
+	}
+	view2 := verified.ToOwnerView()
+	_, isServer := view2.(*Server)
+	assert.True(t, isServer, "verified row should fall back to plain *Server (token redacted)")
 }

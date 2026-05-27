@@ -1,0 +1,16 @@
+.auth-confirmed { padding-block: clamp(72px, 10vw, 120px); }
+
+.auth-fallback {
+  margin-top: 40px;
+  padding: 28px 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
+
+.auth-fallback-tip {
+  margin: 20px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.55;
+}

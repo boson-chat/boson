@@ -94,10 +94,19 @@ describe('AuthService', () => {
     await expect(svc.signIn('a@b', 'pw')).rejects.toThrow('bad creds');
   });
 
-  it('signUp delegates to supabase', async () => {
+  it('signUp delegates to supabase with the confirmation redirect URL', async () => {
     mockSignUp.mockResolvedValueOnce({ error: null });
     await svc.signUp('a@b', 'pw');
-    expect(mockSignUp).toHaveBeenCalledWith({ email: 'a@b', password: 'pw' });
+    // The redirect URL is what makes the confirmation email open the
+    // desktop app — Supabase mails out a link to this page on
+    // boson.chat, which then forwards into boson://auth/confirmed.
+    // Regression-protect the URL so an accidental refactor doesn't
+    // silently route confirmations to /404.
+    expect(mockSignUp).toHaveBeenCalledWith({
+      email: 'a@b',
+      password: 'pw',
+      options: { emailRedirectTo: 'https://boson.chat/auth/confirmed' },
+    });
   });
 
   it('getToken returns access_token from session', async () => {

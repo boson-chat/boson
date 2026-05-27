@@ -8,14 +8,20 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/boson-chat/boson/backend/http/middleware"
 	"github.com/boson-chat/boson/backend/internal/services/server"
+	"github.com/boson-chat/boson/backend/internal/services/server/dns"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errors is only used in a couple of inline assertions below — silence
+// the unused import lint when those branches are disabled.
+var _ = errors.Is
 
 func callServers(t *testing.T, svc server.ServerServiceImpl, principal middleware.Principal, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -237,3 +243,122 @@ func TestServerHandler_RegisterProtected_MountsWriteRoutesOnly(t *testing.T) {
 	assert.Equal(t, stdhttp.StatusMethodNotAllowed, getRR.Code,
 		"GET /servers must not be on the protected mux — it lives on the public one")
 }
+
+func TestServerHandler_ListMine_RoutesToOwner(t *testing.T) {
+	principal := middleware.Principal{UserID: uuid.New()}
+	want := []*server.Server{
+		{Name: "Test", VerificationStatus: "pending"},
+		{Name: "Other", VerificationStatus: "verified"},
+	}
+	var seenOwner uuid.UUID
+	svc := &stubServerService{
+		listByOwner: func(_ context.Context, p uuid.UUID) ([]*server.Server, error) {
+			seenOwner = p
+			return want, nil
+		},
+	}
+
+	rr := callServers(t, svc, principal, "GET", "/servers/me", "")
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+	assert.Equal(t, principal.UserID, seenOwner)
+
+	var body struct {
+		Servers []map[string]any `json:"servers"`
+		Count   int              `json:"count"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.Equal(t, 2, body.Count)
+}
+
+func TestServerHandler_Verify_ReturnsConflictWithMatrixOnFailure(t *testing.T) {
+	srvID := uuid.New()
+	principal := middleware.Principal{UserID: uuid.New()}
+	svc := &stubServerService{
+		verify: func(_ context.Context, _, _ uuid.UUID, _ dns.Mode) (*server.Server, dns.Report, error) {
+			return &server.Server{VerificationStatus: "pending"}, dns.Report{
+				Success: false,
+				Results: map[string]dns.Result{
+					"cloudflare": {Outcome: dns.OutcomeMatch},
+					"google":     {Outcome: dns.OutcomeMissingRecord},
+					"quad9":      {Outcome: dns.OutcomeMatch},
+				},
+			}, nil
+		},
+	}
+	rr := callServers(t, svc, principal, "POST", "/servers/"+srvID.String()+"/verify", "")
+	assert.Equal(t, stdhttp.StatusConflict, rr.Code)
+	var body struct {
+		Success bool       `json:"success"`
+		Report  dns.Report `json:"report"`
+	}
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&body))
+	assert.False(t, body.Success)
+	assert.Equal(t, dns.OutcomeMissingRecord, body.Report.Results["google"].Outcome)
+}
+
+func TestServerHandler_Verify_ReturnsOKOnSuccess(t *testing.T) {
+	srvID := uuid.New()
+	principal := middleware.Principal{UserID: uuid.New()}
+	svc := &stubServerService{
+		verify: func(_ context.Context, _, _ uuid.UUID, _ dns.Mode) (*server.Server, dns.Report, error) {
+			return &server.Server{VerificationStatus: "verified"}, dns.Report{Success: true}, nil
+		},
+	}
+	rr := callServers(t, svc, principal, "POST", "/servers/"+srvID.String()+"/verify", "")
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+}
+
+func TestServerHandler_Verify_TranslatesServiceErrorsToStatus(t *testing.T) {
+	srvID := uuid.New()
+	principal := middleware.Principal{UserID: uuid.New()}
+
+	cases := []struct {
+		name    string
+		svcErr  error
+		wantHTTP int
+	}{
+		{"not found", server.ErrNotFound, stdhttp.StatusNotFound},
+		{"not owner", server.ErrNotOwner, stdhttp.StatusForbidden},
+		{"expired", server.ErrTokenExpired, stdhttp.StatusGone},
+		{"no token", server.ErrMissingToken, stdhttp.StatusConflict},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &stubServerService{
+				verify: func(_ context.Context, _, _ uuid.UUID, _ dns.Mode) (*server.Server, dns.Report, error) {
+					return nil, dns.Report{}, tc.svcErr
+				},
+			}
+			rr := callServers(t, svc, principal, "POST", "/servers/"+srvID.String()+"/verify", "")
+			assert.Equal(t, tc.wantHTTP, rr.Code, "service err %v -> HTTP %d", tc.svcErr, tc.wantHTTP)
+		})
+	}
+}
+
+func TestServerHandler_RegenerateToken_RoutesToService(t *testing.T) {
+	srvID := uuid.New()
+	principal := middleware.Principal{UserID: uuid.New()}
+	token := "new-token"
+	issued := timeNow()
+	svc := &stubServerService{
+		regenerateToken: func(_ context.Context, id, p uuid.UUID) (*server.Server, error) {
+			assert.Equal(t, srvID, id)
+			assert.Equal(t, principal.UserID, p)
+			return &server.Server{
+				VerificationStatus:        "pending",
+				VerificationToken:         &token,
+				VerificationTokenIssuedAt: &issued,
+			}, nil
+		},
+	}
+	rr := callServers(t, svc, principal, "POST", "/servers/"+srvID.String()+"/regenerate-token", "")
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+	// Pending row → response uses ServerWithToken which exposes the token
+	body := rr.Body.String()
+	assert.Contains(t, body, token, "pending row must surface the fresh token")
+}
+
+// timeNow is a tiny helper so tests don't have to construct fresh
+// timestamps inline. The actual value doesn't matter — we just need
+// a non-nil *time.Time on the stored row.
+func timeNow() time.Time { return time.Now() }

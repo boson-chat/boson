@@ -14,18 +14,32 @@ import (
 var ErrNotFound = errors.New("server not found")
 
 type ListFilter struct {
-	Query        string
-	Language     string
-	IncludeNSFW  bool
-	Sort         string // "users" | "newest" | "active" (default: "users")
-	Limit        int
-	Offset       int
+	Query       string
+	Language    string
+	IncludeNSFW bool
+	Sort        string // "users" | "newest" | "active" (default: "users")
+	Limit       int
+	Offset      int
+	// Status optionally pins the list to a single verification status.
+	// Empty = no filter (used by admin paths + the existing test seed).
+	// Public GET /servers passes "verified" so pending / lapsed rows
+	// don't pollute the user-facing directory.
+	Status string
 }
 
 type ServerRepositoryImpl interface {
 	List(ctx context.Context, f ListFilter) ([]*Server, error)
 	FindByID(ctx context.Context, id uuid.UUID) (*Server, error)
 	Create(ctx context.Context, s *Server) error
+	// Update persists every column on s. Used by the verify + regenerate
+	// flows where status, token, and the *_at timestamps move together;
+	// callers Find → mutate → Update so we get a single atomic write.
+	Update(ctx context.Context, s *Server) error
+	// ListByOwner returns every server registered by principalID
+	// regardless of verification status, sorted newest-first. Drives
+	// GET /servers/me in the API. Token is included on the model and
+	// the HTTP layer redacts it for non-pending rows via ToOwnerView.
+	ListByOwner(ctx context.Context, principalID uuid.UUID) ([]*Server, error)
 }
 
 type ServerRepository struct {
@@ -44,6 +58,9 @@ func (r *ServerRepository) List(ctx context.Context, f ListFilter) ([]*Server, e
 	}
 	if f.Language != "" {
 		q = q.Where("? = ANY(languages)", f.Language)
+	}
+	if f.Status != "" {
+		q = q.Where("verification_status = ?", f.Status)
 	}
 	if tsq := buildPrefixTSQuery(f.Query); tsq != "" {
 		q = q.Where("search_vector @@ to_tsquery('simple', ?)", tsq)
@@ -111,4 +128,24 @@ func (r *ServerRepository) FindByID(ctx context.Context, id uuid.UUID) (*Server,
 		return nil, err
 	}
 	return &s, nil
+}
+
+// Update persists every column on s. We use gorm Save (PK-based UPDATE
+// across all columns) rather than Updates, because the verify flow writes
+// nullable timestamps to non-null values and a struct-level Updates would
+// silently skip them per gorm's zero-value rules.
+func (r *ServerRepository) Update(ctx context.Context, s *Server) error {
+	return r.db.DB.WithContext(ctx).Save(s).Error
+}
+
+func (r *ServerRepository) ListByOwner(ctx context.Context, principalID uuid.UUID) ([]*Server, error) {
+	var servers []*Server
+	err := r.db.DB.WithContext(ctx).
+		Where("registered_by = ?", principalID).
+		Order("registered_at DESC").
+		Find(&servers).Error
+	if err != nil {
+		return nil, err
+	}
+	return servers, nil
 }

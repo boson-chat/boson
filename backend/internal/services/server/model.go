@@ -25,8 +25,14 @@ type Server struct {
 	IsNSFW                    bool           `gorm:"column:is_nsfw;not null" json:"is_nsfw"`
 	IsFeatured                bool           `gorm:"not null" json:"is_featured"`
 	VerificationStatus        string         `gorm:"not null" json:"verification_status"`
-	VerificationToken         *string        `json:"-"`
-	VerificationLastCheckedAt *time.Time     `json:"verification_last_checked_at,omitempty"`
+	// VerificationToken stays redacted in normal JSON marshalling (`json:"-"`)
+	// so the public GET /servers and GET /servers/{id} responses never expose
+	// it. The /servers/me endpoint marshals through a separate view struct
+	// (ServerWithToken) when the caller is the row's owner AND the row is
+	// still pending — see ToOwnerView below.
+	VerificationToken           *string    `json:"-"`
+	VerificationTokenIssuedAt   *time.Time `gorm:"column:verification_token_issued_at" json:"-"`
+	VerificationLastCheckedAt   *time.Time `json:"verification_last_checked_at,omitempty"`
 	HealthStatus              string         `gorm:"not null" json:"health_status"`
 	HealthLastCheckedAt       *time.Time     `json:"health_last_checked_at,omitempty"`
 	UserCount                 *int           `json:"user_count,omitempty"`
@@ -36,3 +42,29 @@ type Server struct {
 }
 
 func (Server) TableName() string { return "servers" }
+
+// ServerWithToken is the response shape returned from owner-scoped routes
+// (POST /servers, POST /servers/{id}/regenerate-token, GET /servers/me on
+// pending rows). It embeds Server so JSON consumers see every public field
+// plus the still-pending verification_token. Once a row reaches
+// `verified` / `lapsed`, the token is no longer included even on the
+// owner-scoped GET so it doesn't accidentally re-leak after issuance.
+type ServerWithToken struct {
+	*Server
+	VerificationToken         string    `json:"verification_token"`
+	VerificationTokenIssuedAt time.Time `json:"verification_token_issued_at"`
+}
+
+// ToOwnerView wraps a Server into the token-bearing view ONLY when the row
+// is still pending. Verified / lapsed rows fall back to the public shape
+// so the token is dropped from the response.
+func (s *Server) ToOwnerView() any {
+	if s.VerificationStatus != "pending" || s.VerificationToken == nil || s.VerificationTokenIssuedAt == nil {
+		return s
+	}
+	return ServerWithToken{
+		Server:                    s,
+		VerificationToken:         *s.VerificationToken,
+		VerificationTokenIssuedAt: *s.VerificationTokenIssuedAt,
+	}
+}

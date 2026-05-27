@@ -1,6 +1,6 @@
 import { render } from 'preact';
 import { App, buildApp } from './app';
-import { initDeepLinkBridge } from './modules/deep-link/deep-link';
+import { initDeepLinkBridge, subscribeAuthConfirmed } from './modules/deep-link/deep-link';
 import './styles.css';
 
 // Attach to the main-process deep-link bridge before any UI mounts so
@@ -65,6 +65,27 @@ if (!publishableKey) {
     if (props.engine) {
       props.engine.open().catch((err) => console.error('engine.open failed', err));
     }
+    // Email-confirmation deep-links arrive via the boson://auth/confirmed
+    // URL after the user clicks the link in the Supabase confirmation
+    // email. We hydrate the Supabase session from the tokens (or the
+    // PKCE code) here so the app drops them straight into the
+    // post-signup landing screen.
+    subscribeAuthConfirmed((params) => {
+      const tryHydrate = async (): Promise<void> => {
+        if (params.code) {
+          await props.auth.exchangeAuthCode(params.code);
+          return;
+        }
+        if (params.accessToken && params.refreshToken) {
+          await props.auth.setSessionFromTokens(params.accessToken, params.refreshToken);
+          return;
+        }
+      };
+      tryHydrate().catch((err) => {
+        console.error('auth-confirmed hydration failed', err);
+        props.auth.markFatal(err instanceof Error ? err.message : String(err));
+      });
+    });
     render(<App {...props} />, root);
   })();
 }

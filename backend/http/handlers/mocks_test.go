@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/boson-chat/boson/backend/internal/services/server"
+	"github.com/boson-chat/boson/backend/internal/services/server/dns"
 	"github.com/boson-chat/boson/backend/internal/services/user"
 
 	"github.com/google/uuid"
@@ -35,11 +36,14 @@ func (s *stubUserService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // stubServerService is a hand-written mock of server.ServerServiceImpl.
 type stubServerService struct {
-	list       func(ctx context.Context, f server.ListFilter) ([]*server.Server, error)
-	getByID    func(ctx context.Context, id uuid.UUID) (*server.Server, error)
-	create     func(ctx context.Context, registeredBy uuid.UUID, in server.CreateInput) (*server.Server, error)
-	createArgs []server.CreateInput
-	listArgs   []server.ListFilter
+	list            func(ctx context.Context, f server.ListFilter) ([]*server.Server, error)
+	getByID         func(ctx context.Context, id uuid.UUID) (*server.Server, error)
+	create          func(ctx context.Context, registeredBy uuid.UUID, in server.CreateInput) (*server.Server, error)
+	listByOwner     func(ctx context.Context, principalID uuid.UUID) ([]*server.Server, error)
+	regenerateToken func(ctx context.Context, serverID, principalID uuid.UUID) (*server.Server, error)
+	verify          func(ctx context.Context, serverID, principalID uuid.UUID, mode dns.Mode) (*server.Server, dns.Report, error)
+	createArgs      []server.CreateInput
+	listArgs        []server.ListFilter
 }
 
 func (s *stubServerService) List(ctx context.Context, f server.ListFilter) ([]*server.Server, error) {
@@ -52,4 +56,22 @@ func (s *stubServerService) GetByID(ctx context.Context, id uuid.UUID) (*server.
 func (s *stubServerService) Create(ctx context.Context, registeredBy uuid.UUID, in server.CreateInput) (*server.Server, error) {
 	s.createArgs = append(s.createArgs, in)
 	return s.create(ctx, registeredBy, in)
+}
+func (s *stubServerService) ListByOwner(ctx context.Context, principalID uuid.UUID) ([]*server.Server, error) {
+	if s.listByOwner != nil {
+		return s.listByOwner(ctx, principalID)
+	}
+	return nil, nil
+}
+func (s *stubServerService) RegenerateToken(ctx context.Context, serverID, principalID uuid.UUID) (*server.Server, error) {
+	if s.regenerateToken != nil {
+		return s.regenerateToken(ctx, serverID, principalID)
+	}
+	return nil, nil
+}
+func (s *stubServerService) Verify(ctx context.Context, serverID, principalID uuid.UUID, mode dns.Mode) (*server.Server, dns.Report, error) {
+	if s.verify != nil {
+		return s.verify(ctx, serverID, principalID, mode)
+	}
+	return nil, dns.Report{}, nil
 }

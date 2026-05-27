@@ -1,6 +1,7 @@
 import { LocationProvider, Router, Route, useLocation } from 'preact-iso';
 import { IndexPage } from './pages/IndexPage';
 import { AboutPage } from './pages/AboutPage';
+import { AuthConfirmedPage } from './pages/AuthConfirmedPage';
 import { DiscoverPage } from './pages/DiscoverPage';
 import { DocsPage } from './pages/DocsPage';
 import { DownloadPage } from './pages/DownloadPage';
@@ -34,6 +35,7 @@ function AppShell() {
         <Router>
           <Route path="/" component={IndexPage} />
           <Route path="/about" component={AboutPage} />
+          <Route path="/auth/confirmed" component={AuthConfirmedPage} />
           <Route path="/discover" component={DiscoverPage} />
           <Route path="/docs" component={DocsPage} />
           <Route path="/download" component={DownloadPage} />
