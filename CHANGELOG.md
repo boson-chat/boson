@@ -1,3 +1,9 @@
+## [0.2.0](https://github.com/boson-chat/boson/compare/v0.1.3...v0.2.0) (2026-05-27)
+
+### Features
+
+* website /discover directory + boson:// deep-link Join ([fd7a2a8](https://github.com/boson-chat/boson/commit/fd7a2a8c50b49a25d08d8a53a715730837cb3a28))
+
 ## [0.1.3](https://github.com/boson-chat/boson/compare/v0.1.2...v0.1.3) (2026-05-27)
 
 ### Bug Fixes
