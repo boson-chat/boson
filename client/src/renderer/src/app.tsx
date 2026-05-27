@@ -55,6 +55,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         authedHandle={authedHandle}
         authedEmail={session?.user?.email ?? null}
         onSignOut={() => { void auth.signOut(); }}
+        directory={directory}
       />
     </div>
   );

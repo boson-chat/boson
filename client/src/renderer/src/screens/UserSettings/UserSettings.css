@@ -131,3 +131,202 @@
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
+
+/* ---------- Server hosting section ---------- */
+
+.server-hosting-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.server-hosting-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.server-hosting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 4px 2px;
+}
+.server-hosting-row-titles { min-width: 0; flex: 1; }
+.server-hosting-row-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--fg);
+}
+.server-hosting-row-host {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-2);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.server-hosting-row-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.server-hosting-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-4) 0;
+  color: var(--fg-2);
+  text-align: center;
+}
+.server-hosting-empty-hint {
+  font-size: 13px;
+  color: var(--fg-3);
+  max-width: 42ch;
+  margin: 0 auto;
+}
+
+.server-hosting-error {
+  color: var(--danger, #ef4444);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  margin: 0 0 var(--space-2);
+}
+
+.server-hosting-form { gap: var(--space-4); }
+.server-hosting-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+@media (max-width: 720px) {
+  .server-hosting-form-row { grid-template-columns: 1fr; }
+}
+.server-hosting-form-toggle {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+}
+.server-hosting-textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color var(--motion-fast) var(--ease);
+}
+.server-hosting-textarea:focus { border-color: var(--accent); outline: none; }
+
+.server-hosting-verify-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.server-hosting-steps {
+  margin: 0;
+  padding: 0 0 0 22px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.server-hosting-steps li {
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.65;
+}
+.server-hosting-steps strong { color: var(--fg); font-weight: 600; }
+.server-hosting-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+.server-hosting-terminal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin: var(--space-2) 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--fg-2);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.server-hosting-record { color: var(--fg); }
+
+.server-hosting-copy-row {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.server-hosting-verify-action {
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.server-hosting-verify-buttons {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.server-hosting-banner {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  line-height: 1.55;
+  border: 1px solid var(--border);
+}
+.server-hosting-banner-success {
+  background: color-mix(in oklab, var(--success, #10b981) 12%, var(--surface));
+  border-color: color-mix(in oklab, var(--success, #10b981) 40%, var(--border));
+  color: var(--fg);
+}
+.server-hosting-banner-warn {
+  background: color-mix(in oklab, var(--accent) 12%, var(--surface));
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--border));
+  color: var(--fg);
+}
+.server-hosting-banner-error {
+  background: color-mix(in oklab, var(--danger, #ef4444) 14%, var(--surface));
+  border-color: color-mix(in oklab, var(--danger, #ef4444) 40%, var(--border));
+  color: var(--fg);
+}
+
+.server-hosting-matrix {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+  font-family: var(--font-mono);
+}
+.server-hosting-matrix td { padding: 4px 0; }
+.server-hosting-matrix-provider { color: var(--fg-2); }
+.server-hosting-matrix-outcome {
+  text-align: right;
+  font-weight: 600;
+}
+.server-hosting-matrix-outcome-match          { color: var(--success, #10b981); }
+.server-hosting-matrix-outcome-missing_record { color: var(--danger, #ef4444); }
+.server-hosting-matrix-outcome-timeout        { color: var(--warn, #f5a524); }
+.server-hosting-matrix-outcome-error          { color: var(--fg-3); }

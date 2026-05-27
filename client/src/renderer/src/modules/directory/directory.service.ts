@@ -1,5 +1,12 @@
 import { HttpClient, HttpError } from '../../shared/http/http.client';
-import type { Server, ServersResponse, User } from './directory.types';
+import type {
+  RegisterServerInput,
+  Server,
+  ServerWithToken,
+  ServersResponse,
+  User,
+  VerifyResponse,
+} from './directory.types';
 
 export interface ListServersParams {
   q?: string;
@@ -57,5 +64,51 @@ export class DirectoryService {
 
   async putSavedSession(payload: unknown): Promise<void> {
     await this.http.put('/me/session', { payload });
+  }
+
+  // ---- Server submission flow ----
+
+  // Register a new server in the directory. Returns the row plus the
+  // freshly-minted verification_token — surfaced exactly once, on this
+  // response. Subsequent GETs redact the token unless we hit
+  // listMyServers and the row is still pending.
+  async registerServer(input: RegisterServerInput): Promise<ServerWithToken> {
+    return this.http.post<ServerWithToken>('/servers', input);
+  }
+
+  // Rotate the verification token. Used by the "I lost it" path and
+  // automatically after a 410 Gone (token-expired) response from verify.
+  async regenerateServerToken(serverID: string): Promise<ServerWithToken> {
+    return this.http.post<ServerWithToken>(`/servers/${serverID}/regenerate-token`, null);
+  }
+
+  // List servers the calling user has registered, any status. The
+  // backend returns ServerWithToken for pending rows; verified/lapsed
+  // rows come back without the token field.
+  async listMyServers(): Promise<ServerWithToken[]> {
+    const res = await this.http.get<{ servers: ServerWithToken[]; count: number }>('/servers/me');
+    return res.servers ?? [];
+  }
+
+  // Run the DNS TXT check against the registered hostname. Returns the
+  // full report (per-resolver outcomes) on both success AND failure —
+  // a 409 partial-match response carries the same body, so the caller
+  // can render the resolver matrix without a second request.
+  //
+  // Throws on 410 (token expired), 403 (not the owner), 404 (server
+  // gone), or 429 (rate-limited). The caller is expected to handle
+  // each of those by status code via HttpError.
+  async verifyServer(serverID: string): Promise<VerifyResponse> {
+    try {
+      return await this.http.post<VerifyResponse>(`/servers/${serverID}/verify`, null);
+    } catch (err) {
+      // 409 carries the matrix in the body — we surface it as a normal
+      // return so the UI can show "Cloudflare ✓ / Google ✗" without
+      // needing a separate error-handling code path.
+      if (err instanceof HttpError && err.status === 409 && err.body && typeof err.body === 'object') {
+        return err.body as VerifyResponse;
+      }
+      throw err;
+    }
   }
 }

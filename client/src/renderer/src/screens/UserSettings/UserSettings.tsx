@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { Badge, Button, Card, Divider, Field, Input, Modal } from '@boson/shared';
+import type { DirectoryService } from '../../modules/directory';
 import {
   clearGuestSession,
   emitGuestChange,
@@ -8,6 +9,7 @@ import {
   saveGuestSession,
 } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
+import { ServerHostingSection } from './ServerHostingSection';
 import './UserSettings.css';
 
 // Global user-level settings — appearance, identity, account. Opened from
@@ -21,12 +23,23 @@ import './UserSettings.css';
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'account';
+type SectionId = 'identity' | 'appearance' | 'server-hosting' | 'account';
 
-const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
-  { id: 'identity',   label: 'Identity',   description: 'Display nick + handle' },
-  { id: 'appearance', label: 'Appearance', description: 'Theme + density' },
-  { id: 'account',    label: 'Account',    description: 'Sign in / out' },
+interface MenuEntry {
+  id: SectionId;
+  label: string;
+  description: string;
+  // Some entries only make sense when signed in. Guest users see them
+  // missing from the rail rather than greyed out — the section is
+  // gated on having a Supabase JWT, which guests don't have.
+  authedOnly?: boolean;
+}
+
+const MENU: ReadonlyArray<MenuEntry> = [
+  { id: 'identity',       label: 'Identity',       description: 'Display nick + handle' },
+  { id: 'appearance',     label: 'Appearance',     description: 'Theme + density' },
+  { id: 'server-hosting', label: 'Server hosting', description: 'Register an IRC server', authedOnly: true },
+  { id: 'account',        label: 'Account',        description: 'Sign in / out' },
 ];
 
 interface UserSettingsProps {
@@ -37,18 +50,20 @@ interface UserSettingsProps {
   // Authenticated email (for the Account section). Null in guest mode.
   authedEmail: string | null;
   onSignOut: () => void;
+  directory: DirectoryService;
 }
 
-export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut }: UserSettingsProps) {
+export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory }: UserSettingsProps) {
   const [section, setSection] = useState<SectionId>('identity');
   const guest = loadGuestSession();
   const mode: 'guest' | 'account' = guest ? 'guest' : 'account';
+  const visibleMenu = MENU.filter((m) => !m.authedOnly || mode === 'account');
 
   return (
     <Modal open={open} onClose={onClose} title="User settings">
       <div class="user-settings">
         <nav class="user-settings-menu" aria-label="Settings sections">
-          {MENU.map((m) => (
+          {visibleMenu.map((m) => (
             <button
               key={m.id}
               type="button"
@@ -71,6 +86,9 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
             />
           )}
           {section === 'appearance' && <AppearanceSection />}
+          {section === 'server-hosting' && mode === 'account' && (
+            <ServerHostingSection directory={directory} />
+          )}
           {section === 'account' && (
             <AccountSection
               mode={mode}
