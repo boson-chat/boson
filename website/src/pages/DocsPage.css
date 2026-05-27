@@ -40,7 +40,38 @@
   color: var(--muted);
   transition: color var(--motion-fast) var(--ease);
 }
-.docs-sidebar a:hover { color: var(--fg); }
+.docs-sidebar a:hover,
+.docs-sidebar a.active { color: var(--fg); }
+.docs-sidebar-note {
+  margin: -4px 0 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--warn, var(--accent));
+  opacity: 0.85;
+}
+
+/* Group headers inside the docs body — bigger, separated by a clear
+   rule from the surrounding sections, no leading section divider. */
+.docs-group-header {
+  margin-top: 24px;
+  padding: 28px 0 4px;
+  border-top: 1px solid var(--border);
+}
+.docs-group-header:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.docs-group-header h2 {
+  font-size: clamp(28px, 2.4vw, 36px);
+  margin: 8px 0 12px;
+  letter-spacing: -0.01em;
+}
+.docs-group-header p.muted {
+  max-width: 72ch;
+  font-size: 15px;
+  line-height: 1.65;
+}
+/* A group-header is followed by a doc-section; the section already
+   draws its own top border, so kill the second rule. */
+.docs-group-header + .doc-section { margin-top: 32px; padding-top: 0; border-top: 0; }
 
 .doc-section + .doc-section {
   margin-top: 64px;

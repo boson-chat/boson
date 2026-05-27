@@ -25,6 +25,11 @@ interface ServerRailProps {
   // tile's contextmenu (right-click) handler. Without it, the context menu
   // doesn't appear and tiles behave as before.
   onOpenServerSettings?: (serverId: string) => void;
+  // Disconnect + drop the named server from the active session AND the
+  // saved-session set (i.e. it won't re-restore next launch). Wired to
+  // the "Leave server" item in the right-click menu. Optional: when
+  // absent, the menu item is hidden.
+  onLeaveServer?: (serverId: string) => void;
 }
 
 // ServerRail renders one tile per connected server, plus a `+` button that
@@ -32,13 +37,13 @@ interface ServerRailProps {
 // multi-tile (Discord/Slack-style); otherwise it falls back to a single-tile
 // view driven by `activeServerName` for legacy callers.
 export function ServerRail({
-  servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings,
+  servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings, onLeaveServer,
 }: ServerRailProps) {
   // Right-click context menu state. Anchored to the tile, positioned at the
   // event's client coords so the menu pops up under the cursor.
   const [menu, setMenu] = useState<{ serverId: string; x: number; y: number } | null>(null);
   const handleContextMenu = (e: MouseEvent, serverId: string): void => {
-    if (!onOpenServerSettings) return;
+    if (!onOpenServerSettings && !onLeaveServer) return;
     e.preventDefault();
     setMenu({ serverId, x: e.clientX, y: e.clientY });
   };
@@ -125,12 +130,13 @@ export function ServerRail({
         +
       </button>
 
-      {menu && onOpenServerSettings && (
+      {menu && (
         <ServerRailContextMenu
           x={menu.x}
           y={menu.y}
           onClose={closeMenu}
-          onDetails={() => { onOpenServerSettings(menu.serverId); closeMenu(); }}
+          onDetails={onOpenServerSettings ? () => { onOpenServerSettings(menu.serverId); closeMenu(); } : undefined}
+          onLeave={onLeaveServer ? () => { onLeaveServer(menu.serverId); closeMenu(); } : undefined}
         />
       )}
     </nav>
@@ -144,10 +150,11 @@ interface ServerRailContextMenuProps {
   x: number;
   y: number;
   onClose: () => void;
-  onDetails: () => void;
+  onDetails?: () => void;
+  onLeave?: () => void;
 }
 
-function ServerRailContextMenu({ x, y, onClose, onDetails }: ServerRailContextMenuProps) {
+function ServerRailContextMenu({ x, y, onClose, onDetails, onLeave }: ServerRailContextMenuProps) {
   useEffect(() => {
     const onDown = (e: MouseEvent): void => {
       const t = e.target as HTMLElement | null;
@@ -171,9 +178,21 @@ function ServerRailContextMenu({ x, y, onClose, onDetails }: ServerRailContextMe
       style={`top: ${y}px; left: ${x}px;`}
       role="menu"
     >
-      <button type="button" class="server-rail-context-item" role="menuitem" onClick={onDetails}>
-        Server details
-      </button>
+      {onDetails && (
+        <button type="button" class="server-rail-context-item" role="menuitem" onClick={onDetails}>
+          Server details
+        </button>
+      )}
+      {onLeave && (
+        <button
+          type="button"
+          class="server-rail-context-item server-rail-context-item-danger"
+          role="menuitem"
+          onClick={onLeave}
+        >
+          Leave server
+        </button>
+      )}
     </div>
   );
 }

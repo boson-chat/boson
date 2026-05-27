@@ -146,6 +146,13 @@
   font-size: var(--text-sm);
 }
 
+.directory-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
 /* --------------------------------------------------------------------
    Card grid. Auto-flowing minmax columns mean the layout shrinks from
    3-up to 2-up to 1-up cleanly as the viewport (or modal) narrows.

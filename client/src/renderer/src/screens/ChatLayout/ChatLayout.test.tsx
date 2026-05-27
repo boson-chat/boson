@@ -46,6 +46,7 @@ const populatedState: ChatState = {
       typing: [],
       unread: 0,
       mentions: 0,
+      topic: '',
     },
   ],
   activeChannel: '#general',

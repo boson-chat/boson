@@ -20,10 +20,11 @@ export interface NamesParams { serverId: string; channel: string }
 export interface DisconnectParams { serverId: string }
 export interface TagmsgParams { serverId: string; target: string; tags: Record<string, string> }
 export interface ListParams { serverId: string }
+export interface AwayParams { serverId: string; message: string }
 
 export interface ClientCommand {
-  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list';
-  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams;
+  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away';
+  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams;
 }
 
 export type PartParams = JoinParams;

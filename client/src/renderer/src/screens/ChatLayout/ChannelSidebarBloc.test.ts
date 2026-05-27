@@ -6,7 +6,7 @@ import {
 } from './ChannelSidebarBloc';
 
 function makeChannel(name: string): ChatChannel {
-  return { name, messages: [], joined: true, members: [], typing: [], unread: 0, mentions: 0 };
+  return { name, messages: [], joined: true, members: [], typing: [], unread: 0, mentions: 0, topic: '' };
 }
 
 interface BlocHandle {

@@ -6,7 +6,7 @@ import { MemoryChatHistoryStore } from '../history';
 // FakeServerSession mirrors the ServerSession surface ChatService consumes.
 // Tests drive incoming events via emit() and inspect outgoing commands via
 // the *Calls fields.
-interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'onEvent' | 'onChannelDirectory' | 'serverId'> {
+interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'onEvent' | 'onChannelDirectory' | 'serverId'> {
   emit(e: IrcEvent): void;
   emitDirectory(entries: { name: string; userCount: number; topic: string }[]): void;
   joinCalls: string[];
@@ -15,6 +15,7 @@ interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privm
   namesCalls: string[];
   tagmsgCalls: Array<{ target: string; tags: Record<string, string> }>;
   listCalls: number;
+  awayCalls: Array<{ message: string }>;
 }
 
 function fakeSession(serverId = 'srv-test'): FakeServerSession {
@@ -28,12 +29,14 @@ function fakeSession(serverId = 'srv-test'): FakeServerSession {
     namesCalls: [],
     tagmsgCalls: [],
     listCalls: 0,
+    awayCalls: [],
     join: (channel: string) => { f.joinCalls.push(channel); },
     part: (channel: string) => { f.partCalls.push(channel); },
     privmsg: (target: string, message: string) => { f.privmsgCalls.push({ target, message }); },
     names: (channel: string) => { f.namesCalls.push(channel); },
     tagmsg: (target: string, tags: Record<string, string>) => { f.tagmsgCalls.push({ target, tags }); },
     list: () => { f.listCalls += 1; },
+    away: (message: string) => { f.awayCalls.push({ message }); },
     onEvent: (fn: EventListener) => { listener = fn; return () => { listener = null; }; },
     onChannelDirectory: (fn) => { directoryListener = fn; return () => { directoryListener = null; }; },
     emit: (e) => listener?.(e),
@@ -982,5 +985,196 @@ describe('ChatService server info capture', () => {
       Args: ['CHANTYPES=#&', 'CASEMAPPING=rfc1459'],
     }));
     expect(chat.getState().serverInfo).toEqual({});
+  });
+});
+
+describe('ChatService channel topics', () => {
+  function getChannel(chat: ReturnType<typeof makeChat>['chat'], name: string) {
+    return chat.getState().channels.find((c) => c.name === name);
+  }
+
+  it('captures topic from RPL_TOPIC (332) on join', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: '332', Target: '#general', Message: 'Welcome to general — be nice.' }));
+    expect(getChannel(chat, '#general')?.topic).toBe('Welcome to general — be nice.');
+  });
+
+  it('RPL_NOTOPIC (331) clears the stored topic', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#empty' }));
+    engine.emit(makeEvent({ Kind: '332', Target: '#empty', Message: 'old topic' }));
+    engine.emit(makeEvent({ Kind: '331', Target: '#empty' }));
+    expect(getChannel(chat, '#empty')?.topic).toBe('');
+    expect(getChannel(chat, '#empty')?.topicSetBy).toBeUndefined();
+  });
+
+  it('live TOPIC change updates the topic + records setter + posts a system message', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: '332', Target: '#general', Message: 'old topic' }));
+    engine.emit(makeEvent({ Kind: 'TOPIC', From: 'alice', Target: '#general', Message: 'new topic, ratified' }));
+    const ch = getChannel(chat, '#general');
+    expect(ch?.topic).toBe('new topic, ratified');
+    expect(ch?.topicSetBy).toBe('alice');
+    expect(ch?.topicSetAt).toBeGreaterThan(0);
+    // Inline notice so scrollback shows who changed it.
+    const lastMsg = ch?.messages[ch.messages.length - 1];
+    expect(lastMsg?.kind).toBe('system');
+    expect(lastMsg?.text).toMatch(/alice changed the topic to: new topic, ratified/);
+  });
+
+  it('TOPIC clear (empty message) posts a "cleared" system message', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: 'TOPIC', From: 'bob', Target: '#general', Message: '' }));
+    const ch = getChannel(chat, '#general');
+    expect(ch?.topic).toBe('');
+    expect(ch?.topicSetBy).toBe('bob');
+    const lastMsg = ch?.messages[ch.messages.length - 1];
+    expect(lastMsg?.text).toMatch(/bob cleared the topic/);
+  });
+
+  it('RPL_TOPICWHOTIME (333) populates topicSetBy + topicSetAt without altering topic', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: '332', Target: '#general', Message: 'topic body' }));
+    engine.emit(makeEvent({ Kind: '333', Target: '#general', Args: ['carol', '1700000000'] }));
+    const ch = getChannel(chat, '#general');
+    expect(ch?.topic).toBe('topic body');
+    expect(ch?.topicSetBy).toBe('carol');
+    expect(ch?.topicSetAt).toBe(1700000000_000);
+  });
+
+  it('333 with malformed args is a no-op (no crash, fields untouched)', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: '333', Target: '#general', Args: ['carol'] }));
+    expect(getChannel(chat, '#general')?.topicSetBy).toBeUndefined();
+  });
+
+  it('ignores TOPIC events with no Target', () => {
+    const { chat, engine } = makeChat();
+    // Should not crash, should not create a phantom channel.
+    engine.emit(makeEvent({ Kind: 'TOPIC', From: 'alice', Message: 'orphan' }));
+    expect(chat.getState().channels).toEqual([]);
+  });
+});
+
+describe('ChatService away/online tracking', () => {
+  function findMember(chat: ReturnType<typeof makeChat>['chat'], channel: string, nick: string) {
+    return chat.getState().channels.find((c) => c.name === channel)?.members.find((m) => m.nick === nick);
+  }
+
+  it('AWAY event with a message marks the member as away across every shared channel', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#a', Message: 'alice me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#b' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#b', Message: 'alice me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#b' }));
+
+    engine.emit(makeEvent({ Kind: 'AWAY', From: 'alice', Message: 'bbiab' }));
+    expect(findMember(chat, '#a', 'alice')?.awayMessage).toBe('bbiab');
+    expect(findMember(chat, '#b', 'alice')?.awayMessage).toBe('bbiab');
+  });
+
+  it('AWAY event with empty message clears the away flag (i.e. they came back)', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#a', Message: 'alice me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'AWAY', From: 'alice', Message: 'bbiab' }));
+    expect(findMember(chat, '#a', 'alice')?.awayMessage).toBe('bbiab');
+
+    engine.emit(makeEvent({ Kind: 'AWAY', From: 'alice', Message: '' }));
+    expect(findMember(chat, '#a', 'alice')?.awayMessage).toBeNull();
+  });
+
+  it('RPL_AWAY (301) populates the awayMessage of the targeted nick', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#a', Message: 'alice me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '301', Args: ['alice'], Message: 'on lunch' }));
+    expect(findMember(chat, '#a', 'alice')?.awayMessage).toBe('on lunch');
+  });
+
+  it('RPL_NOWAWAY (306) emits a system confirmation in the active channel', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    chat.setActive('#a');
+    engine.emit(makeEvent({ Kind: '306', Message: 'You have been marked as being away' }));
+    const ch = chat.getState().channels.find((c) => c.name === '#a')!;
+    const last = ch.messages[ch.messages.length - 1];
+    expect(last?.kind).toBe('system');
+    expect(last?.text).toMatch(/marked as away/);
+  });
+
+  it('RPL_UNAWAY (305) emits a "no longer away" system confirmation', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    chat.setActive('#a');
+    engine.emit(makeEvent({ Kind: '305', Message: 'You are no longer marked as being away' }));
+    const ch = chat.getState().channels.find((c) => c.name === '#a')!;
+    const last = ch.messages[ch.messages.length - 1];
+    expect(last?.kind).toBe('system');
+    expect(last?.text).toMatch(/no longer marked as away/);
+  });
+
+  it('/away with a message dispatches AwayParams to the engine', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    chat.setActive('#a');
+    chat.input('/away bbiab');
+    expect(engine.awayCalls).toEqual([{ message: 'bbiab' }]);
+  });
+
+  it('/back is a /away with no message — clears the away flag', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    chat.setActive('#a');
+    chat.input('/back');
+    expect(engine.awayCalls).toEqual([{ message: '' }]);
+  });
+
+  it('RPL_WHOREPLY (352) with G status flag marks the named member as away', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#a', Message: 'alice bob me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '352', Target: '#a', From: 'alice', Args: ['G@'] }));
+    engine.emit(makeEvent({ Kind: '352', Target: '#a', From: 'bob',   Args: ['H'] }));
+    const ch = chat.getState().channels.find((c) => c.name === '#a')!;
+    expect(ch.members.find((m) => m.nick === 'alice')?.awayMessage).toBe('');
+    expect(ch.members.find((m) => m.nick === 'bob')?.awayMessage).toBeFalsy();
+  });
+
+  it('RPL_WHOREPLY (352) preserves any awayMessage already set by AWAY push', () => {
+    // If we get an AWAY push for the user first (after-join state change),
+    // a subsequent WHO for an unrelated channel must not erase the
+    // already-known reason. We keep the existing string when WHO confirms
+    // away-state but doesn't carry the reason itself.
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#a', Message: 'alice me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'AWAY', From: 'alice', Message: 'gone to lunch' }));
+    engine.emit(makeEvent({ Kind: '352', Target: '#a', From: 'alice', Args: ['G@'] }));
+    const ch = chat.getState().channels.find((c) => c.name === '#a')!;
+    expect(ch.members.find((m) => m.nick === 'alice')?.awayMessage).toBe('gone to lunch');
+  });
+
+  it('RPL_WHOREPLY (352) for an unknown channel is a no-op', () => {
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#a', Message: 'alice me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#a' }));
+    // Channel we never joined — must not throw or create a stray channel.
+    engine.emit(makeEvent({ Kind: '352', Target: '#nope', From: 'alice', Args: ['G'] }));
+    const state = chat.getState();
+    expect(state.channels.find((c) => c.name === '#nope')).toBeUndefined();
+    expect(state.channels.find((c) => c.name === '#a')!.members.find((m) => m.nick === 'alice')?.awayMessage).toBeFalsy();
   });
 });

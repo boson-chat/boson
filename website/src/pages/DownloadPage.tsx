@@ -1,6 +1,27 @@
+import { useEffect, useState } from 'preact/hooks';
 import { Card, Badge } from '@boson/shared';
 import { Terminal, Line, C } from '../components/Terminal/Terminal';
 import './DownloadPage.css';
+
+type DetectedOS = 'mac' | 'windows' | 'linux' | null;
+
+/**
+ * Best-effort OS detection from navigator. Runs after hydration so the
+ * initial paint shows no "Recommended" badge anywhere — better to skip
+ * the highlight for one frame than to highlight the wrong card on every
+ * visit. Modern browsers expose userAgentData with a structured platform
+ * field; older ones still hand us a userAgent string we can sniff.
+ */
+function detectOS(): DetectedOS {
+  if (typeof navigator === 'undefined') return null;
+  const uaData = (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData;
+  const platform = (uaData?.platform ?? navigator.platform ?? '').toLowerCase();
+  const ua = (navigator.userAgent ?? '').toLowerCase();
+  if (platform.includes('mac') || ua.includes('mac os')) return 'mac';
+  if (platform.includes('win') || ua.includes('windows')) return 'windows';
+  if (platform.includes('linux') || ua.includes('linux')) return 'linux';
+  return null;
+}
 
 // Single source of truth for what the page advertises. Bump these two when
 // publishing a new release; everything below derives from them. Download
@@ -15,6 +36,16 @@ const CHANGELOG_URL = `${REPO_URL}/blob/main/CHANGELOG.md`;
 const DL = (name: string) => `${REPO_URL}/releases/latest/download/${name}`;
 
 export function DownloadPage() {
+  // useState seeded with null so SSR / first-paint HTML has no card
+  // marked "Recommended". useEffect kicks in on the client only and
+  // re-renders with the detected OS so the matching card lights up.
+  const [os, setOS] = useState<DetectedOS>(null);
+  useEffect(() => { setOS(detectOS()); }, []);
+  const wrapClass = (target: DetectedOS) =>
+    `dl-card-wrap${os === target ? ' featured' : ''}`;
+  const cardVariant = (target: DetectedOS) => (os === target ? 'raised' : undefined);
+  const recommended = (target: DetectedOS) =>
+    os === target ? <Badge tone="info">Recommended for your OS</Badge> : null;
   return (
     <>
       <section class="section hero download-hero">
@@ -31,11 +62,11 @@ export function DownloadPage() {
       <section class="section download-grid-section">
         <div class="container">
           <div class="dl-grid">
-            <article class="dl-card-wrap featured">
-              <Card variant="raised">
+            <article class={wrapClass('mac')}>
+              <Card variant={cardVariant('mac')}>
                 <div class="dl-card">
                   <MacIcon />
-                  <Badge tone="info">Recommended</Badge>
+                  {recommended('mac')}
                   <h3>macOS</h3>
                   <span class="dl-arch">12.0+ · Apple Silicon or Intel</span>
                   <div class="dl-actions">
@@ -46,15 +77,19 @@ export function DownloadPage() {
                       Intel (.dmg)
                     </a>
                   </div>
-                  <span class="dl-bytes">Unsigned for v0.0.x · right-click → Open on first launch</span>
+                  <span class="dl-bytes">
+                    Unverified developer · see{' '}
+                    <a href="#first-launch-macos">first-launch notes</a>
+                  </span>
                 </div>
               </Card>
             </article>
 
-            <article class="dl-card-wrap">
-              <Card>
+            <article class={wrapClass('windows')}>
+              <Card variant={cardVariant('windows')}>
                 <div class="dl-card">
                   <WinIcon />
+                  {recommended('windows')}
                   <h3>Windows</h3>
                   <span class="dl-arch">x64 · Windows 10 / 11</span>
                   <div class="dl-actions">
@@ -67,10 +102,11 @@ export function DownloadPage() {
               </Card>
             </article>
 
-            <article class="dl-card-wrap">
-              <Card>
+            <article class={wrapClass('linux')}>
+              <Card variant={cardVariant('linux')}>
                 <div class="dl-card">
                   <LinuxIcon />
+                  {recommended('linux')}
                   <h3>Linux</h3>
                   <span class="dl-arch">x64 · AppImage or Debian/Ubuntu</span>
                   <div class="dl-actions">
@@ -119,7 +155,7 @@ export function DownloadPage() {
                 <li>Windows 10 (build 19041+) or Windows 11</li>
                 <li>250 MB free disk</li>
                 <li>Credential Manager available (default)</li>
-                <li>WebView2 runtime (auto-installed if missing)</li>
+                <li>No extra runtime — Chromium ships inside the installer</li>
               </ul>
             </div>
             <div>
@@ -182,6 +218,45 @@ export function DownloadPage() {
         </div>
       </section>
 
+      <section class="section" id="first-launch-macos">
+        <div class="container stack" style="gap: 28px;">
+          <div style="max-width: 42ch;">
+            <p class="eyebrow">First launch on macOS</p>
+            <h2>One extra step on Apple Silicon.</h2>
+          </div>
+          <p style="max-width: 72ch;">
+            v0.0.x ships ad-hoc signed — enough for macOS to load the binary, but the app isn't
+            registered with an Apple Developer ID yet, so Gatekeeper marks it as "unverified
+            developer" on first launch. Two ways past that:
+          </p>
+          <div class="grid-2" style="gap: 32px; align-items: start;">
+            <div>
+              <h3 style="margin-bottom: 12px; font-size: 16px;">Easier: right-click → Open</h3>
+              <p class="muted" style="margin-bottom: 12px;">
+                In Finder, right-click <strong>Boson.app</strong> in /Applications, choose
+                <strong> Open</strong>, then confirm in the dialog. macOS remembers the
+                exception; from then on it launches normally.
+              </p>
+            </div>
+            <div>
+              <h3 style="margin-bottom: 12px; font-size: 16px;">Faster: strip the quarantine bit</h3>
+              <p class="muted" style="margin-bottom: 12px;">
+                Run this once in Terminal — drops the <span class="num">com.apple.quarantine</span>{' '}
+                attribute Safari sets on downloaded apps:
+              </p>
+              <Terminal>
+                <Line prompt>xattr -cr /Applications/Boson.app</Line>
+              </Terminal>
+            </div>
+          </div>
+          <p class="muted" style="max-width: 72ch;">
+            On Windows, SmartScreen will show a "Windows protected your PC" prompt the first time —
+            click <strong>More info</strong> then <strong>Run anyway</strong>. Linux installers
+            don't need any of this.
+          </p>
+        </div>
+      </section>
+
       <section class="section">
         <div class="container stack" style="gap: 40px;">
           <div class="row-between">
@@ -209,10 +284,11 @@ export function DownloadPage() {
 
       <section class="section cta-strip download-cta">
         <div class="container">
-          <h2 style="margin-bottom: 20px;">
-            First time? Start with macOS or Windows — Linux works, but the keychain story is the
-            loudest there.
-          </h2>
+          <h2 style="margin-bottom: 20px;">Ready when you are.</h2>
+          <p class="lead" style="margin-bottom: 32px;">
+            The desktop client is the same on every platform — pick whichever installer matches
+            the machine you're on.
+          </p>
           <div class="hero-cta" style="justify-content: center;">
             <a class="btn btn-primary" href={LATEST_URL} rel="noopener">
               See all platforms on GitHub

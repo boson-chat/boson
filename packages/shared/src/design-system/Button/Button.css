@@ -3,7 +3,10 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-6);
+  /* Tightened from var(--space-3) var(--space-6) — earlier proportions
+     felt huge next to the rest of the chat chrome. 4/8 grid still
+     respected; matches the design mockup spacing. */
+  padding: var(--space-2) var(--space-4);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: 600;
@@ -24,8 +27,6 @@
 .bds-btn-primary {
   background: var(--accent);
   color: var(--accent-on);
-  padding: var(--space-4);
-  font-size: var(--text-base);
 }
 .bds-btn-primary:hover:not(:disabled) { opacity: 0.9; }
 
@@ -33,14 +34,13 @@
   background: var(--surface);
   border-color: var(--border);
   color: var(--fg-2);
-  padding: var(--space-3);
 }
 .bds-btn-secondary:hover:not(:disabled) { border-color: var(--fg-3); color: var(--fg); }
 
 .bds-btn-ghost {
   background: transparent;
   color: var(--fg-3);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-3);
 }
 .bds-btn-ghost:hover:not(:disabled) { color: var(--fg); background: var(--surface-hover); }
 

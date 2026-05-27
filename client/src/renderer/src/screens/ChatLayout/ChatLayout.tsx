@@ -35,11 +35,14 @@ interface Props {
   // Right-click a server-rail tile triggers this. The parent (DirectoryScreen)
   // takes over rendering and swaps in the full-page ServerSettings view.
   onOpenServerSettings?: (serverId: string) => void;
+  // "Leave server" handler — disconnects + drops the server from the saved
+  // session set. Wired into the right-click menu on each server-rail tile.
+  onLeaveServer?: (serverId: string) => void;
 }
 
 export function ChatLayout({
   chat, serverName, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
-  engineState = 'connected', onReconnect, connectionError, onOpenServerSettings,
+  engineState = 'connected', onReconnect, connectionError, onOpenServerSettings, onLeaveServer,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -57,6 +60,14 @@ export function ChatLayout({
   const active = state.channels.find((c) => c.name === state.activeChannel) ?? null;
   const { bannerError, helpCommands } = layoutState;
 
+  // Action callbacks bound to the right-click nick context menu. Wired
+  // to ChatService so both the member panel and the message-row nicks
+  // share the same behaviour — "Send message" opens a DM tab without
+  // requiring an immediate message body.
+  const nickActions = useMemo(() => ({
+    onSendMessage: (nick: string) => chat.openDM(nick),
+  }), [chat]);
+
   return (
     <div class="app-shell">
       <ServerRail
@@ -66,6 +77,7 @@ export function ChatLayout({
         onSelectServer={onSelectServer}
         onBrowseServers={onBrowseServers}
         onOpenServerSettings={onOpenServerSettings}
+        onLeaveServer={onLeaveServer}
       />
       <ChannelSidebar
         serverName={serverName}
@@ -100,8 +112,9 @@ export function ChatLayout({
         connectionError={connectionError}
         serverLog={state.serverLog}
         serverInfo={state.serverInfo}
+        nickActions={nickActions}
       />
-      <UserPanel channel={active} />
+      <UserPanel channel={active} nickActions={nickActions} />
 
       <Modal
         open={helpCommands !== null}

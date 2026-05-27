@@ -1,4 +1,5 @@
 import { Card } from '@boson/shared';
+import { useScrollSpy } from '../hooks/useScrollSpy';
 import './AboutPage.css';
 
 interface TocEntry {
@@ -17,7 +18,10 @@ const TOC: TocEntry[] = [
   { id: 'who', index: '07', label: 'Who made this' },
 ];
 
+const TOC_IDS = TOC.map((entry) => entry.id);
+
 export function AboutPage() {
+  const active = useScrollSpy(TOC_IDS);
   return (
     <>
       <section class="section essay-section">
@@ -28,7 +32,11 @@ export function AboutPage() {
               <ul>
                 {TOC.map((entry) => (
                   <li key={entry.id}>
-                    <a href={`#${entry.id}`}>
+                    <a
+                      href={`#${entry.id}`}
+                      class={active === entry.id ? 'active' : undefined}
+                      aria-current={active === entry.id ? 'location' : undefined}
+                    >
                       <span class="toc-counter">{entry.index}</span>
                       {entry.label}
                     </a>
@@ -41,53 +49,57 @@ export function AboutPage() {
               <div class="essay-meta">
                 <span>About</span>
                 <span>·</span>
-                <span>2026-05-24</span>
+                <span>2026-05-27</span>
                 <span>·</span>
-                <span>4 min read</span>
+                <span>5 min read</span>
               </div>
-              <h1>Why build a Discord clone on top of IRC in 2026?</h1>
+              <h1>Why a modern chat client, in 2026?</h1>
               <p class="essay-lead">
-                Because the protocol is good and the clients are bad. Most people don't want IRC —
-                they want chat. We want both, and we don't see why anyone should have to choose.
+                Because the people you want to talk to no longer use the clients that existed for
+                this. They use products that work, and the open networks have spent two decades
+                hoping users would put up with config files. Boson is the client that doesn't.
               </p>
 
               <h2 id="problem">The problem we're solving.</h2>
               <p>
-                IRC has been carrying group chat reliably since 1988. It is small, well-specified,
-                federated, self-hostable, and supported by a dozen independent server
-                implementations. None of that has changed.
+                There is a protocol that has been carrying group chat reliably since 1988. It is
+                small, well-specified, federated, self-hostable, and supported by a dozen
+                independent server implementations. None of that has changed.
               </p>
               <p>
-                What changed is that the people you most want to talk to no longer use it. They use
-                Slack and Discord — products that demand an account on a single vendor's server,
-                that go down when the vendor goes down, and that gate access to the conversation
-                behind that vendor's continued goodwill.
+                What changed is that almost nobody on it any more. The people you actually want
+                to talk to have moved to vendor-hosted products — chat apps that demand an account
+                on a single company's servers, that go down when that company goes down, and that
+                gate access to the conversation behind that company's continued goodwill.
               </p>
               <p>
-                The reason isn't that Discord is technically better. It's that Discord has a usable
-                client and IRC has 30 years of clients that ship with a config file.{' '}
-                <strong>The protocol is fine. The product is the problem.</strong>
+                The reason isn't that the vendor products are technically better. It's that they
+                have usable clients, and the open networks have nearly four decades of clients that
+                ship with a config file. <strong>The protocol is fine. The product is the
+                problem.</strong>
               </p>
 
               <div class="pull-quote">
-                Boson is what happens when you accept that IRC is the right substrate, and that the
-                substrate isn't enough.
+                Boson is what happens when you take the protocol as given, and admit that the
+                client is what's been missing.
               </div>
 
               <h2 id="design">Design decisions, in plain words.</h2>
 
-              <h3>1. Hide IRC.</h3>
+              <h3>1. Hide the plumbing.</h3>
               <p>
                 If you're a normal user, you should never see the letters <span class="num">SASL</span>.
                 You shouldn't have to pick a nick separate from your username. You shouldn't have to
-                know that <span class="num">/msg NickServ identify</span> is a thing. The app
-                handles all of that on your behalf, every time it connects.
+                know that <span class="num">/msg NickServ identify</span> is a thing — you shouldn't
+                even know there's a thing called NickServ. The app handles all of that on your
+                behalf, every time it connects.
               </p>
               <p>
-                If you're a power user, you can still connect with weechat. That isn't an escape
-                hatch — it's a load-bearing feature. The day Boson stops being the best IRC client
-                is the day you can leave without losing your identity, your channels, or your
-                servers.
+                If you're a power user who already lives in <span class="num">weechat</span> or{' '}
+                <span class="num">irssi</span>, those keep working — Boson doesn't claim your
+                servers, it just gives you a nicer way in. That isn't an escape hatch; it's a
+                load-bearing feature. The day Boson stops being the best client for these networks
+                is the day you can leave without losing anything.
               </p>
 
               <h3>2. Keep identity client-side.</h3>
@@ -194,23 +206,23 @@ export function AboutPage() {
                 <li class="shipped">
                   <span class="when">Shipped</span>
                   <span>
-                    <strong>v0.4 series.</strong> Identity, directory, DNS verification, manual
-                    mode, guided reclaim, macOS &amp; Windows &amp; Linux builds.
+                    <strong>v0.0.x — first public builds.</strong> Multi-server IRC chat, server
+                    directory, guest mode, channel topics, away tracking, bundled engine sidecar,
+                    macOS &amp; Windows &amp; Linux installers.
                   </span>
                 </li>
                 <li>
                   <span class="when">Next</span>
                   <span>
-                    <strong>UI polish &amp; notifications.</strong> Mention highlighting,
-                    system-tray presence, per-server mute, OS-level notifications with
-                    click-through.
+                    <strong>Identity hardening.</strong> Per-server password derivation in the
+                    local engine, encrypted-secret backup, guided reclaim via NickServ.
                   </span>
                 </li>
                 <li>
                   <span class="when">After</span>
                   <span>
-                    <strong>Moderation tooling.</strong> Report queue, server-operator dashboards,
-                    appeals flow — work begins once volume justifies it.
+                    <strong>Notifications &amp; polish.</strong> Mention highlighting, system-tray
+                    presence, per-server mute, OS-level notifications with click-through.
                   </span>
                 </li>
                 <li>

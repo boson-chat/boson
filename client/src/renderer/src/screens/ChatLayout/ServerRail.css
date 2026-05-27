@@ -94,7 +94,7 @@
   right: -4px;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
+  padding: 0 var(--space-1);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -145,4 +145,9 @@
 
 .server-rail-context-item:hover {
   background: var(--surface-hover);
+}
+
+.server-rail-context-item-danger { color: var(--danger); }
+.server-rail-context-item-danger:hover {
+  background: color-mix(in oklab, var(--danger), transparent 88%);
 }

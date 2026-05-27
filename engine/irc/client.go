@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/lrstanley/girc"
@@ -96,11 +97,16 @@ func New(cfg Config) (*Client, error) {
 		//   message-tags     — required to send/receive client tags like +typing
 		//   server-time      — server-stamps messages with a UTC timestamp
 		//   account-tag      — exposes authenticated account on each message
+		//   away-notify      — server pushes AWAY events for channel members,
+		//                       so the renderer's "away" indicator updates
+		//                       in real time instead of only on the next
+		//                       WHO/WHOIS the user triggers manually.
 		// Servers that don't advertise these silently ignore the request.
 		SupportedCaps: map[string][]string{
 			"message-tags": nil,
 			"server-time":  nil,
 			"account-tag":  nil,
+			"away-notify":  nil,
 		},
 	})
 
@@ -129,6 +135,32 @@ func (c *Client) OnEvent(fn EventHandler) {
 			c.flushListEntries()
 		case girc.RPL_WELCOME:
 			c.scheduleAutoList()
+		case girc.JOIN:
+			// Our own JOIN echo? Send a plain /WHO on the channel so
+			// 352 RPL_WHOREPLY lines flow back with H/G flags — that's
+			// how we learn the away state of members who were already
+			// away when we joined (away-notify only pushes state
+			// changes from that moment on). Nick compare must be
+			// RFC1459 case-insensitive since servers may normalise
+			// casing differently from how we registered.
+			//
+			// Note: girc's own JOIN handler also auto-sends a WHO, but
+			// uses WHOX format `%tacuhnr,1` (no flags field) and the
+			// server replies as 354 — useless for away detection. So
+			// we issue a plain WHO ourselves and accept the duplicate
+			// round-trip.
+			if e.Source != nil &&
+				girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(c.girc.GetNick()) &&
+				len(e.Params) >= 1 {
+				slog.Info("irc: sending plain WHO on self-join",
+					"channel", e.Params[0], "nick", c.girc.GetNick())
+				if err := c.girc.Cmd.SendRaw("WHO " + e.Params[0]); err != nil {
+					slog.Error("irc: WHO send failed", "channel", e.Params[0], "err", err)
+				}
+			} else if e.Source != nil {
+				slog.Debug("irc: JOIN echo not self",
+					"source", e.Source.Name, "self", c.girc.GetNick())
+			}
 		}
 		if c.onEvent == nil {
 			return
@@ -239,6 +271,17 @@ func (c *Client) List() {
 	c.girc.Cmd.SendRaw("LIST")
 }
 
+// Away sets the user's IRC away status. Empty message clears it (the
+// IRC `/BACK` semantics). Server replies with RPL_NOWAWAY (306) or
+// RPL_UNAWAY (305) which we translate in the event loop.
+func (c *Client) Away(message string) {
+	if message == "" {
+		c.girc.Cmd.SendRaw("AWAY")
+	} else {
+		c.girc.Cmd.SendRaw("AWAY :" + message)
+	}
+}
+
 // Tagmsg sends an IRCv3 TAGMSG to `target`, carrying only message tags (no
 // body). Used today for typing indicators (`+typing=active|done|paused`);
 // future client tags (read receipts, reactions) ride the same wire. Servers
@@ -305,6 +348,92 @@ func translate(e girc.Event) Event {
 		if len(e.Params) >= 2 {
 			out.Target = e.Params[0]
 			out.Args = append([]string(nil), e.Params[1:]...)
+		}
+	case girc.RPL_WHOREPLY:
+		// 352 mynick #channel ident host server nick H|G[@%+...] :hopcount realname
+		// Used here to retroactively detect users who were already away
+		// when we joined the channel (the away-notify CAP only pushes
+		// state CHANGES, not the current state at join). Status field is
+		// 'H' here / 'G' gone (away), followed by optional sigils.
+		if len(e.Params) >= 7 {
+			out.Target = e.Params[1]         // channel
+			out.From = e.Params[5]           // nick
+			out.Args = []string{e.Params[6]} // status flags
+			slog.Info("irc: forwarding RPL_WHOREPLY",
+				"channel", out.Target, "nick", out.From, "flags", e.Params[6])
+		} else {
+			slog.Warn("irc: 352 too short", "params", e.Params)
+		}
+		out.Message = e.Last()
+	case girc.RPL_WHOSPCRPL:
+		// 354 — WHOX reply. girc's auto-WHO uses WHOX format; the field
+		// order depends on the querytype. We don't request any flags
+		// field in our own WHO (we send plain 352-returning WHO), but
+		// some servers may answer WHOX even to plain queries. The
+		// renderer ignores 354 unless we ever start using it ourselves.
+		slog.Debug("irc: RPL_WHOSPCRPL", "params", e.Params)
+	case girc.RPL_ENDOFWHO:
+		// 315 mynick <name> :End of /WHO list
+		// Renderer doesn't need to act on this beyond noting completion;
+		// included so the server log has the marker. Args[0] = channel.
+		if len(e.Params) >= 2 {
+			out.Target = e.Params[1]
+		}
+		out.Message = e.Last()
+	case girc.AWAY:
+		// :nick AWAY [:message]
+		// IRCv3 away-notify push. Trailing param present ⇒ user is now
+		// away with that message; trailing param missing ⇒ user came back.
+		// From carries the nick (set above from Source).
+		if len(e.Params) >= 1 || e.Last() != "" {
+			out.Message = e.Last()
+		}
+	case girc.RPL_AWAY:
+		// 301 mynick targetnick :away-message
+		// Server-side reply when someone messages a user who is away.
+		// Carries the target's nick in Args[0] and the message in trailing.
+		if len(e.Params) >= 2 {
+			out.Args = []string{e.Params[1]}
+		}
+		out.Message = e.Last()
+	case girc.RPL_NOWAWAY:
+		// 306 mynick :You have been marked as being away
+		// Self-confirmation: our own /AWAY request landed.
+		out.Message = e.Last()
+	case girc.RPL_UNAWAY:
+		// 305 mynick :You are no longer marked as being away
+		// Self-confirmation: our own /AWAY (empty arg) landed.
+		out.Message = e.Last()
+	case girc.TOPIC:
+		// :setter TOPIC #chan :new topic
+		// Live topic change — broadcast to all channel members. Target
+		// is the channel, Message is the new topic, From is the nick
+		// that issued the change.
+		if len(e.Params) >= 1 {
+			out.Target = e.Params[0]
+		}
+		out.Message = e.Last()
+	case girc.RPL_TOPIC:
+		// 332 mynick #chan :existing topic
+		// Sent on JOIN to deliver the current topic.
+		if len(e.Params) >= 2 {
+			out.Target = e.Params[1]
+		}
+		out.Message = e.Last()
+	case girc.RPL_NOTOPIC:
+		// 331 mynick #chan :No topic is set
+		// Counterpart to 332 when the channel has no topic. Renderer
+		// treats this as an empty-string topic.
+		if len(e.Params) >= 2 {
+			out.Target = e.Params[1]
+		}
+		out.Message = ""
+	case girc.RPL_TOPICWHOTIME:
+		// 333 mynick #chan setter-nick set-at-unix
+		// Optional metadata — who last set the topic and when.
+		if len(e.Params) >= 4 {
+			out.Target = e.Params[1]
+			out.Args = []string{e.Params[2], e.Params[3]}
 		}
 	case girc.RPL_NAMREPLY:
 		// 353 mynick = #channel :@op +voice nick3 nick4

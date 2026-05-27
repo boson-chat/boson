@@ -8,7 +8,7 @@ import type { IdentityService } from '../../modules/identity';
 import { ChatLayout } from '../ChatLayout';
 import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
-import { Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
+import { AtomLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import './DirectoryScreen.css';
 
@@ -170,6 +170,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
           onReconnect={() => { void bloc.reconnectActive(); }}
           connectionError={active.error}
           onOpenServerSettings={(id) => setServerSettingsForId(id)}
+          onLeaveServer={(id) => bloc.disconnect(id)}
         />
         <Modal
           open={serverBrowserOpen}
@@ -342,7 +343,10 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
       </Modal>
 
       {filteredServers === null ? (
-        <div class="directory-loading">Loading…</div>
+        <div class="directory-loading">
+          <AtomLoader size={32} />
+          <span>Loading directory…</span>
+        </div>
       ) : filteredServers.length === 0 ? (
         <div class="directory-empty">{servers && servers.length > 0 ? 'No servers match these filters.' : 'No servers found.'}</div>
       ) : (

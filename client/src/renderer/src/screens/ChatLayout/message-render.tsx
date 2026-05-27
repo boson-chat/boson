@@ -1,17 +1,58 @@
 import type preact from 'preact';
 import type { Ref } from 'preact';
-import type { ChatMessage } from '../../modules/chat';
+import { useState } from 'preact/hooks';
+import { createPortal } from 'preact/compat';
+import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
 import { tokenizeMarkdown, type MdToken } from './markdown';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
+import { NickContextMenu, type NickContextAction } from './NickContextMenu';
+import type { NickActions } from './UserPanel';
+
+// Map IRC channel-status prefix to a short display label + a class name.
+// Used both for the role pill rendered next to a nick in chat (MOD/OPS/V)
+// and for color theming in the hover card. Centralised here so message
+// rows and the member panel can't drift apart on label/color.
+const ROLE_BADGES: Record<MemberPrefix, { label: string; kind: string } | null> = {
+  '~': { label: 'FOUNDER', kind: 'founder' },
+  '&': { label: 'ADMIN',   kind: 'admin' },
+  '@': { label: 'OPS',     kind: 'op' },
+  '%': { label: 'MOD',     kind: 'halfop' },
+  '+': { label: 'V',       kind: 'voice' },
+  '':  null,
+};
+
+function findMemberPrefix(members: { nick: string; prefix?: MemberPrefix }[], nick: string): MemberPrefix {
+  return members.find((m) => m.nick === nick)?.prefix ?? '';
+}
 
 interface MessageRowProps {
   msg: ChatMessage;
   myNick: string;
-  members: { nick: string }[];
+  members: ChatMember[];
   grouped?: boolean;
+  /** Action callbacks bound to the right-click nick context menu. */
+  nickActions?: NickActions;
 }
 
-export function MessageRow({ msg, myNick, members, grouped = false }: MessageRowProps) {
+export function MessageRow({ msg, myNick, members, grouped = false, nickActions }: MessageRowProps) {
+  const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
+  const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
+
+  function buildActions(nick: string): readonly NickContextAction[] {
+    const out: NickContextAction[] = [
+      { label: 'Copy nickname', onClick: () => { void navigator.clipboard?.writeText(nick); } },
+    ];
+    if (nickActions?.onSendMessage) {
+      out.push({ label: 'Send message', onClick: () => nickActions.onSendMessage!(nick) });
+    }
+    if (nickActions?.onMention) {
+      out.push({ label: 'Mention', onClick: () => nickActions.onMention!(nick) });
+    }
+    if (nickActions?.onIgnore) {
+      out.push({ label: 'Ignore', danger: true, onClick: () => nickActions.onIgnore!(nick) });
+    }
+    return out;
+  }
   if (msg.kind === 'system' || msg.kind === 'join' || msg.kind === 'part' || msg.kind === 'quit') {
     return (
       <div class={`message-system message-system-${msg.kind}`}>
@@ -46,11 +87,33 @@ export function MessageRow({ msg, myNick, members, grouped = false }: MessageRow
     grouped ? 'message-row-grouped' : '',
   ].filter(Boolean).join(' ');
 
+  const badge = ROLE_BADGES[findMemberPrefix(members, msg.from)];
+
   return (
     <div class={classes}>
       {!grouped && (
         <div class="message-row-header">
-          <span class="message-row-name">{msg.from}</span>
+          <span
+            class="message-row-name"
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ nick: msg.from, x: e.clientX, y: e.clientY });
+            }}
+            onMouseEnter={(e) => {
+              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+              setHover({ nick: msg.from, top: r.top, left: r.left });
+            }}
+            onMouseLeave={() => {
+              setHover((prev) => (prev && prev.nick === msg.from ? null : prev));
+            }}
+          >
+            {msg.from}
+          </span>
+          {badge && (
+            <span class={`message-row-role message-row-role-${badge.kind}`} aria-label={`role: ${badge.label.toLowerCase()}`}>
+              {badge.label}
+            </span>
+          )}
           <span class="message-row-handle">~{msg.from}</span>
           <span class="message-row-time">{time}</span>
         </div>
@@ -59,20 +122,87 @@ export function MessageRow({ msg, myNick, members, grouped = false }: MessageRow
         <span class="message-row-text-body">{renderedText}</span>
         {grouped && <span class="message-row-grouped-time" aria-hidden="true">{time}</span>}
       </div>
+      {menu && (
+        <NickContextMenu
+          x={menu.x}
+          y={menu.y}
+          title={menu.nick}
+          actions={buildActions(menu.nick)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {hover && createPortal(
+        <MessageNickHoverCard
+          nick={hover.nick}
+          member={members.find((m) => m.nick === hover.nick) ?? null}
+          top={hover.top}
+          left={hover.left}
+        />,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+// Compact hover card for a nick that appears inside a message. Differs
+// from the UserPanel's card in that we may not have full WHOIS state
+// for the speaker (the channel's member list may have parted them
+// already, or we joined after their last activity). Falls back to nick-
+// only when the member record is null.
+function MessageNickHoverCard({
+  nick, member, top, left,
+}: { nick: string; member: ChatMember | null; top: number; left: number }) {
+  // Anchor the card just below the nick by default so it doesn't cover
+  // the message text. Clamp inside the viewport so it can't escape off
+  // the top or bottom edge.
+  const CARD_WIDTH = 240;
+  const cardTop = Math.min(window.innerHeight - 16, top + 24);
+  const cardLeft = Math.max(8, Math.min(left, window.innerWidth - CARD_WIDTH - 8));
+  const role = ROLE_BADGES[member?.prefix ?? ''];
+  const meta: { label: string; value: string }[] = [];
+  if (member?.account) meta.push({ label: 'Account', value: member.account });
+  if (member?.hostname) meta.push({ label: 'Host', value: member.hostname });
+  if (member?.realname) meta.push({ label: 'Real name', value: member.realname });
+  if (member?.awayMessage) meta.push({ label: 'Away', value: member.awayMessage });
+  return (
+    <div
+      class="nick-hovercard nick-hovercard-portal"
+      role="tooltip"
+      style={`top: ${cardTop}px; left: ${cardLeft}px; width: ${CARD_WIDTH}px;`}
+    >
+      <div class="nick-hovercard-head">
+        <span class="nick-hovercard-nick">{nick}</span>
+        {role && (
+          <span class={`nick-hovercard-role nick-hovercard-role-${role.kind}`}>
+            {role.label === 'V' ? 'Voiced' : role.label === 'OPS' ? 'Operator' : role.label === 'MOD' ? 'Half-op' : role.label === 'ADMIN' ? 'Admin' : 'Founder'}
+          </span>
+        )}
+      </div>
+      {meta.length > 0 && (
+        <dl class="nick-hovercard-meta">
+          {meta.map((row) => (
+            <div key={row.label} class="nick-hovercard-meta-row">
+              <dt>{row.label}</dt>
+              <dd>{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
     </div>
   );
 }
 
 interface MessageListProps {
   messages: readonly ChatMessage[];
-  members: { nick: string }[];
+  members: ChatMember[];
   myNick: string;
   scrollRef: Ref<HTMLDivElement>;
+  nickActions?: NickActions;
 }
 
 // Scroll container + message rows. Owns the grouped-rendering decision so
 // the view doesn't need to know how messages stitch together visually.
-export function MessageList({ messages, members, myNick, scrollRef }: MessageListProps) {
+export function MessageList({ messages, members, myNick, scrollRef, nickActions }: MessageListProps) {
   return (
     <div class="chat-messages" ref={scrollRef}>
       <div class="messages-inner">
@@ -86,6 +216,7 @@ export function MessageList({ messages, members, myNick, scrollRef }: MessageLis
               myNick={myNick}
               members={members}
               grouped={grouped}
+              nickActions={nickActions}
             />
           );
         })}

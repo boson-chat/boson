@@ -51,11 +51,27 @@ mac:
   category: public.app-category.social-networking
   artifactName: Boson-mac-${arch}.${ext}
   target:
+    # Two formats: dmg is the polished "drag to Applications" install
+    # experience; zip is for users who hit the Gatekeeper "damaged" wall
+    # and need a quick `xattr -cr` workaround path. electron-builder also
+    # needs a zip alongside dmg if we ever turn on auto-update.
     - target: dmg
       arch: [x64, arm64]
-  # CSC_IDENTITY_AUTO_DISCOVERY=false in the workflow disables ad-hoc
-  # signing attempts; without that env, electron-builder tries to sign
-  # with whatever it finds in the runner's keychain and fails.
+    - target: zip
+      arch: [x64, arm64]
+  # Ad-hoc sign (identity '-') instead of leaving the binary unsigned.
+  # On Apple Silicon, an unsigned binary fails to load entirely with the
+  # "Boson is damaged and can't be opened" error — Gatekeeper requires
+  # at least an ad-hoc signature to load. An ad-hoc signature is just a
+  # cryptographic hash of the binary; it doesn't need an Apple Developer
+  # account. Users still get the unverified-developer warning on first
+  # launch (right-click → Open dismisses it).
+  identity: '-'
+  # Hardened Runtime + notarisation require a paid Apple Developer cert,
+  # which v0.x doesn't have. Turn these off explicitly so electron-builder
+  # doesn't try (and fail) to harden + notarise the ad-hoc build.
+  hardenedRuntime: false
+  gatekeeperAssess: false
 
 win:
   target:

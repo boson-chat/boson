@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import { SecureStore } from './secure-store';
+import { engine } from './engine';
 
 class BosonApp {
   private mainWindow: BrowserWindow | null = null;
@@ -15,6 +16,11 @@ class BosonApp {
     // identity isn't persisting (typical cause: WSL2 / headless Linux without
     // a keyring daemon → falls back to derived-key AES-GCM).
     console.log(`[secure-store] mode=${this.secureStore.mode()}`);
+    // Spawn the bundled engine sidecar BEFORE the renderer loads so the
+    // IPC discovery handler has its URL/token ready by the time the
+    // renderer asks. Returns null in dev mode (no bundled binary) — the
+    // renderer's existing VITE_ENGINE_URL fallback handles that path.
+    await engine.start().catch((err) => console.error('[engine] start failed', err));
     this.registerIpc(this.secureStore);
     this.createWindow();
 
@@ -25,6 +31,10 @@ class BosonApp {
     app.on('window-all-closed', () => {
       if (process.platform !== 'darwin') app.quit();
     });
+    // Kill the engine child cleanly when the app is asked to quit so we
+    // don't leak a Go process. `before-quit` fires for every shutdown
+    // path (window close on Win/Linux, Cmd+Q on macOS, SIGTERM).
+    app.on('before-quit', () => engine.stop());
   }
 
   // IPC: every renderer-facing handler validates its inputs. Keys must be
@@ -64,6 +74,12 @@ class BosonApp {
     });
     ipcMain.handle('window:close', () => { this.mainWindow?.close(); });
     ipcMain.handle('window:is-maximized', () => this.mainWindow?.isMaximized() ?? false);
+
+    // Engine discovery — renderer asks once at boot to learn the
+    // loopback URL + token for the bundled IRC bridge. Returns null in
+    // dev (no sidecar binary on disk); renderer falls back to
+    // VITE_ENGINE_URL / VITE_ENGINE_TOKEN in that case.
+    ipcMain.handle('engine:discovery', () => engine.current());
   }
 
   private createWindow(): void {

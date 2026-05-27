@@ -82,6 +82,8 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: 'part',  aliases: ['leave'], usage: '/part [channel]', description: 'Leave the current or named channel' },
   { name: 'msg',   aliases: ['query'], usage: '/msg <nick> <text>', description: 'Send a direct message' },
   { name: 'me',    usage: '/me <action>',        description: 'Send an action (CTCP ACTION)' },
+  { name: 'away',  usage: '/away [message]',     description: 'Mark yourself as away (no message ⇒ comes back)' },
+  { name: 'back',  usage: '/back',               description: 'Clear your away status' },
   { name: 'clear', usage: '/clear',              description: "Clear this channel's local log" },
   { name: 'help',  usage: '/help',               description: 'List available commands' },
 ];
@@ -107,6 +109,13 @@ export class ChatService {
   // NAMREPLY (353) lines may arrive in multiple parts for the same channel;
   // accumulate here and commit when ENDOFNAMES (366) arrives.
   private pendingMembers = new Map<string, ChatMember[]>();
+
+  // RPL_WHOREPLY (352) may arrive before NAMREPLY has committed the
+  // member list to the channel record — depending on the server, /WHO
+  // can be processed before the post-JOIN NAMES burst. We buffer flags
+  // keyed by (channelKey, lower(nick)) and apply them whenever the
+  // member surface (NAMREPLY commit OR member-update push) catches up.
+  private pendingAwayFlags = new Map<string, Map<string, string>>();
 
   // IRC server software / network identity, captured from RPL_MYINFO (004)
   // and RPL_ISUPPORT (005). Surfaced in the chat header as a small "via
@@ -227,7 +236,7 @@ export class ChatService {
     if (!this.channels.has(key)) {
       // Store the channel keyed by its lowercase form so subsequent server
       // events (which may use different casing) land on the same record.
-      this.channels.set(key, { name: key, messages: [], joined: false, members: [], typing: [], unread: 0, mentions: 0 });
+      this.channels.set(key, { name: key, messages: [], joined: false, members: [], typing: [], unread: 0, mentions: 0, topic: '' });
     }
     // Auto-switch to the channel we just asked to join so the user sees it
     // immediately, even before the server's JOIN echo arrives.
@@ -286,8 +295,17 @@ export class ChatService {
       case 'me':    return this.cmdMe(args);
       case 'clear': return this.cmdClear();
       case 'help':  return this.cmdHelp();
+      case 'away':  return this.cmdAway(args);
+      case 'back':  return this.cmdAway('');
       default:      return this.systemHere(`Unknown command: /${cmd}. Try /help.`);
     }
+  }
+
+  private cmdAway(message: string): void {
+    // Empty message ⇒ clears the away flag (i.e. /back). The engine
+    // echoes RPL_NOWAWAY (306) or RPL_UNAWAY (305) back through
+    // handleEvent which posts the confirmation system message.
+    this.session.away(message);
   }
 
   private cmdJoin(args: string): void {
@@ -304,16 +322,38 @@ export class ChatService {
 
   private cmdMsg(args: string): void {
     const spaceIdx = args.indexOf(' ');
-    if (spaceIdx <= 0) return this.systemHere('Usage: /msg <nick> <message>');
-    const target = args.slice(0, spaceIdx).trim();
-    const message = args.slice(spaceIdx + 1).trim();
-    if (!target || !message) return this.systemHere('Usage: /msg <nick> <message>');
+    // `/msg <nick>` (no message) — just open the DM tab, don't send.
+    // `/msg <nick> <message>` — open + send.
+    const target = (spaceIdx <= 0 ? args : args.slice(0, spaceIdx)).trim();
+    const message = spaceIdx <= 0 ? '' : args.slice(spaceIdx + 1).trim();
+    if (!target) return this.systemHere('Usage: /msg <nick> [message]');
+    this.openDM(target);
+    if (message) this.send(target, message);
+  }
+
+  // Open a DM tab with `nick`. Creates the channel record if it doesn't
+  // exist yet, marks it active so the chat area swaps to it. Exposed so
+  // the right-click nick context menu can call it directly instead of
+  // routing through the /msg slash command (which used to require a
+  // message body, making "Send message" a no-op).
+  openDM(nick: string): void {
+    const target = nick.trim();
+    if (!target) return;
     const key = this.channelKey(target);
     if (!this.channels.has(key)) {
-      this.channels.set(key, { name: target, messages: [], joined: false, members: [], typing: [], unread: 0, mentions: 0 });
+      this.channels.set(key, {
+        name: target,
+        messages: [],
+        joined: false,
+        members: [],
+        typing: [],
+        unread: 0,
+        mentions: 0,
+        topic: '',
+      });
     }
     this.activeChannel = key;
-    this.send(target, message);
+    this.emit();
   }
 
   private cmdMe(args: string): void {
@@ -432,6 +472,25 @@ export class ChatService {
   private channelKey(target: string): string {
     if (target.startsWith('#') || target.startsWith('&')) return target.toLowerCase();
     return target;
+  }
+
+  // Apply a (lower-nick → WHO-flags) map to a channel's members in place.
+  // Returns true if any member's awayMessage changed. Used both when a
+  // 352 arrives after the member list is already committed, and when 366
+  // commits the member list with 352s buffered ahead of it.
+  private applyAwayFlags(ch: ChatChannel, flags: Map<string, string>): boolean {
+    let touched = false;
+    for (const m of ch.members) {
+      const f = flags.get(m.nick.toLowerCase());
+      if (f === undefined) continue;
+      const isAway = f.startsWith('G');
+      const next = isAway ? (m.awayMessage ?? '') : null;
+      if (m.awayMessage !== next) {
+        m.awayMessage = next;
+        touched = true;
+      }
+    }
+    return touched;
   }
 
   // Observation -------------------------------------------------------------
@@ -689,7 +748,8 @@ export class ChatService {
         break;
       }
       case '366': {
-        // RPL_ENDOFNAMES — commit pending names into the channel.
+        // RPL_ENDOFNAMES — commit pending names into the channel, then
+        // drain any RPL_WHOREPLY flags that arrived early.
         if (!e.Target) return;
         const key = this.channelKey(e.Target);
         const pending = this.pendingMembers.get(key) ?? [];
@@ -697,8 +757,138 @@ export class ChatService {
         const ch = this.channels.get(key);
         if (ch) {
           ch.members = dedupeMembers(pending);
+          const pendingFlags = this.pendingAwayFlags.get(key);
+          if (pendingFlags && pendingFlags.size > 0) {
+            this.applyAwayFlags(ch, pendingFlags);
+          }
           this.emit();
         }
+        break;
+      }
+      case 'TOPIC':
+      case '332': {
+        // Live TOPIC change (anyone in the channel) OR RPL_TOPIC (332) the
+        // server sends on JOIN. Both carry the new topic in Message and
+        // the channel name in Target. TOPIC also has the setter in From;
+        // 332 doesn't (the server is "setting" it for us at join time).
+        if (!e.Target) return;
+        const ch = this.ensureChannel(e.Target);
+        ch.topic = e.Message ?? '';
+        if (e.Kind === 'TOPIC' && e.From) {
+          ch.topicSetBy = e.From;
+          ch.topicSetAt = Date.now();
+          // Surface the change inline so users see who edited it without
+          // having to look up to the header. Empty string = topic cleared.
+          const note = e.Message
+            ? `${e.From} changed the topic to: ${e.Message}`
+            : `${e.From} cleared the topic`;
+          ch.messages = [
+            ...ch.messages,
+            { id: crypto.randomUUID(), kind: 'system', from: '', text: note, timestamp: Date.now() },
+          ];
+        }
+        this.emit();
+        break;
+      }
+      case '331': {
+        // RPL_NOTOPIC — server confirms no topic on JOIN.
+        if (!e.Target) return;
+        const ch = this.ensureChannel(e.Target);
+        ch.topic = '';
+        ch.topicSetBy = undefined;
+        ch.topicSetAt = undefined;
+        this.emit();
+        break;
+      }
+      case '333': {
+        // RPL_TOPICWHOTIME — Args = [setter-nick, unix-timestamp]. Some
+        // servers omit this; we treat it as best-effort metadata.
+        if (!e.Target) return;
+        const args = e.Args ?? [];
+        if (args.length < 2) return;
+        const ch = this.ensureChannel(e.Target);
+        ch.topicSetBy = args[0];
+        const epoch = Number.parseInt(args[1] ?? '', 10);
+        if (Number.isFinite(epoch)) ch.topicSetAt = epoch * 1000;
+        this.emit();
+        break;
+      }
+      case 'AWAY': {
+        // IRCv3 away-notify push for ANY user in a shared channel.
+        // From = nick, Message = away reason ("" when they came back).
+        // Update awayMessage on every ChatMember record matching that
+        // nick across every channel we share with them.
+        if (!e.From) return;
+        const message = e.Message ?? '';
+        let touched = false;
+        for (const ch of this.channels.values()) {
+          for (const m of ch.members) {
+            if (m.nick !== e.From) continue;
+            m.awayMessage = message === '' ? null : message;
+            touched = true;
+          }
+        }
+        if (touched) this.emit();
+        break;
+      }
+      case '301': {
+        // RPL_AWAY — server reply when we PRIVMSG an away user.
+        // Args[0] = target nick, Message = their away message.
+        const args = e.Args ?? [];
+        const nick = args[0];
+        if (!nick) return;
+        let touched = false;
+        for (const ch of this.channels.values()) {
+          for (const m of ch.members) {
+            if (m.nick !== nick) continue;
+            m.awayMessage = e.Message ?? '';
+            touched = true;
+          }
+        }
+        if (touched) this.emit();
+        break;
+      }
+      case '352': {
+        // RPL_WHOREPLY — one line per channel member after we /WHO a
+        // channel on join. The engine forwards Target = channel,
+        // From = nick, Args = [statusFlags]. Flags begin with H (here)
+        // or G (gone/away), followed by optional sigils.
+        //
+        // Two timing realities to handle:
+        //   1. NAMREPLY already arrived → apply immediately to the
+        //      member record (case-insensitive nick compare; servers
+        //      can normalise casing differently between NAMES and WHO).
+        //   2. NAMREPLY hasn't committed yet → stash the flag in
+        //      pendingAwayFlags so 366 picks it up.
+        if (!e.Target || !e.From) return;
+        const key = this.channelKey(e.Target);
+        const flags = (e.Args ?? [])[0] ?? '';
+        const nickLower = e.From.toLowerCase();
+        const pending = this.pendingAwayFlags.get(key) ?? new Map<string, string>();
+        pending.set(nickLower, flags);
+        this.pendingAwayFlags.set(key, pending);
+        const ch = this.channels.get(key);
+        if (ch && ch.members.length > 0) {
+          if (this.applyAwayFlags(ch, pending)) this.emit();
+        }
+        break;
+      }
+      case '306':
+      case '305': {
+        // Self-acks. 306 = "you are away", 305 = "you are back".
+        // Surface as a system message in the active channel so the user
+        // sees confirmation — no member-record mutation since we don't
+        // necessarily appear in our own channel member list yet at this
+        // point in the handshake.
+        if (!this.activeChannel) break;
+        const ch = this.channels.get(this.activeChannel);
+        if (!ch) break;
+        const text = e.Kind === '306' ? 'You are now marked as away.' : 'You are no longer marked as away.';
+        ch.messages = [
+          ...ch.messages,
+          { id: crypto.randomUUID(), kind: 'system', from: '', text, timestamp: Date.now() },
+        ];
+        this.emit();
         break;
       }
       case '004': {
@@ -833,7 +1023,7 @@ export class ChatService {
     const key = this.channelKey(name);
     let ch = this.channels.get(key);
     if (!ch) {
-      ch = { name: key, messages: [], joined, members: [], typing: [], unread: 0, mentions: 0 };
+      ch = { name: key, messages: [], joined, members: [], typing: [], unread: 0, mentions: 0, topic: '' };
       this.channels.set(key, ch);
     } else if (joined) {
       ch.joined = true;

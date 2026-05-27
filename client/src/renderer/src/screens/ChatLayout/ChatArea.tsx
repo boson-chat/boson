@@ -4,6 +4,7 @@ import type { EngineState } from '../../modules/engine';
 import { ChatInputBloc, type ChatInputState } from './ChatInputBloc';
 import { ChatInputBar } from './ChatInputBar';
 import { MessageList } from './message-render';
+import type { NickActions } from './UserPanel';
 import './ChatArea.css';
 
 interface ChatAreaProps {
@@ -43,6 +44,9 @@ interface ChatAreaProps {
   // `solanum 1.0-dev · Libera.Chat` badge in the chat header. Click to view
   // more comes from a different entry — the ServerRail context menu.
   serverInfo?: ServerInfo;
+  // Action callbacks forwarded to MessageList → MessageRow. Wired into the
+  // right-click nick context menu (Copy/Send/Mention/Ignore).
+  nickActions?: NickActions;
 }
 
 export function ChatArea({
@@ -59,6 +63,7 @@ export function ChatArea({
   connectionError,
   onTyping,
   serverInfo,
+  nickActions,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -168,6 +173,15 @@ export function ChatArea({
         <div class="chat-header-left">
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
+          {channel.topic && (
+            <span
+              class="chat-channel-topic"
+              title={channel.topic}
+              aria-label={`Topic: ${channel.topic}`}
+            >
+              {channel.topic}
+            </span>
+          )}
         </div>
         <div class="chat-header-right">
           <ServerInfoBadge info={serverInfo} />
@@ -183,6 +197,7 @@ export function ChatArea({
         members={channel.members}
         myNick={myNick}
         scrollRef={scrollRef}
+        nickActions={nickActions}
       />
 
       <TypingIndicator nicks={channel.typing} />

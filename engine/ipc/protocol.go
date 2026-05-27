@@ -71,6 +71,14 @@ type DisconnectParams struct {
 	ServerID string `json:"serverId"`
 }
 
+// AwayParams sets the user's IRC AWAY status on a given server. Empty
+// Message clears away (i.e. /BACK). The server echoes RPL_NOWAWAY (306)
+// or RPL_UNAWAY (305) once the request lands.
+type AwayParams struct {
+	ServerID string `json:"serverId"`
+	Message  string `json:"message"`
+}
+
 const (
 	CmdConnect    = "connect"
 	CmdDisconnect = "disconnect"
@@ -80,6 +88,7 @@ const (
 	CmdNames      = "names"
 	CmdTagmsg     = "tagmsg"
 	CmdList       = "list"
+	CmdAway       = "away"
 )
 
 // Outbound: messages from the engine to the renderer.

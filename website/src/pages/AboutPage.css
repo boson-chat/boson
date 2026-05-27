@@ -37,13 +37,17 @@
   transition: color var(--motion-fast) var(--ease);
 }
 .essay-toc a:hover,
-.essay-toc a[aria-current='page'] { color: var(--fg); }
+.essay-toc a.active,
+.essay-toc a[aria-current='location'] { color: var(--fg); }
+.essay-toc a.active .toc-counter,
+.essay-toc a[aria-current='location'] .toc-counter { color: var(--fg); }
 .essay-toc .toc-counter {
   display: inline-block;
   width: 22px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--muted);
+  transition: color var(--motion-fast) var(--ease);
 }
 
 .essay { max-width: none; }

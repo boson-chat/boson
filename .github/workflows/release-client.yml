@@ -59,6 +59,15 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then
             CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o client/resources/engine/engine-darwin-arm64 ./engine/cmd/engine
             CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o client/resources/engine/engine-darwin-amd64 ./engine/cmd/engine
+            # Ad-hoc sign the sidecar binaries. Apple Silicon refuses to
+            # exec an unsigned binary (the parent Electron process gets
+            # SIGKILL on spawn with no clear error). Ad-hoc signing
+            # doesn't need an Apple Developer cert — it just hashes the
+            # binary so the kernel can load it. Same identity the main
+            # app uses (electron-builder picks identity: '-').
+            codesign --sign - --force --timestamp=none --options runtime=no \
+              client/resources/engine/engine-darwin-arm64 \
+              client/resources/engine/engine-darwin-amd64
           else
             CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64  ./engine/cmd/engine
           fi

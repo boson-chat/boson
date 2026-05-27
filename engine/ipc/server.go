@@ -257,6 +257,15 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 		if c := s.clientFor(p.ServerID); c != nil {
 			c.List()
 		}
+	case CmdAway:
+		var p AwayParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			s.send(ServerMessage{Type: MsgError, Error: "bad away params: " + err.Error()})
+			return
+		}
+		if c := s.clientFor(p.ServerID); c != nil {
+			c.Away(p.Message)
+		}
 	default:
 		s.send(ServerMessage{Type: MsgError, Error: "unknown command: " + msg.Type})
 	}

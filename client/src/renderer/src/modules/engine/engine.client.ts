@@ -155,6 +155,17 @@ export class ServerSession {
     });
   }
 
+  // Set IRC AWAY status. Empty message clears away (i.e. /BACK). The
+  // server replies with RPL_NOWAWAY (306) or RPL_UNAWAY (305) and pushes
+  // an AWAY event to every channel member if the away-notify CAP was
+  // ACKed at connect time.
+  away(message: string): void {
+    this.engine._sendForSession({
+      type: 'away',
+      params: { serverId: this.serverId, message },
+    });
+  }
+
   // Tells the engine to tear down THIS server's IRC client. The ServerSession
   // instance stays alive until the engine echoes back state=disconnected,
   // which triggers _dispose() from the EngineClient routing layer.

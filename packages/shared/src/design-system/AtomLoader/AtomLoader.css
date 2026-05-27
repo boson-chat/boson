@@ -1,0 +1,71 @@
+/* Animated atom loader. Three orbits spin at different speeds + axes
+   for a slightly chaotic-but-controlled motion. Nucleus pulses on the
+   beat so the centre never feels static. All animation is CSS-only:
+   no JS, no rAF, no measurable runtime cost. */
+
+.bds-atom-loader {
+  display: inline-block;
+  position: relative;
+  color: var(--accent);
+  vertical-align: middle;
+}
+
+.bds-atom-loader > svg {
+  display: block;
+  /* The SVG itself spins slowly on top of the per-orbit rotations
+     below — gives the whole assembly a sense of holding together
+     rather than just having internal pieces twitching. */
+  animation: bds-atom-spin 4s linear infinite;
+}
+
+/* Each orbit rotates around a different axis at a slightly different
+   rate so the silhouette never repeats exactly. We rotate the
+   ellipse element via SVG `transform-origin: center`; setting it on
+   the CSS box would need vector-effect tricks. */
+.bds-atom-orbit {
+  transform-origin: 12px 12px;
+  /* Slight base rotation so the three orbits aren't all starting at
+     the same angle on first paint. */
+}
+.bds-atom-orbit-1 { animation: bds-atom-tilt-a 1.6s linear infinite; }
+.bds-atom-orbit-2 { animation: bds-atom-tilt-b 2.0s linear infinite; }
+.bds-atom-orbit-3 { animation: bds-atom-tilt-c 2.4s linear infinite; }
+
+.bds-atom-nucleus {
+  transform-origin: 12px 12px;
+  animation: bds-atom-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes bds-atom-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes bds-atom-tilt-a {
+  0%   { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes bds-atom-tilt-b {
+  0%   { transform: rotate(60deg); }
+  100% { transform: rotate(420deg); }
+}
+@keyframes bds-atom-tilt-c {
+  0%   { transform: rotate(120deg); }
+  100% { transform: rotate(480deg); }
+}
+
+@keyframes bds-atom-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50%      { transform: scale(1.35); opacity: 1; }
+}
+
+/* Honour OS-level reduce-motion preferences. We keep the loader
+   visible (still indicates "something is happening") but freeze the
+   spinning, since orbit motion is the trigger for vestibular issues. */
+@media (prefers-reduced-motion: reduce) {
+  .bds-atom-loader > svg,
+  .bds-atom-orbit-1,
+  .bds-atom-orbit-2,
+  .bds-atom-orbit-3 {
+    animation: none;
+  }
+}

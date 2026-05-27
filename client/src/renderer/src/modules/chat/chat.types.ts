@@ -53,6 +53,13 @@ export interface ChatChannel {
   // messages where another user said our own nick.
   unread: number;
   mentions: number;
+  // Channel topic. Populated by RPL_TOPIC (332) on JOIN, updated by the
+  // TOPIC echo when anyone changes it, set to empty string by RPL_NOTOPIC
+  // (331). `topicSetBy` + `topicSetAt` come from RPL_TOPICWHOTIME (333)
+  // when the server bothers to send it (not all do).
+  topic: string;
+  topicSetBy?: string;
+  topicSetAt?: number;
 }
 
 // One captured raw IRC event for the dev-tools-style server log. Every event

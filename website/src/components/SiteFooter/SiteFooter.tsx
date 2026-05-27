@@ -24,11 +24,11 @@ export function SiteFooter() {
             </ul>
           </div>
           <div class="foot-col">
-            <h4>For self-hosters</h4>
+            <h4>Using Boson</h4>
             <ul>
-              <li><a href="/docs#register">Register a server</a></li>
-              <li><a href="/docs#daemon">Pick an IRCd</a></li>
-              <li><a href="/docs#verify">DNS TXT verification</a></li>
+              <li><a href="/docs#join-directory">Join from the directory</a></li>
+              <li><a href="/docs#add-manual">Add a server manually</a></li>
+              <li><a href="/docs#commands">Slash commands</a></li>
             </ul>
           </div>
           <div class="foot-col">

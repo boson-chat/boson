@@ -3,7 +3,13 @@ import { FeatureCard } from '../components/FeatureCard/FeatureCard';
 import { ScreenshotFrame } from '../components/ScreenshotFrame/ScreenshotFrame';
 import { Step, Steps } from '../components/StepList/StepList';
 import { Terminal, Line, C } from '../components/Terminal/Terminal';
+import pkg from '../../package.json';
 import './IndexPage.css';
+
+// Pulled at build time from website/package.json, which semantic-release
+// keeps in sync with the latest tag via scripts/sync-version.cjs. So the
+// homepage badge always matches whatever client release is on GitHub.
+const VERSION = pkg.version;
 
 export function IndexPage() {
   return (
@@ -13,12 +19,13 @@ export function IndexPage() {
           <div>
             <span class="hero-availability">
               <span class="badge-dot" />
-              Beta · macOS, Windows, Linux
+              Early access · v{VERSION} · macOS, Windows, Linux
             </span>
-            <h1>A chat client that feels like Discord. On infrastructure you can host.</h1>
+            <h1>A modern chat client. On infrastructure you can host.</h1>
             <p class="lead" style="margin-top: 20px;">
-              Boson is a desktop app for IRC servers. Identity, key derivation, and discovery live
-              in the client — so the protocol underneath stays boring, open, and yours.
+              Channels, DMs, member lists, presence, notifications — the things you expect. Built
+              on an open, federated protocol you can self-host, with identity and key derivation in
+              the client so the network underneath stays boring, open, and yours.
             </p>
             <div class="hero-cta" style="margin-top: 28px;">
               <a class="btn btn-primary" href="/download">Download for desktop</a>
@@ -27,7 +34,7 @@ export function IndexPage() {
             <div class="hero-meta" aria-label="Supported platforms">
               <span class="os">macOS 12+</span>
               <span class="os">Windows 10+</span>
-              <span class="os">Linux (AppImage · deb · rpm)</span>
+              <span class="os">Linux (AppImage · deb)</span>
             </div>
           </div>
           <ScreenshotFrame
@@ -53,9 +60,10 @@ export function IndexPage() {
               Argon2id + HMAC, in the local process. The directory never holds anything
               decryptable.
             </FeatureCard>
-            <FeatureCard title="Real IRC underneath." icon={<ProtocolIcon />}>
-              Servers run ergo, InspIRCd, or anything that speaks SASL over TLS. No proprietary
-              protocol, no vendor lock-in. Power users can still connect with weechat or irssi.
+            <FeatureCard title="An open protocol underneath." icon={<ProtocolIcon />}>
+              Servers run ergo, InspIRCd, or anything that speaks SASL over TLS — a 38-year-old
+              standard with a dozen independent implementations. No proprietary protocol, no
+              vendor lock-in, and your existing CLI clients keep working too.
             </FeatureCard>
             <FeatureCard title="A directory, not a walled garden." icon={<GlobeIcon />}>
               Self-hosters register their server with a DNS TXT record. Users browse by tag,
@@ -80,7 +88,7 @@ export function IndexPage() {
               Search by tag, language, or activity. Click join — the client registers a nick over
               SASL using a password derived for that server.
             </Step>
-            <Step index="03" title="Chat. The IRC stays invisible.">
+            <Step index="03" title="Chat. The plumbing stays invisible.">
               Channels, DMs, notifications, member lists. No <code class="inline-code">/msg NickServ identify</code>,
               no manual nicks, no port numbers — unless you want them.
             </Step>
@@ -187,7 +195,7 @@ export function IndexPage() {
         <div class="container stack" style="gap: 56px;">
           <div style="max-width: 42ch;">
             <p class="eyebrow">Why Boson</p>
-            <h2>Discord shape, IRC plumbing. The trade-offs are deliberate.</h2>
+            <h2>Modern shape, open plumbing. The trade-offs are deliberate.</h2>
           </div>
           <div class="compare">
             <Card>
@@ -219,8 +227,8 @@ export function IndexPage() {
       <section class="section">
         <div class="container quote-block">
           <blockquote>
-            The protocol is fine. The product is the problem. Boson is what happens when you accept
-            that IRC is the right substrate, and that the substrate isn't enough.
+            The protocol is fine. The product is the problem. Boson is what happens when you take
+            the protocol as given, and admit that the client is what's been missing.
           </blockquote>
           <p class="quote-author">
             — from <a href="/about" class="quote-link">the project's design notes</a>

@@ -48,5 +48,21 @@ contextBridge.exposeInMainWorld('bosonWindow', bosonWindow);
 // native traffic lights (macOS).
 contextBridge.exposeInMainWorld('bosonPlatform', process.platform);
 
+// Engine sidecar discovery. The main process spawns the bundled Go IRC
+// bridge on a random loopback port at app start; the renderer asks for
+// the URL + token via this channel. Resolves to null in dev mode where
+// the engine isn't bundled (renderer then falls back to VITE_ENGINE_URL).
+interface BosonEngineDiscovery {
+  url: string;
+  token: string;
+}
+const bosonEngine = {
+  async discovery(): Promise<BosonEngineDiscovery | null> {
+    return ipcRenderer.invoke('engine:discovery');
+  },
+};
+contextBridge.exposeInMainWorld('bosonEngine', bosonEngine);
+
 export type BosonSecure = typeof bosonSecure;
 export type BosonWindow = typeof bosonWindow;
+export type BosonEngine = typeof bosonEngine;

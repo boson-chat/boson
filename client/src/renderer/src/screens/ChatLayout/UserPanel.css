@@ -1,5 +1,5 @@
 .user-panel {
-  width: 220px;
+  width: 240px;
   background: var(--surface);
   border-left: 1px solid var(--border);
   display: flex;
@@ -30,6 +30,9 @@
 .user-panel-list {
   flex: 1;
   overflow-y: auto;
+  /* Hover cards extend LEFT of the panel — let them escape the list's
+     horizontal box so they're not clipped by the scroll container. */
+  overflow-x: visible;
   padding: var(--space-2) 0 var(--space-4);
 }
 
@@ -65,6 +68,10 @@
 }
 
 .user-panel-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-1) var(--space-4);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -73,13 +80,29 @@
   transition: background var(--motion-fast) var(--ease-standard);
 }
 
+
+/* Presence dot. Green when the member is here and responsive, amber when
+   they've set an /away message, gray when they've signed off (channel
+   list snapshot — IRC drops parted users immediately, so "offline"
+   currently only shows up for DM contacts when that feature lands). */
+.user-panel-presence {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.user-panel-presence-online  { background: var(--success); }
+.user-panel-presence-away    { background: var(--warn); }
+.user-panel-presence-offline { background: var(--fg-3); opacity: 0.4; }
+
 .user-panel-item:hover { background: var(--surface-hover); color: var(--fg); }
 
 .user-panel-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: block;
 }
 
 /* Subtle role coloring — visible at a glance but not loud. Hover tooltip
@@ -92,3 +115,101 @@
 .user-panel-item-regular .user-panel-name { color: var(--fg-2); }
 
 .user-panel-item:hover .user-panel-name { color: var(--fg); }
+
+/* Away members get dimmed text. Hover overrides the dim so the row
+   doesn't feel inert when the cursor lands on it. */
+.user-panel-item-away .user-panel-name { opacity: 0.55; }
+.user-panel-item-away:hover .user-panel-name { opacity: 1; }
+
+/* Custom hover card — replaces the OS-styled `title` tooltip. Rendered
+   via a Preact portal at document.body so it can extend left of the
+   UserPanel without being clipped by .user-panel-list's overflow.
+   Position is set inline (top/right) from the hovered row's bounding
+   rect captured on mouseenter. pointer-events: none so the card never
+   steals hover from the row beneath it. */
+.nick-hovercard {
+  position: fixed;
+  z-index: 100;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  pointer-events: none;
+}
+
+.nick-hovercard-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.nick-hovercard-nick {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nick-hovercard-role {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--fg-3);
+  flex-shrink: 0;
+}
+
+.nick-hovercard-role-founder { border-color: var(--danger);  color: var(--danger); }
+.nick-hovercard-role-admin   { border-color: var(--warn);    color: var(--warn); }
+.nick-hovercard-role-op      { border-color: var(--accent);  color: var(--accent); }
+.nick-hovercard-role-halfop  { border-color: var(--info);    color: var(--info); }
+.nick-hovercard-role-voice   { border-color: var(--success); color: var(--success); }
+
+.nick-hovercard-activity {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  margin-bottom: var(--space-3);
+}
+
+.nick-hovercard-meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.nick-hovercard-meta-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: var(--space-2);
+  font-size: var(--text-xs);
+}
+
+.nick-hovercard-meta-row dt {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
+  margin: 0;
+}
+
+.nick-hovercard-meta-row dd {
+  margin: 0;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

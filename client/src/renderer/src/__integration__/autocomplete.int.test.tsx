@@ -24,14 +24,15 @@ describe('autocomplete integration', () => {
     await user.click(ta);
     await user.type(ta, '/');
 
-    // Listbox visible with all 6 SLASH_COMMANDS.
+    // Listbox visible with all SLASH_COMMANDS entries.
     const listbox = await screen.findByRole('listbox', { name: 'Slash command autocomplete' });
     expect(listbox).toBeInTheDocument();
     const options = await screen.findAllByRole('option');
-    expect(options.length).toBe(6);
+    expect(options.length).toBe(8);
 
-    // Tab cycles in SLASH_COMMANDS order: join → part → msg → me → clear → help → (wraps) join
-    const cycle = ['/join ', '/part ', '/msg ', '/me ', '/clear ', '/help ', '/join '];
+    // Tab cycles in SLASH_COMMANDS order — keep this list in lockstep
+    // with the SLASH_COMMANDS const in chat.service.ts.
+    const cycle = ['/join ', '/part ', '/msg ', '/me ', '/away ', '/back ', '/clear ', '/help ', '/join '];
     for (const expected of cycle) {
       await user.keyboard('{Tab}');
       await waitFor(() => {

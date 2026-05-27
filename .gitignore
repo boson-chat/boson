@@ -28,6 +28,12 @@ test-results/
 /chat-*.png
 /directory-*.png
 /message-grouping-*.png
+/renderer-*.png
+/mockup-*.png
+
+# Stray electron-vite build output that sometimes lands at client/ root.
+# The real output is client/out/, gitignored as part of `out/` above.
+client/index.js
 
 # Go workspace
 go.work
@@ -40,6 +46,8 @@ go.work.sum
 # Environment
 .env
 .env.local
+.env.*
+!.env.example
 config/config.dev.json
 
 # Local data

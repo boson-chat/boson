@@ -14,3 +14,4 @@ export type { WarningTone } from './WarningBanner/WarningBanner';
 export { TotpInput } from './TotpInput/TotpInput';
 export { Logo } from './Logo/Logo';
 export { BosonGlyph } from './BosonGlyph/BosonGlyph';
+export { AtomLoader } from './AtomLoader/AtomLoader';
