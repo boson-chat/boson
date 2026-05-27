@@ -42,6 +42,13 @@ extraResources:
 # Disable auto-update for v0.x — we don't have a release server yet.
 publish: null
 
+# Ad-hoc sign the packaged macOS .app via scripts/mac-adhoc-sign.cjs.
+# electron-builder's own signing path doesn't understand `identity: '-'`
+# (it treats the value as a keychain identity name and silently skips
+# signing when the keychain doesn't have one), so we sign in this hook
+# instead. No-op on Linux / Windows builds.
+afterSign: scripts/mac-adhoc-sign.cjs
+
 # Stable, version-less artifact names so the website can hard-link to
 # /releases/latest/download/<file> and have those links keep working
 # across every future release. The app still knows its own version
@@ -59,17 +66,12 @@ mac:
       arch: [x64, arm64]
     - target: zip
       arch: [x64, arm64]
-  # Ad-hoc sign (identity '-') instead of leaving the binary unsigned.
-  # On Apple Silicon, an unsigned binary fails to load entirely with the
-  # "Boson is damaged and can't be opened" error — Gatekeeper requires
-  # at least an ad-hoc signature to load. An ad-hoc signature is just a
-  # cryptographic hash of the binary; it doesn't need an Apple Developer
-  # account. Users still get the unverified-developer warning on first
-  # launch (right-click → Open dismisses it).
-  identity: '-'
-  # Hardened Runtime + notarisation require a paid Apple Developer cert,
-  # which v0.x doesn't have. Turn these off explicitly so electron-builder
-  # doesn't try (and fail) to harden + notarise the ad-hoc build.
+  # Ad-hoc signing is handled by the afterSign hook above
+  # (scripts/mac-adhoc-sign.cjs). We intentionally do NOT set
+  # `identity` here — electron-builder would try to look it up in the
+  # keychain as an identity *name*, fail, and silently skip signing.
+  # Hardened Runtime + notarisation require a paid Apple Developer
+  # cert, which v0.x doesn't have.
   hardenedRuntime: false
   gatekeeperAssess: false
 
