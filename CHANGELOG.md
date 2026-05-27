@@ -1,3 +1,9 @@
+## [0.4.0](https://github.com/boson-chat/boson/compare/v0.3.0...v0.4.0) (2026-05-27)
+
+### Features
+
+* **client:** Settings → Server hosting flow for directory submission ([7677efa](https://github.com/boson-chat/boson/commit/7677efa131d97a9d41a0e586f6f16358bdeed61c))
+
 ## [0.3.0](https://github.com/boson-chat/boson/compare/v0.2.0...v0.3.0) (2026-05-27)
 
 ### Features
