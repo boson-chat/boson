@@ -65,7 +65,12 @@ jobs:
             # doesn't need an Apple Developer cert — it just hashes the
             # binary so the kernel can load it. Same identity the main
             # app uses (electron-builder picks identity: '-').
-            codesign --sign - --force --timestamp=none --options runtime=no \
+            #
+            # We deliberately don't pass `--options runtime` (Hardened
+            # Runtime) because that requires a real Developer ID cert
+            # to notarise — an ad-hoc identity can't satisfy it. The
+            # default (no options) is what we want here.
+            codesign --sign - --force --timestamp=none \
               client/resources/engine/engine-darwin-arm64 \
               client/resources/engine/engine-darwin-amd64
           else
