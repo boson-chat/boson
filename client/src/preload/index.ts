@@ -63,6 +63,29 @@ const bosonEngine = {
 };
 contextBridge.exposeInMainWorld('bosonEngine', bosonEngine);
 
+// Deep-link bridge. The marketing site's /discover page renders Join
+// buttons as `boson://join?host=…&port=…&tls=1` links; clicking one
+// hands the URL to the installed app via the OS. The main process
+// either buffers it (cold start) or pushes it live; both paths fan
+// through the same `deep-link:join` channel here.
+//
+// `consume` is a one-shot drain for the cold-start case — the
+// renderer calls it on boot to pick up any URL that arrived before
+// the IPC listener was attached. After that, `onJoin` receives every
+// fresh deep-link as it lands.
+const bosonDeepLink = {
+  async consume(): Promise<string | null> {
+    return ipcRenderer.invoke('deepLink:consume');
+  },
+  onJoin(fn: (url: string) => void): () => void {
+    const listener = (_evt: unknown, url: string): void => fn(url);
+    ipcRenderer.on('deep-link:join', listener);
+    return () => { ipcRenderer.off('deep-link:join', listener); };
+  },
+};
+contextBridge.exposeInMainWorld('bosonDeepLink', bosonDeepLink);
+
 export type BosonSecure = typeof bosonSecure;
 export type BosonWindow = typeof bosonWindow;
 export type BosonEngine = typeof bosonEngine;
+export type BosonDeepLink = typeof bosonDeepLink;

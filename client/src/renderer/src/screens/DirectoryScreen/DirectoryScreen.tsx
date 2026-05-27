@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
+import { subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import type { EngineClient, EngineState } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
@@ -67,6 +68,17 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
   useEffect(() => {
     bloc.setIdentity({ guestNick: guestNick ?? null });
   }, [bloc, guestNick]);
+  // Deep-link join. The marketing site's /discover page produces
+  // `boson://join?host=…&port=…&tls=1` URLs; the bridge captures them
+  // (including cold-start cases) and replays the most recent one to
+  // every new subscriber here. The bloc handles the rest — matches an
+  // existing directory entry by host:port if available, otherwise
+  // mints a local server and connects.
+  useEffect(() => {
+    return subscribeDeepLink((params) => {
+      void bloc.joinFromDeepLink(params);
+    });
+  }, [bloc]);
 
   const [state, setState] = useState<DirectoryState>(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);

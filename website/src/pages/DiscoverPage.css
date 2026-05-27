@@ -1,0 +1,207 @@
+.discover-hero { padding-block: clamp(48px, 6vw, 80px); }
+.discover-section { padding-top: 24px; padding-bottom: 64px; }
+
+.discover-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: var(--gap-md);
+  align-items: center;
+  margin-bottom: var(--gap-xl);
+}
+@media (max-width: 720px) {
+  .discover-controls {
+    grid-template-columns: 1fr;
+    gap: var(--gap-sm);
+  }
+}
+
+.discover-search {
+  height: 40px;
+  padding: 0 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font: inherit;
+  font-size: 14px;
+  transition: border-color var(--motion-fast) var(--ease);
+}
+.discover-search:focus { border-color: var(--accent); outline: none; }
+.discover-search::placeholder { color: var(--muted); }
+
+.discover-langs {
+  display: flex;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px;
+  background: var(--surface);
+}
+.discover-langs button {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  padding: 6px 10px;
+  border-radius: calc(var(--radius-sm) - 3px);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease),
+              background-color var(--motion-fast) var(--ease);
+}
+.discover-langs button:hover { color: var(--fg); }
+.discover-langs button.is-active {
+  color: var(--bg);
+  background: var(--accent);
+}
+
+.discover-nsfw {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.discover-nsfw input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+}
+
+/* ---------- States ---------- */
+.discover-state {
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+.discover-state-error p:first-of-type { color: var(--danger, var(--accent)); }
+
+/* ---------- Card grid ---------- */
+.discover-grid {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--gap-md);
+}
+
+.discover-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 2px;
+}
+
+.discover-card-head {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+/* Two-letter mono "favicon". Same trick the in-app DirectoryScreen
+   uses — initials of the server name, set against a per-server
+   coloured backdrop. Hue derives from the name so cards stay visually
+   distinct without anyone uploading a logo. */
+.discover-card-mono {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--fg);
+  background: color-mix(in oklab, var(--accent) 25%, var(--surface));
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.discover-card-titles { min-width: 0; flex: 1; }
+.discover-card-titles h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.discover-card-host {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Health dot — green = up, amber = unknown, grey = down. */
+.discover-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: inline-block;
+}
+.discover-status-up      { background: var(--success, #4ade80); }
+.discover-status-unknown { background: var(--warn,    #f5a524); }
+.discover-status-down    { background: var(--fg-3); }
+
+.discover-card-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin: 0;
+  /* Cap to 3 lines so cards stay roughly the same height regardless
+     of how chatty an operator was with their description. */
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.discover-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.discover-tag {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.discover-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+  margin-top: auto;
+  padding-top: 4px;
+}
+.discover-card-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.discover-cta { text-align: center; }
+.discover-cta .container { max-width: 640px; }
+.discover-cta .lead { margin: 0 auto 32px; }

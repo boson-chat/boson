@@ -3,13 +3,80 @@ import { join } from 'node:path';
 import { SecureStore } from './secure-store';
 import { engine } from './engine';
 
+// boson:// is the custom URL scheme that the marketing site's directory
+// page (/discover) deep-links to. Format: boson://join?host=…&port=…&tls=1
+// — see handleDeepLink() below for the parser. Registered with the OS
+// via setAsDefaultProtocolClient + electron-builder's `protocols` block.
+const DEEP_LINK_SCHEME = 'boson';
+
+interface PendingDeepLink {
+  url: string;
+}
+
 class BosonApp {
   private mainWindow: BrowserWindow | null = null;
   // Constructed lazily after `app.whenReady()` — `app.getPath('userData')`
   // is only valid after that point.
   private secureStore: SecureStore | null = null;
+  // Deep-link URL captured before the renderer was ready (cold-start
+  // from a boson:// click on Windows/Linux, or an open-url event on
+  // macOS before our window exists). Drained on ready-to-show.
+  private pendingDeepLink: PendingDeepLink | null = null;
 
   async start(): Promise<void> {
+    // Single-instance lock: when a second invocation tries to start
+    // (typical path: user clicks boson:// in a browser while the app is
+    // already running on Windows/Linux), the OS hands its argv to us
+    // here via second-instance, then exits the duplicate. Without this,
+    // clicking a deep link launches a fresh app instance that doesn't
+    // know about the running one.
+    const gotLock = app.requestSingleInstanceLock();
+    if (!gotLock) {
+      app.quit();
+      return;
+    }
+    app.on('second-instance', (_event, argv) => {
+      const url = argv.find((a) => a.startsWith(`${DEEP_LINK_SCHEME}://`));
+      if (url) this.dispatchDeepLink(url);
+      // Bring the existing window forward so the user sees the result
+      // of the deep link rather than the browser they came from.
+      if (this.mainWindow) {
+        if (this.mainWindow.isMinimized()) this.mainWindow.restore();
+        this.mainWindow.focus();
+      }
+    });
+
+    // macOS: deep links arrive via open-url. May fire before whenReady,
+    // so we register the listener up-front and buffer until the window
+    // exists.
+    app.on('open-url', (event, url) => {
+      event.preventDefault();
+      this.dispatchDeepLink(url);
+    });
+
+    // Register the URL scheme with the OS. On macOS this is mostly a
+    // formality (electron-builder writes CFBundleURLTypes into Info.plist
+    // and the OS reads that). On Windows + Linux we need to register at
+    // runtime so the .exe / .desktop entry handles boson:// URLs.
+    if (process.defaultApp) {
+      // Dev mode: passing the entrypoint script as the second arg so
+      // OS-handed-back deep links re-run electron with the right
+      // working tree. Doesn't matter for prod builds.
+      if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME, process.execPath, [
+          require('node:path').resolve(process.argv[1]),
+        ]);
+      }
+    } else {
+      app.setAsDefaultProtocolClient(DEEP_LINK_SCHEME);
+    }
+
+    // Windows + Linux cold-start: the deep link is in argv[1+]. Capture
+    // it before we even reach whenReady so the renderer picks it up on
+    // first paint instead of needing a separate trigger.
+    const argvDeepLink = process.argv.find((a) => a.startsWith(`${DEEP_LINK_SCHEME}://`));
+    if (argvDeepLink) this.pendingDeepLink = { url: argvDeepLink };
+
     await app.whenReady();
     this.secureStore = new SecureStore();
     // Surface the chosen encryption mode at startup so devs can see why their
@@ -80,6 +147,28 @@ class BosonApp {
     // dev (no sidecar binary on disk); renderer falls back to
     // VITE_ENGINE_URL / VITE_ENGINE_TOKEN in that case.
     ipcMain.handle('engine:discovery', () => engine.current());
+
+    // Deep-link drain. Renderer calls this once on boot to pick up any
+    // boson:// URL the OS handed us before the window existed (cold
+    // start from a browser click on Windows/Linux). After that, fresh
+    // deep-links arrive via the 'deep-link:join' webContents.send below.
+    ipcMain.handle('deepLink:consume', () => {
+      const pending = this.pendingDeepLink;
+      this.pendingDeepLink = null;
+      return pending?.url ?? null;
+    });
+  }
+
+  // Forward a deep-link URL to the renderer if it's ready, else buffer
+  // it. The renderer parses + dispatches — keeping URL semantics there
+  // means the schema can evolve without touching the main process.
+  private dispatchDeepLink(url: string): void {
+    if (!url.startsWith(`${DEEP_LINK_SCHEME}://`)) return;
+    if (this.mainWindow && !this.mainWindow.webContents.isLoading()) {
+      this.mainWindow.webContents.send('deep-link:join', url);
+    } else {
+      this.pendingDeepLink = { url };
+    }
   }
 
   private createWindow(): void {
@@ -105,7 +194,18 @@ class BosonApp {
       },
     });
 
-    this.mainWindow.on('ready-to-show', () => this.mainWindow?.show());
+    this.mainWindow.on('ready-to-show', () => {
+      this.mainWindow?.show();
+      // If we captured a deep link before the window opened, hand it
+      // off now. The renderer will also call deepLink:consume on boot
+      // as a backup for the timing case where it loads faster than this
+      // event fires.
+      if (this.pendingDeepLink) {
+        const { url } = this.pendingDeepLink;
+        this.pendingDeepLink = null;
+        this.mainWindow?.webContents.send('deep-link:join', url);
+      }
+    });
 
     // Broadcast maximize / unmaximize transitions so the renderer can swap
     // the maximize button between max and restore icons in real time.

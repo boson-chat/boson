@@ -1,6 +1,12 @@
 import { render } from 'preact';
 import { App, buildApp } from './app';
+import { initDeepLinkBridge } from './modules/deep-link/deep-link';
 import './styles.css';
+
+// Attach to the main-process deep-link bridge before any UI mounts so
+// the module-level buffer in deep-link.ts captures any `boson://` URL
+// the OS hands us, even before the directory screen mounts.
+initDeepLinkBridge();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? 'http://localhost:54321';
 // Supabase migrated from "anon" to "publishable" keys (sb_publishable_...).

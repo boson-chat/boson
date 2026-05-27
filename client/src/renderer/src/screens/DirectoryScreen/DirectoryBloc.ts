@@ -558,6 +558,45 @@ export class DirectoryBloc {
     return created;
   }
 
+  // Deep-link handler. The marketing site's /discover page links to
+  // `boson://join?host=…&port=…&tls=…&name=…` for every directory card;
+  // the main process passes the parsed params here.
+  //
+  // Two paths:
+  //   1. We already know a server (directory or local) with the same
+  //      hostname:port → connect to that record. Preserves description,
+  //      tags, language filters, and the "CURRENTLY CONNECTED" banner.
+  //   2. Otherwise → add as a local server so the user has an entry
+  //      they can remove later, then connect to it.
+  async joinFromDeepLink(input: {
+    host: string;
+    port: number;
+    tls: boolean;
+    name?: string;
+  }): Promise<void> {
+    const hostKey = input.host.trim().toLowerCase();
+    const existing = [
+      ...(this.servers ?? []),
+      ...mergeWithLocal([], loadLocalServers()),
+    ].find((s) => s.hostname.toLowerCase() === hostKey && s.port === input.port);
+    if (existing) {
+      await this.connect(existing);
+      return;
+    }
+    const created = addLocalServer({
+      name: input.name?.trim() || input.host,
+      hostname: input.host,
+      port: input.port,
+      tls: input.tls,
+    });
+    this.emit();
+    // mergeWithLocal will pick the freshly-persisted entry up — fetch
+    // it back as a Server and connect.
+    const merged = mergeWithLocal(this.servers ?? [], loadLocalServers());
+    const target = merged.find((s) => s.id === created.id);
+    if (target) await this.connect(target);
+  }
+
   // Remove a previously-added local server. No-op if id isn't local.
   removeLocalServer(id: string): void {
     removeLocalServer(id);

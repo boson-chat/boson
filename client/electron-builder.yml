@@ -13,6 +13,15 @@ appId: chat.boson.app
 productName: Boson
 copyright: Copyright © 2026 Boson
 
+# Custom URL scheme handler. The marketing site's /discover page links
+# to `boson://join?host=…&port=…&tls=…&name=…` for every server card;
+# clicking one hands the URL to the installed app via the OS. Main
+# process registers + parses the link in src/main/index.ts.
+protocols:
+  - name: Boson Chat Deep Link
+    schemes:
+      - boson
+
 # electron-vite builds main + preload + renderer into out/.
 directories:
   buildResources: build

@@ -11,6 +11,7 @@ interface NavLink {
 
 const NAV_LINKS: NavLink[] = [
   { href: '/', label: 'Overview' },
+  { href: '/discover', label: 'Discover' },
   { href: '/docs', label: 'Docs' },
   { href: '/about', label: 'About' },
   { href: 'https://github.com/boson-chat/boson', label: 'GitHub', external: true },
