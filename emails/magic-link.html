@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
+  <title>Your Boson sign-in link</title>
+</head>
+<body style="margin:0;padding:0;background-color:#070709;color:#E2E2EA;font-family:'Inter','Segoe UI','SF Pro Text','Helvetica Neue',Arial,sans-serif;">
+  <!--[if mso]>
+  <style type="text/css">body, table, td, a { font-family: 'Segoe UI', Arial, sans-serif !important; }</style>
+  <![endif]-->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#070709" style="background-color:#070709;">
+    <tr>
+      <td align="center" style="padding:48px 16px;">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;">
+          <tr>
+            <td align="left" style="padding-bottom:32px;">
+              <span style="color:#D97706;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:13px;letter-spacing:0.15em;">●</span>
+              <span style="color:#E2E2EA;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:13px;letter-spacing:0.22em;font-weight:600;margin-left:6px;">BOSON</span>
+            </td>
+          </tr>
+          <tr>
+            <td bgcolor="#0D0D11" style="background-color:#0D0D11;border:1px solid #24242E;border-radius:8px;padding:36px 32px;">
+              <h1 style="margin:0 0 18px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:22px;font-weight:600;color:#E2E2EA;letter-spacing:-0.01em;line-height:1.3;">
+                Your sign-in link.
+              </h1>
+              <p style="margin:0 0 28px;font-size:15px;line-height:1.55;color:#9898A8;">
+                Click below to sign in to Boson as
+                <span style="color:#E2E2EA;">{{ .Email }}</span>.
+                The link is good for one use and expires in 1 hour.
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td bgcolor="#D97706" style="background-color:#D97706;border-radius:6px;">
+                    <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 28px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:14px;font-weight:600;color:#070709;text-decoration:none;letter-spacing:0.02em;">
+                      Sign in →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <!-- OTP fallback: useful when the link won't open the desktop
+                   app (corporate browser, headless server, etc.). The
+                   desktop client has a "Paste a sign-in code" field that
+                   accepts this. -->
+              <p style="margin:32px 0 8px;font-size:13px;line-height:1.5;color:#686878;">
+                Prefer to paste a code into the desktop app?
+              </p>
+              <p style="margin:0;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:22px;font-weight:600;letter-spacing:0.15em;color:#D97706;">
+                {{ .Token }}
+              </p>
+              <p style="margin:28px 0 0;font-size:13px;line-height:1.5;color:#686878;">
+                If the button doesn't work, paste this URL into your browser:
+              </p>
+              <p style="margin:6px 0 0;font-size:12px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;color:#9898A8;word-break:break-all;">
+                {{ .ConfirmationURL }}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 4px 0;color:#686878;font-size:12px;line-height:1.55;">
+              You're receiving this because someone (hopefully you) asked for a sign-in link to this address.
+              If that wasn't you, ignore this message — the link expires automatically.
+              <br><br>
+              Questions? Reply to this email or write to
+              <a href="mailto:support@boson.chat" style="color:#9898A8;text-decoration:underline;">support@boson.chat</a>.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 4px 0;color:#444452;font-size:11px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;letter-spacing:0.06em;">
+              BOSON · OPEN CHAT, OPEN NETWORKS · boson.chat
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

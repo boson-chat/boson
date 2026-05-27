@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="x-apple-disable-message-reformatting">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
+  <title>Confirm your new email for Boson</title>
+</head>
+<body style="margin:0;padding:0;background-color:#070709;color:#E2E2EA;font-family:'Inter','Segoe UI','SF Pro Text','Helvetica Neue',Arial,sans-serif;">
+  <!--[if mso]>
+  <style type="text/css">body, table, td, a { font-family: 'Segoe UI', Arial, sans-serif !important; }</style>
+  <![endif]-->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="#070709" style="background-color:#070709;">
+    <tr>
+      <td align="center" style="padding:48px 16px;">
+        <table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%;">
+          <tr>
+            <td align="left" style="padding-bottom:32px;">
+              <span style="color:#D97706;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:13px;letter-spacing:0.15em;">●</span>
+              <span style="color:#E2E2EA;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:13px;letter-spacing:0.22em;font-weight:600;margin-left:6px;">BOSON</span>
+            </td>
+          </tr>
+          <tr>
+            <td bgcolor="#0D0D11" style="background-color:#0D0D11;border:1px solid #24242E;border-radius:8px;padding:36px 32px;">
+              <h1 style="margin:0 0 18px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:22px;font-weight:600;color:#E2E2EA;letter-spacing:-0.01em;line-height:1.3;">
+                Confirm your new email.
+              </h1>
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:#9898A8;">
+                You asked to change the email on your Boson account.
+                Confirm the new address below — both addresses will keep working until you do.
+              </p>
+              <!-- Old / new address summary so the user can sanity-check
+                   without opening the app. Two-row layout keeps it
+                   readable on narrow viewports where labels stack. -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom:28px;">
+                <tr>
+                  <td style="padding:10px 14px;background-color:#141418;border:1px solid #24242E;border-radius:4px 4px 0 0;font-size:12px;color:#686878;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;letter-spacing:0.06em;">
+                    FROM
+                  </td>
+                  <td style="padding:10px 14px;background-color:#141418;border:1px solid #24242E;border-left:0;border-radius:0 4px 0 0;font-size:14px;color:#E2E2EA;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;">
+                    {{ .Email }}
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:10px 14px;background-color:#141418;border:1px solid #24242E;border-top:0;border-radius:0 0 0 4px;font-size:12px;color:#D97706;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;letter-spacing:0.06em;">
+                    TO
+                  </td>
+                  <td style="padding:10px 14px;background-color:#141418;border:1px solid #24242E;border-top:0;border-left:0;border-radius:0 0 4px 0;font-size:14px;color:#E2E2EA;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;">
+                    {{ .NewEmail }}
+                  </td>
+                </tr>
+              </table>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td bgcolor="#D97706" style="background-color:#D97706;border-radius:6px;">
+                    <a href="{{ .ConfirmationURL }}" style="display:inline-block;padding:13px 28px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;font-size:14px;font-weight:600;color:#070709;text-decoration:none;letter-spacing:0.02em;">
+                      Confirm new email →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:32px 0 0;font-size:13px;line-height:1.5;color:#686878;">
+                If the button doesn't work, paste this URL into your browser:
+              </p>
+              <p style="margin:6px 0 0;font-size:12px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;color:#9898A8;word-break:break-all;">
+                {{ .ConfirmationURL }}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px 4px 0;color:#686878;font-size:12px;line-height:1.55;">
+              You're receiving this because someone asked to change the email address on your Boson account.
+              If that wasn't you, ignore this message — your current address stays active and your account is unchanged.
+              <br><br>
+              Questions? Reply to this email or write to
+              <a href="mailto:support@boson.chat" style="color:#9898A8;text-decoration:underline;">support@boson.chat</a>.
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:18px 4px 0;color:#444452;font-size:11px;font-family:'JetBrains Mono','SF Mono',Consolas,Menlo,monospace;letter-spacing:0.06em;">
+              BOSON · OPEN CHAT, OPEN NETWORKS · boson.chat
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
