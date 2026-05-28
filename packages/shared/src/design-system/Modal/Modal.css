@@ -7,7 +7,15 @@
   justify-content: center;
   z-index: 1000;
   padding: var(--space-4);
+  /* Initial (closed) state — opacity 0; the panel inside starts a
+     few pixels down + slightly scaled-back so the open animation
+     reads as "rising and resolving" rather than just fading.
+     `.is-open` (toggled by Modal.tsx via two rAFs after mount) flips
+     these to their resolved values, driving the transition. */
+  opacity: 0;
+  transition: opacity var(--motion-medium) var(--ease-in-out);
 }
+.bds-modal-backdrop.is-open { opacity: 1; }
 
 .bds-modal {
   background: var(--surface);
@@ -23,6 +31,19 @@
   flex-direction: column;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   outline: none;
+  /* Match the backdrop's entrance but with a small staggered delay
+     so the panel resolves after the backdrop reaches partial opacity
+     — gives the eye something to land on before the contents arrive. */
+  opacity: 0;
+  transform: translateY(8px) scale(0.985);
+  transform-origin: center;
+  transition:
+    opacity var(--motion-medium) var(--ease-in-out) 30ms,
+    transform var(--motion-medium) var(--ease-in-out) 30ms;
+}
+.bds-modal-backdrop.is-open .bds-modal {
+  opacity: 1;
+  transform: translateY(0) scale(1);
 }
 
 /* Wide variant — for content that needs extra horizontal room (the server
@@ -61,9 +82,14 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
+  transition:
+    background-color var(--motion-instant) var(--ease-standard),
+    color var(--motion-instant) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .bds-modal-close:hover { color: var(--fg); background: var(--surface-hover); }
+.bds-modal-close:active { transform: scale(0.92); }
 
 .bds-modal-body {
   padding: var(--space-5);

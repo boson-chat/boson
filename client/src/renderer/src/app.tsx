@@ -1,3 +1,4 @@
+import type preact from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { AuthProvider, AuthService, useAuthState } from './modules/auth';
 import { DirectoryService } from './modules/directory';
@@ -60,6 +61,12 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   );
 }
 
+// Stable identifier per top-level "view" we render below. Used as the
+// `key` on the wrapper so swapping between login / directory / loading
+// states re-mounts the wrapper and replays the CSS entrance animation —
+// same trick the marketing site uses (see website/src/app.tsx).
+type RouteKey = 'loading' | 'restoring' | 'auth-error' | 'guest' | 'login' | 'app';
+
 function Router({ directory, engine, identity, history }: {
   directory: DirectoryService;
   engine: EngineClient | null;
@@ -75,22 +82,40 @@ function Router({ directory, engine, identity, history }: {
   // restore the `useIdentityUnlocked` hook flips the route automatically.
   const userId = session?.user?.id ?? null;
   const restored = useIdentityRestore(identity, userId);
-  if (error) return <div class="loading" style="color: var(--danger)">Auth init failed: {error}</div>;
-  if (loading) return <div class="loading">Loading…</div>;
-  // Guest mode short-circuits the auth + identity gates entirely. The
-  // DirectoryScreen accepts an optional `guestNick` and proceeds without
-  // ever calling the backend's /me endpoint.
-  if (guest) {
-    return <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} guestNick={guest.nick} />;
+
+  let key: RouteKey;
+  let content: preact.ComponentChildren;
+  if (error) {
+    key = 'auth-error';
+    content = <div class="loading" style="color: var(--danger)">Auth init failed: {error}</div>;
+  } else if (loading) {
+    key = 'loading';
+    content = <div class="loading">Loading…</div>;
+  } else if (guest) {
+    // Guest mode short-circuits the auth + identity gates entirely. The
+    // DirectoryScreen accepts an optional `guestNick` and proceeds without
+    // ever calling the backend's /me endpoint.
+    key = 'guest';
+    content = <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} guestNick={guest.nick} />;
+  } else if (session && !identityUnlocked && restored === 'pending') {
+    // Supabase may auto-restore a session from localStorage. If the keychain
+    // has the user_secret too, we'll have unlocked the identity above. If not,
+    // fall through to LoginScreen — the user needs to type their password.
+    key = 'restoring';
+    content = <div class="loading">Restoring session…</div>;
+  } else if (!session || !identityUnlocked) {
+    key = 'login';
+    content = <LoginScreen directory={directory} identity={identity} />;
+  } else {
+    key = 'app';
+    content = <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} />;
   }
-  // Supabase may auto-restore a session from localStorage. If the keychain
-  // has the user_secret too, we'll have unlocked the identity above. If not,
-  // fall through to LoginScreen — the user needs to type their password.
-  if (session && !identityUnlocked && restored === 'pending') {
-    return <div class="loading">Restoring session…</div>;
-  }
-  if (!session || !identityUnlocked) return <LoginScreen directory={directory} identity={identity} />;
-  return <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} />;
+
+  return (
+    <div class="route-content" key={key}>
+      {content}
+    </div>
+  );
 }
 
 // Hook into the guest-session localStorage record. Re-reads when the

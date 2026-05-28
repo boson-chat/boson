@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks';
+import { useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
@@ -40,9 +40,26 @@ interface HoverState {
 // Discord-style: members grouped by role with a small header per group.
 // Hover tooltip carries role + activity data. Right-click context menu
 // (whois / PM / ignore) is wired separately when onContextNick is set.
+// Open-delay for the hover card. Short enough that an intentional
+// hover lands instantly to the eye, long enough that a mouse just
+// passing through a row doesn't flash a card.
+const HOVER_OPEN_DELAY_MS = 150;
+
 export function UserPanel({ channel, nickActions }: UserPanelProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
+  // Debounce the hover-card open: we capture the row's bounding box on
+  // mouseenter (which has to happen synchronously while the event still
+  // owns the element) but defer flipping the state until the cursor has
+  // dwelled for HOVER_OPEN_DELAY_MS. mouseleave clears the timer so
+  // moving through rows doesn't flash a card.
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingOpen = () => {
+    if (openTimer.current !== null) {
+      clearTimeout(openTimer.current);
+      openTimer.current = null;
+    }
+  };
 
   function buildActions(nick: string): readonly NickContextAction[] {
     const out: NickContextAction[] = [
@@ -109,9 +126,15 @@ export function UserPanel({ channel, nickActions }: UserPanelProps) {
                   class={`user-panel-item user-panel-item-${prefixClass(m.prefix)} user-panel-item-${presence}`}
                   onMouseEnter={(e) => {
                     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    setHover({ member: m, rowTop: r.top, rowLeft: r.left });
+                    const snapshot: HoverState = { member: m, rowTop: r.top, rowLeft: r.left };
+                    cancelPendingOpen();
+                    openTimer.current = setTimeout(() => {
+                      setHover(snapshot);
+                      openTimer.current = null;
+                    }, HOVER_OPEN_DELAY_MS);
                   }}
                   onMouseLeave={() => {
+                    cancelPendingOpen();
                     setHover((prev) => (prev && prev.member.nick === m.nick ? null : prev));
                   }}
                   onContextMenu={(e) => {

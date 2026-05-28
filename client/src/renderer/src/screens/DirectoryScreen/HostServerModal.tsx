@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { AtomLoader, Badge, Button, Card, ChipInput, Field, Input, Modal, Toggle } from '@boson/shared';
+import { AtomLoader, Badge, Button, Card, ChipInput, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
 import type {
   DirectoryService,
   ServerWithToken,
@@ -403,12 +403,11 @@ function Terminal({ children }: { children: preact.ComponentChildren }) {
 }
 
 function CopyButton({ label, value }: { label: string; value: string }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, triggerCopied] = useTransientFlag(1400);
   const handle = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(value);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1400);
+      triggerCopied();
     } catch {
       // Some Electron contexts disable clipboard writes — fall back
       // silently. The TXT record is visible in the <pre> so the user

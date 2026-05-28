@@ -10,6 +10,23 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+  /* One-shot entrance: drop from cursor with a tiny scale-up. The
+     menu is portal-rendered to document.body which means it's a fresh
+     mount every right-click — a CSS animation on the element itself
+     is enough, no React state machine needed. */
+  transform-origin: top center;
+  animation: nick-context-menu-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes nick-context-menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .nick-context-menu-title {
@@ -36,11 +53,16 @@
   font-size: var(--text-sm);
   border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background var(--motion-fast) var(--ease-standard);
+  transition:
+    background var(--motion-instant) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .nick-context-menu-item:hover {
   background: var(--surface-hover);
+}
+.nick-context-menu-item:active {
+  transform: scale(0.98);
 }
 
 .nick-context-menu-item-danger {

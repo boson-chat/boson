@@ -49,3 +49,21 @@ input, textarea { font: inherit; color: inherit; }
   flex-direction: column;
 }
 
+/* Route wrapper — remounted on every top-level view swap via a `key`
+   change in app.tsx's Router. Provides a CSS entrance animation that
+   fires once per appearance (cold start → loading → app, login →
+   directory, etc.), giving the session reads of "soft cross-fade"
+   instead of snap. Mirrors the website's pattern. */
+.route-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: route-content-enter var(--motion-medium) var(--ease-in-out) both;
+}
+
+@keyframes route-content-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+

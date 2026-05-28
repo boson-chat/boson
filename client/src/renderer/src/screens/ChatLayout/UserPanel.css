@@ -90,11 +90,19 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  /* Transition the colour so an away→online flip (or vice versa) fades
+     between hues instead of snapping. Same with opacity for offline. */
+  transition:
+    background var(--motion-base) var(--ease-standard),
+    opacity var(--motion-base) var(--ease-standard);
 }
 .user-panel-presence-online  { background: var(--success); }
 .user-panel-presence-away    { background: var(--warn); }
 .user-panel-presence-offline { background: var(--fg-3); opacity: 0.4; }
 
+.user-panel-item {
+  transition: background var(--motion-instant) var(--ease-standard);
+}
 .user-panel-item:hover { background: var(--surface-hover); color: var(--fg); }
 
 .user-panel-name {
@@ -139,6 +147,17 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
   pointer-events: none;
+  /* One-shot entrance — the card is mount-on-hover (Preact portal),
+     so a CSS animation fires once per appearance. Card "rises" 2px
+     toward the cursor as it fades in. The 150ms dwell-debounce lives
+     in the hover hook so this animation never plays for accidental
+     flyovers. */
+  animation: nick-hovercard-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes nick-hovercard-enter {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .nick-hovercard-head {

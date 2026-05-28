@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, Button, Card, ChipInput, Divider, Field, Input, Toggle } from '@boson/shared';
+import { Badge, Button, Card, ChipInput, Divider, Field, Input, Toggle, useTransientFlag } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
 import './ServerSettings.css';
 
@@ -255,7 +255,7 @@ function EditProfileSection({
   const [isNsfw, setIsNsfw] = useState(entry.isNsfw);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, triggerSaved] = useTransientFlag(1600);
 
   // Reset the draft whenever the canonical entry changes (e.g. the
   // backend confirmed a save and the parent rebuilt the prop).
@@ -287,8 +287,7 @@ function EditProfileSection({
     if (isNsfw !== entry.isNsfw) patch.isNsfw = isNsfw;
     onSave(patch)
       .then(() => {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 1600);
+        triggerSaved();
       })
       .catch((err) => {
         setError(err instanceof Error ? err.message : 'Save failed.');

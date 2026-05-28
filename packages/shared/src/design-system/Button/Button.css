@@ -23,6 +23,10 @@
 
 .bds-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .bds-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Universal press cue — every variant gets the same subtle scale-down
+   on click. Tactile feedback at low cost; ignored for disabled buttons
+   so a click on a disabled control doesn't lie about being received. */
+.bds-btn:not(:disabled):active { transform: scale(0.97); }
 
 .bds-btn-primary {
   background: var(--accent);

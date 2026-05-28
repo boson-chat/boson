@@ -321,7 +321,7 @@
   padding: 10px 12px;
   resize: vertical;
   min-height: 80px;
-  transition: border-color var(--motion-fast) var(--ease);
+  transition: border-color var(--motion-fast) var(--ease-standard);
 }
 .server-settings-textarea:focus { border-color: var(--accent); outline: none; }
 .server-settings-error {
@@ -340,4 +340,12 @@
   color: var(--success, #10b981);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  /* Match `.user-settings-saved` — transient badge rises 4px + fades in
+     each time `useTransientFlag` flips it true. */
+  animation: server-settings-saved-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes server-settings-saved-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }

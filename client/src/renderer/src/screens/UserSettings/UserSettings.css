@@ -124,6 +124,17 @@
   color: var(--success, #10b981);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+  /* Transient confirmation badge — appears, lingers ~1.5s (driven by
+     `useTransientFlag`), then unmounts. A CSS animation on the element
+     fires once per appearance and is enough; we don't need an exit
+     animation since the disappear is matched with the rest of the row
+     reflowing. */
+  animation: transient-confirm-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes transient-confirm-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .user-settings-actions {
@@ -225,7 +236,7 @@
   padding: 10px 12px;
   resize: vertical;
   min-height: 80px;
-  transition: border-color var(--motion-fast) var(--ease);
+  transition: border-color var(--motion-fast) var(--ease-standard);
 }
 .server-hosting-textarea:focus { border-color: var(--accent); outline: none; }
 
@@ -345,7 +356,7 @@
   color: var(--accent);
   text-decoration: none;
   border-bottom: 1px solid transparent;
-  transition: border-color var(--motion-fast) var(--ease);
+  transition: border-color var(--motion-fast) var(--ease-standard);
 }
 .user-settings-link:hover { border-bottom-color: var(--accent); }
 
@@ -358,25 +369,41 @@
   text-align: center;
 }
 
-/* Update affordance inline next to the version row in About. Compact
-   by default; expands into a "Restart to apply" prompt when an update
-   has been downloaded. The Version row is widened to a two-column
-   layout so the actions hug the right edge. */
+/* Update affordance inline next to the version row in About. The row
+   has three pieces — version string (left), button(s) (right), and
+   an optional status hint ("Up to date.", "Downloading 42%", …).
+   Layout strategy: keep the version + actions cluster always on one
+   row (no wrap, never compete for inline width), but stack the button
+   and hint *within* the actions cluster as a right-aligned column.
+   This means in the steady state we always read:
+
+       v0.8.0                       [ Check for updates ]
+                                              Up to date.
+
+   The hint sits visually under the button regardless of the column
+   width, instead of trying (and failing) to fit beside it. */
 .user-settings-version-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   width: 100%;
 }
 .user-settings-update-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  /* Cap the cluster width so a long hint ("Downloading 42% (12 MB / 28 MB)")
+     can't push the version off the left edge — instead it wraps inside
+     the column. */
+  max-width: 22ch;
 }
 .user-settings-update-hint {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--fg-3);
+  line-height: 1.4;
+  text-align: right;
 }
 .user-settings-update-error { color: var(--danger, #ef4444); }

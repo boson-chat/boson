@@ -58,14 +58,8 @@
   50%      { transform: scale(1.35); opacity: 1; }
 }
 
-/* Honour OS-level reduce-motion preferences. We keep the loader
-   visible (still indicates "something is happening") but freeze the
-   spinning, since orbit motion is the trigger for vestibular issues. */
-@media (prefers-reduced-motion: reduce) {
-  .bds-atom-loader > svg,
-  .bds-atom-orbit-1,
-  .bds-atom-orbit-2,
-  .bds-atom-orbit-3 {
-    animation: none;
-  }
-}
+/* prefers-reduced-motion is handled globally in tokens.css — every
+   animation in the app is short-circuited to 0.01ms there. The local
+   block this file used to carry was the only such guard in the design
+   system; folding it up into one place keeps the contract consistent
+   for every new component. */

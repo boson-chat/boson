@@ -32,4 +32,20 @@
   color: var(--danger);
   margin-top: var(--space-2);
   line-height: 1.4;
+  /* Slide-down + fade entrance whenever a validation error first
+     appears. The element is mount-on-error (the parent toggles between
+     hint and error subtree), so a CSS animation fires once per
+     appearance. */
+  animation: bds-field-error-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes bds-field-error-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

@@ -1,6 +1,6 @@
 import type preact from 'preact';
 import type { Ref } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
 import { tokenizeMarkdown, type MdToken } from './markdown';
@@ -32,11 +32,26 @@ interface MessageRowProps {
   grouped?: boolean;
   /** Action callbacks bound to the right-click nick context menu. */
   nickActions?: NickActions;
+  /** True when this message has arrived in real-time *since* this view's
+   *  freshness baseline. Drives the slide-in entrance animation. */
+  fresh?: boolean;
 }
 
-export function MessageRow({ msg, myNick, members, grouped = false, nickActions }: MessageRowProps) {
+// Match UserPanel's hover-card open-delay so dwelling on a nick in chat
+// and dwelling on one in the right rail feel identically responsive.
+const HOVER_OPEN_DELAY_MS = 150;
+
+export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
+  // Debounce-on-enter timer for the hover card — see `UserPanel.tsx`.
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingOpen = () => {
+    if (openTimer.current !== null) {
+      clearTimeout(openTimer.current);
+      openTimer.current = null;
+    }
+  };
 
   function buildActions(nick: string): readonly NickContextAction[] {
     const out: NickContextAction[] = [
@@ -55,7 +70,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions 
   }
   if (msg.kind === 'system' || msg.kind === 'join' || msg.kind === 'part' || msg.kind === 'quit') {
     return (
-      <div class={`message-system message-system-${msg.kind}`}>
+      <div class={`message-system message-system-${msg.kind} ${fresh ? 'message-fresh' : ''}`}>
         <span class="sys-text">{msg.text}</span>
       </div>
     );
@@ -70,7 +85,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions 
 
   if (msg.kind === 'action') {
     return (
-      <div class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''}`}>
+      <div class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`}>
         <span class="message-action-star">*</span>
         <span class="message-action-name">{msg.from}</span>
         <span class="message-action-text">{renderedText}</span>
@@ -85,6 +100,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions 
     msg.kind === 'notice' ? 'message-row-notice' : '',
     mentionsMe ? 'message-row-mention' : '',
     grouped ? 'message-row-grouped' : '',
+    fresh ? 'message-fresh' : '',
   ].filter(Boolean).join(' ');
 
   const badge = ROLE_BADGES[findMemberPrefix(members, msg.from)];
@@ -101,9 +117,15 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions 
             }}
             onMouseEnter={(e) => {
               const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              setHover({ nick: msg.from, top: r.top, left: r.left });
+              const snapshot = { nick: msg.from, top: r.top, left: r.left };
+              cancelPendingOpen();
+              openTimer.current = setTimeout(() => {
+                setHover(snapshot);
+                openTimer.current = null;
+              }, HOVER_OPEN_DELAY_MS);
             }}
             onMouseLeave={() => {
+              cancelPendingOpen();
               setHover((prev) => (prev && prev.nick === msg.from ? null : prev));
             }}
           >
@@ -198,17 +220,34 @@ interface MessageListProps {
   myNick: string;
   scrollRef: Ref<HTMLDivElement>;
   nickActions?: NickActions;
+  /** Currently-active channel name. Used as the reset key for the
+   *  "freshness baseline" — messages whose timestamp predates the
+   *  switch to this channel don't animate in. */
+  channelName: string | null;
 }
 
 // Scroll container + message rows. Owns the grouped-rendering decision so
 // the view doesn't need to know how messages stitch together visually.
-export function MessageList({ messages, members, myNick, scrollRef, nickActions }: MessageListProps) {
+//
+// New-message entrance animation is gated by `freshnessBaseline`: messages
+// whose timestamp postdates the most recent channel switch animate as
+// they mount; everything older (history hydration, existing scrollback
+// on channel switch, the initial batch on first render) is treated as
+// already-present and renders without the slide-fade. This means the
+// 500-message hydration of a long channel doesn't strobe — only genuine
+// real-time arrivals do.
+export function MessageList({ messages, members, myNick, scrollRef, nickActions, channelName }: MessageListProps) {
+  const freshnessBaseline = useRef<number>(Date.now());
+  useEffect(() => {
+    freshnessBaseline.current = Date.now();
+  }, [channelName]);
   return (
     <div class="chat-messages" ref={scrollRef}>
       <div class="messages-inner">
         {messages.map((m, idx) => {
           const prev = idx > 0 ? messages[idx - 1]! : null;
           const grouped = shouldGroup(prev, m);
+          const isFresh = m.timestamp > freshnessBaseline.current;
           return (
             <MessageRow
               key={m.id}
@@ -217,6 +256,7 @@ export function MessageList({ messages, members, myNick, scrollRef, nickActions 
               members={members}
               grouped={grouped}
               nickActions={nickActions}
+              fresh={isFresh}
             />
           );
         })}

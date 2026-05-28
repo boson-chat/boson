@@ -1,6 +1,10 @@
 .bds-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
+  /* Relative so the sliding indicator can position itself in this
+     stacking context. The indicator's `left` is measured from the
+     tablist's left edge — see Tabs.tsx. */
+  position: relative;
 }
 
 .bds-tab {
@@ -13,26 +17,30 @@
   border: none;
   text-align: center;
   cursor: pointer;
-  transition: all var(--motion-fast) var(--ease-standard);
+  /* Foreground colour swap matches the indicator slide so the active-tab
+     text colour change lands at the same moment the bar arrives. */
+  transition: color var(--motion-base) var(--ease-standard);
   position: relative;
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
-.bds-tab::after {
-  content: '';
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: transparent;
-  transition: background var(--motion-fast) var(--ease-standard);
-}
-
 .bds-tab:hover { color: var(--fg-2); }
 
 .bds-tab-active { color: var(--accent); }
-.bds-tab-active::after { background: var(--accent); }
+
+/* Single sliding indicator — replaces the per-tab `::after` accent.
+   `left` + `width` are set inline from JS each time `active` changes;
+   the transition here is what makes the swap *glide* instead of snap. */
+.bds-tab-indicator {
+  position: absolute;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  pointer-events: none;
+  transition:
+    left var(--motion-base) var(--ease-out),
+    width var(--motion-base) var(--ease-out);
+}
 
 .bds-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }

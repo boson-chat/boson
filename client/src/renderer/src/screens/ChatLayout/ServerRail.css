@@ -37,6 +37,10 @@
   border-color: var(--fg-3);
   color: var(--fg);
 }
+/* Press cue — subtler than buttons since clicking a tile changes the
+   active server (a navigation, not a confirm), but still useful for
+   tactility. Skipped when the tile is already active. */
+.server-item:not(.server-item-active):active { transform: scale(0.95); }
 
 .server-item-active {
   color: var(--accent);
@@ -50,11 +54,25 @@
   position: absolute;
   left: -8px;
   top: 50%;
+  /* `transform-origin: center` keeps the scaleY pivot centred on the
+     bar; combined with the `translateY(-50%)` we end up with `center
+     center`, so the bar grows symmetrically from its centre rather
+     than dropping from the top. */
   transform: translateY(-50%);
+  transform-origin: center;
   width: 3px;
   height: 28px;
   background: var(--accent);
   border-radius: 0 2px 2px 0;
+  /* Slide-out grow when a tile becomes active. The ::before is mount-
+     on-active (it only exists while .server-item-active is applied),
+     so a one-shot animation works without state machinery. */
+  animation: server-item-active-bar var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes server-item-active-bar {
+  from { transform: translateY(-50%) scaleY(0); opacity: 0; }
+  to   { transform: translateY(-50%) scaleY(1); opacity: 1; }
 }
 
 .server-item-add {
@@ -64,6 +82,7 @@
 }
 
 .server-item-add:hover { color: var(--accent); border-color: var(--accent); }
+.server-item-add:active { transform: scale(0.95); }
 
 /*
  * Per-state visual hint for the multi-server rail. Connecting and
@@ -128,6 +147,14 @@
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
+  /* Match NickContextMenu — drop from cursor with a small scale-up. */
+  transform-origin: top center;
+  animation: server-rail-context-menu-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes server-rail-context-menu-enter {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .server-rail-context-item {
@@ -140,11 +167,16 @@
   color: var(--fg);
   cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: background var(--motion-fast) var(--ease-standard);
+  transition:
+    background var(--motion-instant) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .server-rail-context-item:hover {
   background: var(--surface-hover);
+}
+.server-rail-context-item:active {
+  transform: scale(0.98);
 }
 
 .server-rail-context-item-danger { color: var(--danger); }

@@ -198,6 +198,7 @@ export function ChatArea({
         myNick={myNick}
         scrollRef={scrollRef}
         nickActions={nickActions}
+        channelName={channel.name}
       />
 
       <TypingIndicator nicks={channel.typing} />

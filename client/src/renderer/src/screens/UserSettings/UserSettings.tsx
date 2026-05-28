@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, Button, Card, Divider, Field, Input, Modal } from '@boson/shared';
+import { Badge, Button, Card, Divider, Field, Input, Modal, useTransientFlag } from '@boson/shared';
 import {
   clearGuestSession,
   emitGuestChange,
@@ -100,7 +100,7 @@ function IdentitySection({ mode, authedHandle, guestNick }: {
   guestNick: string;
 }) {
   const [draft, setDraft] = useState(guestNick);
-  const [saved, setSaved] = useState(false);
+  const [saved, triggerSaved] = useTransientFlag();
 
   const submit = (e: Event): void => {
     e.preventDefault();
@@ -109,8 +109,7 @@ function IdentitySection({ mode, authedHandle, guestNick }: {
     if (!nick) return;
     saveGuestSession({ nick });
     emitGuestChange();
-    setSaved(true);
-    setTimeout(() => setSaved(false), 1500);
+    triggerSaved();
   };
 
   return (

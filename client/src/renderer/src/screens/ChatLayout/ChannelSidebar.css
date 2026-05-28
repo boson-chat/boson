@@ -133,6 +133,7 @@
   color: var(--accent);
   border-color: var(--border);
 }
+.channel-add:active { transform: scale(0.92); }
 
 .channel-join-form {
   display: flex;
@@ -372,6 +373,11 @@
   height: 6px;
   border-radius: 50%;
   background: var(--fg-2);
+  /* One-shot pop on mount — the dot only appears when a channel
+     transitions from "seen" to "unread", so the animation fires once
+     per unread cycle. ease-spring gives it a tiny overshoot for the
+     "Slack notification dot landing" feel. */
+  animation: channel-badge-pop var(--motion-base) var(--ease-spring) both;
 }
 
 .channel-mention-count {
@@ -389,6 +395,14 @@
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: -0.01em;
+  /* Same pop as the unread dot — keyed off mount, fires when the count
+     goes from 0 → non-zero. */
+  animation: channel-badge-pop var(--motion-base) var(--ease-spring) both;
+}
+
+@keyframes channel-badge-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1); }
 }
 
 /* When the leave-(×) button reveals on hover, suppress the indicator so

@@ -1,7 +1,18 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/preact';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, fireEvent } from '@testing-library/preact';
 import { UserPanel } from './UserPanel';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
+
+// UserPanel debounces the hover card open by 150ms (see HOVER_OPEN_DELAY_MS
+// in UserPanel.tsx). Tests run with fake timers and flush that delay
+// after mouseEnter so the card mounts synchronously for assertions.
+const HOVER_OPEN_DELAY_MS = 150;
+function hoverRow(row: Element): void {
+  fireEvent.mouseEnter(row);
+  act(() => {
+    vi.advanceTimersByTime(HOVER_OPEN_DELAY_MS);
+  });
+}
 
 function makeChannel(overrides: Partial<ChatChannel> = {}): ChatChannel {
   return {
@@ -20,6 +31,10 @@ function makeChannel(overrides: Partial<ChatChannel> = {}): ChatChannel {
 function makeMember(overrides: Partial<ChatMember> = {}): ChatMember {
   return { nick: 'alice', prefix: '', ...overrides };
 }
+
+beforeEach(() => {
+  vi.useFakeTimers();
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -68,7 +83,7 @@ describe('UserPanel custom hover card', () => {
     );
     const aliceRow = Array.from(document.querySelectorAll('.user-panel-item'))
       .find((el) => el.textContent?.includes('alice'))!;
-    fireEvent.mouseEnter(aliceRow);
+    hoverRow(aliceRow);
     const card = screen.getByRole('tooltip');
     expect(card.textContent).toContain('alice');
     expect(card.textContent).toContain('Operator');
@@ -83,7 +98,7 @@ describe('UserPanel custom hover card', () => {
       />,
     );
     const row = document.querySelector('.user-panel-item')!;
-    fireEvent.mouseEnter(row);
+    hoverRow(row);
     expect(document.querySelectorAll('.nick-hovercard')).toHaveLength(1);
     fireEvent.mouseLeave(row);
     expect(document.querySelectorAll('.nick-hovercard')).toHaveLength(0);
@@ -104,12 +119,14 @@ describe('UserPanel custom hover card', () => {
         })}
       />,
     );
-    fireEvent.mouseEnter(document.querySelector('.user-panel-item')!);
+    hoverRow(document.querySelector('.user-panel-item')!);
     expect(screen.getByText(label)).toBeInTheDocument();
   });
 
   it('hovered card shows the activity line built from joinedAt / lastActiveAt', () => {
-    vi.useFakeTimers();
+    // Fake timers are already installed by the suite-level `beforeEach`,
+    // so we just pin the wall clock — the hover-card open delay flushes
+    // through the same fake-timer queue.
     vi.setSystemTime(new Date('2026-05-27T12:00:00Z'));
     render(
       <UserPanel
@@ -118,7 +135,7 @@ describe('UserPanel custom hover card', () => {
         })}
       />,
     );
-    fireEvent.mouseEnter(document.querySelector('.user-panel-item')!);
+    hoverRow(document.querySelector('.user-panel-item')!);
     expect(screen.getByText('Last spoke 2m ago')).toBeInTheDocument();
   });
 
@@ -138,7 +155,7 @@ describe('UserPanel custom hover card', () => {
         })}
       />,
     );
-    fireEvent.mouseEnter(document.querySelector('.user-panel-item')!);
+    hoverRow(document.querySelector('.user-panel-item')!);
     expect(screen.getByText('alice!ircaccount')).toBeInTheDocument();
     expect(screen.getByText('unaffiliated/alice')).toBeInTheDocument();
     expect(screen.getByText('Alice Liddell')).toBeInTheDocument();
@@ -154,9 +171,30 @@ describe('UserPanel custom hover card', () => {
         })}
       />,
     );
-    fireEvent.mouseEnter(document.querySelector('.user-panel-item')!);
+    hoverRow(document.querySelector('.user-panel-item')!);
     const card = screen.getByRole('tooltip');
     expect(card.querySelector('.nick-hovercard-meta')).toBeNull();
+  });
+
+  it('quick mouseEnter → mouseLeave does NOT open the card (dwell-debounce)', () => {
+    // Moving the cursor diagonally across the member list shouldn't
+    // strobe a hover card for every row it brushes — the 150ms dwell
+    // gate exists to suppress that.
+    render(
+      <UserPanel
+        channel={makeChannel({
+          members: [makeMember({ nick: 'alice', prefix: '@' })],
+        })}
+      />,
+    );
+    const row = document.querySelector('.user-panel-item')!;
+    fireEvent.mouseEnter(row);
+    // Leave well before the open delay expires.
+    act(() => { vi.advanceTimersByTime(HOVER_OPEN_DELAY_MS - 1); });
+    fireEvent.mouseLeave(row);
+    // Now run past where the open WOULD have fired — verify it never did.
+    act(() => { vi.advanceTimersByTime(HOVER_OPEN_DELAY_MS * 2); });
+    expect(document.querySelectorAll('.nick-hovercard')).toHaveLength(0);
   });
 
   it('moving between rows replaces the card with the new member', () => {
@@ -171,11 +209,11 @@ describe('UserPanel custom hover card', () => {
       />,
     );
     const rows = Array.from(document.querySelectorAll('.user-panel-item'));
-    fireEvent.mouseEnter(rows[0]!);
+    hoverRow(rows[0]!);
     expect(screen.getByRole('tooltip').textContent).toContain('alice');
     // Cursor moves to the next row: leave the first, enter the second.
     fireEvent.mouseLeave(rows[0]!);
-    fireEvent.mouseEnter(rows[1]!);
+    hoverRow(rows[1]!);
     const card = screen.getByRole('tooltip');
     expect(card.textContent).toContain('bob');
     expect(card.textContent).not.toContain('alice');

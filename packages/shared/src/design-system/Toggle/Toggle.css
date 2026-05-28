@@ -34,7 +34,15 @@
   height: 12px;
   background: var(--fg-3);
   border-radius: 50%;
-  transition: transform var(--motion-base) var(--ease-standard), background var(--motion-base) var(--ease-standard);
+  /* `transform` covers the slide (left↔right) AND the press scale-up
+     in the same property, so the two animate against each other on the
+     same GPU layer. The slide uses `--motion-base`; the scale on press
+     is shorter (`--motion-fast`) and snaps back as soon as the mouse
+     releases, giving a tactile "click" feel without making the slide
+     itself slower. */
+  transition:
+    transform var(--motion-base) var(--ease-standard),
+    background var(--motion-base) var(--ease-standard);
 }
 
 .bds-toggle-input:checked + .bds-toggle-track {
@@ -45,6 +53,16 @@
 .bds-toggle-input:checked + .bds-toggle-track .bds-toggle-thumb {
   background: var(--accent-on);
   transform: translateX(14px);
+}
+
+/* Press feedback — thumb briefly grows while the mouse is held, on top
+   of whatever slide position it currently has. Apply to checked + un-
+   checked separately so the translateX above isn't overwritten. */
+.bds-toggle:not(.bds-toggle-disabled):active .bds-toggle-thumb {
+  transform: scale(1.15);
+}
+.bds-toggle:not(.bds-toggle-disabled):active .bds-toggle-input:checked + .bds-toggle-track .bds-toggle-thumb {
+  transform: translateX(14px) scale(1.15);
 }
 
 .bds-toggle-input:focus-visible + .bds-toggle-track { box-shadow: var(--focus-ring); }

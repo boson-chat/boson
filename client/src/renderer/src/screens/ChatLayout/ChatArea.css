@@ -21,6 +21,15 @@
   gap: var(--space-4);
   padding: var(--space-8);
   text-align: center;
+  /* Fade-in on each engine state transition (idle → connecting →
+     connected → disconnected). The splash is mount-on-state, so a
+     plain animation fires once per state change rather than snapping. */
+  animation: chat-engine-splash-enter var(--motion-medium) var(--ease-standard) both;
+}
+
+@keyframes chat-engine-splash-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .chat-engine-dot {
@@ -155,6 +164,7 @@
   background: var(--surface-hover);
   color: var(--fg);
 }
+.chat-log-toggle:active { transform: scale(0.95); }
 
 .chat-log-toggle-active {
   background: var(--surface-raised);
@@ -356,6 +366,20 @@
 .message-action:first-child,
 .message-system:first-child {
   margin-top: 0;
+}
+
+/* Fresh-arrival entrance. `.message-fresh` is set by the MessageList only
+   when `msg.timestamp > freshnessBaseline` — i.e. the message arrived
+   in real time since the user last switched channels. Hydrated history
+   + scrollback the user is just opening don't get this class, so a
+   long channel can hydrate 500 messages without strobing. */
+.message-fresh {
+  animation: message-row-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes message-row-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* Grouped messages collapse to flush vertical spacing — no top margin, no
@@ -785,7 +809,10 @@
 .chat-token-channel { color: var(--info); }
 .chat-token-command { color: var(--accent); }
 
-/* Autocomplete popup floats above the input. */
+/* Autocomplete popup floats above the input. The popover is
+   mount-on-open, so a CSS animation on the container fires once per
+   appearance — bottom-origin so the menu reads as "rising from the
+   input" rather than dropping in from above. */
 .slash-autocomplete {
   position: absolute;
   left: -8px;
@@ -801,6 +828,13 @@
   max-height: 240px;
   overflow-y: auto;
   z-index: 50;
+  transform-origin: bottom center;
+  animation: chat-autocomplete-enter var(--motion-base) var(--ease-out) both;
+}
+
+@keyframes chat-autocomplete-enter {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 .slash-ac-item {
@@ -816,7 +850,13 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
   border-left: 2px solid transparent;
-  transition: background var(--motion-fast) var(--ease-standard);
+  /* Transition the accent border + foreground colour together with the
+     background so the selection moves smoothly as Tab cycles through
+     rows, rather than the accent bar jumping between items. */
+  transition:
+    background var(--motion-instant) var(--ease-standard),
+    border-left-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
 }
 
 .slash-ac-item:hover { background: var(--surface-hover); }
@@ -859,6 +899,10 @@
   max-height: 240px;
   overflow-y: auto;
   z-index: 50;
+  /* Same bottom-origin rise as the slash popover — see
+     `chat-autocomplete-enter` defined above. */
+  transform-origin: bottom center;
+  animation: chat-autocomplete-enter var(--motion-base) var(--ease-out) both;
 }
 
 .mention-ac-item {
@@ -874,7 +918,11 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
   border-left: 2px solid transparent;
-  transition: background var(--motion-fast) var(--ease-standard);
+  /* Match `.slash-ac-item` — smooth border + colour shift on selection. */
+  transition:
+    background var(--motion-instant) var(--ease-standard),
+    border-left-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard);
 }
 
 .mention-ac-item:hover { background: var(--surface-hover); }
@@ -905,13 +953,20 @@
   font-size: var(--text-sm);
   font-weight: 600;
   cursor: pointer;
-  transition: opacity var(--motion-fast) var(--ease-standard);
+  transition:
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
   flex-shrink: 0;
   line-height: 1;
 }
 
 .chat-send-btn:hover:not(:disabled) { opacity: 0.9; }
 .chat-send-btn:disabled { opacity: 0.25; cursor: default; }
+/* Press cue on the Send button itself — fires on click. The Enter-to-
+   send path in `ChatInputBar.tsx` doesn't trigger the button's :active,
+   so the cue is click-only; we accept that asymmetry rather than wire a
+   transient class through the bloc just to mirror it. */
+.chat-send-btn:not(:disabled):active { transform: scale(0.96); }
 
 /* Small "via solanum 1.0 · Libera.Chat" badge in the chat header — sits
    between the Log toggle and the "connected" pill. Becomes a button when a
