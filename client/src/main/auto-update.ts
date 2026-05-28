@@ -36,6 +36,43 @@ export type UpdateState =
   | { kind: 'ready'; version: string }
   | { kind: 'error'; message: string };
 
+// Classify raw electron-updater errors into "user shouldn't see this"
+// (transient: race window, offline, etc.) vs "user needs a clean
+// summary" (real misconfiguration). The raw HttpError dump that
+// electron-updater throws is multi-paragraph, includes response
+// headers, and is not actionable — we never want that on screen.
+type ErrorVerdict =
+  | { kind: 'transient'; reason: string }
+  | { kind: 'permanent'; userMessage: string };
+
+export function classifyUpdaterError(raw: unknown): ErrorVerdict {
+  const msg = raw instanceof Error ? raw.message : String(raw);
+  // 404 on the release metadata. Happens during the race window
+  // between semantic-release opening the GitHub Release stub and the
+  // separate "Release Electron client" workflow uploading installers
+  // + latest.yml to it. The window is typically 2–5 minutes and
+  // resolves itself — the user should never see this.
+  if (/\b404\b/.test(msg) && /latest[^\s'"]*\.yml/i.test(msg)) {
+    return { kind: 'transient', reason: 'release-metadata-not-yet-uploaded' };
+  }
+  // Network unavailable / DNS resolution / connection reset / TLS hiccup.
+  // The 6h periodic check will retry; no point alarming the user.
+  if (/ENOTFOUND|ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|net::ERR_/i.test(msg)) {
+    return { kind: 'transient', reason: 'network-unavailable' };
+  }
+  // Anything else: keep only the first line so a stack trace or
+  // header dump never ends up in the UI. Cap length too.
+  const firstLine = msg.split('\n')[0] ?? msg;
+  const summary = firstLine.trim().slice(0, 140);
+  return { kind: 'permanent', userMessage: summary };
+}
+
+// One-shot retry after a transient error during a manual check, so
+// the user can click "Check for updates" right after a release tag
+// lands and have it succeed automatically once the installer build
+// finishes uploading.
+const TRANSIENT_RETRY_DELAY_MS = 90 * 1000;
+
 // Periodic re-check cadence. 6h is long enough to be invisible while
 // still picking up overnight releases for users who never quit the app.
 const PERIODIC_RECHECK_MS = 6 * 60 * 60 * 1000;
@@ -113,9 +150,25 @@ export function startAutoUpdater(win: BrowserWindow): void {
   autoUpdater.on('update-downloaded', (info: UpdateInfo) =>
     setState({ kind: 'ready', version: info.version }),
   );
-  autoUpdater.on('error', (err) =>
-    setState({ kind: 'error', message: err instanceof Error ? err.message : String(err) }),
-  );
+  autoUpdater.on('error', (err) => {
+    const verdict = classifyUpdaterError(err);
+    if (verdict.kind === 'transient') {
+      // Suppress: keep whatever state the user was last shown rather
+      // than flipping into a scary 'error' that the user can't act on.
+      // Log so it's still visible in dev tools / kubectl logs.
+      console.warn('[updater] transient error suppressed:', verdict.reason, err);
+      // If we were mid-check with nothing yet to show, mark as idle so
+      // the renderer doesn't sit on "Checking…" forever.
+      if (currentState.kind === 'checking') {
+        setState({ kind: 'idle' });
+      }
+      // Schedule a one-shot retry — the typical case is the release-
+      // assets race window which clears within a few minutes.
+      scheduleTransientRetry(autoUpdater);
+      return;
+    }
+    setState({ kind: 'error', message: verdict.userMessage });
+  });
 
   // Push every state change to the renderer too. We keep an internal
   // copy in `currentState` so the renderer's initial `getState` IPC
@@ -127,11 +180,18 @@ export function startAutoUpdater(win: BrowserWindow): void {
 
   // First check on a short delay; periodic re-checks every 6h while
   // the app is running. Both wrapped in catch handlers so a transient
-  // network failure doesn't bubble up as an unhandled rejection.
+  // network failure doesn't bubble up as an unhandled rejection. The
+  // 'error' event handler above is the canonical surface for errors —
+  // these catches are for promise-rejection paths that bypass it.
   setTimeout(() => {
-    void autoUpdater.checkForUpdates().catch((err) =>
-      setState({ kind: 'error', message: err instanceof Error ? err.message : String(err) }),
-    );
+    void autoUpdater.checkForUpdates().catch((err) => {
+      const verdict = classifyUpdaterError(err);
+      if (verdict.kind === 'permanent') {
+        setState({ kind: 'error', message: verdict.userMessage });
+      } else {
+        console.warn('[updater] initial check suppressed:', verdict.reason);
+      }
+    });
   }, INITIAL_CHECK_DELAY_MS);
   setInterval(() => {
     void autoUpdater.checkForUpdates().catch(() => {
@@ -146,10 +206,37 @@ export function startAutoUpdater(win: BrowserWindow): void {
     try {
       await autoUpdater.checkForUpdates();
     } catch (err) {
-      setState({ kind: 'error', message: err instanceof Error ? err.message : String(err) });
+      const verdict = classifyUpdaterError(err);
+      if (verdict.kind === 'permanent') {
+        setState({ kind: 'error', message: verdict.userMessage });
+        return;
+      }
+      // Transient on a manual check: tell the user this round didn't
+      // find anything (the 'error' event handler above may also have
+      // already moved us to 'idle' / scheduled a retry). The friendly
+      // hint avoids a scary stack trace.
+      console.warn('[updater] manual check transient:', verdict.reason);
+      if (currentState.kind === 'checking' || currentState.kind === 'error') {
+        setState({ kind: 'up-to-date', checkedAt: Date.now() });
+      }
     }
   };
   installAndRestart = () => autoUpdater.quitAndInstall();
+}
+
+// Schedules a single retry of checkForUpdates after a transient error.
+// Multiple transient errors in quick succession collapse into one
+// scheduled retry — see the timer guard below.
+let transientRetryTimer: ReturnType<typeof setTimeout> | null = null;
+function scheduleTransientRetry(autoUpdater: import('electron-updater').AppUpdater): void {
+  if (transientRetryTimer !== null) return;
+  transientRetryTimer = setTimeout(() => {
+    transientRetryTimer = null;
+    void autoUpdater.checkForUpdates().catch(() => {
+      // Second-round failures stay silent — the periodic 6h check is
+      // the long-term safety net.
+    });
+  }, TRANSIENT_RETRY_DELAY_MS);
 }
 
 let manualCheck: () => Promise<void> = async () => {

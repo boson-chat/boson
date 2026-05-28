@@ -423,6 +423,78 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  // Repro for the "client opens but server doesn't join" bug from clicking
+  // boson:// links while the bloc's loadInitial round-trip is still in flight.
+  // connectWith() requires me.handle and bails silently if it's missing —
+  // so a deep-link parsed during that window has to be buffered + replayed.
+  it('joinFromDeepLink buffers the join when me is not yet loaded and replays after loadInitial', async () => {
+    const engine = fakeEngine();
+    let resolveMe: (u: User | null) => void = () => {};
+    const meReady = new Promise<User | null>((r) => { resolveMe = r; });
+    const directory = {
+      getMe: vi.fn(() => meReady),
+      listServers: vi.fn(async () => [
+        fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true }),
+      ]),
+      setupMe: vi.fn(),
+      deleteMe: vi.fn(),
+      getSavedSession: vi.fn(async () => null),
+      putSavedSession: vi.fn(async () => undefined),
+    } as unknown as DirectoryService;
+
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+
+    // Fire the deep-link BEFORE me resolves. The old code's connectWith
+    // would silently bail, leaving connectCalls empty.
+    await bloc.joinFromDeepLink({ host: 'irc.libera.chat', port: 6697, tls: true });
+    await flushPromises(2);
+    expect(engine.connectCalls).toHaveLength(0);
+
+    // Now resolve me — the buffered join should replay automatically.
+    resolveMe(fakeUser('alice'));
+    await flushPromises(6);
+
+    expect(engine.connectCalls).toHaveLength(1);
+    expect(engine.connectCalls[0]?.serverId).toBe('libera');
+    expect(engine.connectCalls[0]?.nick).toBe('alice');
+    bloc.dispose();
+  });
+
+  it('joinFromDeepLink with a host not in the directory adds a local server and connects to it', async () => {
+    const engine = fakeEngine();
+    const directory = fakeDirectory({ user: fakeUser('alice'), servers: [] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises(4);
+
+    // Clean up any local-server entry a previous test may have left
+    // behind in localStorage — local servers are persisted to the
+    // window's localStorage and survive between bloc instances.
+    if (typeof globalThis.localStorage !== 'undefined') {
+      globalThis.localStorage.removeItem('boson.local-servers');
+    }
+
+    await bloc.joinFromDeepLink({ host: 'irc.example.test', port: 6697, tls: true, name: 'Example' });
+    await flushPromises(4);
+
+    expect(engine.connectCalls).toHaveLength(1);
+    expect(engine.connectCalls[0]?.hostname).toBe('irc.example.test');
+    expect(engine.connectCalls[0]?.port).toBe(6697);
+    expect(engine.connectCalls[0]?.tls).toBe(true);
+    bloc.dispose();
+  });
+
   it('connect() never sends SASL when identity is locked either', async () => {
     const engine = fakeEngine();
     const server = fakeServer('s1');

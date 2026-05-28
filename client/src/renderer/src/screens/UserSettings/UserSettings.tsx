@@ -334,6 +334,27 @@ function AboutSection() {
   );
 }
 
+// Last line of defence against a raw electron-updater HttpError dump
+// reaching the UI. The main process already classifies + suppresses
+// transient errors (release-asset race window, offline, etc.) — this
+// catches the edge case where a *permanent* error gets through but
+// still has an unsuitable phrasing for end users. Maps the most common
+// failure modes to short, actionable copy; everything else is passed
+// through unchanged (but capped + first-line-only on the way in via
+// classifyUpdaterError in the main process).
+function summariseUpdateError(raw: string): string {
+  if (/\b404\b/.test(raw) && /latest[^\s'"]*\.yml/i.test(raw)) {
+    return "Update info isn't published yet. Try again in a few minutes.";
+  }
+  if (/ENOTFOUND|EAI_AGAIN|net::ERR_NAME_NOT_RESOLVED/i.test(raw)) {
+    return "Couldn't reach update server — check your connection.";
+  }
+  if (/ECONNRESET|ETIMEDOUT|net::ERR_(TIMED_OUT|CONNECTION)/i.test(raw)) {
+    return 'Network timeout while checking for updates.';
+  }
+  return raw;
+}
+
 // Inline update affordance rendered next to the version number. Stays
 // compact in the common case (just a "Check for updates" button) and
 // expands into a progress / restart prompt when the lifecycle is
@@ -359,7 +380,7 @@ function UpdateActions({
           )}
           {state.kind === 'error' && (
             <span class="user-settings-update-hint user-settings-update-error">
-              {state.message}
+              {summariseUpdateError(state.message)}
             </span>
           )}
         </span>

@@ -132,6 +132,16 @@ export class DirectoryBloc {
   private readonly listeners = new Set<DirectoryListener>();
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  // A deep-link join parsed before `me` was loaded — `connectWith` bails
+  // when `me.handle` is missing, so the join would silently no-op
+  // during the load-initial race window. Stashed here and replayed by
+  // `maybeFlushPendingDeepLink()` once `me` lands.
+  private pendingDeepLinkJoin: {
+    host: string;
+    port: number;
+    tls: boolean;
+    name?: string;
+  } | null = null;
   // Backend session-sync plumbing. Single debounced PUT collapses bursts of
   // SessionStore mutations (e.g. JOIN echoes during reconnect) into one
   // network round-trip. Unsubscribe + timer cleared on dispose.
@@ -285,6 +295,7 @@ export class DirectoryBloc {
       };
       this.emit();
       this.maybeRestoreSession();
+      this.maybeFlushPendingDeepLink();
       return;
     }
     // Guest → account. Clear the synthesised guest user and re-run the
@@ -608,6 +619,16 @@ export class DirectoryBloc {
     tls: boolean;
     name?: string;
   }): Promise<void> {
+    // `connectWith` requires `me.handle` to mint an IRC nick — without
+    // it the connection is a no-op. The bloc is constructed before
+    // `loadInitial` resolves, so a deep-link that fires during the
+    // initial round-trip would silently drop on the floor. Stash the
+    // intent and replay it after `loadInitial` finishes.
+    if (!this.me?.handle) {
+      console.info('[deep-link] join deferred — me not yet loaded');
+      this.pendingDeepLinkJoin = input;
+      return;
+    }
     const hostKey = input.host.trim().toLowerCase();
     const existing = [
       ...(this.servers ?? []),
@@ -629,6 +650,19 @@ export class DirectoryBloc {
     const merged = mergeWithLocal(this.servers ?? [], loadLocalServers());
     const target = merged.find((s) => s.id === created.id);
     if (target) await this.connect(target);
+  }
+
+  // Replay a deep-link join that arrived before `me` was loaded.
+  // Called after each `me` assignment + after each successful
+  // `loadInitial`. Idempotent — clears the pending slot before running
+  // so a synchronous re-entry can't loop.
+  private maybeFlushPendingDeepLink(): void {
+    if (!this.pendingDeepLinkJoin) return;
+    if (!this.me?.handle) return;
+    const params = this.pendingDeepLinkJoin;
+    this.pendingDeepLinkJoin = null;
+    console.info('[deep-link] flushing buffered join', { host: params.host, port: params.port });
+    void this.joinFromDeepLink(params);
   }
 
   // Remove a previously-added local server. No-op if id isn't local.
@@ -655,6 +689,7 @@ export class DirectoryBloc {
         this.servers = list;
         this.emit();
         this.maybeRestoreSession();
+        this.maybeFlushPendingDeepLink();
         return;
       }
       const [user, list, remoteSession] = await Promise.all([
@@ -682,6 +717,7 @@ export class DirectoryBloc {
       this.attachSessionSync();
       this.emit();
       this.maybeRestoreSession();
+      this.maybeFlushPendingDeepLink();
     } catch (e) {
       if (this.disposed) return;
       this.error = e instanceof Error ? e.message : String(e);
