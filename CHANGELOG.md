@@ -1,3 +1,9 @@
+## [0.4.1](https://github.com/boson-chat/boson/compare/v0.4.0...v0.4.1) (2026-05-28)
+
+### Bug Fixes
+
+* unblock signup → confirmation → directory flow + add /nick ([cdce7bd](https://github.com/boson-chat/boson/commit/cdce7bd7bcfff61a86a2e11b26d8322fe40357c9))
+
 ## [0.4.0](https://github.com/boson-chat/boson/compare/v0.3.0...v0.4.0) (2026-05-27)
 
 ### Features
