@@ -1,3 +1,9 @@
+## [0.10.1](https://github.com/boson-chat/boson/compare/v0.10.0...v0.10.1) (2026-05-28)
+
+### Bug Fixes
+
+* **client:** handle deep-link race + transient auto-update errors ([50ad5f3](https://github.com/boson-chat/boson/commit/50ad5f37849df1d53c0bea1ffc008a89dd01346d))
+
 ## [0.10.0](https://github.com/boson-chat/boson/compare/v0.9.0...v0.10.0) (2026-05-28)
 
 ### Features
