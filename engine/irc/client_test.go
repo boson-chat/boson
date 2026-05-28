@@ -188,3 +188,38 @@ func TestSASLConfig(t *testing.T) {
 	assert.Equal(t, "alice", plain.User)
 	assert.Equal(t, "hunter2", plain.Pass)
 }
+
+func TestIs421ForListThrottle_MatchesErgoRateLimitedReply(t *testing.T) {
+	// Realistic shape Ergo emits when LIST hits the 60s connection-age
+	// throttle. Params[0] is our nick (echoed by the server),
+	// Params[1] is the rejected command, the trailing param carries
+	// the explanation.
+	c := &Client{}
+	matched := c.is421ForListThrottle(girc.Event{
+		Source: &girc.Source{Name: "irc.boson.chat"},
+		Params: []string{"Nyan", "LIST", "You must be connected for at least 60 seconds before you can use this command"},
+	})
+	assert.True(t, matched, "Ergo's LIST rate-limit message should be detected")
+}
+
+func TestIs421ForListThrottle_IgnoresUnrelatedUnknownCommand(t *testing.T) {
+	// 421 fires for any unknown command. We want only the LIST-rate-
+	// limited variant to trigger an auto-retry — a real "FOO is not
+	// supported" reply must not start an infinite loop.
+	c := &Client{}
+	matched := c.is421ForListThrottle(girc.Event{
+		Params: []string{"Nyan", "FOO", "Unknown command"},
+	})
+	assert.False(t, matched, "non-LIST 421 must not be retried")
+}
+
+func TestIs421ForListThrottle_IgnoresGenericListNotSupported(t *testing.T) {
+	// Some old daemons reply 421 LIST with a generic message — without
+	// the "seconds" / "connected" hint we treat it as terminal so we
+	// don't retry against a server that genuinely doesn't support LIST.
+	c := &Client{}
+	matched := c.is421ForListThrottle(girc.Event{
+		Params: []string{"Nyan", "LIST", "Unknown command"},
+	})
+	assert.False(t, matched, "generic LIST-unsupported reply must not be auto-retried")
+}

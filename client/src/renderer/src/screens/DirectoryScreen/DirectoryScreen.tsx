@@ -315,11 +315,20 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
              guest users have no row in /me so registering would 401.
              For them the Advanced toggle's manual-add path is still
              available. */}
-          {me && (
-            <Button variant="secondary" onClick={() => setHostOpen(true)}>
-              Add your server to the community
+          <div class="directory-header-actions">
+            <Button
+              variant="ghost"
+              onClick={() => bloc.refreshDirectory()}
+              title="Refetch the directory from the backend"
+            >
+              Refresh
             </Button>
-          )}
+            {me && (
+              <Button variant="secondary" onClick={() => setHostOpen(true)}>
+                Add your server to the community
+              </Button>
+            )}
+          </div>
         </div>
         <p class="directory-desc">
           Discover and join self-hosted IRC servers. Browse, search, and find communities that match your interests.
@@ -386,7 +395,16 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
 
       <HostServerModal
         open={hostOpen}
-        onClose={() => setHostOpen(false)}
+        onClose={() => {
+          setHostOpen(false);
+          // The user may have registered + verified a new server while
+          // the modal was open — that row only enters the public
+          // /servers list once it hits "verified" status, and the
+          // grid behind the modal is otherwise stale until the next
+          // search-debounce fires. Force a refetch on close so the
+          // new card is visible immediately.
+          bloc.refreshDirectory();
+        }}
         directory={directory}
       />
 

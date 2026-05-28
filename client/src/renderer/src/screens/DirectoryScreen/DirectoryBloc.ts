@@ -712,6 +712,17 @@ export class DirectoryBloc {
     }
   }
 
+  // Force a fresh fetch of the public directory list using the current
+  // query as-is. Bumps listToken so any in-flight debounced search
+  // result drops on arrival — the explicit refresh wins. Called from
+  // the header's manual "Refresh" button AND when the add-server
+  // modal closes (which may have left a newly-verified row that
+  // needs to show up in the grid).
+  refreshDirectory(): void {
+    this.listToken += 1;
+    void this.runSearch(this.listToken);
+  }
+
   private maybeRestoreSession(): void {
     if (this.restored) return;
     if (!this.engine || !this.me?.handle) {

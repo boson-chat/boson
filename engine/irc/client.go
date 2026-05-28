@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/lrstanley/girc"
@@ -61,6 +62,7 @@ type Client struct {
 	// Accumulator for the in-flight LIST reply. Reset on RPL_LISTEND.
 	pendingDirectory    []ChannelDirectoryEntry
 	autoListScheduled   bool
+	listRetryScheduled  bool
 }
 
 func New(cfg Config) (*Client, error) {
@@ -135,6 +137,23 @@ func (c *Client) OnEvent(fn EventHandler) {
 			c.flushListEntries()
 		case girc.RPL_WELCOME:
 			c.scheduleAutoList()
+		case girc.ERR_UNKNOWNCOMMAND:
+			// 421 — Ergo (and similarly-configured Solanum) rejects
+			// LIST issued inside the first ~60s of a connection with:
+			//   :server 421 nick LIST :You must be connected for at
+			//                              least 60 seconds before
+			//                              you can use this command
+			// We catch that one specific shape and schedule a retry
+			// after the cool-off window. Other 421s (genuinely
+			// unsupported commands, typo'd /raw input) get logged but
+			// no special handling — they're surfaced to the renderer
+			// via the normal event stream and the 4xx error-banner
+			// path picks them up.
+			if c.is421ForListThrottle(e) {
+				slog.Info("irc: LIST throttled by server; scheduling retry",
+					"detail", e.Last())
+				c.scheduleListRetry()
+			}
 		case girc.JOIN:
 			// Our own JOIN echo? Send a plain /WHO on the channel so
 			// 352 RPL_WHOREPLY lines flow back with H/G flags — that's
@@ -203,14 +222,63 @@ func (c *Client) flushListEntries() {
 	}
 }
 
+// initialAutoListDelay is short on the gamble most daemons accept
+// LIST immediately. Ergo (and similarly-configured Solanum) rejects
+// LIST issued inside the first ~60s with a 421 ERR_UNKNOWNCOMMAND
+// carrying the message "You must be connected for at least 60 seconds
+// before you can use this command" — we catch that specific reply and
+// schedule a one-time retry after the cool-off window, see
+// handleListThrottleRejection().
+const initialAutoListDelay = 2500 * time.Millisecond
+
+// listRetryDelay is the post-throttle retry. Slightly longer than
+// the 60s the message advertises so we don't immediately race a
+// fresh rate-limit window.
+const listRetryDelay = 65 * time.Second
+
 func (c *Client) scheduleAutoList() {
 	if c.autoListScheduled {
 		return
 	}
 	c.autoListScheduled = true
 	go func() {
-		time.Sleep(2500 * time.Millisecond)
-		c.girc.Cmd.SendRaw("LIST")
+		time.Sleep(initialAutoListDelay)
+		_ = c.girc.Cmd.SendRaw("LIST")
+	}()
+}
+
+// is421ForListThrottle picks the specific 421 reply that means
+// "LIST rejected due to connection-age rate limit" out of the
+// generic ERR_UNKNOWNCOMMAND bucket. We match BOTH params (the
+// rejected command name) AND message text so a real "LIST is not
+// supported" reply on some obscure daemon doesn't trigger an
+// infinite retry loop. Daemons that throttle without naming "60
+// seconds" specifically fall through to no-retry; the manual
+// Refresh button in the renderer still works.
+func (c *Client) is421ForListThrottle(e girc.Event) bool {
+	// 421 layout: :server 421 mynick <rejected-cmd> :<reason>
+	if len(e.Params) < 2 {
+		return false
+	}
+	if !strings.EqualFold(e.Params[1], "LIST") {
+		return false
+	}
+	msg := strings.ToLower(e.Last())
+	return strings.Contains(msg, "seconds") && strings.Contains(msg, "connected")
+}
+
+// scheduleListRetry fires a second LIST after `listRetryDelay`. Called
+// from the event handler when we observe a 421 reply that names LIST
+// as the throttled command. Guarded by `listRetryScheduled` so a
+// flapping server can't snowball into a queue of pending retries.
+func (c *Client) scheduleListRetry() {
+	if c.listRetryScheduled {
+		return
+	}
+	c.listRetryScheduled = true
+	go func() {
+		time.Sleep(listRetryDelay)
+		_ = c.girc.Cmd.SendRaw("LIST")
 	}()
 }
 
