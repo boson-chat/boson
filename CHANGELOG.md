@@ -1,3 +1,9 @@
+## [0.9.0](https://github.com/boson-chat/boson/compare/v0.8.0...v0.9.0) (2026-05-28)
+
+### Features
+
+* **client:** auto-update via electron-updater, GitHub Releases as source ([6cded7c](https://github.com/boson-chat/boson/commit/6cded7ced76b0942914be3139685e2990c765f6d))
+
 ## [0.8.0](https://github.com/boson-chat/boson/compare/v0.7.0...v0.8.0) (2026-05-28)
 
 ### Features
