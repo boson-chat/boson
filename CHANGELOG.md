@@ -1,3 +1,9 @@
+## [0.5.0](https://github.com/boson-chat/boson/compare/v0.4.1...v0.5.0) (2026-05-28)
+
+### Features
+
+* **backend:** cron subcommand — daily verify + every-15m health probes ([a3ec7f2](https://github.com/boson-chat/boson/commit/a3ec7f26a239a180c7031200de9e63f84d56e7e5))
+
 ## [0.4.1](https://github.com/boson-chat/boson/compare/v0.4.0...v0.4.1) (2026-05-28)
 
 ### Bug Fixes
