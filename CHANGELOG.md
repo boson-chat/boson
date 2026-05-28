@@ -1,3 +1,9 @@
+## [0.6.0](https://github.com/boson-chat/boson/compare/v0.5.0...v0.6.0) (2026-05-28)
+
+### Features
+
+* server profile editing in ServerSettings + ChipInput component ([3398898](https://github.com/boson-chat/boson/commit/33988983e098747e0d39acb32dc7e68f26b2bfba))
+
 ## [0.5.0](https://github.com/boson-chat/boson/compare/v0.4.1...v0.5.0) (2026-05-28)
 
 ### Features
