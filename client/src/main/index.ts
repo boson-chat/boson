@@ -170,15 +170,25 @@ class BosonApp {
     ipcMain.handle('updater:apply', () => { applyDownloadedUpdate(); });
   }
 
-  // Forward a deep-link URL to the renderer if it's ready, else buffer
-  // it. The renderer parses + dispatches — keeping URL semantics there
-  // means the schema can evolve without touching the main process.
+  // Forward a deep-link URL to the renderer. Always buffer AND
+  // best-effort send live — the buffer is the source of truth and the
+  // renderer's `deepLink:consume` IPC drains it once the listener is
+  // wired up. The live send is an optimisation for the warm-start case
+  // where the listener is already attached.
+  //
+  // The "always buffer" half is what makes cold-start reliable: when
+  // the OS launches the app to handle a boson:// URL, the renderer's
+  // `ipcRenderer.on('deep-link:join', ...)` listener typically isn't
+  // attached yet when `ready-to-show` fires, so the live send goes
+  // nowhere. With the buffer in place, consume() picks it up as soon
+  // as initDeepLinkBridge() runs. Renderer-side dedupe (deliver() in
+  // deep-link.ts) handles the case where both paths fire for the same
+  // URL.
   private dispatchDeepLink(url: string): void {
     if (!url.startsWith(`${DEEP_LINK_SCHEME}://`)) return;
+    this.pendingDeepLink = { url };
     if (this.mainWindow && !this.mainWindow.webContents.isLoading()) {
       this.mainWindow.webContents.send('deep-link:join', url);
-    } else {
-      this.pendingDeepLink = { url };
     }
   }
 
@@ -210,14 +220,16 @@ class BosonApp {
       // Kick off the auto-update lifecycle now that we have a window
       // to send state to. No-op in dev mode (`app.isPackaged === false`).
       if (this.mainWindow) startAutoUpdater(this.mainWindow);
-      // If we captured a deep link before the window opened, hand it
-      // off now. The renderer will also call deepLink:consume on boot
-      // as a backup for the timing case where it loads faster than this
-      // event fires.
+      // If we captured a deep link before the window opened, fire it
+      // live as a best-effort. The buffer stays populated so the
+      // renderer's `deepLink:consume` IPC can drain it once
+      // `initDeepLinkBridge()` runs — that's the canonical path, since
+      // `ready-to-show` fires while the renderer is still mid-bootstrap
+      // and the `ipcRenderer.on('deep-link:join')` listener typically
+      // isn't attached yet. Renderer-side dedupe handles the case where
+      // both paths deliver the same URL.
       if (this.pendingDeepLink) {
-        const { url } = this.pendingDeepLink;
-        this.pendingDeepLink = null;
-        this.mainWindow?.webContents.send('deep-link:join', url);
+        this.mainWindow?.webContents.send('deep-link:join', this.pendingDeepLink.url);
       }
     });
 

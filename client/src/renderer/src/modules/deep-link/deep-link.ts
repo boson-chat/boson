@@ -150,7 +150,26 @@ let pendingAuthUrl: string | null = null;
 const joinListeners = new Set<(params: JoinParams) => void>();
 const authListeners = new Set<(params: AuthConfirmedParams) => void>();
 
+// Dedupe state — on cold start the same URL can arrive via both the
+// `bridge.consume()` drain AND the live `bridge.onJoin` send (main
+// fires both paths to maximise the chance of reaching the renderer).
+// Without this guard the user would get two join attempts for one
+// click. A short time window prevents legitimate re-clicks of the
+// same link from being silently ignored.
+const DEDUPE_WINDOW_MS = 1500;
+let lastDeliveredUrl: string | null = null;
+let lastDeliveredAt = 0;
+
 function deliver(url: string): void {
+  if (url === lastDeliveredUrl && Date.now() - lastDeliveredAt < DEDUPE_WINDOW_MS) {
+    return;
+  }
+  lastDeliveredUrl = url;
+  lastDeliveredAt = Date.now();
+  deliverInner(url);
+}
+
+function deliverInner(url: string): void {
   // Strip the access_token from logs but keep enough to see WHICH
   // verb fired + whether parsing succeeded. Helpful when users report
   // "the deep-link didn't sign me in" — we can ask them to check
@@ -243,4 +262,6 @@ export function __resetDeepLinkForTests(): void {
   pendingAuthUrl = null;
   joinListeners.clear();
   authListeners.clear();
+  lastDeliveredUrl = null;
+  lastDeliveredAt = 0;
 }
