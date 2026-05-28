@@ -8,7 +8,14 @@ import {
   saveGuestSession,
 } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
+// Pulled at build time from client/package.json. semantic-release keeps
+// every workspace package.json in lockstep with the latest tag via
+// scripts/sync-version.cjs, so this matches what the GitHub release
+// page advertises for the installer the user is running.
+import pkg from '../../../../../package.json';
 import './UserSettings.css';
+
+const APP_VERSION = pkg.version;
 
 // Global user-level settings — appearance, identity, account. Opened from
 // the gear icon in the title bar. Modal so it floats over whatever screen
@@ -21,12 +28,13 @@ import './UserSettings.css';
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'account';
+type SectionId = 'identity' | 'appearance' | 'account' | 'about';
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',   label: 'Identity',   description: 'Display nick + handle' },
   { id: 'appearance', label: 'Appearance', description: 'Theme + density' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
+  { id: 'about',      label: 'About',      description: 'Version + project info' },
 ];
 
 interface UserSettingsProps {
@@ -79,6 +87,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               onClose={onClose}
             />
           )}
+          {section === 'about' && <AboutSection />}
         </div>
       </div>
     </Modal>
@@ -204,6 +213,80 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose }: {
       <div class="user-settings-actions">
         <Button variant="ghost" onClick={() => { onSignOut(); onClose(); }}>Sign out</Button>
       </div>
+    </SectionFrame>
+  );
+}
+
+function AboutSection() {
+  // Platform string is exposed by the preload bridge (set on Electron
+  // launch). In a browser preview / e2e harness `bosonPlatform` may not
+  // exist — fall back to navigator's hint so we still show something
+  // useful instead of "undefined".
+  const platform =
+    (window as unknown as { bosonPlatform?: string }).bosonPlatform
+    ?? (typeof navigator !== 'undefined' ? navigator.platform : 'unknown');
+  return (
+    <SectionFrame
+      title="About"
+      description="What you're running, and where to find the source."
+    >
+      <Card>
+        <div class="user-settings-card-body">
+          <DetailRow label="App" value="Boson" />
+          <Divider />
+          <DetailRow
+            label="Version"
+            customValue={
+              <span class="user-settings-mono">v{APP_VERSION}</span>
+            }
+          />
+          <Divider />
+          <DetailRow label="Platform" value={platform} />
+          <Divider />
+          <DetailRow
+            label="Source"
+            customValue={
+              <a
+                class="user-settings-link"
+                href="https://github.com/boson-chat/boson"
+                onClick={(e) => {
+                  // Electron renderers in production refuse navigation
+                  // to https URLs (we want them to open in the OS
+                  // browser instead). The main process picks these up
+                  // via setWindowOpenHandler and shell.openExternal —
+                  // preventDefault here just stops the in-window nav
+                  // attempt that would precede that handoff.
+                  e.preventDefault();
+                  const bridge = (window as unknown as { open?: (u: string) => void }).open;
+                  if (bridge) bridge('https://github.com/boson-chat/boson');
+                }}
+              >
+                github.com/boson-chat/boson
+              </a>
+            }
+          />
+          <Divider />
+          <DetailRow
+            label="Release notes"
+            customValue={
+              <a
+                class="user-settings-link"
+                href={`https://github.com/boson-chat/boson/releases/tag/v${APP_VERSION}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  const bridge = (window as unknown as { open?: (u: string) => void }).open;
+                  if (bridge) bridge(`https://github.com/boson-chat/boson/releases/tag/v${APP_VERSION}`);
+                }}
+              >
+                v{APP_VERSION} on GitHub →
+              </a>
+            }
+          />
+        </div>
+      </Card>
+      <p class="user-settings-about-tag">
+        Built on IRC. RFC 1459 · RFC 2812 · IRCv3.
+      </p>
     </SectionFrame>
   );
 }

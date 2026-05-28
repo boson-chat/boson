@@ -330,3 +330,30 @@
 .server-hosting-matrix-outcome-missing_record { color: var(--danger, #ef4444); }
 .server-hosting-matrix-outcome-timeout        { color: var(--warn, #f5a524); }
 .server-hosting-matrix-outcome-error          { color: var(--fg-3); }
+
+/* ---------- About section ---------- */
+
+.user-settings-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent);
+}
+
+.user-settings-link {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color var(--motion-fast) var(--ease);
+}
+.user-settings-link:hover { border-bottom-color: var(--accent); }
+
+.user-settings-about-tag {
+  margin-top: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
+  text-align: center;
+}
