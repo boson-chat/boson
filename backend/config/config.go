@@ -15,6 +15,13 @@ type AppConfig struct {
 	Port           int    `envconfig:"PORT" default:"3000"`
 	Env            string `envconfig:"ENV" default:"development"`
 	AllowedOrigins string `envconfig:"ALLOWED_ORIGINS" default:"http://localhost:5173"`
+	// Local-dev convenience: when true, POST /servers/{id}/verify auto-
+	// succeeds without actually issuing any DNS queries. The verify
+	// cron does the same. Avoids needing to own (and add a TXT record
+	// to) a real public hostname when registering against a localhost
+	// IRCd. Production deployments leave this OFF — Helm doesn't set
+	// the env var in the prod chart.
+	SkipDNSVerify bool `envconfig:"SKIP_DNS_VERIFY" default:"false"`
 }
 
 type DBConfig struct {

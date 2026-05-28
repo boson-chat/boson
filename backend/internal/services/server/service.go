@@ -92,11 +92,21 @@ type ServerService struct {
 
 // NewServerService builds the production service wired to the supplied
 // repository + the default DNS verifier. Callers that want a custom
-// verifier (tests, dev tools) should set s.Verifier after construction.
+// verifier (tests, dev tools) should set s.Verifier after construction
+// or use NewServerServiceWithVerifier below.
 func NewServerService(repo ServerRepositoryImpl) ServerServiceImpl {
+	return NewServerServiceWithVerifier(repo, dns.NewVerifier())
+}
+
+// NewServerServiceWithVerifier lets callers inject a verifier — used
+// by the API entrypoint when SKIP_DNS_VERIFY=true (swap in
+// dns.AlwaysSucceedVerifier so /verify auto-succeeds locally) and by
+// the cron command when running --mode=verify against a stub DNS
+// server in tests.
+func NewServerServiceWithVerifier(repo ServerRepositoryImpl, verifier dns.Verifier) ServerServiceImpl {
 	return &ServerService{
 		Repository: repo,
-		Verifier:   dns.NewVerifier(),
+		Verifier:   verifier,
 		now:        time.Now,
 	}
 }

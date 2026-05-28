@@ -76,9 +76,21 @@ func runCron(_ *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
+	// Mirror the API's SKIP_DNS_VERIFY behaviour — useful when firing
+	// the cron locally against rows whose hostnames you don't actually
+	// own (localhost / LAN-only daemons). Production deployments
+	// don't set this so the real three-resolver verifier is used.
+	var verifier dns.Verifier
+	if cfg.AppConfig.SkipDNSVerify {
+		log.Warn().Msg("SKIP_DNS_VERIFY=true — using stub verifier; never set this in production")
+		verifier = dns.AlwaysSucceedVerifier{}
+	} else {
+		verifier = dns.NewVerifier()
+	}
+
 	switch cronMode {
 	case "verify":
-		return runVerifyCron(ctx, log, repo, dns.NewVerifier())
+		return runVerifyCron(ctx, log, repo, verifier)
 	case "health":
 		return runHealthCron(ctx, log, repo)
 	default:

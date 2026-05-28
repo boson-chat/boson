@@ -13,6 +13,7 @@ import (
 	"github.com/boson-chat/boson/backend/internal/db"
 	"github.com/boson-chat/boson/backend/internal/logger"
 	serversvc "github.com/boson-chat/boson/backend/internal/services/server"
+	serversvc_dns "github.com/boson-chat/boson/backend/internal/services/server/dns"
 	sessionsvc "github.com/boson-chat/boson/backend/internal/services/session"
 	"github.com/boson-chat/boson/backend/internal/services/user"
 )
@@ -28,7 +29,18 @@ func StartServerWithContext(ctx context.Context) error {
 
 	// Services
 	userService := user.NewUserService(userRepo)
-	serverService := serversvc.NewServerService(serverRepo)
+	// Pick the verifier based on the SKIP_DNS_VERIFY flag — the
+	// dev-mode bypass returns success without touching the network,
+	// so localhost-only registrations don't need a real TXT record.
+	// Production deployments leave the flag off (default) and we get
+	// the standard three-resolver verifier.
+	var verifier serversvc_dns.Verifier
+	if cfg.AppConfig.SkipDNSVerify {
+		verifier = serversvc_dns.AlwaysSucceedVerifier{}
+	} else {
+		verifier = serversvc_dns.NewVerifier()
+	}
+	serverService := serversvc.NewServerServiceWithVerifier(serverRepo, verifier)
 	sessionService := sessionsvc.NewService(sessionRepo)
 
 	// Handlers

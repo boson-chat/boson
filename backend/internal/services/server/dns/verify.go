@@ -92,6 +92,25 @@ type Verifier interface {
 	Verify(ctx context.Context, hostname, token string, mode Mode) (Report, error)
 }
 
+// AlwaysSucceedVerifier is the dev-mode short-circuit. It returns a
+// "matched on all configured resolvers" Report for every call so the
+// caller never has to issue a real DNS query. Wired in by the backend
+// when SKIP_DNS_VERIFY=true — useful when registering a server against
+// a hostname you don't actually own (e.g. localhost / a LAN address
+// during dev). Never used in production.
+type AlwaysSucceedVerifier struct{}
+
+func (AlwaysSucceedVerifier) Verify(_ context.Context, _, _ string, _ Mode) (Report, error) {
+	return Report{
+		Success: true,
+		Results: map[string]Result{
+			"cloudflare": {Outcome: OutcomeMatch, Detail: "dev-mode bypass"},
+			"google":     {Outcome: OutcomeMatch, Detail: "dev-mode bypass"},
+			"quad9":      {Outcome: OutcomeMatch, Detail: "dev-mode bypass"},
+		},
+	}, nil
+}
+
 // NewVerifier returns the production verifier wired to DefaultResolvers
 // with a 5-second per-resolver timeout. Pass an alternate resolvers list
 // or timeout via the With… options when constructing a test-specific
