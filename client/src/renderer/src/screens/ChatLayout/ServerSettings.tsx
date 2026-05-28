@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
-import { useState } from 'preact/hooks';
-import { Badge, Button, Card, Divider } from '@boson/shared';
+import { useEffect, useState } from 'preact/hooks';
+import { Badge, Button, Card, Divider, Field, Input } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
 import './ServerSettings.css';
 
@@ -29,6 +29,11 @@ interface ServerSettingsProps {
   onClose: () => void;
   onReconnect?: () => void;
   onDisconnect?: () => void;
+  // Optional — when present, the Identity section renders an inline
+  // "Change nick" form that calls into ChatService.changeNick. Wired
+  // through the bloc rather than directly to the engine so the same
+  // path the /nick slash command uses also drives the button.
+  onChangeNick?: (nick: string) => void;
 }
 
 interface MenuItem {
@@ -45,7 +50,7 @@ const MENU: readonly MenuItem[] = [
 ];
 
 export function ServerSettings({
-  serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect,
+  serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
 
@@ -86,7 +91,7 @@ export function ServerSettings({
 
         <div class="server-settings-body" role="tabpanel">
           {section === 'info' && <InfoSection info={serverInfo} />}
-          {section === 'identity' && <IdentitySection myNick={myNick} />}
+          {section === 'identity' && <IdentitySection myNick={myNick} onChangeNick={onChangeNick} />}
           {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
           {section === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
         </div>
@@ -129,7 +134,23 @@ function InfoSection({ info }: { info: ServerInfo }) {
   );
 }
 
-function IdentitySection({ myNick }: { myNick: string }) {
+function IdentitySection({ myNick, onChangeNick }: { myNick: string; onChangeNick?: (nick: string) => void }) {
+  // Optimistic input: we update the local draft as the user types, and
+  // submit dispatches through onChangeNick. The actual rename only
+  // applies when the server echoes a NICK event — which the bloc
+  // handles globally — so this form intentionally doesn't update the
+  // visible "Nick" row directly. If the server rejects (433 in-use,
+  // 432 bad), the chat service surfaces an error banner.
+  const [draft, setDraft] = useState(myNick);
+  const submit = (e: Event): void => {
+    e.preventDefault();
+    const next = draft.trim();
+    if (!onChangeNick || !next || next === myNick) return;
+    onChangeNick(next);
+  };
+  // Keep the draft in sync when the server's authoritative nick
+  // changes (e.g. NICK echo after success, or NickServ-driven rename).
+  useEffect(() => { setDraft(myNick); }, [myNick]);
   return (
     <SectionFrame
       title="Identity"
@@ -138,6 +159,31 @@ function IdentitySection({ myNick }: { myNick: string }) {
       <Card>
         <div class="server-settings-card-body">
           <DetailRow label="Nick" value={myNick} />
+          {onChangeNick && (
+            <>
+              <Divider />
+              <form class="server-settings-nick-form" onSubmit={submit}>
+                <Field
+                  label="Change nick"
+                  hint="Server may reject duplicates or invalid characters; you'll see an error banner if it does."
+                >
+                  <Input
+                    value={draft}
+                    onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
+                    autoComplete="off"
+                    spellcheck={false}
+                  />
+                </Field>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={!draft.trim() || draft.trim() === myNick}
+                >
+                  Save
+                </Button>
+              </form>
+            </>
+          )}
           <Divider />
           <DetailRow
             label="NickServ"

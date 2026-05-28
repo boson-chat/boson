@@ -129,4 +129,10 @@ export interface ChatState {
   // Server-advertised channel directory, populated from RPL_LIST. Used as
   // the source for the join-channel autocomplete.
   channelDirectory: ChannelDirectory;
+  // Live IRC nickname on this server. Starts as whatever we passed at
+  // connect; updates on every server-driven NICK event (our own renames
+  // through /nick, NickServ-driven renames, server-forced renames).
+  // The settings UI binds its "Change nick" form to this so it reflects
+  // the authoritative value after a rename round-trips.
+  myNick: string;
 }

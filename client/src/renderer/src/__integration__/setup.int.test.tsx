@@ -9,18 +9,48 @@ import { HttpClient } from '../shared/http/http.client';
 import { LoginScreen } from '../screens/LoginScreen';
 import { asAuthService, FakeAuthService, jsonResponse, makeIdentity, mockFetch } from './helpers';
 
-// Full sign-up → directory → setup-prompt → save loop. The post-signup
-// SetupPrompt is what stitches the user's chosen handle to the pending
-// encrypted_user_secret the IdentityService just produced.
+// Two-part end-to-end coverage of the post-Supabase-email-confirm flow.
+//
+// 1. SignUp pauses the LoginScreen on the "Check your email" panel —
+//    Supabase has issued the user but no session exists yet, and we
+//    deliberately don't mint the local identity until the first
+//    post-confirmation sign-in has a real user_id to persist under.
+// 2. When the user comes back (deep-link or fresh sign-in) and lands
+//    in DirectoryScreen with a session but no /me row, the SetupPrompt
+//    renders as the ONLY content (replacing the directory). Saving a
+//    handle creates the row and the directory comes back.
 
 describe('sign-up + setup prompt integration', () => {
   let restoreFetch: (() => void) | null = null;
   afterEach(() => { restoreFetch?.(); restoreFetch = null; });
 
-  it('sign-up → DirectoryScreen → SetupPrompt visible, then Save dismisses it', async () => {
-    // Routes serve a two-phase server experience:
-    //  - before setup: /me returns 404 (needs_setup)
-    //  - after setup: /me returns the new user (we just track it imperatively)
+  it('Sign up pauses the LoginScreen on "Check your email" with the address rendered', async () => {
+    const auth = new FakeAuthService();
+    const identity = makeIdentity();
+    const http = new HttpClient('http://api.test', { getToken: () => auth.getToken() });
+    const directory = new DirectoryService(http);
+
+    render(
+      <AuthProvider service={asAuthService(auth)}>
+        <LoginScreen directory={directory} identity={identity} />
+      </AuthProvider>
+    );
+
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('email'), 'newuser@boson.dev');
+    await user.type(screen.getByPlaceholderText('password'), 'first-password');
+    await user.click(screen.getByRole('button', { name: 'Sign up' }));
+
+    expect(await screen.findByText(/Check your email\./i)).toBeInTheDocument();
+    expect(screen.getByText('newuser@boson.dev')).toBeInTheDocument();
+    // Identity stays untouched until a real sign-in produces a user_id.
+    // Persisting an encrypted secret keyed on "<no user>" wouldn't be
+    // useful anyway, so the bloc deliberately defers the mint.
+    expect(identity.isUnlocked()).toBe(false);
+    expect(identity.getPendingEncrypted()).toBeNull();
+  });
+
+  it('When DirectoryScreen mounts with no /me row, SetupPrompt is the only thing rendered', async () => {
     let createdUser: { id: string; handle: string; encrypted_user_secret: string } | null = null;
     restoreFetch = mockFetch({
       'GET /me': () => createdUser
@@ -38,57 +68,43 @@ describe('sign-up + setup prompt integration', () => {
       },
     });
 
-    // Step 1: sign up via LoginScreen. The bloc calls auth.signUp +
-    // identity.initializeForNewUser; on success the router would normally
-    // transition to DirectoryScreen — for this test we drive the transition
-    // manually by remounting the same identity/services into DirectoryScreen.
     const auth = new FakeAuthService();
     const identity = makeIdentity();
+    // Mint the identity directly — in real life, the first post-confirm
+    // sign-in does this via the LoginBloc.signIn flow's
+    // "encrypted_user_secret missing → initializeForNewUser" branch.
+    await identity.initializeForNewUser('first-password');
     const http = new HttpClient('http://api.test', { getToken: () => auth.getToken() });
     const directory = new DirectoryService(http);
 
-    const login = render(
-      <AuthProvider service={asAuthService(auth)}>
-        <LoginScreen directory={directory} identity={identity} />
-      </AuthProvider>
-    );
-
-    const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'newuser@boson.dev');
-    await user.type(screen.getByPlaceholderText('password'), 'first-password');
-    await user.click(screen.getByRole('button', { name: 'Sign up' }));
-
-    await waitFor(() => {
-      expect(identity.isUnlocked()).toBe(true);
-      expect(identity.getPendingEncrypted()).not.toBeNull();
-    });
-    login.unmount();
-
-    // Step 2: render DirectoryScreen. With a real auth session in place,
-    // /me returns 404 → SetupPrompt appears.
     auth._setSession({
       access_token: 'jwt', token_type: 'bearer', expires_in: 3600, refresh_token: 'r',
       user: { id: 'u1', email: 'newuser@boson.dev' } as unknown as Session['user'],
     } as unknown as Session);
-    const dir = render(
+
+    render(
       <AuthProvider service={asAuthService(auth)}>
         <DirectoryScreen directory={directory} engine={null} identity={identity} />
       </AuthProvider>
     );
 
+    // SetupPrompt is the only meaningful content on screen. The
+    // directory header / search / filters do NOT render until /me is
+    // satisfied.
     expect(await screen.findByText('Finish setting up your account')).toBeInTheDocument();
+    expect(screen.queryByText('Server Directory')).toBeNull();
+    expect(screen.queryByPlaceholderText('Search servers…')).toBeNull();
 
-    // Step 3: fill handle + Save. POST /me is hit; on success the prompt
-    // disappears (the bloc updates `me` and the prompt's `me === null` guard
-    // flips).
+    // Save → POST /me → bloc.setMe → setup-stage swap to the real
+    // directory.
+    const user = userEvent.setup();
     await user.type(screen.getByPlaceholderText('handle'), 'alice');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
       expect(screen.queryByText('Finish setting up your account')).toBeNull();
     });
-    // And we cleared the in-memory pending blob since it's now persisted.
+    expect(screen.getByText('Server Directory')).toBeInTheDocument();
     expect(identity.getPendingEncrypted()).toBeNull();
-    dir.unmount();
   });
 });

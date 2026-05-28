@@ -169,7 +169,7 @@ describe('LoginScreen', () => {
     expect(await screen.findByText(/Couldn't decrypt your identity key/)).toBeInTheDocument();
   });
 
-  it('Sign up calls signUp then initializeForNewUser with the same password', async () => {
+  it('Sign up calls signUp and then shows the "Check your email" panel', async () => {
     const signUp = vi.fn(async () => {});
     const initializeForNewUser = vi.fn(async () => 'b64');
     const auth = buildFakeAuth({ signUp });
@@ -183,8 +183,15 @@ describe('LoginScreen', () => {
 
     await waitFor(() => {
       expect(signUp).toHaveBeenCalledWith('bob@test.dev', 'secret456');
-      expect(initializeForNewUser).toHaveBeenCalledWith('secret456');
     });
+    // Identity is NOT minted here — we wait for the post-confirmation
+    // sign-in to do it (when we'll have a real user_id to persist
+    // under). See LoginBloc.signUp for the longer explanation.
+    expect(initializeForNewUser).not.toHaveBeenCalled();
+    // The form gives way to the awaiting-confirmation panel with the
+    // email address called out so the user can sanity-check it.
+    expect(await screen.findByText(/Check your email\./i)).toBeInTheDocument();
+    expect(screen.getByText('bob@test.dev')).toBeInTheDocument();
   });
 
   it('shows the error message when sign-in rejects', async () => {

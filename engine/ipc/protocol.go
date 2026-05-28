@@ -79,6 +79,16 @@ type AwayParams struct {
 	Message  string `json:"message"`
 }
 
+// NickParams changes the user's IRC nickname on a given server. The
+// server replies with a NICK event (server-wide, echoed to every
+// channel the user is in) on success; on failure it returns an ERR_*
+// numeric (e.g. 432 ERR_ERRONEUSNICKNAME, 433 ERR_NICKNAMEINUSE) which
+// the renderer surfaces via the existing 4xx-error error-banner path.
+type NickParams struct {
+	ServerID string `json:"serverId"`
+	Nick     string `json:"nick"`
+}
+
 const (
 	CmdConnect    = "connect"
 	CmdDisconnect = "disconnect"
@@ -89,6 +99,7 @@ const (
 	CmdTagmsg     = "tagmsg"
 	CmdList       = "list"
 	CmdAway       = "away"
+	CmdNick       = "nick"
 )
 
 // Outbound: messages from the engine to the renderer.

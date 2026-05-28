@@ -6,7 +6,7 @@ import { MemoryChatHistoryStore } from '../history';
 // FakeServerSession mirrors the ServerSession surface ChatService consumes.
 // Tests drive incoming events via emit() and inspect outgoing commands via
 // the *Calls fields.
-interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'onEvent' | 'onChannelDirectory' | 'serverId'> {
+interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'onEvent' | 'onChannelDirectory' | 'serverId'> {
   emit(e: IrcEvent): void;
   emitDirectory(entries: { name: string; userCount: number; topic: string }[]): void;
   joinCalls: string[];
@@ -16,6 +16,7 @@ interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privm
   tagmsgCalls: Array<{ target: string; tags: Record<string, string> }>;
   listCalls: number;
   awayCalls: Array<{ message: string }>;
+  nickCalls: string[];
 }
 
 function fakeSession(serverId = 'srv-test'): FakeServerSession {
@@ -30,6 +31,7 @@ function fakeSession(serverId = 'srv-test'): FakeServerSession {
     tagmsgCalls: [],
     listCalls: 0,
     awayCalls: [],
+    nickCalls: [],
     join: (channel: string) => { f.joinCalls.push(channel); },
     part: (channel: string) => { f.partCalls.push(channel); },
     privmsg: (target: string, message: string) => { f.privmsgCalls.push({ target, message }); },
@@ -37,6 +39,7 @@ function fakeSession(serverId = 'srv-test'): FakeServerSession {
     tagmsg: (target: string, tags: Record<string, string>) => { f.tagmsgCalls.push({ target, tags }); },
     list: () => { f.listCalls += 1; },
     away: (message: string) => { f.awayCalls.push({ message }); },
+    nick: (nick: string) => { f.nickCalls.push(nick); },
     onEvent: (fn: EventListener) => { listener = fn; return () => { listener = null; }; },
     onChannelDirectory: (fn) => { directoryListener = fn; return () => { directoryListener = null; }; },
     emit: (e) => listener?.(e),
@@ -428,15 +431,36 @@ describe('ChatService', () => {
     expect(ch.messages.find((m) => m.kind === 'part' && m.from === 'alice')).toBeDefined();
   });
 
-  it('QUIT appears as a quit message in every channel', () => {
+  it('QUIT appears only in channels where the quitting nick was a member', () => {
     const { chat, engine } = makeChat('me');
+    // Two joined channels, both with our user; only #general also has alice.
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#dev' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#general', Message: 'me alice' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#dev',     Message: 'me bob' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#dev' }));
     engine.emit(makeEvent({ Kind: 'QUIT', From: 'alice', Message: 'goodbye' }));
 
-    for (const ch of chat.getState().channels) {
-      expect(ch.messages.some((m) => m.kind === 'quit' && m.from === 'alice')).toBe(true);
-    }
+    const channels = chat.getState().channels;
+    const general = channels.find((c) => c.name === '#general')!;
+    const dev = channels.find((c) => c.name === '#dev')!;
+    expect(general.messages.some((m) => m.kind === 'quit' && m.from === 'alice')).toBe(true);
+    expect(dev.messages.some((m) => m.kind === 'quit' && m.from === 'alice')).toBe(false);
+  });
+
+  it('QUIT still removes the nick from every channel member list (even ones without the quit message)', () => {
+    // Defensive: presence-tracking has to stay correct even when we
+    // skip the visible system message. A stale "alice" in #dev's member
+    // list would surface as a ghost.
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#general', Message: 'me alice' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: 'QUIT', From: 'alice', Message: '' }));
+
+    const general = chat.getState().channels.find((c) => c.name === '#general')!;
+    expect(general.members.some((m) => m.nick === 'alice')).toBe(false);
   });
 
   it('setActive() updates the active channel and notifies subscribers', () => {
@@ -1137,6 +1161,60 @@ describe('ChatService away/online tracking', () => {
     chat.setActive('#a');
     chat.input('/back');
     expect(engine.awayCalls).toEqual([{ message: '' }]);
+  });
+
+  it('/nick <new> dispatches a nick change to the engine', () => {
+    const { chat, engine } = makeChat('oldnick');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'oldnick', Target: '#a' }));
+    chat.setActive('#a');
+    chat.input('/nick newnick');
+    expect(engine.nickCalls).toEqual(['newnick']);
+  });
+
+  it('/nick with no argument surfaces a usage error via feedback and dispatches nothing', () => {
+    // Slash-command usage hints come out the feedback channel (transient
+    // banner above the input) — they're not persisted as system
+    // messages, so we listen on subscribeFeedback rather than poking
+    // channel.messages.
+    const { chat, engine } = makeChat();
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    chat.setActive('#a');
+    const feedback: Array<{ kind: string; text?: string }> = [];
+    const unsub = chat.onFeedback((f) => feedback.push(f as { kind: string; text?: string }));
+    chat.input('/nick   ');
+    unsub();
+    expect(engine.nickCalls).toEqual([]);
+    expect(feedback.find((f) => f.kind === 'error' && /Usage: \/nick/.test(f.text ?? ''))).toBeDefined();
+  });
+
+  it('changeNick() routes through the same dispatcher as the slash command', () => {
+    // Exposed as a public method so the settings UI can drive a rename
+    // without users typing slash syntax. Same end-state either way.
+    const { chat, engine } = makeChat('me');
+    chat.changeNick('newnick');
+    expect(engine.nickCalls).toEqual(['newnick']);
+  });
+
+  it('incoming NICK event renames the member across every channel they were in', () => {
+    // The server broadcasts a single NICK event when a user renames;
+    // the renderer fans it out to every channel that user was in. This
+    // test is the regression guard for that fan-out (and for the future
+    // case where we might mistake NICK for a per-channel event).
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#b' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#a', Message: 'alice me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: '353', Target: '#b', Message: 'alice bob me' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#b' }));
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'alice', Message: 'aliceeee' }));
+
+    const a = chat.getState().channels.find((c) => c.name === '#a')!;
+    const b = chat.getState().channels.find((c) => c.name === '#b')!;
+    expect(a.members.some((m) => m.nick === 'aliceeee')).toBe(true);
+    expect(a.members.some((m) => m.nick === 'alice')).toBe(false);
+    expect(b.members.some((m) => m.nick === 'aliceeee')).toBe(true);
+    expect(b.members.some((m) => m.nick === 'alice')).toBe(false);
   });
 
   it('RPL_WHOREPLY (352) with G status flag marks the named member as away', () => {

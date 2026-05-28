@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { AtomLoader, Badge, Button, Card, Field, Input, Toggle } from '@boson/shared';
+import { AtomLoader, Badge, Button, Card, Field, Input, Modal, Toggle } from '@boson/shared';
 import type {
   DirectoryService,
   ServerWithToken,
@@ -8,36 +8,39 @@ import type {
 } from '../../modules/directory';
 import { ServerHostingBloc, type ServerHostingState } from './ServerHostingBloc';
 
-interface ServerHostingSectionProps {
+interface HostServerModalProps {
+  open: boolean;
+  onClose: () => void;
   directory: DirectoryService;
 }
 
-export function ServerHostingSection({ directory }: ServerHostingSectionProps) {
-  // The bloc holds the screen + form state + verify status. We create
-  // one per mount so closing + reopening the settings modal starts
-  // clean — there's no reason to persist mid-register form contents
-  // across sessions, and "the form silently restored what I typed an
-  // hour ago" is the worse failure mode.
-  const bloc = useMemo(() => new ServerHostingBloc(directory), [directory]);
+// Opens the "register a server in the directory" flow as a modal on top
+// of the Directory screen. Three internal views (list of the user's
+// existing rows / register form / verify with TXT snippet) drive off
+// the same ServerHostingBloc — the modal is just the chrome around
+// them. The bloc is recreated on every open so closing mid-form
+// doesn't leak draft state into the next session.
+export function HostServerModal({ open, onClose, directory }: HostServerModalProps) {
+  // Keying the bloc on `open` resets it each time the modal reopens.
+  // useMemo with no deps would keep stale form state across opens.
+  const bloc = useMemo(() => new ServerHostingBloc(directory), [directory, open]);
   const [state, setState] = useState<ServerHostingState>(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
-  useEffect(() => { void bloc.load(); }, [bloc]);
+  useEffect(() => { if (open) void bloc.load(); }, [bloc, open]);
 
   return (
-    <section class="user-settings-section">
-      <div class="user-settings-section-head">
-        <h2 class="user-settings-section-title">Server hosting</h2>
-        <p class="user-settings-section-desc">
-          Register your own IRC server with the Boson directory. We verify
-          ownership via a DNS TXT record before listing it publicly.
+    <Modal open={open} onClose={onClose} title="Add your server to the directory">
+      <div class="host-server-modal-body">
+        <p class="host-server-modal-intro">
+          Register your IRC server so users can discover it from the directory.
+          We verify ownership via a DNS TXT record before listing publicly —
+          no waiting on a human reviewer.
         </p>
-      </div>
-      <div class="user-settings-section-body">
         {state.screen === 'list' && <ListView state={state} bloc={bloc} />}
         {state.screen === 'register' && <RegisterView state={state} bloc={bloc} />}
         {state.screen === 'verify' && <VerifyView state={state} bloc={bloc} />}
       </div>
-    </section>
+    </Modal>
   );
 }
 

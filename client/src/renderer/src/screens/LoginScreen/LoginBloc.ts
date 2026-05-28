@@ -15,6 +15,12 @@ export interface LoginState {
   // Non-null means the stored encrypted_user_secret is unrecoverable — the
   // view shows the destructive "Start fresh" button.
   unrecoverable: string | null;
+  // Set to the email address after a successful signUp that needs
+  // email confirmation. The view swaps the form for a "Check your
+  // email" panel until the user either confirms (deep-link triggers
+  // a session change → Router routes away) or clicks Back to retry
+  // with a different address.
+  awaitingConfirmation: string | null;
 }
 
 export type LoginListener = (state: LoginState) => void;
@@ -53,6 +59,7 @@ export class LoginBloc {
     busy: false,
     error: null,
     unrecoverable: null,
+    awaitingConfirmation: null,
   };
 
   constructor(deps: LoginBlocDeps) {
@@ -162,9 +169,18 @@ export class LoginBloc {
     this.setState({ ...this.state, busy: true, error: null, unrecoverable: null });
     try {
       await this.auth.signUp(email, password);
-      await this.identity.initializeForNewUser(password);
-      await this.persistIdentity();
-      this.setState({ ...this.state, busy: false });
+      // We deliberately do NOT initialize the identity here. Supabase
+      // returns the user row but no session when email confirmation is
+      // on — without a user_id we can't persist the encrypted secret
+      // to the keychain anyway. The identity gets minted on the first
+      // post-confirmation sign-in, which already has the
+      // "no encrypted_user_secret yet → initializeForNewUser" branch
+      // wired up in signIn() below.
+      this.setState({
+        ...this.state,
+        busy: false,
+        awaitingConfirmation: email,
+      });
     } catch (err) {
       this.setState({
         ...this.state,
@@ -172,6 +188,14 @@ export class LoginBloc {
         busy: false,
       });
     }
+  }
+
+  // View-driven exit from the "Check your email" panel. The user might
+  // have typed the wrong address or want to try a different account —
+  // reset back to the form without nuking what they typed for `email`
+  // so they can edit and re-submit.
+  cancelAwaitingConfirmation(): void {
+    this.setState({ ...this.state, awaitingConfirmation: null });
   }
 
   async startFresh(): Promise<void> {

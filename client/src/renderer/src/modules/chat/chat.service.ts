@@ -82,6 +82,7 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: 'part',  aliases: ['leave'], usage: '/part [channel]', description: 'Leave the current or named channel' },
   { name: 'msg',   aliases: ['query'], usage: '/msg <nick> <text>', description: 'Send a direct message' },
   { name: 'me',    usage: '/me <action>',        description: 'Send an action (CTCP ACTION)' },
+  { name: 'nick',  usage: '/nick <new-nick>',    description: 'Change your nickname on this server' },
   { name: 'away',  usage: '/away [message]',     description: 'Mark yourself as away (no message ⇒ comes back)' },
   { name: 'back',  usage: '/back',               description: 'Clear your away status' },
   { name: 'clear', usage: '/clear',              description: "Clear this channel's local log" },
@@ -250,6 +251,14 @@ export class ChatService {
     this.removeChannel(channel);
   }
 
+  // Change the IRC nick on this server. Exposed as a public method so
+  // a settings panel / quick-action button can drive a rename without
+  // going through the slash-command parser. The same end-state as
+  // typing `/nick <new>` in the chat input.
+  changeNick(nick: string): void {
+    this.cmdNick(nick);
+  }
+
   send(channel: string, message: string): void {
     if (!message.trim()) return;
     this.session.privmsg(channel, message);
@@ -293,12 +302,24 @@ export class ChatService {
       case 'msg':
       case 'query': return this.cmdMsg(args);
       case 'me':    return this.cmdMe(args);
+      case 'nick':  return this.cmdNick(args);
       case 'clear': return this.cmdClear();
       case 'help':  return this.cmdHelp();
       case 'away':  return this.cmdAway(args);
       case 'back':  return this.cmdAway('');
       default:      return this.systemHere(`Unknown command: /${cmd}. Try /help.`);
     }
+  }
+
+  private cmdNick(args: string): void {
+    const next = args.trim().split(/\s+/)[0];
+    if (!next) return this.systemHere('Usage: /nick <new-nick>');
+    // We don't validate locally — IRC nick rules vary (length, charset,
+    // reserved prefixes) and the server's 432/433/437 error is more
+    // authoritative than anything we could re-enforce. On success the
+    // NICK echo comes back as a regular event and handleEvent renames
+    // the member entries across every joined channel.
+    this.session.nick(next);
   }
 
   private cmdAway(message: string): void {
@@ -512,6 +533,7 @@ export class ChatService {
         entries: this.channelDirectory.entries.slice(),
         updatedAt: this.channelDirectory.updatedAt,
       },
+      myNick: this.myNick,
     };
   }
 
@@ -703,9 +725,20 @@ export class ChatService {
         break;
       }
       case 'QUIT':
-        // Quits aren't channel-scoped — IRC sends one QUIT, we just record it system-style on every channel.
+        // IRC QUIT is a single global event but the per-channel display
+        // must be scoped to channels the quitting nick was actually a
+        // member of. We were previously emitting "<nick> quit" into
+        // every channel — including ones the user had never been in —
+        // which surfaces noise in unrelated DMs and channels.
+        //
+        // Now: for each channel, only record + persist the system
+        // message if the quitting nick was in that channel's member
+        // list. Always remove them from member lists either way (a
+        // stale presence would be worse than a missed system message).
         this.channels.forEach((c) => {
+          const wasMember = c.members.some((m) => m.nick === e.From);
           c.members = c.members.filter((m) => m.nick !== e.From);
+          if (!wasMember) return;
           const quitMsg: ChatMessage = {
             id: this.id(),
             kind: 'quit',

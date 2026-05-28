@@ -24,22 +24,29 @@ export function AuthConfirmedPage() {
   const [showFallback, setShowFallback] = useState(false);
 
   useEffect(() => {
-    // Grab the entire fragment as-is and hand it to Boson. The hash
-    // already begins with '#' from location.hash so we don't double-
-    // prefix; URL-encode is unnecessary because the hash format
-    // Supabase emits is already URL-safe (&-separated key=value).
-    const hash = window.location.hash || '';
-    const search = window.location.search || '';
-    // Some flows (PKCE) carry the code in the query string instead of
-    // the fragment — forward whichever applies. If both are empty we
-    // skip the deep-link entirely; the user landed here directly.
-    if (!hash && !search) return;
+    // Most modern browsers — Chrome explicitly, Firefox sometimes,
+    // Safari often — drop the URL fragment when navigating to a
+    // custom-scheme URL. That made the first cut of this page fail
+    // silently: the boson:// handler in Electron received the URL
+    // *without* #access_token=... and had no tokens to hydrate the
+    // session with.
+    //
+    // To sidestep the fragment-stripping question entirely, we move
+    // every Supabase-emitted key into the query string before handing
+    // off. The Electron-side parser already accepts both forms
+    // (parseAuthConfirmedUrl reads from search OR hash) so the rest of
+    // the flow doesn't need to change.
+    const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+    const queryParams = new URLSearchParams(window.location.search || '');
+    if (hashParams.size === 0 && queryParams.size === 0) return;
 
-    const target = `boson://auth/confirmed${search}${hash}`;
-    // Try the deep-link by setting location. The browser will hand
-    // off to the OS handler if registered; otherwise nothing happens
-    // and we stay on this page (which is exactly when the fallback
-    // banner becomes useful).
+    // Merge — query wins on conflict (it carries the PKCE code, which
+    // is the authoritative form when present).
+    const merged = new URLSearchParams();
+    hashParams.forEach((v, k) => merged.set(k, v));
+    queryParams.forEach((v, k) => merged.set(k, v));
+
+    const target = `boson://auth/confirmed?${merged.toString()}`;
     window.location.href = target;
 
     // Show the fallback CTA after a beat. If the deep-link succeeded
@@ -71,7 +78,17 @@ export function AuthConfirmedPage() {
             <div class="hero-cta" style="justify-content: center;">
               <a
                 class="btn btn-primary"
-                href={`boson://auth/confirmed${window.location.search}${window.location.hash}`}
+                href={(() => {
+                  // Same hash→query conversion as the auto-open path so
+                  // the click-to-launch fallback survives browsers that
+                  // strip fragments on custom-scheme navigation.
+                  const h = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));
+                  const q = new URLSearchParams(window.location.search || '');
+                  const m = new URLSearchParams();
+                  h.forEach((v, k) => m.set(k, v));
+                  q.forEach((v, k) => m.set(k, v));
+                  return `boson://auth/confirmed?${m.toString()}`;
+                })()}
               >
                 Open Boson manually
               </a>

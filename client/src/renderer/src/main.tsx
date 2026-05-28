@@ -71,18 +71,25 @@ if (!publishableKey) {
     // PKCE code) here so the app drops them straight into the
     // post-signup landing screen.
     subscribeAuthConfirmed((params) => {
+      console.info('[auth-confirmed] hydrating session', {
+        kind: params.code ? 'pkce-code' : params.accessToken ? 'implicit-tokens' : 'empty',
+        type: params.type,
+      });
       const tryHydrate = async (): Promise<void> => {
         if (params.code) {
           await props.auth.exchangeAuthCode(params.code);
+          console.info('[auth-confirmed] exchangeAuthCode succeeded');
           return;
         }
         if (params.accessToken && params.refreshToken) {
           await props.auth.setSessionFromTokens(params.accessToken, params.refreshToken);
+          console.info('[auth-confirmed] setSessionFromTokens succeeded');
           return;
         }
+        console.warn('[auth-confirmed] no usable params (no code, no accessToken+refreshToken)');
       };
       tryHydrate().catch((err) => {
-        console.error('auth-confirmed hydration failed', err);
+        console.error('[auth-confirmed] hydration failed', err);
         props.auth.markFatal(err instanceof Error ? err.message : String(err));
       });
     });

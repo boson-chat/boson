@@ -166,6 +166,19 @@ export class ServerSession {
     });
   }
 
+  // Change the user's IRC nickname on this server. Server replies with
+  // a NICK event on success (which ChatService.handleEvent renames
+  // across every channel's member list and updates myNick) or a 4xx
+  // numeric on failure, surfaced via the existing error-banner path.
+  nick(nick: string): void {
+    const next = nick.trim();
+    if (!next) return;
+    this.engine._sendForSession({
+      type: 'nick',
+      params: { serverId: this.serverId, nick: next },
+    });
+  }
+
   // Tells the engine to tear down THIS server's IRC client. The ServerSession
   // instance stays alive until the engine echoes back state=disconnected,
   // which triggers _dispose() from the EngineClient routing layer.

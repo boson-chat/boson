@@ -83,6 +83,7 @@ describe('LoginBloc', () => {
         busy: false,
         error: null,
         unrecoverable: null,
+        awaitingConfirmation: null,
       });
     });
 
@@ -274,16 +275,32 @@ describe('LoginBloc', () => {
   });
 
   describe('signUp', () => {
-    it('happy path calls auth.signUp then identity.initializeForNewUser with the same password', async () => {
+    it('happy path calls auth.signUp and parks in awaitingConfirmation', async () => {
       const { bloc, auth, identity } = buildBloc();
       bloc.setEmail('bob@test.dev');
       bloc.setPassword('secret456');
       await bloc.signUp();
 
       expect(auth.signUp).toHaveBeenCalledWith('bob@test.dev', 'secret456');
-      expect(identity.initializeForNewUser).toHaveBeenCalledWith('secret456');
+      // Identity is intentionally NOT initialized here — Supabase
+      // doesn't hand us a session until the email-confirm round-trip
+      // completes, so there's no user_id to persist the secret under.
+      // The first post-confirmation sign-in mints the identity then.
+      expect(identity.initializeForNewUser).not.toHaveBeenCalled();
       expect(bloc.getState().busy).toBe(false);
       expect(bloc.getState().error).toBeNull();
+      expect(bloc.getState().awaitingConfirmation).toBe('bob@test.dev');
+    });
+
+    it('cancelAwaitingConfirmation clears the parked state without losing email', () => {
+      const { bloc } = buildBloc();
+      bloc.setEmail('bob@test.dev');
+      // Manually seed the awaiting state — we want this test to
+      // exercise cancel without depending on the signUp call shape.
+      void bloc.signUp();
+      bloc.cancelAwaitingConfirmation();
+      expect(bloc.getState().awaitingConfirmation).toBeNull();
+      expect(bloc.getState().email).toBe('bob@test.dev');
     });
 
     it("emits a Passwords don't match error when confirm differs", async () => {

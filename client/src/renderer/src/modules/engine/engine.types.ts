@@ -21,10 +21,11 @@ export interface DisconnectParams { serverId: string }
 export interface TagmsgParams { serverId: string; target: string; tags: Record<string, string> }
 export interface ListParams { serverId: string }
 export interface AwayParams { serverId: string; message: string }
+export interface NickParams { serverId: string; nick: string }
 
 export interface ClientCommand {
-  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away';
-  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams;
+  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick';
+  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams | NickParams;
 }
 
 export type PartParams = JoinParams;

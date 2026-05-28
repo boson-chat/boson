@@ -282,6 +282,22 @@ func (c *Client) Away(message string) {
 	}
 }
 
+// Nick changes the client's IRC nickname. The server replies with a
+// NICK event (broadcast to every channel the user is in) on success or
+// a 4xx numeric (433 ERR_NICKNAMEINUSE, 432 ERR_ERRONEUSNICKNAME,
+// 437 ERR_UNAVAILRESOURCE) on failure. The translate() layer surfaces
+// both shapes to the renderer through the normal event stream — no
+// special-case ACK is needed here. We don't validate the nick locally;
+// IRC daemons have nick-rules that vary (length, allowed chars,
+// reserved prefixes) and the server's error is more authoritative than
+// anything we could enforce client-side.
+func (c *Client) Nick(nick string) {
+	if nick == "" {
+		return
+	}
+	_ = c.girc.Cmd.SendRaw("NICK " + nick)
+}
+
 // Tagmsg sends an IRCv3 TAGMSG to `target`, carrying only message tags (no
 // body). Used today for typing indicators (`+typing=active|done|paused`);
 // future client tags (read receipts, reactions) ride the same wire. Servers

@@ -151,9 +151,18 @@ const joinListeners = new Set<(params: JoinParams) => void>();
 const authListeners = new Set<(params: AuthConfirmedParams) => void>();
 
 function deliver(url: string): void {
+  // Strip the access_token from logs but keep enough to see WHICH
+  // verb fired + whether parsing succeeded. Helpful when users report
+  // "the deep-link didn't sign me in" — we can ask them to check
+  // DevTools console and see exactly where the chain broke.
+  const safeUrl = url.replace(/(access_token|refresh_token)=([^&]+)/g, '$1=<redacted>');
+  console.info('[deep-link] received', safeUrl);
+
   const join = parseJoinUrl(url);
   if (join) {
+    console.info('[deep-link] parsed as join', { host: join.host, port: join.port });
     if (joinListeners.size === 0) {
+      console.info('[deep-link] buffering join (no listener yet)');
       pendingJoinUrl = url;
       return;
     }
@@ -162,16 +171,20 @@ function deliver(url: string): void {
   }
   const auth = parseAuthConfirmedUrl(url);
   if (auth) {
+    console.info('[deep-link] parsed as auth/confirmed', {
+      hasAccessToken: !!auth.accessToken,
+      hasCode: !!auth.code,
+      type: auth.type,
+    });
     if (authListeners.size === 0) {
+      console.info('[deep-link] buffering auth (no listener yet)');
       pendingAuthUrl = url;
       return;
     }
     for (const fn of authListeners) fn(auth);
     return;
   }
-  // Unknown verb — silently drop. Adding a third action in the future
-  // (boson://settings, boson://search, ...) means extending the chain
-  // above with another parse + listener set.
+  console.warn('[deep-link] no parser matched', safeUrl);
 }
 
 /**

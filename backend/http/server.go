@@ -80,6 +80,14 @@ func buildRouter(
 	root := stdhttp.NewServeMux()
 	root.Handle("/health", publicMux)
 	root.Handle("GET /servers", publicMux)
+	// GET /servers/me MUST be registered before the generic
+	// GET /servers/{id} below — otherwise the literal "me" segment falls
+	// into the {id} pattern, the public handler tries uuid.Parse("me"),
+	// and the caller gets back 400 "invalid id". The owner-scoped list
+	// route lives on the protected mux because it leaks pending
+	// verification tokens (only to the row's owner, but still — auth
+	// required).
+	root.Handle("GET /servers/me", authedProtected)
 	root.Handle("GET /servers/{id}", publicMux)
 	root.Handle("POST /servers", authedProtected)
 	root.Handle("/", authedProtected)

@@ -19,7 +19,7 @@ export function LoginScreen({ directory, identity }: Props) {
   const [state, setState] = useState(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
 
-  const { mode, email, password, confirmPassword, error, unrecoverable, busy } = state;
+  const { mode, email, password, confirmPassword, error, unrecoverable, busy, awaitingConfirmation } = state;
 
   // Guest-mode local state. The user clicks "Continue as guest" to reveal a
   // single nick field; submitting it writes a localStorage record and emits
@@ -39,6 +39,44 @@ export function LoginScreen({ directory, identity }: Props) {
     saveGuestSession({ nick });
     emitGuestChange();
   };
+
+  // After a successful signUp we swap the form for a "Check your email"
+  // panel until the user either confirms (deep-link triggers session
+  // change → Router routes away from LoginScreen entirely) or clicks
+  // Back to retry with a different address.
+  if (awaitingConfirmation) {
+    return (
+      <div class="login-screen">
+        <div class="login-container">
+          <Logo />
+          <Card>
+            <div class="login-confirm">
+              <h2 class="login-confirm-title">Check your email.</h2>
+              <p class="login-confirm-body">
+                We sent a confirmation link to{' '}
+                <strong class="login-confirm-email">{awaitingConfirmation}</strong>.
+                Click it and Boson will sign you in automatically — you
+                don't have to come back here.
+              </p>
+              <p class="login-confirm-hint">
+                Email taking a while? Check spam, or click Back to retry
+                with a different address.
+              </p>
+              <div class="login-confirm-actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => bloc.cancelAwaitingConfirmation()}
+                >
+                  Back
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div class="login-screen">

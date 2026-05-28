@@ -11,6 +11,7 @@ import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
 import { AtomLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
+import { HostServerModal } from './HostServerModal';
 import './DirectoryScreen.css';
 
 interface Props {
@@ -131,7 +132,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
           />
           <ServerSettings
             serverDisplayName={target.server.name}
-            myNick={me.handle}
+            myNick={chatState.myNick || me.handle}
             serverInfo={chatState.serverInfo}
             serverLog={chatState.serverLog}
             onClearServerLog={() => target.chat.clearServerLog()}
@@ -146,6 +147,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
               bloc.disconnect(serverSettingsForId);
               setServerSettingsForId(null);
             }}
+            onChangeNick={(nick) => target.chat.changeNick(nick)}
           />
         </div>
       );
@@ -270,6 +272,19 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
   const {
     me, servers, filteredServers, query, language, showNsfw, error, connections,
   } = state;
+  // First-launch-after-confirmation: the user has a session but no row
+  // in /me yet — they need to pick a handle before anything else makes
+  // sense. Render ONLY the setup prompt; the directory comes back as
+  // soon as bloc.setMe runs with a non-null user. (Previously the
+  // prompt rendered ABOVE the directory and visually stacked.)
+  if (me === null) {
+    return (
+      <div class="directory-setup-stage">
+        {error && <WarningBanner tone="danger" title="Couldn't load directory">{error}</WarningBanner>}
+        <SetupPrompt directory={directory} identity={identity} onDone={(u) => bloc.setMe(u)} />
+      </div>
+    );
+  }
   // Map of serverId → that connection's engineState, used by ServerRow to
   // render the "Currently connected" / "Joined" affordances.
   const connectionByServerId = new Map(connections.map((c) => [c.serverId, c]));
@@ -278,19 +293,27 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
   // because it's purely a UI affordance.
   const [advanced, setAdvanced] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [hostOpen, setHostOpen] = useState(false);
   return (
     <>
       {error && (
         <WarningBanner tone="danger" title="Couldn't load directory">{error}</WarningBanner>
       )}
 
-      {me === null && (
-        <SetupPrompt directory={directory} identity={identity} onDone={(u) => bloc.setMe(u)} />
-      )}
-
       <div class="directory-header">
         <div class="directory-prompt">$ boson dir --list</div>
-        <h1 class="directory-title">Server Directory</h1>
+        <div class="directory-header-row">
+          <h1 class="directory-title">Server Directory</h1>
+          {/* "Add your server" CTA is only shown to authenticated users —
+             guest users have no row in /me so registering would 401.
+             For them the Advanced toggle's manual-add path is still
+             available. */}
+          {me && (
+            <Button variant="secondary" onClick={() => setHostOpen(true)}>
+              Add your server to the community
+            </Button>
+          )}
+        </div>
         <p class="directory-desc">
           Discover and join self-hosted IRC servers. Browse, search, and find communities that match your interests.
         </p>
@@ -353,6 +376,12 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
           onCancel={() => setAddOpen(false)}
         />
       </Modal>
+
+      <HostServerModal
+        open={hostOpen}
+        onClose={() => setHostOpen(false)}
+        directory={directory}
+      />
 
       {filteredServers === null ? (
         <div class="directory-loading">

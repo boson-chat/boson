@@ -670,3 +670,47 @@
   color: var(--danger, #ef4444);
   border-color: var(--danger, #ef4444);
 }
+
+/* Full-bleed centred container the SetupPrompt renders into on first
+   launch (when `me === null`). Replaces the directory entirely so the
+   user isn't looking at an empty-feeling page with a card stuck on top. */
+.directory-setup-stage {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+.directory-setup-stage .directory-setup-prompt {
+  width: 100%;
+  max-width: 480px;
+}
+
+/* Header row that pairs the directory title with the "Add your server"
+   CTA. Wraps on narrow widths so the button doesn't get squeezed off
+   screen. */
+.directory-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-2);
+}
+.directory-header-row .directory-title { margin: 0; }
+
+/* Host-server modal: a little vertical breathing room around the
+   embedded ServerHostingBloc UI. */
+.host-server-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.host-server-modal-intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--fg-2);
+}

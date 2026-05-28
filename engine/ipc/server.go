@@ -266,6 +266,15 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 		if c := s.clientFor(p.ServerID); c != nil {
 			c.Away(p.Message)
 		}
+	case CmdNick:
+		var p NickParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			s.send(ServerMessage{Type: MsgError, Error: "bad nick params: " + err.Error()})
+			return
+		}
+		if c := s.clientFor(p.ServerID); c != nil {
+			c.Nick(p.Nick)
+		}
 	default:
 		s.send(ServerMessage{Type: MsgError, Error: "unknown command: " + msg.Type})
 	}
