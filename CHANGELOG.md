@@ -1,3 +1,9 @@
+## [0.10.0](https://github.com/boson-chat/boson/compare/v0.9.0...v0.10.0) (2026-05-28)
+
+### Features
+
+* **client:** comprehensive UI animation pass ([b75db02](https://github.com/boson-chat/boson/commit/b75db02fbdaab387a8507ec39c9ab5ff516affb2))
+
 ## [0.9.0](https://github.com/boson-chat/boson/compare/v0.8.0...v0.9.0) (2026-05-28)
 
 ### Features
