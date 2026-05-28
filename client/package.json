@@ -31,6 +31,7 @@
     "@boson/shared": "*",
     "@noble/hashes": "^2.2.0",
     "@supabase/supabase-js": "^2.45.0",
+    "electron-updater": "^6.8.3",
     "preact": "^10.22.0"
   },
   "devDependencies": {

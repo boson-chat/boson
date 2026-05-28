@@ -110,11 +110,16 @@ jobs:
         with:
           # Match every artifact electron-builder produces, regardless of
           # platform — keep this glob loose so adding a new target above
-          # doesn't require updating the workflow.
+          # doesn't require updating the workflow. latest*.yml + the
+          # blockmap files are the auto-update metadata electron-updater
+          # reads at runtime; without them the in-app updater can't see
+          # new releases.
           files: |
             client/dist/*.dmg
             client/dist/*.zip
             client/dist/*.exe
             client/dist/*.AppImage
             client/dist/*.deb
+            client/dist/latest*.yml
+            client/dist/*.blockmap
           fail_on_unmatched_files: false

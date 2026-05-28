@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { join } from 'node:path';
 import { SecureStore } from './secure-store';
 import { engine } from './engine';
+import { applyDownloadedUpdate, checkNow, getUpdateState, startAutoUpdater } from './auto-update';
 
 // boson:// is the custom URL scheme that the marketing site's directory
 // page (/discover) deep-links to. Format: boson://join?host=…&port=…&tls=1
@@ -157,6 +158,16 @@ class BosonApp {
       this.pendingDeepLink = null;
       return pending?.url ?? null;
     });
+
+    // Auto-update: renderer reads + drives the updater via these three
+    // channels. `getState` gives the current snapshot at boot so the
+    // banner can render immediately without waiting for the next
+    // `updater:state` push. `checkNow` lets the About panel's manual
+    // "Check for updates" button short-circuit the 6h cadence.
+    // `apply` triggers quitAndInstall once the user clicks "Restart".
+    ipcMain.handle('updater:getState', () => getUpdateState());
+    ipcMain.handle('updater:checkNow', () => checkNow());
+    ipcMain.handle('updater:apply', () => { applyDownloadedUpdate(); });
   }
 
   // Forward a deep-link URL to the renderer if it's ready, else buffer
@@ -196,6 +207,9 @@ class BosonApp {
 
     this.mainWindow.on('ready-to-show', () => {
       this.mainWindow?.show();
+      // Kick off the auto-update lifecycle now that we have a window
+      // to send state to. No-op in dev mode (`app.isPackaged === false`).
+      if (this.mainWindow) startAutoUpdater(this.mainWindow);
       // If we captured a deep link before the window opened, hand it
       // off now. The renderer will also call deepLink:consume on boot
       // as a backup for the timing case where it loads faster than this

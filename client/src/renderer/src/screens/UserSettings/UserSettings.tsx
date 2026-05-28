@@ -1,5 +1,5 @@
 import type { ComponentChildren } from 'preact';
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Badge, Button, Card, Divider, Field, Input, Modal } from '@boson/shared';
 import {
   clearGuestSession,
@@ -217,6 +217,26 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose }: {
   );
 }
 
+// Renderer-side shape of the auto-update state pushed by main. Kept
+// inline here rather than imported from the preload module so the
+// About panel stays self-contained (the preload package isn't always
+// resolvable from a test renderer context).
+type UpdateState =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'up-to-date'; checkedAt: number }
+  | { kind: 'available'; version: string }
+  | { kind: 'downloading'; version: string; percent: number; bytesPerSecond: number }
+  | { kind: 'ready'; version: string }
+  | { kind: 'error'; message: string };
+
+interface UpdaterBridge {
+  getState(): Promise<UpdateState>;
+  checkNow(): Promise<void>;
+  applyDownloadedUpdate(): Promise<void>;
+  onState(fn: (s: UpdateState) => void): () => void;
+}
+
 function AboutSection() {
   // Platform string is exposed by the preload bridge (set on Electron
   // launch). In a browser preview / e2e harness `bosonPlatform` may not
@@ -225,6 +245,21 @@ function AboutSection() {
   const platform =
     (window as unknown as { bosonPlatform?: string }).bosonPlatform
     ?? (typeof navigator !== 'undefined' ? navigator.platform : 'unknown');
+
+  // Auto-update integration. Pull the initial state from main on
+  // mount, subscribe to live pushes, and offer a manual "Check now"
+  // button next to the version row. The whole block degrades to "no
+  // updater available" when the bridge isn't there (dev / e2e).
+  const updater = (window as unknown as { bosonUpdater?: UpdaterBridge }).bosonUpdater;
+  const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
+  useEffect(() => {
+    if (!updater) return;
+    let unsubscribed = false;
+    void updater.getState().then((s) => { if (!unsubscribed) setUpdateState(s); });
+    const off = updater.onState(setUpdateState);
+    return () => { unsubscribed = true; off(); };
+  }, [updater]);
+
   return (
     <SectionFrame
       title="About"
@@ -237,7 +272,16 @@ function AboutSection() {
           <DetailRow
             label="Version"
             customValue={
-              <span class="user-settings-mono">v{APP_VERSION}</span>
+              <span class="user-settings-version-row">
+                <span class="user-settings-mono">v{APP_VERSION}</span>
+                {updater && (
+                  <UpdateActions
+                    state={updateState}
+                    onCheck={() => void updater.checkNow()}
+                    onApply={() => void updater.applyDownloadedUpdate()}
+                  />
+                )}
+              </span>
             }
           />
           <Divider />
@@ -289,6 +333,61 @@ function AboutSection() {
       </p>
     </SectionFrame>
   );
+}
+
+// Inline update affordance rendered next to the version number. Stays
+// compact in the common case (just a "Check for updates" button) and
+// expands into a progress / restart prompt when the lifecycle is
+// actually doing something.
+function UpdateActions({
+  state,
+  onCheck,
+  onApply,
+}: {
+  state: UpdateState;
+  onCheck: () => void;
+  onApply: () => void;
+}) {
+  switch (state.kind) {
+    case 'idle':
+    case 'up-to-date':
+    case 'error':
+      return (
+        <span class="user-settings-update-actions">
+          <Button variant="ghost" onClick={onCheck}>Check for updates</Button>
+          {state.kind === 'up-to-date' && (
+            <span class="user-settings-update-hint">Up to date.</span>
+          )}
+          {state.kind === 'error' && (
+            <span class="user-settings-update-hint user-settings-update-error">
+              {state.message}
+            </span>
+          )}
+        </span>
+      );
+    case 'checking':
+      return <span class="user-settings-update-hint">Checking…</span>;
+    case 'available':
+      return (
+        <span class="user-settings-update-hint">
+          v{state.version} available — downloading.
+        </span>
+      );
+    case 'downloading':
+      return (
+        <span class="user-settings-update-hint">
+          Downloading v{state.version} · {state.percent}%
+        </span>
+      );
+    case 'ready':
+      return (
+        <span class="user-settings-update-actions">
+          <Button variant="primary" onClick={onApply}>
+            Restart to apply v{state.version}
+          </Button>
+        </span>
+      );
+  }
 }
 
 interface SectionFrameProps { title: string; description?: string; children: ComponentChildren }

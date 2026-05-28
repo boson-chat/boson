@@ -85,7 +85,40 @@ const bosonDeepLink = {
 };
 contextBridge.exposeInMainWorld('bosonDeepLink', bosonDeepLink);
 
+// Auto-update bridge. Renderer reads the current state at boot,
+// listens for `updater:state` pushes as the lifecycle progresses,
+// and drives the manual check + restart buttons. Mirrors the same
+// types main exposes (see auto-update.ts) — the discriminated union
+// is intentionally minimal so the IPC payload stays small.
+export type UpdateState =
+  | { kind: 'idle' }
+  | { kind: 'checking' }
+  | { kind: 'up-to-date'; checkedAt: number }
+  | { kind: 'available'; version: string }
+  | { kind: 'downloading'; version: string; percent: number; bytesPerSecond: number }
+  | { kind: 'ready'; version: string }
+  | { kind: 'error'; message: string };
+
+const bosonUpdater = {
+  async getState(): Promise<UpdateState> {
+    return ipcRenderer.invoke('updater:getState');
+  },
+  async checkNow(): Promise<void> {
+    return ipcRenderer.invoke('updater:checkNow');
+  },
+  async applyDownloadedUpdate(): Promise<void> {
+    return ipcRenderer.invoke('updater:apply');
+  },
+  onState(fn: (s: UpdateState) => void): () => void {
+    const listener = (_evt: unknown, s: UpdateState): void => fn(s);
+    ipcRenderer.on('updater:state', listener);
+    return () => { ipcRenderer.off('updater:state', listener); };
+  },
+};
+contextBridge.exposeInMainWorld('bosonUpdater', bosonUpdater);
+
 export type BosonSecure = typeof bosonSecure;
 export type BosonWindow = typeof bosonWindow;
 export type BosonEngine = typeof bosonEngine;
 export type BosonDeepLink = typeof bosonDeepLink;
+export type BosonUpdater = typeof bosonUpdater;

@@ -48,8 +48,17 @@ extraResources:
     filter:
       - "**/*"
 
-# Disable auto-update for v0.x — we don't have a release server yet.
-publish: null
+# Publish target for auto-update. electron-updater (running inside the
+# packaged app) reads the matching latest*.yml metadata files this
+# upload step writes alongside the .dmg / .exe / .AppImage / .zip,
+# so the running app can find the newest release without us standing
+# up a separate release server. GITHUB_TOKEN with `contents: write`
+# in release-client.yml is sufficient — no extra auth.
+publish:
+  - provider: github
+    owner: boson-chat
+    repo: boson
+    releaseType: release
 
 # Ad-hoc sign the packaged macOS .app via scripts/mac-adhoc-sign.cjs.
 # electron-builder's own signing path doesn't understand `identity: '-'`
