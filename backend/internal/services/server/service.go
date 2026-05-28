@@ -58,6 +58,28 @@ type ServerServiceImpl interface {
 	// is returned verbatim so the HTTP layer can surface the per-resolver
 	// matrix to the client UI.
 	Verify(ctx context.Context, serverID, principalID uuid.UUID, mode dns.Mode) (*Server, dns.Report, error)
+	// UpdateProfile mutates the human-facing fields of a server row —
+	// display name, description, tags, languages, NSFW flag — without
+	// touching the immutable identity fields (hostname, port, TLS,
+	// verification status). Owner-only. Identity changes would require
+	// re-verification so we refuse them here; the caller's path is
+	// "register a new row" + "delete the old one" if they really need
+	// to move host:port. Returns the updated server.
+	UpdateProfile(ctx context.Context, serverID, principalID uuid.UUID, in UpdateProfileInput) (*Server, error)
+}
+
+// UpdateProfileInput carries the optional fields the owner can change.
+// Pointers distinguish "leave this field alone" (nil) from "set this
+// to its zero value" (non-nil pointer to empty string / empty slice).
+// Slices for tags + languages REPLACE rather than merge — partial
+// updates would invite duplicate-tag edge cases we don't want to
+// design around.
+type UpdateProfileInput struct {
+	Name        *string
+	Description *string
+	Tags        *[]string
+	Languages   *[]string
+	IsNSFW      *bool
 }
 
 type ServerService struct {
@@ -153,6 +175,48 @@ func (s *ServerService) RegenerateToken(ctx context.Context, serverID, principal
 	// Clear the last-checked timestamp so the UI doesn't show stale
 	// "verified at <timestamp>" copy after a regenerate.
 	srv.VerificationLastCheckedAt = nil
+	if err := s.Repository.Update(ctx, srv); err != nil {
+		return nil, err
+	}
+	return srv, nil
+}
+
+func (s *ServerService) UpdateProfile(ctx context.Context, serverID, principalID uuid.UUID, in UpdateProfileInput) (*Server, error) {
+	srv, err := s.Repository.FindByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	if srv.RegisteredBy == nil || *srv.RegisteredBy != principalID {
+		return nil, ErrNotOwner
+	}
+
+	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			return nil, ErrInvalidInput
+		}
+		srv.Name = name
+	}
+	if in.Description != nil {
+		// Empty string clears the field; nil leaves it alone. Pointer
+		// dance is the same as the existing CreateInput.Description.
+		trimmed := strings.TrimSpace(*in.Description)
+		if trimmed == "" {
+			srv.Description = nil
+		} else {
+			srv.Description = &trimmed
+		}
+	}
+	if in.Tags != nil {
+		srv.Tags = pq.StringArray(*in.Tags)
+	}
+	if in.Languages != nil {
+		srv.Languages = pq.StringArray(*in.Languages)
+	}
+	if in.IsNSFW != nil {
+		srv.IsNSFW = *in.IsNSFW
+	}
+
 	if err := s.Repository.Update(ctx, srv); err != nil {
 		return nil, err
 	}

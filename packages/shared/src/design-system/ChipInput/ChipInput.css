@@ -1,0 +1,101 @@
+/* Pill-shaped multi-value input — chips + a free-text buffer wrap
+   inside the same bordered field so the whole assembly reads as one
+   form control. Mirrors the .bds-input visual treatment (border,
+   radius, focus ring) so it slots into existing layouts without
+   bespoke styling at the call site. */
+
+.bds-chip-input {
+  width: 100%;
+  min-height: 38px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  cursor: text;
+  transition: border-color var(--motion-fast) var(--ease-standard),
+              box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.bds-chip-input:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.bds-chip-input-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.bds-chip-input-field {
+  flex: 1;
+  min-width: 80px;
+  padding: 4px 6px;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.bds-chip-input-field::placeholder { color: var(--fg-3); }
+.bds-chip-input-field:disabled { cursor: not-allowed; }
+
+/* Single chip — same typographic treatment as the read-only tag
+   chips on directory cards (uppercase mono, letter-spaced, surface-
+   raised background, border-soft) so the form values look like the
+   eventual rendered output. Pill shape (999px radius) keeps it
+   distinct from the rectangular .bds-badge — a chip is "one of my
+   values, click × to remove" rather than the badge's "this thing is
+   verified / NSFW / etc." annotation. */
+.bds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 3px 10px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+  user-select: none;
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.bds-chip:hover {
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.bds-chip-text { line-height: 1; }
+
+.bds-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  margin-left: 2px;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: var(--fg-3);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.bds-chip-remove:hover {
+  background: color-mix(in oklab, var(--danger), transparent 80%);
+  color: var(--danger);
+}
+.bds-chip-remove:disabled { cursor: not-allowed; opacity: 0.5; }

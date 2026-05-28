@@ -148,6 +148,13 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
               setServerSettingsForId(null);
             }}
             onChangeNick={(nick) => target.chat.changeNick(nick)}
+            // Ownership check: render the Edit tab only when (a) the
+            // current connection knows the full directory Server (not
+            // a cold-start SavedServer snapshot which lacks profile
+            // fields), and (b) the signed-in account owns that row.
+            // Both branches short-circuit to plain ServerSettings —
+            // the tab simply doesn't appear in the menu.
+            {...buildEditableProps(target.server, me, bloc)}
           />
         </div>
       );
@@ -527,6 +534,41 @@ function ServerCard({
 
 // Two-letter initials from the first two whitespace/punctuation-separated
 // tokens of the server name; falls back to the first two characters.
+// Builds the optional `directoryEntry` + `onSaveProfile` props for
+// <ServerSettings>. Returns an empty object when the row isn't a full
+// directory Server (cold-start SavedServer has no profile fields) or
+// when the signed-in user isn't the row's owner. Extracted from the
+// JSX call site purely for readability — the inline ternary version
+// got long enough that the surrounding component was hard to scan.
+function buildEditableProps(
+  server: import('../../modules/directory').Server | import('../../modules/session').SavedServer,
+  me: import('../../modules/directory').User | null | undefined,
+  bloc: DirectoryBloc,
+): {
+  directoryEntry?: import('../ChatLayout/ServerSettings').DirectoryEntryProfile;
+  onSaveProfile?: (
+    patch: Partial<import('../ChatLayout/ServerSettings').DirectoryEntryProfile>,
+  ) => Promise<void>;
+} {
+  // SavedServer doesn't carry the directory profile fields — only
+  // hostname/port/tls/name/id. Narrow via a property check so TS
+  // accepts the access pattern below without `any` casts.
+  if (!('tags' in server)) return {};
+  if (!me?.id || me.id === '__guest__') return {};
+  if (server.registered_by !== me.id) return {};
+  return {
+    directoryEntry: {
+      serverId: server.id,
+      name: server.name,
+      description: server.description ?? '',
+      tags: server.tags ?? [],
+      languages: server.languages ?? [],
+      isNsfw: server.is_nsfw ?? false,
+    },
+    onSaveProfile: (patch) => bloc.updateServerProfile(server.id, patch),
+  };
+}
+
 function computeInitials(name: string): string {
   const cleaned = name.trim();
   if (!cleaned) return '??';

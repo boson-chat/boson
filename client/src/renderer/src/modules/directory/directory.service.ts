@@ -90,6 +90,25 @@ export class DirectoryService {
     return res.servers ?? [];
   }
 
+  // Update the profile-shaped fields of a server the caller owns. Only
+  // the fields the caller actually passes are touched — `undefined`
+  // means "leave alone" on every property, so a UI can submit a
+  // partial patch without worrying about clobbering other fields.
+  // Identity fields (hostname, port, tls) are NOT mutable through this
+  // path; the backend rejects them at the route handler.
+  async updateServerProfile(
+    serverID: string,
+    patch: {
+      name?: string;
+      description?: string;
+      tags?: string[];
+      languages?: string[];
+      is_nsfw?: boolean;
+    },
+  ): Promise<ServerWithToken> {
+    return this.http.patch<ServerWithToken>(`/servers/${serverID}`, patch);
+  }
+
   // Run the DNS TXT check against the registered hostname. Returns the
   // full report (per-resolver outcomes) on both success AND failure —
   // a 409 partial-match response carries the same body, so the caller

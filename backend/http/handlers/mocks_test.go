@@ -42,6 +42,7 @@ type stubServerService struct {
 	listByOwner     func(ctx context.Context, principalID uuid.UUID) ([]*server.Server, error)
 	regenerateToken func(ctx context.Context, serverID, principalID uuid.UUID) (*server.Server, error)
 	verify          func(ctx context.Context, serverID, principalID uuid.UUID, mode dns.Mode) (*server.Server, dns.Report, error)
+	updateProfile   func(ctx context.Context, serverID, principalID uuid.UUID, in server.UpdateProfileInput) (*server.Server, error)
 	createArgs      []server.CreateInput
 	listArgs        []server.ListFilter
 }
@@ -74,4 +75,10 @@ func (s *stubServerService) Verify(ctx context.Context, serverID, principalID uu
 		return s.verify(ctx, serverID, principalID, mode)
 	}
 	return nil, dns.Report{}, nil
+}
+func (s *stubServerService) UpdateProfile(ctx context.Context, serverID, principalID uuid.UUID, in server.UpdateProfileInput) (*server.Server, error) {
+	if s.updateProfile != nil {
+		return s.updateProfile(ctx, serverID, principalID, in)
+	}
+	return nil, nil
 }

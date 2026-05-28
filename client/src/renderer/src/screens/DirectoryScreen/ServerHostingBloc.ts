@@ -35,8 +35,12 @@ export interface RegisterFormDraft {
   port: string;          // string while editing — coerced to int on submit
   tls: boolean;
   description: string;
-  tags: string;          // comma-separated; coerced to string[]
-  languages: string;     // comma-separated
+  // tags + languages are arrays driven by the design-system ChipInput.
+  // The form layer pushes a fresh array on every chip add/remove, the
+  // bloc just stores it. Normalisation (lowercasing, trimming, hash
+  // stripping) lives inside ChipInput so the bloc doesn't need to.
+  tags: string[];
+  languages: string[];
   isNsfw: boolean;
 }
 
@@ -46,8 +50,8 @@ export const emptyRegisterDraft: RegisterFormDraft = {
   port: '6697',
   tls: true,
   description: '',
-  tags: '',
-  languages: '',
+  tags: [],
+  languages: [],
   isNsfw: false,
 };
 
@@ -221,9 +225,7 @@ export function draftToInput(d: RegisterFormDraft): RegisterServerInput | string
   if (!Number.isFinite(port) || port < 1 || port > 65535) {
     return 'Port must be a number between 1 and 65535.';
   }
-  const tags = splitList(d.tags);
-  const languages = splitList(d.languages);
-  if (languages.length === 0) {
+  if (d.languages.length === 0) {
     return 'Pick at least one language so the directory filter has something to match.';
   }
   const description = d.description.trim();
@@ -233,17 +235,10 @@ export function draftToInput(d: RegisterFormDraft): RegisterServerInput | string
     port,
     tls: d.tls,
     description: description || undefined,
-    tags,
-    languages,
+    tags: d.tags,
+    languages: d.languages,
     is_nsfw: d.isNsfw,
   };
-}
-
-function splitList(input: string): string[] {
-  return input
-    .split(/[,\n]/)
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
 }
 
 // classifyVerifyError maps HTTP failures into the typed VerifyStatus

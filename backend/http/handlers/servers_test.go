@@ -362,3 +362,52 @@ func TestServerHandler_RegenerateToken_RoutesToService(t *testing.T) {
 // timestamps inline. The actual value doesn't matter — we just need
 // a non-nil *time.Time on the stored row.
 func timeNow() time.Time { return time.Now() }
+
+func TestServerHandler_UpdateProfile_DispatchesOnlyProvidedFields(t *testing.T) {
+	srvID := uuid.New()
+	principal := middleware.Principal{UserID: uuid.New()}
+	var captured server.UpdateProfileInput
+	svc := &stubServerService{
+		updateProfile: func(_ context.Context, _, _ uuid.UUID, in server.UpdateProfileInput) (*server.Server, error) {
+			captured = in
+			return &server.Server{Name: "Updated", VerificationStatus: "verified"}, nil
+		},
+	}
+	// Only `name` + `tags` sent. Description / Languages / IsNSFW must
+	// arrive as nil pointers at the service so it leaves them alone.
+	rr := callServers(t, svc, principal, "PATCH", "/servers/"+srvID.String(),
+		`{"name":"Updated","tags":["foo","bar"]}`)
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+	require.NotNil(t, captured.Name)
+	assert.Equal(t, "Updated", *captured.Name)
+	require.NotNil(t, captured.Tags)
+	assert.Equal(t, []string{"foo", "bar"}, *captured.Tags)
+	assert.Nil(t, captured.Description, "unset fields must arrive as nil")
+	assert.Nil(t, captured.Languages, "unset fields must arrive as nil")
+	assert.Nil(t, captured.IsNSFW, "unset fields must arrive as nil")
+}
+
+func TestServerHandler_UpdateProfile_TranslatesServiceErrorsToStatus(t *testing.T) {
+	srvID := uuid.New()
+	principal := middleware.Principal{UserID: uuid.New()}
+	cases := []struct {
+		name     string
+		svcErr   error
+		wantHTTP int
+	}{
+		{"not found", server.ErrNotFound, stdhttp.StatusNotFound},
+		{"not owner", server.ErrNotOwner, stdhttp.StatusForbidden},
+		{"invalid", server.ErrInvalidInput, stdhttp.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &stubServerService{
+				updateProfile: func(_ context.Context, _, _ uuid.UUID, _ server.UpdateProfileInput) (*server.Server, error) {
+					return nil, tc.svcErr
+				},
+			}
+			rr := callServers(t, svc, principal, "PATCH", "/servers/"+srvID.String(), `{"name":"x"}`)
+			assert.Equal(t, tc.wantHTTP, rr.Code)
+		})
+	}
+}

@@ -48,6 +48,7 @@ func (h *ServerHandler) RegisterProtected(mux *stdhttp.ServeMux) {
 	verifyLimit := middleware.RateLimit(verifyRateLimitWindow, middleware.PrincipalAndPath("id"))
 	mux.Handle("POST /servers/{id}/verify", verifyLimit(stdhttp.HandlerFunc(h.verify)))
 	mux.HandleFunc("POST /servers/{id}/regenerate-token", h.regenerateToken)
+	mux.HandleFunc("PATCH /servers/{id}", h.updateProfile)
 }
 
 // Register mounts every directory route on a single mux. Retained so unit
@@ -197,6 +198,56 @@ func (h *ServerHandler) verify(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		"report":  report,
 		"success": report.Success,
 	})
+}
+
+// updateProfile lets the row's owner mutate the human-facing fields —
+// display name, description, tags, languages, NSFW flag — without
+// touching identity (hostname/port/TLS) or verification status.
+// Identity changes would invalidate the existing TXT record so we
+// don't allow them through this path; the operator has to register
+// a new row + delete the old one if they really need to move ports.
+type updateProfileRequest struct {
+	Name        *string   `json:"name,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	Tags        *[]string `json:"tags,omitempty"`
+	Languages   *[]string `json:"languages,omitempty"`
+	IsNSFW      *bool     `json:"is_nsfw,omitempty"`
+}
+
+func (h *ServerHandler) updateProfile(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	p := middleware.MustUser(r.Context())
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid id")
+		return
+	}
+	var req updateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid json")
+		return
+	}
+	srv, err := h.Servers.UpdateProfile(r.Context(), id, p.UserID, server.UpdateProfileInput{
+		Name:        req.Name,
+		Description: req.Description,
+		Tags:        req.Tags,
+		Languages:   req.Languages,
+		IsNSFW:      req.IsNSFW,
+	})
+	switch {
+	case errors.Is(err, server.ErrNotFound):
+		writeError(w, stdhttp.StatusNotFound, "not found")
+		return
+	case errors.Is(err, server.ErrNotOwner):
+		writeError(w, stdhttp.StatusForbidden, "not the owner")
+		return
+	case errors.Is(err, server.ErrInvalidInput):
+		writeError(w, stdhttp.StatusBadRequest, "name must be non-empty")
+		return
+	case err != nil:
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, srv.ToOwnerView())
 }
 
 func (h *ServerHandler) regenerateToken(w stdhttp.ResponseWriter, r *stdhttp.Request) {

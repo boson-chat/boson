@@ -300,3 +300,44 @@
 .server-settings-log-from { color: var(--info, var(--fg-2)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .server-settings-log-target { color: var(--muted, var(--fg-3)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .server-settings-log-message { color: var(--fg-2); }
+
+/* Edit-profile form lives inside the Card body. Mirrors the
+   user-settings-form shape so the visual rhythm matches between
+   "User settings → Identity" and "Server settings → Edit". */
+.server-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 4px 2px;
+}
+.server-settings-textarea {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 80px;
+  transition: border-color var(--motion-fast) var(--ease);
+}
+.server-settings-textarea:focus { border-color: var(--accent); outline: none; }
+.server-settings-error {
+  margin: 0;
+  color: var(--danger, #ef4444);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.server-settings-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+.server-settings-saved {
+  color: var(--success, #10b981);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}

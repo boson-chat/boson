@@ -42,14 +42,17 @@ function pendingServer(overrides: Partial<ServerWithToken> = {}): ServerWithToke
 
 describe('draftToInput', () => {
   it('coerces a well-formed draft into RegisterServerInput', () => {
+    // tags + languages now arrive as already-normalised arrays from
+    // the ChipInput (which lower-cases, trims, dedupes); the bloc
+    // just passes them through.
     const result = draftToInput({
       name: '  Example  ',
       hostname: '  IRC.Example.org ',
       port: '6697',
       tls: true,
       description: '  desc ',
-      tags: 'foss, gamedev , ',
-      languages: 'en, fr',
+      tags: ['foss', 'gamedev'],
+      languages: ['en', 'fr'],
       isNsfw: false,
     });
     expect(typeof result).not.toBe('string');
@@ -63,22 +66,22 @@ describe('draftToInput', () => {
   });
 
   it('rejects empty name', () => {
-    expect(draftToInput({ ...emptyRegisterDraft, name: '   ', hostname: 'irc.x', languages: 'en' }))
+    expect(draftToInput({ ...emptyRegisterDraft, name: '   ', hostname: 'irc.x', languages: ['en'] }))
       .toBe('Name is required.');
   });
 
   it('rejects empty hostname', () => {
-    expect(draftToInput({ ...emptyRegisterDraft, name: 'X', hostname: '', languages: 'en' }))
+    expect(draftToInput({ ...emptyRegisterDraft, name: 'X', hostname: '', languages: ['en'] }))
       .toBe('Hostname is required.');
   });
 
   it('rejects out-of-range port', () => {
-    expect(draftToInput({ ...emptyRegisterDraft, name: 'X', hostname: 'irc.x', port: '99999', languages: 'en' }))
+    expect(draftToInput({ ...emptyRegisterDraft, name: 'X', hostname: 'irc.x', port: '99999', languages: ['en'] }))
       .toBe('Port must be a number between 1 and 65535.');
   });
 
   it('requires at least one language', () => {
-    expect(draftToInput({ ...emptyRegisterDraft, name: 'X', hostname: 'irc.x', port: '6697', languages: '' }))
+    expect(draftToInput({ ...emptyRegisterDraft, name: 'X', hostname: 'irc.x', port: '6697', languages: [] }))
       .toContain('language');
   });
 });
@@ -120,7 +123,7 @@ describe('ServerHostingBloc', () => {
     directory.registerServer = vi.fn().mockResolvedValue(created);
 
     bloc.openRegister();
-    bloc.updateDraft({ name: 'X', hostname: 'irc.x', port: '6697', languages: 'en' });
+    bloc.updateDraft({ name: 'X', hostname: 'irc.x', port: '6697', languages: ['en'] });
     await bloc.submitRegister();
 
     expect(directory.registerServer).toHaveBeenCalledTimes(1);

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { AtomLoader, Badge, Button, Card, Field, Input, Modal, Toggle } from '@boson/shared';
+import { AtomLoader, Badge, Button, Card, ChipInput, Field, Input, Modal, Toggle } from '@boson/shared';
 import type {
   DirectoryService,
   ServerWithToken,
@@ -177,22 +177,22 @@ function RegisterView({ state, bloc }: { state: ServerHostingState; bloc: Server
         </Field>
 
         <div class="server-hosting-form-row">
-          <Field label="Tags" hint="Comma-separated, lower-case. e.g. foss, gamedev, community">
-            <Input
+          <Field label="Tags" hint="Press Enter or comma to add. Click × to remove.">
+            <ChipInput
               value={d.tags}
-              onInput={(e) => bloc.updateDraft({ tags: (e.target as HTMLInputElement).value })}
-              autoComplete="off"
-              spellcheck={false}
+              onChange={(tags) => bloc.updateDraft({ tags })}
+              ariaLabel="Tags"
               placeholder="foss, community"
+              stripHash
             />
           </Field>
-          <Field label="Languages" hint="Comma-separated ISO codes. Required: at least one.">
-            <Input
+          <Field label="Languages" hint="ISO codes (e.g. en, fr, ja). Required: at least one.">
+            <ChipInput
               value={d.languages}
-              onInput={(e) => bloc.updateDraft({ languages: (e.target as HTMLInputElement).value })}
-              autoComplete="off"
-              spellcheck={false}
+              onChange={(languages) => bloc.updateDraft({ languages })}
+              ariaLabel="Languages"
               placeholder="en, fr"
+              pattern={/^[a-z]{2}(-[a-z0-9]{2,4})?$/}
             />
           </Field>
         </div>

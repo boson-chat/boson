@@ -352,6 +352,91 @@ func TestServerService_ListByOwner_PassesThrough(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+func TestServerService_UpdateProfile_OwnerOnlyUpdatesProvidedFields(t *testing.T) {
+	// Pointers in UpdateProfileInput distinguish "leave alone" (nil)
+	// from "set to zero" (non-nil pointer to empty value). This test
+	// exercises both halves: name + tags are mutated, description is
+	// left alone, languages is explicitly cleared.
+	owner := uuid.New()
+	originalDesc := "old description"
+	stored := &Server{
+		ID:           uuid.New(),
+		RegisteredBy: &owner,
+		Name:         "Old Name",
+		Description:  &originalDesc,
+		Tags:         []string{"old-tag"},
+		Languages:    []string{"en"},
+		IsNSFW:       false,
+	}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	svc := newServiceForTest(repo, time.Now(), &stubVerifier{})
+
+	newName := "New Name"
+	newTags := []string{"foo", "bar"}
+	emptyLangs := []string{}
+	out, err := svc.UpdateProfile(context.Background(), stored.ID, owner, UpdateProfileInput{
+		Name:      &newName,
+		Tags:      &newTags,
+		Languages: &emptyLangs,
+		// Description omitted → left alone.
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "New Name", out.Name)
+	assert.Equal(t, []string{"foo", "bar"}, []string(out.Tags))
+	assert.Empty(t, []string(out.Languages))
+	require.NotNil(t, out.Description)
+	assert.Equal(t, "old description", *out.Description)
+	require.Len(t, repo.updateCalls, 1)
+}
+
+func TestServerService_UpdateProfile_RejectsNonOwner(t *testing.T) {
+	owner := uuid.New()
+	intruder := uuid.New()
+	stored := &Server{RegisteredBy: &owner}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	svc := newServiceForTest(repo, time.Now(), &stubVerifier{})
+
+	name := "Hacker"
+	_, err := svc.UpdateProfile(context.Background(), uuid.New(), intruder, UpdateProfileInput{Name: &name})
+	assert.ErrorIs(t, err, ErrNotOwner)
+	assert.Empty(t, repo.updateCalls)
+}
+
+func TestServerService_UpdateProfile_RejectsEmptyName(t *testing.T) {
+	// Trimming an all-whitespace name is the same as deleting it; the
+	// row can't be displayed without a name so we refuse the update.
+	owner := uuid.New()
+	stored := &Server{RegisteredBy: &owner, Name: "Old"}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	svc := newServiceForTest(repo, time.Now(), &stubVerifier{})
+
+	empty := "   "
+	_, err := svc.UpdateProfile(context.Background(), uuid.New(), owner, UpdateProfileInput{Name: &empty})
+	assert.ErrorIs(t, err, ErrInvalidInput)
+	assert.Empty(t, repo.updateCalls)
+}
+
+func TestServerService_UpdateProfile_EmptyDescriptionClears(t *testing.T) {
+	owner := uuid.New()
+	desc := "non-empty"
+	stored := &Server{RegisteredBy: &owner, Name: "Test", Description: &desc}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	svc := newServiceForTest(repo, time.Now(), &stubVerifier{})
+
+	empty := ""
+	out, err := svc.UpdateProfile(context.Background(), uuid.New(), owner, UpdateProfileInput{Description: &empty})
+	require.NoError(t, err)
+	assert.Nil(t, out.Description, "empty description must clear, not store ''")
+}
+
 func TestServer_ToOwnerView_IncludesTokenOnlyForPending(t *testing.T) {
 	token := "tok"
 	issued := time.Now()

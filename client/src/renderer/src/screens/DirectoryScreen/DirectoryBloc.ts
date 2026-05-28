@@ -558,6 +558,40 @@ export class DirectoryBloc {
     return created;
   }
 
+  // Patch an owner-mutable subset of fields on a directory row.
+  // Returns once the backend confirms — the bloc then folds the
+  // updated server into its in-memory list so the Edit tab's preview
+  // (and any other UI binding to bloc state) reflects the change.
+  // Errors propagate to the caller (ServerSettings.EditProfileSection)
+  // which surfaces them as a form-level banner.
+  async updateServerProfile(
+    serverID: string,
+    patch: Partial<{
+      name: string;
+      description: string;
+      tags: string[];
+      languages: string[];
+      isNsfw: boolean;
+    }>,
+  ): Promise<void> {
+    const updated = await this.directory.updateServerProfile(serverID, {
+      name: patch.name,
+      description: patch.description,
+      tags: patch.tags,
+      languages: patch.languages,
+      is_nsfw: patch.isNsfw,
+    });
+    // Refresh the row in our in-memory `servers` list + the matching
+    // connection's `server` snapshot so the UI binds to fresh data
+    // without a full /servers re-fetch.
+    if (this.servers) {
+      this.servers = this.servers.map((s) => (s.id === serverID ? updated : s));
+    }
+    const conn = this.connections.get(serverID);
+    if (conn) conn.server = updated;
+    this.emit();
+  }
+
   // Deep-link handler. The marketing site's /discover page links to
   // `boson://join?host=…&port=…&tls=…&name=…` for every directory card;
   // the main process passes the parsed params here.
