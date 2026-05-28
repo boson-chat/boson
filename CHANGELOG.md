@@ -1,3 +1,9 @@
+## [0.7.0](https://github.com/boson-chat/boson/compare/v0.6.0...v0.7.0) (2026-05-28)
+
+### Features
+
+* **backend:** SKIP_DNS_VERIFY env flag for local development ([d097a10](https://github.com/boson-chat/boson/commit/d097a10c3fb5899b6b9babd5979401c0d9df3a9a))
+
 ## [0.6.0](https://github.com/boson-chat/boson/compare/v0.5.0...v0.6.0) (2026-05-28)
 
 ### Features
