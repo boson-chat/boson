@@ -1,3 +1,9 @@
+## [0.8.0](https://github.com/boson-chat/boson/compare/v0.7.0...v0.8.0) (2026-05-28)
+
+### Features
+
+* directory refresh + auto-retry on Ergo LIST throttle ([5a0ff5c](https://github.com/boson-chat/boson/commit/5a0ff5c6788731826af1a83809cab9d2c96b34ea))
+
 ## [0.7.0](https://github.com/boson-chat/boson/compare/v0.6.0...v0.7.0) (2026-05-28)
 
 ### Features
