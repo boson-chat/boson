@@ -1,3 +1,9 @@
+## [0.10.2](https://github.com/boson-chat/boson/compare/v0.10.1...v0.10.2) (2026-05-28)
+
+### Bug Fixes
+
+* **client:** cold-start deep-link race — buffer + renderer dedupe ([9d9eb0e](https://github.com/boson-chat/boson/commit/9d9eb0e25b6b7d65acb9439377cd10647084a991))
+
 ## [0.10.1](https://github.com/boson-chat/boson/compare/v0.10.0...v0.10.1) (2026-05-28)
 
 ### Bug Fixes
