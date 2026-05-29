@@ -1,3 +1,9 @@
+## [0.11.0](https://github.com/boson-chat/boson/compare/v0.10.2...v0.11.0) (2026-05-29)
+
+### Features
+
+* IRC services integration — auto-identify, MemoServ inbox, advanced panel ([73d33e9](https://github.com/boson-chat/boson/commit/73d33e93c9aae8afc2df80f07c077b5ba031cbf8))
+
 ## [0.10.2](https://github.com/boson-chat/boson/compare/v0.10.1...v0.10.2) (2026-05-28)
 
 ### Bug Fixes
