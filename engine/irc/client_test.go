@@ -161,13 +161,32 @@ func TestTranslate_Mode_UserStatus(t *testing.T) {
 	assert.Equal(t, []string{"+oo-v", "alice", "bob", "carol"}, got.Args)
 }
 
-func TestTranslate_DropsUninterestingEvents(t *testing.T) {
-	// PING and arbitrary numeric replies we don't surface to Electron.
+func TestTranslate_DropsNonNumericChatter(t *testing.T) {
+	// PING / PONG / other infra commands aren't forwarded to the renderer.
 	got := translate(girc.Event{Command: "PING", Params: []string{"server"}})
 	assert.Empty(t, got.Kind, "PING should be dropped (empty Event)")
+}
 
-	got = translate(girc.Event{Command: "265", Params: []string{"alice", ":Current local users 100"}})
-	assert.Empty(t, got.Kind, "RPL_LOCALUSERS (265) should be dropped")
+func TestTranslate_ForwardsArbitraryNumerics(t *testing.T) {
+	// All 3-digit numeric replies flow through with Message + Args set so
+	// the renderer can render LUSERS / VERSION / ADMIN / TIME / WHOIS /
+	// etc. replies inline in the Advanced panel. The explicit cases
+	// elsewhere in translate() handle the few numerics that need
+	// structured parsing (welcome, isupport, NAMES, MOTD, ...).
+	got := translate(girc.Event{Command: "265", Params: []string{"alice", "Current local users 100"}})
+	assert.Equal(t, "265", got.Kind)
+	assert.Equal(t, "Current local users 100", got.Message)
+
+	// RPL_LUSERCLIENT (251): mynick :There are X users ...
+	got = translate(girc.Event{Command: "251", Params: []string{"alice", "There are 5 users and 0 services on 1 servers"}})
+	assert.Equal(t, "251", got.Kind)
+	assert.Equal(t, "There are 5 users and 0 services on 1 servers", got.Message)
+
+	// RPL_VERSION (351): mynick versionstring server :flags
+	got = translate(girc.Event{Command: "351", Params: []string{"alice", "unrealircd-6.1.2", "irc.example.org", "<comments>"}})
+	assert.Equal(t, "351", got.Kind)
+	// Args carries the structured fields (mynick is stripped).
+	assert.Equal(t, []string{"unrealircd-6.1.2", "irc.example.org", "<comments>"}, got.Args)
 }
 
 func TestClient_String(t *testing.T) {

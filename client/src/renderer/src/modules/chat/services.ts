@@ -61,3 +61,53 @@ export function isServiceSender(from: string): boolean {
 export function isServerWildcardTarget(target: string): boolean {
   return target === '*' || target === 'AUTH';
 }
+
+// MemoServ specifically — used by the ChatService to pull MemoServ
+// NOTICEs out of the per-server chat log and into the global Inbox.
+// Case-insensitive match because networks normalise service casing
+// differently (NickServ on Libera, NickServ on OFTC, NICKSERV on
+// some older daemons).
+export function isMemoServSender(from: string): boolean {
+  return from.toLowerCase() === 'memoserv';
+}
+
+// The "flavour" of services package the network is running. Atheme and
+// Anope are the dominant implementations; their command surfaces overlap
+// but diverge enough (atheme's `GROUP` vs. anope's `CONFIRM`, different
+// `SET` keys, etc.) that the UI wants to know which one it's talking to.
+// `unknown` means we've seen a service interact but couldn't identify
+// the package (uncommon — most banners are distinctive); `null` means
+// no service has interacted yet.
+export type ServicesFramework = 'atheme' | 'anope' | 'ergo' | 'unknown' | null;
+
+// Classify a NOTICE / PRIVMSG body from a service into one of the known
+// frameworks. Returns null when no signature is found. Match is case-
+// insensitive — both packages name themselves identically across all
+// their services (NickServ, ChanServ, MemoServ, HostServ, etc.), so a
+// substring match against any service's response is enough.
+//
+// Sources surveyed (from Atheme + Anope source / docs):
+//
+//   Atheme (atheme.org):
+//     VERSION reply           — "atheme-7.X.Y. Compiled on ..."
+//     HELP banner header      — "Atheme IRC Services 7.X.Y."
+//     Generic footer          — "(C) atheme.org"
+//     Some networks brand it  — "Powered by Atheme"
+//
+//   Anope (anope.org):
+//     VERSION reply           — "Anope-2.0.X" or "Anope IRC Services 2.0.X"
+//     HELP banner header      — "Anope IRC Services Help System"
+//     Module banners          — "Anope module: ...", "Anope-..."
+//
+// We accept the bare word `Anope` or `Atheme` anywhere in the body. The
+// false-positive risk on normal English is essentially nil — neither
+// word is a common noun and they basically never appear in chat
+// transcripts outside their own banners.
+export function detectServicesFramework(noticeBody: string): ServicesFramework {
+  if (!noticeBody) return null;
+  // Word-boundary match avoids matching e.g. "panopent" against "anope".
+  // Case-insensitive flag makes "ATHEME" / "atheme" / "Atheme" all match.
+  if (/\batheme\b/i.test(noticeBody)) return 'atheme';
+  if (/\banope\b/i.test(noticeBody)) return 'anope';
+  return null;
+}

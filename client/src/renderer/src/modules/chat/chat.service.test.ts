@@ -6,9 +6,10 @@ import { MemoryChatHistoryStore } from '../history';
 // FakeServerSession mirrors the ServerSession surface ChatService consumes.
 // Tests drive incoming events via emit() and inspect outgoing commands via
 // the *Calls fields.
-interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'onEvent' | 'onChannelDirectory' | 'serverId'> {
+interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickservIdentify' | 'raw' | 'onEvent' | 'onChannelDirectory' | 'onServicesFramework' | 'servicesFramework' | 'serverId'> {
   emit(e: IrcEvent): void;
   emitDirectory(entries: { name: string; userCount: number; topic: string }[]): void;
+  emitServicesFramework(fw: 'atheme' | 'anope' | 'ergo' | 'unknown'): void;
   joinCalls: string[];
   partCalls: string[];
   privmsgCalls: Array<{ target: string; message: string }>;
@@ -17,11 +18,15 @@ interface FakeServerSession extends Pick<ServerSession, 'join' | 'part' | 'privm
   listCalls: number;
   awayCalls: Array<{ message: string }>;
   nickCalls: string[];
+  nickservIdentifyCalls: string[];
+  rawCalls: string[];
 }
 
 function fakeSession(serverId = 'srv-test'): FakeServerSession {
   let listener: EventListener | null = null;
   let directoryListener: ((entries: { name: string; userCount: number; topic: string }[]) => void) | null = null;
+  let servicesListener: ((fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void) | null = null;
+  let currentFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
   const f: FakeServerSession = {
     serverId,
     joinCalls: [],
@@ -32,6 +37,8 @@ function fakeSession(serverId = 'srv-test'): FakeServerSession {
     listCalls: 0,
     awayCalls: [],
     nickCalls: [],
+    nickservIdentifyCalls: [],
+    rawCalls: [],
     join: (channel: string) => { f.joinCalls.push(channel); },
     part: (channel: string) => { f.partCalls.push(channel); },
     privmsg: (target: string, message: string) => { f.privmsgCalls.push({ target, message }); },
@@ -40,10 +47,19 @@ function fakeSession(serverId = 'srv-test'): FakeServerSession {
     list: () => { f.listCalls += 1; },
     away: (message: string) => { f.awayCalls.push({ message }); },
     nick: (nick: string) => { f.nickCalls.push(nick); },
+    nickservIdentify: (password: string) => { f.nickservIdentifyCalls.push(password); },
+    raw: (line: string) => { f.rawCalls.push(line); },
     onEvent: (fn: EventListener) => { listener = fn; return () => { listener = null; }; },
     onChannelDirectory: (fn) => { directoryListener = fn; return () => { directoryListener = null; }; },
+    onServicesFramework: (fn) => {
+      servicesListener = fn;
+      if (currentFramework !== null) fn(currentFramework);
+      return () => { servicesListener = null; };
+    },
+    servicesFramework: () => currentFramework,
     emit: (e) => listener?.(e),
     emitDirectory: (entries) => directoryListener?.(entries),
+    emitServicesFramework: (fw) => { currentFramework = fw; servicesListener?.(fw); },
   };
   return f;
 }

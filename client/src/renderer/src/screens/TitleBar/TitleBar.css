@@ -138,3 +138,46 @@
   border: 1px solid color-mix(in oklab, var(--accent), transparent 60%);
   border-radius: var(--radius-sm);
 }
+
+/* Inbox button — same proportions as the user/gear button next to it
+   so they read as a row of equivalent affordances. The badge stacks
+   over the icon's top-right corner. */
+.title-bar-inbox {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  color: var(--fg-3);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.title-bar-inbox:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+.title-bar-inbox-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-on);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  border-radius: 999px;
+  pointer-events: none;
+}

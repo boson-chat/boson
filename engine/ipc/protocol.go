@@ -24,6 +24,11 @@ type ConnectParams struct {
 	TLS      bool       `json:"tls"`
 	Nick     string     `json:"nick"`
 	SASL     *SASLPlain `json:"sasl,omitempty"`
+	// Optional NickServ password. Stored renderer-side per-server (plain
+	// text in localStorage today) and shipped here on every connect /
+	// reconnect. When non-empty the engine auto-sends NickServ IDENTIFY
+	// after RPL_WELCOME. Omit / empty to disable.
+	NickservPassword string `json:"nickservPassword,omitempty"`
 }
 
 type SASLPlain struct {
@@ -89,23 +94,44 @@ type NickParams struct {
 	Nick     string `json:"nick"`
 }
 
+// NickservIdentifyParams fires `PRIVMSG NickServ IDENTIFY <password>`
+// on demand — the "Identify now" button in the Advanced settings
+// panel. Auto-identify-on-connect goes through ConnectParams instead;
+// this is for the manual re-trigger path.
+type NickservIdentifyParams struct {
+	ServerID string `json:"serverId"`
+	Password string `json:"password"`
+}
+
+// RawParams forwards a verbatim IRC protocol line. Used by the
+// renderer's slash-command dispatcher for verbs that don't have a
+// dedicated method on the client (MOTD, VERSION, LUSERS, WHOIS, WHO,
+// WHOWAS, ADMIN, TIME, LINKS, MODE …). The engine doesn't parse or
+// validate the line — that's the daemon's job; we just forward.
+type RawParams struct {
+	ServerID string `json:"serverId"`
+	Line     string `json:"line"`
+}
+
 const (
-	CmdConnect    = "connect"
-	CmdDisconnect = "disconnect"
-	CmdJoin       = "join"
-	CmdPart       = "part"
-	CmdPrivmsg    = "privmsg"
-	CmdNames      = "names"
-	CmdTagmsg     = "tagmsg"
-	CmdList       = "list"
-	CmdAway       = "away"
-	CmdNick       = "nick"
+	CmdConnect           = "connect"
+	CmdDisconnect        = "disconnect"
+	CmdJoin              = "join"
+	CmdPart              = "part"
+	CmdPrivmsg           = "privmsg"
+	CmdNames             = "names"
+	CmdTagmsg            = "tagmsg"
+	CmdList              = "list"
+	CmdAway              = "away"
+	CmdNick              = "nick"
+	CmdNickservIdentify  = "nickserv-identify"
+	CmdRaw               = "raw"
 )
 
 // Outbound: messages from the engine to the renderer.
 
 type ServerMessage struct {
-	Type     string                       `json:"type"`               // "event" | "status" | "error" | "channel-directory"
+	Type     string                       `json:"type"`               // see Msg* below
 	ServerID string                       `json:"serverId,omitempty"` // empty for transport-level errors
 	Event    *irc.Event                   `json:"event,omitempty"`    // populated when Type == "event"
 	State    string                       `json:"state,omitempty"`    // populated when Type == "status"
@@ -114,13 +140,18 @@ type ServerMessage struct {
 	// completes (engine accumulates 322s, fires once on 323). Populated only
 	// when Type == "channel-directory".
 	Directory []irc.ChannelDirectoryEntry `json:"directory,omitempty"`
+	// Framework is the detected services package for this serverId —
+	// "atheme" | "anope" | "unknown". Populated only when Type ==
+	// "services-framework". Fires once per detected-state transition.
+	Framework string `json:"framework,omitempty"`
 }
 
 const (
-	MsgEvent            = "event"
-	MsgStatus           = "status"
-	MsgError            = "error"
-	MsgChannelDirectory = "channel-directory"
+	MsgEvent             = "event"
+	MsgStatus            = "status"
+	MsgError             = "error"
+	MsgChannelDirectory  = "channel-directory"
+	MsgServicesFramework = "services-framework"
 
 	StateConnecting   = "connecting"
 	StateConnected    = "connected"

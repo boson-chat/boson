@@ -275,6 +275,24 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 		if c := s.clientFor(p.ServerID); c != nil {
 			c.Nick(p.Nick)
 		}
+	case CmdNickservIdentify:
+		var p NickservIdentifyParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			s.send(ServerMessage{Type: MsgError, Error: "bad nickserv-identify params: " + err.Error()})
+			return
+		}
+		if c := s.clientFor(p.ServerID); c != nil {
+			c.NickservIdentify(p.Password)
+		}
+	case CmdRaw:
+		var p RawParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			s.send(ServerMessage{Type: MsgError, Error: "bad raw params: " + err.Error()})
+			return
+		}
+		if c := s.clientFor(p.ServerID); c != nil {
+			c.SendRaw(p.Line)
+		}
 	default:
 		s.send(ServerMessage{Type: MsgError, Error: "unknown command: " + msg.Type})
 	}
@@ -298,10 +316,11 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 	s.mu.Unlock()
 
 	cfg := irc.Config{
-		Hostname: p.Hostname,
-		Port:     p.Port,
-		TLS:      p.TLS,
-		Nick:     p.Nick,
+		Hostname:         p.Hostname,
+		Port:             p.Port,
+		TLS:              p.TLS,
+		Nick:             p.Nick,
+		NickservPassword: p.NickservPassword,
 	}
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}
@@ -318,6 +337,16 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 		// atomic update per LIST cycle so it doesn't have to do protocol
 		// bookkeeping. Auto-fired ~2.5s after RPL_WELCOME and on demand.
 		s.send(ServerMessage{Type: MsgChannelDirectory, ServerID: serverID, Directory: entries})
+	})
+	// Services-framework verdicts (atheme/anope/unknown). Fires once
+	// per detection transition. Renderer keeps its own copy in
+	// ChatState and renders the Advanced panel's badge from it.
+	client.OnServices(func(fw irc.ServicesFramework) {
+		s.send(ServerMessage{
+			Type:      MsgServicesFramework,
+			ServerID:  serverID,
+			Framework: string(fw),
+		})
 	})
 	client.OnEvent(func(e irc.Event) {
 		ev := e

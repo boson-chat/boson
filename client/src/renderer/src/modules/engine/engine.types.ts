@@ -12,6 +12,11 @@ export interface ConnectParams {
   tls: boolean;
   nick: string;
   sasl?: { user: string; password: string };
+  // Optional NickServ password — when present, the engine auto-sends
+  // `PRIVMSG NickServ IDENTIFY <password>` immediately after
+  // RPL_WELCOME. Plain-text in localStorage today, shipped on every
+  // connect / reconnect.
+  nickservPassword?: string;
 }
 
 export interface JoinParams { serverId: string; channel: string }
@@ -22,10 +27,17 @@ export interface TagmsgParams { serverId: string; target: string; tags: Record<s
 export interface ListParams { serverId: string }
 export interface AwayParams { serverId: string; message: string }
 export interface NickParams { serverId: string; nick: string }
+export interface NickservIdentifyParams { serverId: string; password: string }
+// Raw IRC line forwarded verbatim to the daemon. Used for slash
+// commands that don't have a dedicated typed primitive on the engine
+// (MOTD, LUSERS, VERSION, ADMIN, WHOIS, WHOWAS, WHO, LIST with arg,
+// LINKS, MODE …). The engine doesn't parse — the daemon's reply
+// arrives through the normal event stream.
+export interface RawParams { serverId: string; line: string }
 
 export interface ClientCommand {
-  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick';
-  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams | NickParams;
+  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickserv-identify' | 'raw';
+  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams | NickParams | NickservIdentifyParams | RawParams;
 }
 
 export type PartParams = JoinParams;
@@ -51,11 +63,28 @@ export interface ChannelDirectoryEntry {
   topic: string;
 }
 
+// Engine-detected services package for a server connection. Empty
+// string means "not detected" (the engine hasn't received any service
+// reply yet). "unknown" means a service responded but didn't name
+// itself in any reply within the probe window.
+//
+// Supported packages today:
+//   atheme — atheme.org services (Solanum/Charybdis-family networks)
+//   anope  — anope.org services (UnrealIRCd / InspIRCd-family)
+//   ergo   — Ergo IRCd's built-in services (modern, self-contained)
+//   unknown — service traffic seen, no signature matched (Bahamut,
+//             UnderNet X/W, custom in-house, etc.)
+export type ServicesFramework = 'atheme' | 'anope' | 'ergo' | 'unknown' | '';
+
 export interface ServerMessage {
-  type: 'event' | 'status' | 'error' | 'channel-directory';
+  type: 'event' | 'status' | 'error' | 'channel-directory' | 'services-framework';
   serverId?: string;       // empty for transport-level errors
   event?: IrcEvent;
   state?: EngineState;
   error?: string;
   directory?: ChannelDirectoryEntry[];
+  // Populated only when type === 'services-framework'. Empty string is
+  // never sent on the wire (engine omits the field); narrowed here to
+  // the real values consumers care about.
+  framework?: 'atheme' | 'anope' | 'ergo' | 'unknown';
 }

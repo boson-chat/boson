@@ -27,6 +27,14 @@ interface ChatAreaProps {
   // DirectoryBloc.reconnectActive(); the chat area only sees an opaque
   // callback so it remains testable in isolation.
   onReconnect?: () => void;
+  // Stop the bloc's auto-reconnect cycle. Rendered as a "Cancel" button
+  // alongside Reconnect while `reconnectActive` is true.
+  onCancelReconnect?: () => void;
+  // True while the bloc's auto-reconnect cycle is running. Drives the
+  // disconnected splash: an active cycle shows the spinner + Cancel
+  // button; a cancelled / inactive cycle shows just the Reconnect
+  // button and the static dot.
+  reconnectActive?: boolean;
   // Rolling buffer of recent raw engine events. Surfaced only as a small
   // live tail inside the connecting / disconnected splashes; the full log
   // lives in the Server settings screen (right-click a server-rail tile).
@@ -59,6 +67,8 @@ export function ChatArea({
   engineState = 'connected',
   serverName,
   onReconnect,
+  onCancelReconnect,
+  reconnectActive = false,
   serverLog = [],
   connectionError,
   onTyping,
@@ -104,48 +114,82 @@ export function ChatArea({
     if (el) el.scrollTop = el.scrollHeight;
   }, [channel?.messages.length, channel?.name]);
 
-  // Connection-loading state: engine is mid-handshake. We render a centred
-  // panel with a pulsing dot, the destination label, and a live tail of the
-  // last few engine events so users can see progress (NOTICE / RPL_WELCOME /
-  // MOTD lines streaming in). The log-panel toggle is still available so a
-  // dev can inspect the full handshake if they want.
-  if (engineState === 'connecting') {
+  // Connecting + disconnected splash. Three visual modes, all routed
+  // through the same panel so a state flip (disconnected → connecting
+  // → disconnected → connecting → connected) doesn't visually thrash:
+  //
+  //   1. First-time connect (engineState 'connecting', no auto-reconnect
+  //      cycle): "Connecting…" title, pulsing dot, no buttons.
+  //   2. Auto-reconnect cycle active (engineState 'connecting' OR
+  //      'disconnected', `reconnectActive` true): "Reconnecting…"
+  //      title, pulsing dot, Reconnect button (disabled while the
+  //      engine is mid-attempt, enabled during the backoff wait so
+  //      the user can skip), Cancel button to stop the cycle.
+  //   3. Manual mode (engineState 'disconnected', cycle inactive
+  //      because the user cancelled or it's the first render after a
+  //      clean disconnect): static down-dot, "Disconnected" title,
+  //      enabled Reconnect button, no Cancel.
+  const showConnectingSplash = engineState === 'connecting';
+  const showDisconnectedSplash = engineState === 'disconnected';
+  if (showConnectingSplash || showDisconnectedSplash) {
+    const isReconnecting = reconnectActive;
+    const isAttempting = engineState === 'connecting';
+    let title: string;
+    let dotClass: string;
+    if (isAttempting && !isReconnecting) {
+      // First-time connect, no cycle yet.
+      title = `Connecting to ${serverName ?? 'server'}…`;
+      dotClass = 'chat-engine-dot-pulse';
+    } else if (isReconnecting) {
+      // Auto-reconnect cycle running — same copy whether we're in
+      // 'connecting' (mid-attempt) or 'disconnected' (backoff wait).
+      title = `Reconnecting to ${serverName ?? 'server'}…`;
+      dotClass = 'chat-engine-dot-pulse';
+    } else {
+      // Manual mode — cycle inactive, user has to click Reconnect.
+      title = `Disconnected from ${serverName ?? 'server'}`;
+      dotClass = 'chat-engine-dot-down';
+    }
     return (
       <main class="chat-area chat-area-engine">
-        <EngineHeader title="Connecting" serverName={serverName} />
+        <EngineHeader
+          title={isReconnecting ? 'Reconnecting' : (isAttempting ? 'Connecting' : 'Disconnected')}
+          serverName={serverName}
+        />
         <div class="chat-engine-splash">
-          <div class="chat-engine-dot chat-engine-dot-pulse" />
-          <div class="chat-engine-title">
-            Connecting to {serverName ?? 'server'}…
-          </div>
-          <ServerLogTail entries={serverLog} />
-        </div>
-      </main>
-    );
-  }
-
-  // Engine is disconnected — show a centred panel offering a reconnect.
-  if (engineState === 'disconnected') {
-    return (
-      <main class="chat-area chat-area-engine">
-        <EngineHeader title="Disconnected" serverName={serverName} />
-        <div class="chat-engine-splash">
-          <div class="chat-engine-dot chat-engine-dot-down" />
-          <div class="chat-engine-title">
-            Disconnected from {serverName ?? 'server'}
-          </div>
-          {connectionError && (
+          <div class={`chat-engine-dot ${dotClass}`} />
+          <div class="chat-engine-title">{title}</div>
+          {showDisconnectedSplash && connectionError && (
             <div class="chat-engine-reason" role="alert">{connectionError}</div>
           )}
-          {onReconnect && (
-            <button
-              type="button"
-              class="chat-engine-reconnect"
-              onClick={onReconnect}
-            >
-              Reconnect
-            </button>
-          )}
+          <div class="chat-engine-actions">
+            {/* Reconnect: shown for any disconnected splash and any
+                reconnecting-cycle splash. Disabled while the engine is
+                actively attempting (a click would be a no-op since
+                another connect is already in flight). */}
+            {(showDisconnectedSplash || isReconnecting) && onReconnect && (
+              <button
+                type="button"
+                class="chat-engine-reconnect"
+                onClick={onReconnect}
+                disabled={isAttempting}
+              >
+                Reconnect
+              </button>
+            )}
+            {/* Cancel: only meaningful while the auto-reconnect cycle
+                is running — clicking it stops the cycle and the user
+                falls through to the manual-mode splash. */}
+            {isReconnecting && onCancelReconnect && (
+              <button
+                type="button"
+                class="chat-engine-cancel"
+                onClick={onCancelReconnect}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
           <ServerLogTail entries={serverLog} />
         </div>
       </main>

@@ -82,6 +82,8 @@ export class ServerSession {
   private readonly eventListeners = new Set<EventListener>();
   private readonly stateListeners = new Set<StateListener>();
   private readonly channelDirectoryListeners = new Set<ChannelDirectoryListener>();
+  private readonly servicesListeners = new Set<(fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void>();
+  private servicesFramework_: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
   private disposed_ = false;
 
   constructor(
@@ -105,6 +107,25 @@ export class ServerSession {
   onChannelDirectory(fn: ChannelDirectoryListener): () => void {
     this.channelDirectoryListeners.add(fn);
     return () => { this.channelDirectoryListeners.delete(fn); };
+  }
+
+  // Subscribe to services-package verdicts (atheme/anope/unknown). The
+  // engine fires once per detected-state transition. If a verdict has
+  // already arrived for this session, the subscriber receives it
+  // immediately as a sync replay — same buffered-then-drained pattern
+  // the channel-directory listener uses.
+  onServicesFramework(fn: (fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void): () => void {
+    this.servicesListeners.add(fn);
+    if (this.servicesFramework_ !== null) {
+      try { fn(this.servicesFramework_); } catch { /* isolate */ }
+    }
+    return () => { this.servicesListeners.delete(fn); };
+  }
+
+  // Current detected services framework — null until the engine has
+  // classified, then sticky.
+  servicesFramework(): 'atheme' | 'anope' | 'ergo' | 'unknown' | null {
+    return this.servicesFramework_;
   }
 
   join(channel: string): void {
@@ -179,6 +200,33 @@ export class ServerSession {
     });
   }
 
+  // Forward a raw IRC line to the daemon. Used by ChatService's
+  // slash-command dispatcher for verbs without a dedicated typed
+  // primitive (MOTD, VERSION, WHOIS, MODE, …). Replies flow through
+  // the normal event stream.
+  raw(line: string): void {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    this.engine._sendForSession({
+      type: 'raw',
+      params: { serverId: this.serverId, line: trimmed },
+    });
+  }
+
+  // Fire `PRIVMSG NickServ IDENTIFY <password>` via the engine. Used
+  // by the Advanced panel's "Identify now" button so the user can
+  // re-run auto-identify without reconnecting. The engine also does
+  // this automatically on RPL_WELCOME when a password was passed at
+  // connect time via `ConnectParams.nickservPassword`.
+  nickservIdentify(password: string): void {
+    const pw = password.trim();
+    if (!pw) return;
+    this.engine._sendForSession({
+      type: 'nickserv-identify',
+      params: { serverId: this.serverId, password: pw },
+    });
+  }
+
   // Tells the engine to tear down THIS server's IRC client. The ServerSession
   // instance stays alive until the engine echoes back state=disconnected,
   // which triggers _dispose() from the EngineClient routing layer.
@@ -200,6 +248,14 @@ export class ServerSession {
 
   _emitEvent(e: IrcEvent): void {
     this.eventListeners.forEach((fn) => fn(e));
+  }
+
+  _emitServicesFramework(fw: 'atheme' | 'anope' | 'ergo' | 'unknown'): void {
+    if (this.servicesFramework_ === fw) return;
+    this.servicesFramework_ = fw;
+    this.servicesListeners.forEach((fn) => {
+      try { fn(fw); } catch { /* isolate */ }
+    });
   }
 
   _emitChannelDirectory(entries: ChannelDirectoryEntry[]): void {
@@ -484,6 +540,9 @@ export class EngineClient {
         break;
       case 'channel-directory':
         if (msg.directory) session._emitChannelDirectory(msg.directory);
+        break;
+      case 'services-framework':
+        if (msg.framework) session._emitServicesFramework(msg.framework);
         break;
       case 'status':
         if (msg.state) {

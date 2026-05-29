@@ -148,6 +148,10 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
               setServerSettingsForId(null);
             }}
             onChangeNick={(nick) => target.chat.changeNick(nick)}
+            serverId={target.serverId}
+            servicesFramework={chatState.servicesFramework}
+            onTriggerAutoIdentify={() => target.chat.triggerAutoIdentify()}
+            onRunCommand={(line) => target.chat.input(line)}
             // Ownership check: render the Edit tab only when (a) the
             // current connection knows the full directory Server (not
             // a cold-start SavedServer snapshot which lacks profile
@@ -189,6 +193,8 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
           onBrowseServers={() => bloc.openServerBrowser()}
           engineState={active.engineState}
           onReconnect={() => { void bloc.reconnectActive(); }}
+          onCancelReconnect={() => bloc.cancelReconnectActive()}
+          reconnectActive={active.reconnect.active}
           connectionError={active.error}
           onOpenServerSettings={(id) => setServerSettingsForId(id)}
           onLeaveServer={(id) => bloc.disconnect(id)}

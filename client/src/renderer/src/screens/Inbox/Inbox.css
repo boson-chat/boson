@@ -1,0 +1,102 @@
+.inbox-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  /* The Modal caps overall height; the inner list scrolls. */
+  min-height: 0;
+  flex: 1;
+}
+
+.inbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.inbox-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+}
+
+/* Empty-state shown when zero memos. Quiet copy with a pointer to the
+   Advanced panel where the user can send/list/read memos directly. */
+.inbox-empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  color: var(--fg-2);
+}
+.inbox-empty p { margin: 0; line-height: 1.5; }
+.inbox-empty code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.inbox-empty-hint {
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  max-width: 48ch;
+  margin: 0 auto;
+}
+
+/* Memo list — newest at the top, one row per arrival. Unread rows
+   get an accent stripe down the left edge; the title bar's badge is
+   the canonical "you have new things" indicator and stays in sync. */
+.inbox-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.inbox-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-soft);
+  border-left: 2px solid transparent;
+}
+.inbox-row:first-child { border-top: none; }
+
+.inbox-row-unread {
+  border-left-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 6%, var(--surface));
+}
+
+.inbox-row-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.inbox-row-server {
+  color: var(--fg-2);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.inbox-row-time {
+  color: var(--fg-3);
+}
+
+.inbox-row-text {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

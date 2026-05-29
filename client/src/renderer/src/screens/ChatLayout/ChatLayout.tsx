@@ -29,6 +29,15 @@ interface Props {
   // Re-issue connect() for the active server (DirectoryBloc.reconnectActive).
   // Surfaced as a button inside the disconnected splash.
   onReconnect?: () => void;
+  // Stop the auto-reconnect cycle for the active server. The bloc fires
+  // a reconnect attempt on every drop with backoff; clicking Cancel
+  // halts that cycle until the user manually clicks Reconnect.
+  onCancelReconnect?: () => void;
+  // True while the bloc's auto-reconnect cycle is active for this
+  // server. Drives the splash: an active cycle shows a spinner + Cancel
+  // button; a non-active cycle (cancelled / never started) shows just
+  // the Reconnect button.
+  reconnectActive?: boolean;
   // Most recent engine/IRC-level error for the active connection. Surfaced
   // inside the disconnected splash so users see why a session dropped.
   connectionError?: string | null;
@@ -42,7 +51,8 @@ interface Props {
 
 export function ChatLayout({
   chat, serverName, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
-  engineState = 'connected', onReconnect, connectionError, onOpenServerSettings, onLeaveServer,
+  engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
+  connectionError, onOpenServerSettings, onLeaveServer,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -109,6 +119,8 @@ export function ChatLayout({
         engineState={engineState}
         serverName={serverName}
         onReconnect={onReconnect}
+        onCancelReconnect={onCancelReconnect}
+        reconnectActive={reconnectActive}
         connectionError={connectionError}
         serverLog={state.serverLog}
         serverInfo={state.serverInfo}

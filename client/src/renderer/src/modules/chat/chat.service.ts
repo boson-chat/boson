@@ -1,7 +1,9 @@
 import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
 import { containsNickMention } from './mention';
-import { SERVICE_CHANNEL, isServerWildcardTarget, isServiceSender } from './services';
+import { SERVICE_CHANNEL, isMemoServSender, isServerWildcardTarget, isServiceSender } from './services';
+import { getServiceCredentialsStore } from './services-credentials';
+import { getMemoStore } from '../memos';
 import type {
   ChannelDirectory,
   ChatChannel,
@@ -78,15 +80,29 @@ export interface SlashCommandSpec {
 }
 
 export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
-  { name: 'join',  usage: '/join <channel>',     description: 'Join a channel' },
-  { name: 'part',  aliases: ['leave'], usage: '/part [channel]', description: 'Leave the current or named channel' },
-  { name: 'msg',   aliases: ['query'], usage: '/msg <nick> <text>', description: 'Send a direct message' },
-  { name: 'me',    usage: '/me <action>',        description: 'Send an action (CTCP ACTION)' },
-  { name: 'nick',  usage: '/nick <new-nick>',    description: 'Change your nickname on this server' },
-  { name: 'away',  usage: '/away [message]',     description: 'Mark yourself as away (no message ⇒ comes back)' },
-  { name: 'back',  usage: '/back',               description: 'Clear your away status' },
-  { name: 'clear', usage: '/clear',              description: "Clear this channel's local log" },
-  { name: 'help',  usage: '/help',               description: 'List available commands' },
+  { name: 'join',    usage: '/join <channel>',     description: 'Join a channel' },
+  { name: 'part',    aliases: ['leave'], usage: '/part [channel]', description: 'Leave the current or named channel' },
+  { name: 'msg',     aliases: ['query'], usage: '/msg <nick> <text>', description: 'Send a direct message' },
+  { name: 'me',      usage: '/me <action>',        description: 'Send an action (CTCP ACTION)' },
+  { name: 'nick',    usage: '/nick <new-nick>',    description: 'Change your nickname on this server' },
+  { name: 'away',    usage: '/away [message]',     description: 'Mark yourself as away (no message ⇒ comes back)' },
+  { name: 'back',    usage: '/back',               description: 'Clear your away status' },
+  { name: 'clear',   usage: '/clear',              description: "Clear this channel's local log" },
+  { name: 'help',    usage: '/help',               description: 'List available commands' },
+  // Raw-passthrough commands — the IRC daemon answers directly. Replies
+  // surface on the ~server channel and inline in the Advanced panel.
+  { name: 'whois',   usage: '/whois <nick>',       description: "Look up a user's account, channels, idle, server" },
+  { name: 'whowas',  usage: '/whowas <nick>',      description: "Look up a recently-quit nick from the server's history" },
+  { name: 'who',     usage: '/who <#chan-or-mask>',description: 'List users matching a channel or mask' },
+  { name: 'list',    usage: '/list [filter]',      description: "Server channel directory (RPL_LIST). Filter syntax is daemon-specific" },
+  { name: 'motd',    usage: '/motd [server]',      description: "Server's Message of the Day" },
+  { name: 'lusers',  usage: '/lusers',             description: 'Server-wide user / channel / oper counts' },
+  { name: 'version', usage: '/version [server]',   description: 'Server software banner' },
+  { name: 'admin',   usage: '/admin [server]',     description: 'Network admin contact info' },
+  { name: 'time',    usage: '/time [server]',      description: "Server's local time" },
+  { name: 'links',   usage: '/links',              description: 'Map of servers linked into this network' },
+  { name: 'mode',    usage: '/mode <target> <+/-modes> [args]', description: 'Set user or channel modes' },
+  { name: 'raw',     usage: '/raw <IRC line>',     description: 'Send a raw IRC protocol line. Power-user escape hatch.' },
 ];
 
 // ChatService owns channel/message state for the connected IRC session.
@@ -160,6 +176,14 @@ export class ChatService {
   // consumers treat it as ReadonlyArray.
   private readonly serverLog: ServerLogEntry[] = [];
 
+  // Detected services package, mirroring the engine's verdict. The
+  // engine owns detection + auto-identify + VERSION probes (see
+  // engine/irc/services.go); the ChatService just relays the value
+  // into ChatState so the UI can render it. Null until the engine
+  // has classified.
+  private servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
+  private unsubscribeServices: (() => void) | null = null;
+
   constructor(
     private readonly session: ServerSession,
     private myNick: string,
@@ -182,6 +206,14 @@ export class ChatService {
       };
       this.emit();
     });
+    // Services-package verdict (atheme/anope/unknown). Engine fires
+    // once per detected-state transition. Replays the current verdict
+    // on subscribe if one has already landed.
+    this.unsubscribeServices = this.session.onServicesFramework((fw) => {
+      if (this.servicesFramework === fw) return;
+      this.servicesFramework = fw;
+      this.emit();
+    });
   }
 
   detach(): void {
@@ -194,6 +226,11 @@ export class ChatService {
     // re-attaches (we don't have a use case for that today, but it's cheap).
     for (const handle of this.typingTimers.values()) clearTimeout(handle);
     this.typingTimers.clear();
+    // Drop the engine's services-framework subscription so a fresh
+    // service-framework event after detach can't fire emit() against
+    // a torn-down chat service.
+    this.unsubscribeServices?.();
+    this.unsubscribeServices = null;
   }
 
   // Ask the engine to refresh the channel directory. The engine handles
@@ -259,6 +296,29 @@ export class ChatService {
     this.cmdNick(nick);
   }
 
+  // Send a NickServ IDENTIFY through the engine's dedicated command
+  // (rather than a raw PRIVMSG) so the engine owns the password's
+  // journey from renderer to wire. Auto-identify-on-connect goes
+  // through `ConnectParams.nickservPassword` instead; this is the
+  // manual / "Identify now" path.
+  identifyNickserv(password: string): void {
+    const trimmed = password.trim();
+    if (!trimmed) return;
+    this.session.nickservIdentify(trimmed);
+  }
+
+  // Re-fire IDENTIFY with the credentials stored for this connection.
+  // Reads from the renderer's local credentials store (per-server
+  // localStorage entries keyed by serverId). Used by the Advanced
+  // panel's "Identify now" button.
+  triggerAutoIdentify(): void {
+    const serverId = this.persistence?.scope.serverId;
+    if (!serverId) return;
+    const creds = getServiceCredentialsStore().get(serverId);
+    if (!creds?.nickservPassword) return;
+    this.identifyNickserv(creds.nickservPassword);
+  }
+
   send(channel: string, message: string): void {
     if (!message.trim()) return;
     this.session.privmsg(channel, message);
@@ -268,6 +328,32 @@ export class ChatService {
       kind: 'message',
       from: this.myNick,
       text: message,
+      timestamp: Date.now(),
+    });
+  }
+
+  // Route a MemoServ NOTICE into the global Inbox. Picks up whatever
+  // serverId we have from the persistence scope (the renderer-minted
+  // id at connect time). When no persistence is configured we still
+  // push to the store with an empty serverId — the Inbox UI resolves
+  // the display name lazily, and an empty id just shows the memo
+  // unattributed rather than dropping it.
+  //
+  // We don't parse the body — Atheme + Anope wrap memo events in
+  // different banner formats and they evolve across versions. Storing
+  // verbatim keeps the surface forward-compatible.
+  private maybeStoreMemo(from: string, body: string): void {
+    if (!body) return;
+    const serverId = this.persistence?.scope.serverId ?? '';
+    getMemoStore().append({
+      serverId,
+      // Server name is intentionally not stored here — the Inbox UI
+      // looks it up from the bloc's connections list by serverId so
+      // a rename in the directory propagates without a memo rewrite.
+      // The `serverName` field on Memo is left as the fallback (the
+      // serverId itself) for cases where the lookup misses.
+      serverName: serverId,
+      text: from ? `<${from}> ${body}` : body,
       timestamp: Date.now(),
     });
   }
@@ -307,6 +393,45 @@ export class ChatService {
       case 'help':  return this.cmdHelp();
       case 'away':  return this.cmdAway(args);
       case 'back':  return this.cmdAway('');
+
+      // Read-only / info commands. Each forwards to the daemon as a
+      // raw IRC line; the reply (RPL_* numeric or NOTICE) flows back
+      // through the normal event stream and surfaces on the ~server
+      // channel by default. The Advanced settings panel additionally
+      // captures these replies inline via its serverLog snapshot.
+      case 'motd':    return this.session.raw(args ? `MOTD ${args}` : 'MOTD');
+      case 'lusers':  return this.session.raw(args ? `LUSERS ${args}` : 'LUSERS');
+      case 'version': return this.session.raw(args ? `VERSION ${args}` : 'VERSION');
+      case 'admin':   return this.session.raw(args ? `ADMIN ${args}` : 'ADMIN');
+      case 'time':    return this.session.raw(args ? `TIME ${args}` : 'TIME');
+      case 'links':   return this.session.raw('LINKS');
+      case 'whois':
+        if (!args) return this.systemHere('Usage: /whois <nick>');
+        return this.session.raw(`WHOIS ${args}`);
+      case 'whowas':
+        if (!args) return this.systemHere('Usage: /whowas <nick>');
+        return this.session.raw(`WHOWAS ${args}`);
+      case 'who':
+        if (!args) return this.systemHere('Usage: /who <#channel-or-mask>');
+        return this.session.raw(`WHO ${args}`);
+      case 'list':
+        // /list with no arg uses the dedicated typed method so the
+        // engine's per-cycle accumulation kicks in (322s collected into
+        // a single channel-directory frame). /list with a filter is a
+        // raw passthrough — the engine doesn't try to accumulate
+        // filtered LISTs (server may emit fewer 322s than the cache
+        // expects).
+        if (!args) { this.session.list(); return; }
+        return this.session.raw(`LIST ${args}`);
+      case 'mode':
+        if (!args) return this.systemHere('Usage: /mode <target> <+/-modes> [args]');
+        return this.session.raw(`MODE ${args}`);
+      case 'raw':
+        // Escape hatch: power-user can send any line. No validation —
+        // the daemon will reject garbage with a 4xx numeric.
+        if (!args) return this.systemHere('Usage: /raw <IRC line>');
+        return this.session.raw(args);
+
       default:      return this.systemHere(`Unknown command: /${cmd}. Try /help.`);
     }
   }
@@ -534,6 +659,7 @@ export class ChatService {
         updatedAt: this.channelDirectory.updatedAt,
       },
       myNick: this.myNick,
+      servicesFramework: this.servicesFramework,
     };
   }
 
@@ -591,6 +717,7 @@ export class ChatService {
       target: e.Target ?? '',
       message: e.Message ?? '',
       timestamp: Date.now(),
+      args: e.Args,
     });
     switch (e.Kind) {
       case 'PRIVMSG':
@@ -605,6 +732,19 @@ export class ChatService {
         // the dev-tools server log via appendServerLog above, which is
         // the right home for genuine wire noise.
         if (!isToMe && !isChannel && !isWildcard) return;
+        // MemoServ NOTICEs ("You have 2 new memos", individual memo
+        // bodies, etc.) get pulled out of the per-server chat stream
+        // and pushed into the global cross-server Inbox. The user has
+        // ONE inbox regardless of which network the memo came from.
+        // We deliberately don't try to parse Atheme vs Anope banner
+        // formats here — the inbox renders the verbatim text, with
+        // server attribution. Skip the appendServerLog routing too so
+        // the ~server channel stays focused on NickServ / ChanServ
+        // chatter.
+        if (isToMe && isMemoServSender(e.From)) {
+          this.maybeStoreMemo(e.From, e.Message);
+          return;
+        }
         // Decide which UI channel this message belongs in:
         //   - real channel (#foo): keep the original target
         //   - DM from a service (NickServ, server-source): pseudo `~server`

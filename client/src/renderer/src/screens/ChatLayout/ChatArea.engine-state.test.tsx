@@ -121,4 +121,108 @@ describe('ChatArea engine-state', () => {
   // It's been moved to the full-page ServerSettings screen (right-click a
   // server-rail tile → Server details → Engine log section). Tests that
   // exercised the in-chat panel have been removed; see ServerSettings.tsx.
+
+  // ---- Auto-reconnect splash variants ----------------------------------
+
+  it("renders a 'Reconnecting…' splash + Cancel button when reconnectActive=true and engineState='disconnected'", () => {
+    render(
+      <ChatArea
+        channel={null}
+        myNick="me"
+        onSend={vi.fn()}
+        engineState="disconnected"
+        serverName="Boson HQ"
+        onReconnect={vi.fn()}
+        onCancelReconnect={vi.fn()}
+        reconnectActive
+        serverLog={[]}
+      />,
+    );
+    // Backoff-wait state: the bloc has scheduled a fresh attempt but
+    // engine is still 'disconnected'. Title flips to Reconnecting…,
+    // Cancel is visible, Reconnect is enabled (user can skip the wait).
+    expect(screen.getByText(/Reconnecting to Boson HQ/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reconnect' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it("disables the Reconnect button while engine is actively connecting during the cycle", () => {
+    render(
+      <ChatArea
+        channel={null}
+        myNick="me"
+        onSend={vi.fn()}
+        engineState="connecting"
+        serverName="Boson HQ"
+        onReconnect={vi.fn()}
+        onCancelReconnect={vi.fn()}
+        reconnectActive
+        serverLog={[]}
+      />,
+    );
+    // Mid-attempt: Reconnect is disabled (another connect is in flight)
+    // and Cancel is still available so the user can abort the cycle.
+    expect(screen.getByText(/Reconnecting to Boson HQ/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it("shows manual-mode (no Cancel) splash when reconnectActive=false", () => {
+    // This is the post-Cancel state: the cycle has been stopped and the
+    // user has to click Reconnect to resume. No spinner, no Cancel.
+    render(
+      <ChatArea
+        channel={null}
+        myNick="me"
+        onSend={vi.fn()}
+        engineState="disconnected"
+        serverName="Boson HQ"
+        onReconnect={vi.fn()}
+        onCancelReconnect={vi.fn()}
+        reconnectActive={false}
+        serverLog={[]}
+      />,
+    );
+    expect(screen.getByText(/Disconnected from Boson HQ/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reconnect' })).not.toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+  });
+
+  it("Cancel button fires onCancelReconnect", async () => {
+    const onCancelReconnect = vi.fn();
+    render(
+      <ChatArea
+        channel={null}
+        myNick="me"
+        onSend={vi.fn()}
+        engineState="disconnected"
+        serverName="Boson HQ"
+        onReconnect={vi.fn()}
+        onCancelReconnect={onCancelReconnect}
+        reconnectActive
+        serverLog={[]}
+      />,
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onCancelReconnect).toHaveBeenCalledOnce();
+  });
+
+  it("Reconnect during backoff-wait fires onReconnect (skip the wait)", async () => {
+    const onReconnect = vi.fn();
+    render(
+      <ChatArea
+        channel={null}
+        myNick="me"
+        onSend={vi.fn()}
+        engineState="disconnected"
+        serverName="Boson HQ"
+        onReconnect={onReconnect}
+        onCancelReconnect={vi.fn()}
+        reconnectActive
+        serverLog={[]}
+      />,
+    );
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Reconnect' }));
+    expect(onReconnect).toHaveBeenCalledOnce();
+  });
 });

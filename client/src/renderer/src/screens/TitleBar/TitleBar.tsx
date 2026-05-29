@@ -12,6 +12,11 @@ interface TitleBarProps {
   userLabel?: string | null;
   // 'guest' or 'account' — drives the dim "guest" tag next to the name.
   userMode?: 'guest' | 'account' | null;
+  // Inbox affordance — when wired, renders an envelope icon between the
+  // user label and the gear with a small unread-count badge. Click
+  // fires the parent's open-inbox handler.
+  onOpenInbox?: () => void;
+  inboxUnreadCount?: number;
 }
 
 // Custom window title bar. The OS chrome is suppressed in main (`frame: false`
@@ -24,7 +29,9 @@ interface TitleBarProps {
 // via CSS so the user can drag the window from any non-button area. Each
 // button overrides to `no-drag` so clicks register.
 
-export function TitleBar({ onOpenSettings, userLabel, userMode }: TitleBarProps = {}) {
+export function TitleBar({
+  onOpenSettings, userLabel, userMode, onOpenInbox, inboxUnreadCount = 0,
+}: TitleBarProps = {}) {
   const darwin = isDarwin();
   const bridge = getWindowBridge();
   const [maximized, setMaximized] = useState(false);
@@ -45,27 +52,45 @@ export function TitleBar({ onOpenSettings, userLabel, userMode }: TitleBarProps 
         <BosonGlyph size={16} class="title-bar-mark" />
         <span class="title-bar-title">Boson</span>
       </div>
-      {onOpenSettings && (
+      {(onOpenSettings || onOpenInbox) && (
         <div class="title-bar-controls">
-          <button
-            type="button"
-            class="title-bar-user"
-            aria-label="User settings"
-            title="User settings"
-            onClick={onOpenSettings}
-          >
-            {userLabel ? (
-              <>
-                <span class="title-bar-user-name">{userLabel}</span>
-                {userMode === 'guest' && (
-                  <span class="title-bar-user-tag">guest</span>
-                )}
-              </>
-            ) : (
-              <span class="title-bar-user-name">Settings</span>
-            )}
-            <GearIcon />
-          </button>
+          {onOpenInbox && (
+            <button
+              type="button"
+              class="title-bar-inbox"
+              aria-label={inboxUnreadCount > 0 ? `Inbox (${inboxUnreadCount} unread)` : 'Inbox'}
+              title={inboxUnreadCount > 0 ? `Inbox — ${inboxUnreadCount} unread` : 'Inbox'}
+              onClick={onOpenInbox}
+            >
+              <InboxIcon />
+              {inboxUnreadCount > 0 && (
+                <span class="title-bar-inbox-badge" aria-hidden="true">
+                  {inboxUnreadCount > 99 ? '99+' : inboxUnreadCount}
+                </span>
+              )}
+            </button>
+          )}
+          {onOpenSettings && (
+            <button
+              type="button"
+              class="title-bar-user"
+              aria-label="User settings"
+              title="User settings"
+              onClick={onOpenSettings}
+            >
+              {userLabel ? (
+                <>
+                  <span class="title-bar-user-name">{userLabel}</span>
+                  {userMode === 'guest' && (
+                    <span class="title-bar-user-tag">guest</span>
+                  )}
+                </>
+              ) : (
+                <span class="title-bar-user-name">Settings</span>
+              )}
+              <GearIcon />
+            </button>
+          )}
         </div>
       )}
       {!darwin && (
@@ -142,6 +167,17 @@ function GearIcon() {
         stroke-width="1"
         stroke-linecap="square"
       />
+    </svg>
+  );
+}
+
+function InboxIcon() {
+  // Open-envelope glyph. 12×12 to match the gear next to it. Single
+  // stroke, no fill — the badge does the colour work.
+  return (
+    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+      <rect x="1.5" y="2.5" width="9" height="7" fill="none" stroke="currentColor" stroke-width="1" />
+      <path d="M1.5 2.5 L6 6.5 L10.5 2.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="miter" />
     </svg>
   );
 }

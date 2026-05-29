@@ -74,6 +74,12 @@ export interface ServerLogEntry {
   target: string;
   message: string;
   timestamp: number;
+  // Extra positional params from the IRC line. For numeric replies the
+  // structured data is often here rather than in Message (e.g. RPL_VERSION
+  // 351 carries `version.string` in Args[0], comment in Message; RPL_LUSEROP
+  // 252 carries the count in Args[0], description in Message). Empty for
+  // most non-numeric event kinds.
+  args?: string[];
 }
 
 // Server-software metadata captured during registration. Populated lazily as
@@ -135,4 +141,11 @@ export interface ChatState {
   // The settings UI binds its "Change nick" form to this so it reflects
   // the authoritative value after a rename round-trips.
   myNick: string;
+  // Detected services package (Atheme vs Anope vs unknown). Populated
+  // passively by inspecting NOTICEs from NickServ et al. — null until
+  // we've seen any service traffic, then 'atheme' / 'anope' once a
+  // signature lands, or 'unknown' if a service interacted but the
+  // banner didn't match any known pattern. Drives the Advanced
+  // settings UI to show the right command surface.
+  servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null;
 }

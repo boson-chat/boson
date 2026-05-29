@@ -11,7 +11,9 @@ import { LoginScreen } from './screens/LoginScreen';
 import { DirectoryScreen } from './screens/DirectoryScreen';
 import { TitleBar } from './screens/TitleBar/TitleBar';
 import { UserSettings } from './screens/UserSettings/UserSettings';
+import { Inbox } from './screens/Inbox/Inbox';
 import { loadGuestSession, onGuestChange, type GuestSession } from './modules/guest/guest';
+import { getMemoStore, type Memo } from './modules/memos';
 
 interface AppProps {
   auth: AuthService;
@@ -31,8 +33,22 @@ export function App({ auth, directory, engine, identity, history }: AppProps) {
 
 function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [inboxOpen, setInboxOpen] = useState(false);
   const { session } = useAuthState();
   const guest = useGuestSession();
+  // Re-scope the memo store as the auth identity resolves. Guests
+  // land on the synthetic `__guest__` userId so their inbox is
+  // separated from any account's; account users key on Supabase id.
+  useEffect(() => {
+    const id = session?.user?.id ?? (guest ? '__guest__' : '');
+    getMemoStore().setUserId(id);
+  }, [session?.user?.id, guest]);
+  // Subscribe to the global memo store for the title-bar unread badge.
+  // The store fires synchronously with the current list on subscribe,
+  // so the count is correct on first paint without a separate read.
+  const [memos, setMemos] = useState<ReadonlyArray<Memo>>(() => getMemoStore().list());
+  useEffect(() => getMemoStore().subscribe(setMemos), []);
+  const unreadCount = memos.reduce((n, m) => n + (m.read ? 0 : 1), 0);
   // Title-bar label preference:
   //   guest mode → guest nick + "guest" tag
   //   signed-in  → handle from metadata, fallback to email
@@ -46,6 +62,14 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         onOpenSettings={() => setSettingsOpen(true)}
         userLabel={userLabel}
         userMode={userMode}
+        onOpenInbox={() => {
+          // Mark every memo read the moment the inbox opens — this is
+          // the canonical "I've seen them" signal. The store still
+          // retains the entries for the modal to render.
+          getMemoStore().markAllRead();
+          setInboxOpen(true);
+        }}
+        inboxUnreadCount={unreadCount}
       />
       <div class="app-frame-body">
         <Router directory={directory} engine={engine} identity={identity} history={history} />
@@ -57,6 +81,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         authedEmail={session?.user?.email ?? null}
         onSignOut={() => { void auth.signOut(); }}
       />
+      <Inbox open={inboxOpen} memos={memos} onClose={() => setInboxOpen(false)} />
     </div>
   );
 }

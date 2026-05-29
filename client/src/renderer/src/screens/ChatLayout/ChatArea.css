@@ -69,6 +69,17 @@
   margin-left: var(--space-3);
 }
 
+/* Action row sits below the title + dot so the Reconnect and Cancel
+   buttons can flow side by side. During a backoff wait both buttons
+   are enabled; while the engine is actively connecting the Reconnect
+   button is rendered disabled (faded) and Cancel stays enabled so
+   the user can always abort the cycle. */
+.chat-engine-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+}
+
 .chat-engine-reconnect {
   padding: var(--space-2) var(--space-5);
   background: var(--accent);
@@ -82,7 +93,32 @@
   transition: opacity var(--motion-fast) var(--ease-standard);
 }
 
-.chat-engine-reconnect:hover { opacity: 0.9; }
+.chat-engine-reconnect:hover:not(:disabled) { opacity: 0.9; }
+.chat-engine-reconnect:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.chat-engine-cancel {
+  padding: var(--space-2) var(--space-5);
+  background: transparent;
+  color: var(--fg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
+}
+.chat-engine-cancel:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+  border-color: var(--fg-3);
+}
 
 /* Disconnect-reason line beneath the "Disconnected from …" title. Surfaces
    the engine/IRC error so the splash isn't just "Disconnected" with no why. */

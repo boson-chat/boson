@@ -44,12 +44,16 @@ class FakeServerSession {
   privmsgCalls: Array<{ target: string; message: string }> = [];
   namesCalls: string[] = [];
   tagmsgCalls: Array<{ target: string; tags: Record<string, string> }> = [];
+  nickservIdentifyCalls: string[] = [];
+  rawCalls: string[] = [];
   listCalls = 0;
   disconnectCalls = 0;
   disposed_ = false;
   private stateListeners = new Set<StateListener>();
   private eventListeners = new Set<EventListener>();
   private channelDirectoryListeners = new Set<(entries: { name: string; userCount: number; topic: string }[]) => void>();
+  private servicesListeners = new Set<(fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void>();
+  private servicesFramework_: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
 
   constructor(public readonly serverId: string) {}
 
@@ -67,6 +71,12 @@ class FakeServerSession {
     this.channelDirectoryListeners.add(fn);
     return () => { this.channelDirectoryListeners.delete(fn); };
   }
+  onServicesFramework(fn: (fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void): () => void {
+    this.servicesListeners.add(fn);
+    if (this.servicesFramework_ !== null) fn(this.servicesFramework_);
+    return () => { this.servicesListeners.delete(fn); };
+  }
+  servicesFramework(): 'atheme' | 'anope' | 'ergo' | 'unknown' | null { return this.servicesFramework_; }
   join(channel: string): void { this.joinCalls.push(channel); }
   part(channel: string): void { this.partCalls.push(channel); }
   privmsg(target: string, message: string): void { this.privmsgCalls.push({ target, message }); }
@@ -74,6 +84,8 @@ class FakeServerSession {
   tagmsg(target: string, tags: Record<string, string>): void { this.tagmsgCalls.push({ target, tags }); }
   list(): void { this.listCalls++; }
   disconnect(): void { this.disconnectCalls++; }
+  nickservIdentify(password: string): void { this.nickservIdentifyCalls.push(password); }
+  raw(line: string): void { this.rawCalls.push(line); }
   isDisposed(): boolean { return this.disposed_; }
   // setForeground is invoked by DirectoryBloc.applyForegroundState; ignore.
   setForeground(_v: boolean): void { /* no-op */ }
@@ -86,11 +98,16 @@ class FakeServerSession {
   _emitEvent(e: IrcEvent): void {
     this.eventListeners.forEach((fn) => fn(e));
   }
+  _emitServicesFramework(fw: 'atheme' | 'anope' | 'ergo' | 'unknown'): void {
+    this.servicesFramework_ = fw;
+    this.servicesListeners.forEach((fn) => fn(fw));
+  }
   _dispose(): void {
     this.disposed_ = true;
     this.eventListeners.clear();
     this.stateListeners.clear();
     this.channelDirectoryListeners.clear();
+    this.servicesListeners.clear();
   }
 }
 
@@ -633,6 +650,292 @@ describe('DirectoryBloc', () => {
     expect(engine.sessionFor('s1').joinCalls).toContain('#general');
     expect(engine.sessionFor('s1').joinCalls).toContain('#help');
     bloc.dispose();
+  });
+
+  // Repro for "clicked Reconnect on the disconnected splash but my
+  // channels weren't rejoined". The reconnect path re-uses `connect()`
+  // which tears down the wedged Connection and mints a fresh one — but
+  // the fresh one's `connected` callback only replays joins from
+  // `pendingJoins`, which session-restore populates on cold boot. The
+  // reconnect path now snapshots the channels from sessionStore before
+  // teardown so the fresh session rejoins them on `connected`.
+  it('reconnectActive() rejoins the saved channel set after a wedge', async () => {
+    const sessionStore = new SessionStore(memoryStorage());
+    const engine = fakeEngine();
+    const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+    const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore,
+    });
+    await flushPromises(4);
+    await bloc.connect(server);
+    await flushPromises(2);
+
+    // First connect + join two channels (simulating the user's normal
+    // session before the network glitch).
+    engine.sessionFor('libera')._setState('connected');
+    await flushPromises(2);
+    sessionStore.addChannel('libera', '#general');
+    sessionStore.addChannel('libera', '#help');
+
+    // Simulate a network drop — engine goes disconnected.
+    engine.sessionFor('libera')._setState('disconnected');
+    await flushPromises(2);
+
+    // User clicks Reconnect.
+    await bloc.reconnectActive();
+    await flushPromises(2);
+
+    // A second engine.connect was issued — the wedged session was
+    // replaced. The new session is now in 'connecting' on the same id.
+    expect(engine.connectCalls.length).toBeGreaterThanOrEqual(2);
+    const reconnectSession = engine.sessionFor('libera');
+    expect(reconnectSession.joinCalls).toEqual([]);
+
+    // Drive the fresh session to connected — the saved channels should
+    // replay automatically.
+    reconnectSession._setState('connected');
+    await flushPromises(4);
+    expect(reconnectSession.joinCalls).toContain('#general');
+    expect(reconnectSession.joinCalls).toContain('#help');
+    bloc.dispose();
+  });
+
+  describe('auto-reconnect', () => {
+    // Helper: spin up a bloc with one server already in the saved set so
+    // `pendingJoins` gets seeded with the saved channels during the
+    // reconnect-cycle's wedged-connection branch (verifies the join
+    // replay still works hand-in-hand with auto-reconnect).
+    function setup(channelsInSavedSet: string[] = ['#general']) {
+      const sessionStore = new SessionStore(memoryStorage());
+      const engine = fakeEngine();
+      const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(),
+        directory,
+        identity: fakeIdentity({ unlocked: true }),
+        engine: engine.client,
+        sessionStore,
+      });
+      // Pre-seed the saved channel set as if the user had joined them.
+      sessionStore.upsertServer({
+        id: 'libera', name: 'libera', hostname: 'irc.libera.chat', port: 6697, tls: true,
+      });
+      for (const ch of channelsInSavedSet) sessionStore.addChannel('libera', ch);
+      return { bloc, engine, sessionStore, server };
+    }
+
+    it('schedules an auto-reconnect attempt after the engine drops', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup();
+      // Run through initial loadInitial + first connect.
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Successful connect → cycle is dormant.
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      const callsBeforeDrop = engine.connectCalls.length;
+
+      // Engine drops. The bloc should schedule a fresh attempt at the
+      // first backoff step (1s).
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+      const beforeState = bloc.getState();
+      const beforeConn = beforeState.connections.find((c) => c.serverId === 'libera')!;
+      expect(beforeConn.reconnect.active).toBe(true);
+      expect(beforeConn.engineState).toBe('disconnected');
+      expect(engine.connectCalls.length).toBe(callsBeforeDrop);
+
+      // Advance past the 1s backoff — connect should re-fire.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(engine.connectCalls.length).toBe(callsBeforeDrop + 1);
+      bloc.dispose();
+      vi.useRealTimers();
+    });
+
+    it('uses exponential backoff for consecutive failures', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup();
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      const baseCalls = engine.connectCalls.length;
+
+      // Drop → wait 1s → attempt fires.
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(engine.connectCalls.length).toBe(baseCalls + 1);
+
+      // Second drop without success → next backoff is 2s.
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+      // 1s shouldn't be enough.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(engine.connectCalls.length).toBe(baseCalls + 1);
+      // Past 2s → fires.
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(engine.connectCalls.length).toBe(baseCalls + 2);
+      bloc.dispose();
+      vi.useRealTimers();
+    });
+
+    it('cancelReconnectActive() halts the cycle and prevents future auto-arms', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup();
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      const baseCalls = engine.connectCalls.length;
+
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bloc.getState().connections[0]!.reconnect.active).toBe(true);
+
+      bloc.cancelReconnectActive();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bloc.getState().connections[0]!.reconnect.active).toBe(false);
+
+      // Even if the original backoff would have fired by now, no new
+      // connect attempts should land — the cycle is stopped.
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(engine.connectCalls.length).toBe(baseCalls);
+
+      // And a fresh drop doesn't re-arm because the cancelled flag is
+      // sticky until the user manually clicks Reconnect.
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bloc.getState().connections[0]!.reconnect.active).toBe(false);
+      await vi.advanceTimersByTimeAsync(20000);
+      expect(engine.connectCalls.length).toBe(baseCalls);
+      bloc.dispose();
+      vi.useRealTimers();
+    });
+
+    it('reconnectActive() clears the cancelled flag and fires an immediate attempt', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup();
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      const baseCalls = engine.connectCalls.length;
+
+      engine.sessionFor('libera')._setState('disconnected');
+      bloc.cancelReconnectActive();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bloc.getState().connections[0]!.reconnect.active).toBe(false);
+
+      await bloc.reconnectActive();
+      await vi.advanceTimersByTimeAsync(0);
+      // Manual reconnect issued a fresh connect right away, and the
+      // cancelled flag flipped back to false so future drops re-arm.
+      expect(engine.connectCalls.length).toBe(baseCalls + 1);
+      expect(bloc.getState().connections[0]!.reconnect.active).toBe(true);
+      bloc.dispose();
+      vi.useRealTimers();
+    });
+
+    it('reaching connected resets the attempt counter so the next drop starts at the lowest backoff', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup();
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Two consecutive failures push the backoff to 2s.
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(1000);
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(2000);
+
+      // Now succeed — counter resets.
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      const calls = engine.connectCalls.length;
+
+      // Next drop should fire after just 1s, not 4s.
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(engine.connectCalls.length).toBe(calls + 1);
+      bloc.dispose();
+      vi.useRealTimers();
+    });
+
+    it('rejoins saved channels via pendingJoins on the auto-reconnect attempt', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup(['#general', '#help']);
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Drop → auto-reconnect timer → connect attempt → connected →
+      // pendingJoins drained → join calls issued.
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(1000);
+      const session = engine.sessionFor('libera');
+      session._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(session.joinCalls).toContain('#general');
+      expect(session.joinCalls).toContain('#help');
+      bloc.dispose();
+      vi.useRealTimers();
+    });
+
+    it('dispose() cancels pending auto-reconnect timers', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup();
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      const baseCalls = engine.connectCalls.length;
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+
+      bloc.dispose();
+      await vi.advanceTimersByTimeAsync(20000);
+      // No new connect attempts fired against the disposed bloc.
+      expect(engine.connectCalls.length).toBe(baseCalls);
+      vi.useRealTimers();
+    });
+
+    it('disconnect(serverId) cancels any pending auto-reconnect for that server', async () => {
+      vi.useFakeTimers();
+      const { bloc, engine, server } = setup();
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(server);
+      await vi.advanceTimersByTimeAsync(0);
+      engine.sessionFor('libera')._setState('connected');
+      await vi.advanceTimersByTimeAsync(0);
+      const baseCalls = engine.connectCalls.length;
+      engine.sessionFor('libera')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(0);
+
+      bloc.disconnect('libera');
+      await vi.advanceTimersByTimeAsync(20000);
+      // User explicitly disconnected → no resurrection attempts.
+      expect(engine.connectCalls.length).toBe(baseCalls);
+      bloc.dispose();
+      vi.useRealTimers();
+    });
   });
 
   it('dispose() tears down connections and stops emitting state', async () => {

@@ -30,6 +30,7 @@ const emptyState: ChatState = {
   serverInfo: {},
   channelDirectory: { status: 'idle', entries: [], updatedAt: null },
   myNick: 'me',
+  servicesFramework: null,
 };
 
 const populatedState: ChatState = {
@@ -55,6 +56,7 @@ const populatedState: ChatState = {
   serverInfo: {},
   channelDirectory: { status: 'idle', entries: [], updatedAt: null },
   myNick: 'me',
+  servicesFramework: null,
 };
 
 describe('ChatLayout', () => {

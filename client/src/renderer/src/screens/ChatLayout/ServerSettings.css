@@ -207,6 +207,158 @@
   font-style: italic;
 }
 
+/* Advanced section — stacked card layout, one card per command surface
+   (Services, IRC commands, future: ChanServ, user modes, etc.). */
+.server-settings-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.server-settings-subhead {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--fg);
+  letter-spacing: var(--tracking-display);
+}
+
+.server-settings-subhint {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  line-height: 1.5;
+}
+
+.server-settings-subhint code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+.server-settings-services-fw {
+  display: inline-flex;
+}
+
+/* Search input above the Advanced subsections. Constrains its width so
+   on wide layouts it doesn't span the full body — the bds-input style
+   does the rest (border + focus ring). */
+.server-settings-advanced-search {
+  display: flex;
+  max-width: 480px;
+  margin-bottom: var(--space-2);
+}
+.server-settings-advanced-search > .bds-input {
+  width: 100%;
+}
+
+/* Body region below the tabs. Stacks the active-tab card on top, with
+   the cross-tab search overflow underneath when the search query is
+   non-empty — one Card per matching tab, separated by the same gap
+   the empty-state list used. */
+.server-settings-advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+/* Captured reply output rendered beneath a command row. Lives directly
+   under the row's bottom border so it visually attaches to its trigger.
+   Capped height + scroll so a multi-page MOTD doesn't blow up the
+   layout. Mono font + soft surface so it reads as raw output rather
+   than UI chrome. */
+.server-settings-cmd-output {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.server-settings-cmd-output-running {
+  font-style: italic;
+  color: var(--fg-3);
+}
+
+/* Compact command rows — used inside Advanced subsection cards where we
+   list many short commands (NickServ INFO, ChanServ OP, MODE +i, …). A
+   stacked-Field layout per command would be visually overwhelming with
+   30+ rows; this packs label+hint on the left and the controls on the
+   right, separated by a soft divider. Tokens-only, no bespoke colours. */
+.server-settings-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+.server-settings-cmd-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.server-settings-cmd-row:first-of-type {
+  padding-top: var(--space-2);
+}
+
+.server-settings-cmd-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.server-settings-cmd-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+  letter-spacing: 0.01em;
+}
+.server-settings-cmd-label code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--accent);
+  padding: 0 4px;
+}
+
+.server-settings-cmd-hint {
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  line-height: 1.45;
+}
+
+.server-settings-cmd-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  /* Constrain the input width so a long input doesn't push the button
+     off the row. Two-input variant gets its own width below. */
+  max-width: 360px;
+}
+.server-settings-cmd-controls > .bds-input {
+  /* `bds-input` brings its own padding/border tokens; we just constrain
+     width so a long input doesn't push the button off the row. */
+  width: 180px;
+}
+.server-settings-cmd-controls-two > .bds-input {
+  width: 140px;
+}
+
 .server-settings-caps {
   display: flex;
   flex-wrap: wrap;

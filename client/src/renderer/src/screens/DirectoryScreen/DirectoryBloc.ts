@@ -1,5 +1,6 @@
 import type { AuthService } from '../../modules/auth';
 import { ChatService, type ChatState } from '../../modules/chat';
+import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
 import type { DirectoryService, Server, User } from '../../modules/directory';
 import type { EngineClient, EngineState, ServerSession } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
@@ -30,6 +31,12 @@ export interface DirectoryConnection {
   // disconnected splash so users see *why* a session dropped instead of a
   // bare "Disconnected." Cleared when the connection reaches `connected`.
   error: string | null;
+  // Auto-reconnect state for this connection. `active` is true while the
+  // bloc is in the auto-reconnect cycle — either waiting for the next
+  // backoff timer to fire OR actively running a connect attempt. Goes
+  // false when (a) we reach `connected`, (b) the user clicks Cancel, or
+  // (c) the user disconnects explicitly.
+  reconnect: { active: boolean };
 }
 
 interface Connection {
@@ -42,6 +49,24 @@ interface Connection {
   unsubscribeState: () => void;
   unsubscribeChat: () => void;
 }
+
+interface AutoReconnectState {
+  // True once the user has clicked Cancel. Sticky: a fresh attempt
+  // requires an explicit Reconnect click to clear this.
+  cancelled: boolean;
+  // Failed-attempt counter, used to pick the backoff delay. Reset to
+  // zero on every successful 'connected'.
+  attempts: number;
+  // Timer for the next attempt during a backoff wait. Null while we're
+  // actively running an attempt (engineState 'connecting') or after
+  // we've reached 'connected' / been cancelled.
+  nextAttemptTimer: ReturnType<typeof setTimeout> | null;
+}
+
+// Backoff schedule: 1s, 2s, 4s, 8s, 15s, 15s, 15s, … capped so we
+// keep trying indefinitely without hammering the server. The user
+// can always click Reconnect to skip whatever delay is pending.
+const AUTO_RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 
 export interface DirectoryState {
   me: User | null | undefined;
@@ -142,6 +167,16 @@ export class DirectoryBloc {
     tls: boolean;
     name?: string;
   } | null = null;
+  // Per-server auto-reconnect state. When a connection drops, the bloc
+  // schedules a fresh connect attempt with exponential backoff. The
+  // user can override via the disconnected splash:
+  //   - "Reconnect now" (manual) clears the cancelled flag and skips
+  //     the pending backoff timer, kicking off an attempt immediately.
+  //   - "Cancel" sets cancelled=true, clears the timer, and the cycle
+  //     stops; the user has to click Reconnect manually to resume.
+  // `cancelled` is sticky across attempts within a wedge, so a single
+  // Cancel click won't immediately re-arm on the next drop.
+  private autoReconnect = new Map<string, AutoReconnectState>();
   // Backend session-sync plumbing. Single debounced PUT collapses bursts of
   // SessionStore mutations (e.g. JOIN echoes during reconnect) into one
   // network round-trip. Unsubscribe + timer cleared on dispose.
@@ -230,6 +265,15 @@ export class DirectoryBloc {
     }
     this.unsubscribeSessionSync?.();
     this.unsubscribeSessionSync = null;
+    // Cancel every pending auto-reconnect timer so a fired timer
+    // can't resurrect work against a disposed bloc.
+    for (const ar of this.autoReconnect.values()) {
+      if (ar.nextAttemptTimer !== null) {
+        clearTimeout(ar.nextAttemptTimer);
+        ar.nextAttemptTimer = null;
+      }
+    }
+    this.autoReconnect.clear();
     // Tear down every open connection in deterministic order.
     for (const c of Array.from(this.connections.values())) {
       this.teardownConnection(c, { sendDisconnect: false });
@@ -408,7 +452,24 @@ export class DirectoryBloc {
         return;
       }
       // Existing-but-disconnected: tear it down so we mint a fresh
-      // ServerSession + ChatService below.
+      // ServerSession + ChatService below. BEFORE tearing down, snapshot
+      // the channels the user was in so the fresh session re-joins them
+      // — without this, the user clicks "Reconnect" and lands on an
+      // empty channel list. The same `pendingJoins` mechanism that
+      // session-restore uses on cold boot drives the replay (the
+      // `connected` callback in connectWith() drains it).
+      //
+      // We prefer the saved-session list over the chat service's
+      // current channel set: the chat service can race during a wedge
+      // (membership state can be stale) but sessionStore is updated
+      // only on user-driven join/part, so it's the canonical "what the
+      // user expects to be in" set.
+      const saved = this.sessionStore.load();
+      const savedServer = saved?.servers.find((s) => s.server.id === server.id);
+      const channelsToRejoin = savedServer?.channels ?? [];
+      if (channelsToRejoin.length > 0) {
+        this.pendingJoins.set(server.id, channelsToRejoin.slice());
+      }
       this.teardownConnection(existing, { sendDisconnect: false });
       this.connections.delete(server.id);
     }
@@ -423,6 +484,13 @@ export class DirectoryBloc {
   disconnect(serverId: string): void {
     const conn = this.connections.get(serverId);
     if (!conn) return;
+    // User-initiated disconnect: kill any pending auto-reconnect so
+    // the cycle doesn't resurrect the connection moments later.
+    const ar = this.autoReconnect.get(serverId);
+    if (ar?.nextAttemptTimer !== undefined && ar.nextAttemptTimer !== null) {
+      clearTimeout(ar.nextAttemptTimer);
+    }
+    this.autoReconnect.delete(serverId);
     this.teardownConnection(conn, { sendDisconnect: true });
     this.connections.delete(serverId);
     if (this.activeServerId === serverId) {
@@ -485,10 +553,108 @@ export class DirectoryBloc {
     if (activeId === null) return;
     const conn = this.connections.get(activeId);
     if (!conn) return;
+    // Manual reconnect — clear any pending backoff timer + reset the
+    // cancelled flag so the auto-reconnect cycle resumes after this
+    // attempt (if it fails). Counts as an explicit user action.
+    const ar = this.autoReconnect.get(activeId);
+    if (ar) {
+      if (ar.nextAttemptTimer !== null) {
+        clearTimeout(ar.nextAttemptTimer);
+        ar.nextAttemptTimer = null;
+      }
+      ar.cancelled = false;
+    }
     // Server records carry the same shape whether they came from the live
     // directory list (`Server`) or a saved session (`SavedServer`); connect()
     // accepts either via its Server-typed parameter.
     await this.connect(conn.server as Server);
+  }
+
+  // Stop the auto-reconnect cycle for the active connection. The next
+  // attempt's backoff timer is cancelled and the cancelled flag is set
+  // so subsequent 'disconnected' transitions won't auto-arm. The user
+  // can still kick off a manual reconnect via `reconnectActive()`,
+  // which clears the cancelled flag.
+  cancelReconnectActive(): void {
+    const activeId = this.activeServerId;
+    if (activeId === null) return;
+    this.cancelAutoReconnect(activeId);
+  }
+
+  // Schedule the next reconnect attempt for `serverId` after the
+  // current backoff window. Skips if (a) the user has cancelled, or
+  // (b) a timer is already pending (idempotent guard so multiple
+  // disconnect events in a row don't stack timers).
+  private scheduleAutoReconnect(serverId: string): void {
+    const conn = this.connections.get(serverId);
+    if (!conn) return;
+    let ar = this.autoReconnect.get(serverId);
+    if (!ar) {
+      ar = { cancelled: false, attempts: 0, nextAttemptTimer: null };
+      this.autoReconnect.set(serverId, ar);
+    }
+    if (ar.cancelled) return;
+    if (ar.nextAttemptTimer !== null) return;
+    const delayMs = AUTO_RECONNECT_BACKOFF_MS[
+      Math.min(ar.attempts, AUTO_RECONNECT_BACKOFF_MS.length - 1)
+    ]!;
+    ar.nextAttemptTimer = setTimeout(() => {
+      const state = this.autoReconnect.get(serverId);
+      if (state) state.nextAttemptTimer = null;
+      // The connection may have been removed (user-initiated
+      // disconnect) between scheduling and firing — guard so we don't
+      // resurrect a dead entry.
+      if (!this.connections.has(serverId)) return;
+      if (state) state.attempts += 1;
+      // connect() routes through the existing wedge → teardown →
+      // connectWith path, which seeds pendingJoins from sessionStore
+      // so channels are rejoined on the fresh session.
+      void this.connect(conn.server as Server);
+    }, delayMs);
+    this.emit();
+  }
+
+  // Stop the auto-reconnect cycle for `serverId`: clear the pending
+  // timer and mark the state as cancelled so future drops don't
+  // re-arm. Idempotent.
+  private cancelAutoReconnect(serverId: string): void {
+    let ar = this.autoReconnect.get(serverId);
+    if (!ar) {
+      ar = { cancelled: true, attempts: 0, nextAttemptTimer: null };
+      this.autoReconnect.set(serverId, ar);
+      this.emit();
+      return;
+    }
+    if (ar.nextAttemptTimer !== null) {
+      clearTimeout(ar.nextAttemptTimer);
+      ar.nextAttemptTimer = null;
+    }
+    ar.cancelled = true;
+    this.emit();
+  }
+
+  // Called after a successful 'connected' transition. Clears the
+  // attempt counter so the next drop starts fresh from the lowest
+  // backoff delay. We deliberately don't clear `cancelled` here —
+  // a user who cancelled an auto-reconnect cycle wouldn't want it
+  // silently re-enabled just because the manual reconnect they then
+  // triggered eventually succeeded.
+  private resetAutoReconnect(serverId: string): void {
+    const ar = this.autoReconnect.get(serverId);
+    if (!ar) return;
+    if (ar.nextAttemptTimer !== null) {
+      clearTimeout(ar.nextAttemptTimer);
+      ar.nextAttemptTimer = null;
+    }
+    ar.attempts = 0;
+  }
+
+  // Is the auto-reconnect cycle currently running for this server?
+  // True if neither cancelled nor has the connection succeeded.
+  private isAutoReconnectActive(serverId: string): boolean {
+    const ar = this.autoReconnect.get(serverId);
+    if (!ar) return false;
+    return !ar.cancelled;
   }
 
   async signOut(): Promise<void> {
@@ -530,6 +696,7 @@ export class DirectoryBloc {
       chat: c.chat,
       engineState: c.engineState,
       error: c.error,
+      reconnect: { active: this.isAutoReconnectActive(c.serverId) },
     }));
   }
 
@@ -837,12 +1004,18 @@ export class DirectoryBloc {
     // typically email-shaped, but IRC servers reject `@` and `.` with 432
     // ERR_ERRONEUSNICKNAME and registration stalls silently.
     const ircNick = sanitizeIrcNick(this.me.handle);
+    // Pull the stored NickServ password for this server (if any) so
+    // the engine can auto-identify after RPL_WELCOME. Plain-text in
+    // localStorage today; same path that the Advanced settings panel
+    // writes to. Empty / absent disables auto-identify.
+    const storedCreds = getServiceCredentialsStore().get(server.id);
     const session = this.engine.connect({
       serverId: server.id,
       hostname: server.hostname,
       port: server.port,
       tls: server.tls,
       nick: ircNick,
+      nickservPassword: storedCreds?.nickservPassword,
     });
     const chat = new ChatService(session, ircNick, persistence);
     chat.attach();
@@ -871,6 +1044,8 @@ export class DirectoryBloc {
       // Clear stale errors once we successfully reach connected.
       if (state === 'connected') conn.error = null;
       if (state === 'connected') {
+        // Reset the auto-reconnect counters — the cycle is over.
+        this.resetAutoReconnect(server.id);
         // Replay any pending joins for this server now that IRC is ready.
         const queued = this.pendingJoins.get(server.id);
         if (queued && queued.length > 0) {
@@ -891,6 +1066,12 @@ export class DirectoryBloc {
         // stdout logs will have the technical detail.
         if (state === 'disconnected' && !conn.error) {
           conn.error = 'Connection closed without an error message — check the engine terminal for details.';
+        }
+        // Schedule the next reconnect attempt (no-op if cancelled or
+        // already-disposed). Idle is the pre-connect resting state and
+        // not a drop, so we skip auto-reconnect for it.
+        if (state === 'disconnected') {
+          this.scheduleAutoReconnect(server.id);
         }
       }
       this.emit();

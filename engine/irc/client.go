@@ -22,6 +22,12 @@ type Config struct {
 	RealName    string
 	SASL        *SASLPlain
 	ConnTimeout time.Duration
+	// NickservPassword, when non-empty, triggers `PRIVMSG NickServ
+	// IDENTIFY <password>` immediately after RPL_WELCOME. The engine
+	// also runs the services-framework probe on welcome regardless.
+	// Stored plain-text on the renderer side and passed down on each
+	// connect / reconnect.
+	NickservPassword string
 }
 
 type SASLPlain struct {
@@ -63,7 +69,16 @@ type Client struct {
 	pendingDirectory    []ChannelDirectoryEntry
 	autoListScheduled   bool
 	listRetryScheduled  bool
+	// Services detection + auto-identify state. Lives on the engine
+	// (not the renderer) so every client of the engine — Electron,
+	// future mobile / web — gets identical NickServ behaviour.
+	services            *servicesState
 }
+
+// ServicesHandler fires when the detected services package (Atheme /
+// Anope / unknown) changes for this client. The IPC layer wires this
+// up to forward verdicts to the renderer; tests plug in recorders.
+type ServicesHandler func(ServicesFramework)
 
 func New(cfg Config) (*Client, error) {
 	if cfg.Hostname == "" {
@@ -112,7 +127,32 @@ func New(cfg Config) (*Client, error) {
 		},
 	})
 
-	return &Client{cfg: cfg, girc: gc}, nil
+	c := &Client{cfg: cfg, girc: gc, services: newServicesState()}
+	c.services.setNickservPassword(cfg.NickservPassword)
+	return c, nil
+}
+
+// OnServices installs the services-framework verdict callback. Fires
+// once per detected-state transition (empty → atheme/anope/unknown).
+// Must be called before Connect.
+func (c *Client) OnServices(fn ServicesHandler) {
+	c.services.setOnChange(func(fw ServicesFramework) { fn(fw) })
+}
+
+// Services returns the current framework verdict — empty string before
+// the post-welcome probe has classified.
+func (c *Client) Services() ServicesFramework {
+	return c.services.snapshot()
+}
+
+// NickservIdentify sends `PRIVMSG NickServ IDENTIFY <password>`. Used
+// by the renderer's "Identify now" button when the user wants to
+// re-run auto-identify without reconnecting.
+func (c *Client) NickservIdentify(password string) {
+	if password == "" {
+		return
+	}
+	c.girc.Cmd.Message("NickServ", "IDENTIFY "+password)
 }
 
 func saslConfig(s *SASLPlain) girc.SASLMech {
@@ -137,6 +177,22 @@ func (c *Client) OnEvent(fn EventHandler) {
 			c.flushListEntries()
 		case girc.RPL_WELCOME:
 			c.scheduleAutoList()
+			// Fire NickServ IDENTIFY (if configured) + VERSION probes to
+			// classify the services package. Both are one-shot per
+			// session — handled by latches inside servicesState.
+			c.services.onWelcome(
+				func(target, body string) { c.girc.Cmd.Message(target, body) },
+				func(d time.Duration, fn func()) { time.AfterFunc(d, fn) },
+			)
+		case girc.PRIVMSG, girc.NOTICE:
+			// Feed service-sourced messages into the framework classifier.
+			// A hit on "atheme" / "anope" anywhere in the body settles
+			// the verdict. The verdict callback flows up to the IPC
+			// layer which forwards a services-framework message to the
+			// renderer.
+			if e.Source != nil && len(e.Params) >= 2 {
+				c.services.observe(e.Source.Name, e.Last())
+			}
 		case girc.ERR_UNKNOWNCOMMAND:
 			// 421 — Ergo (and similarly-configured Solanum) rejects
 			// LIST issued inside the first ~60s of a connection with:
@@ -366,6 +422,24 @@ func (c *Client) Nick(nick string) {
 	_ = c.girc.Cmd.SendRaw("NICK " + nick)
 }
 
+// SendRaw forwards a raw IRC protocol line to the server unchanged
+// (no CR/LF appended — girc handles that). Used for read-only
+// commands the renderer surfaces in the Advanced settings panel
+// (MOTD, VERSION, LUSERS, WHOIS, WHO, WHOWAS, ADMIN, TIME, LINKS,
+// MODE …) where a dedicated typed method would be overkill. Replies
+// flow through the normal event stream — the caller correlates by
+// numeric kind.
+//
+// Empty lines are dropped; the daemon would treat them as parser
+// errors and we'd rather no-op than push a malformed frame.
+func (c *Client) SendRaw(line string) {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	_ = c.girc.Cmd.SendRaw(line)
+}
+
 // Tagmsg sends an IRCv3 TAGMSG to `target`, carrying only message tags (no
 // body). Used today for typing indicators (`+typing=active|done|paused`);
 // future client tags (read receipts, reactions) ride the same wire. Servers
@@ -566,12 +640,29 @@ func translate(e girc.Event) Event {
 		}
 		out.Message = e.Last()
 	default:
-		// Forward IRC error numerics (4xx, 5xx) so the renderer can surface
-		// rejection reasons — e.g. 432 ERR_ERRONEUSNICKNAME, 433
-		// ERR_NICKNAMEINUSE, 464 ERR_PASSWDMISMATCH. Without this the client
-		// silently stalls after the pre-registration NOTICEs.
-		if len(e.Command) == 3 && (e.Command[0] == '4' || e.Command[0] == '5') {
+		// Forward every 3-digit numeric reply — the explicit cases
+		// above handle the ones that need parsing (welcome, ISUPPORT,
+		// NAMES, TOPIC, MOTD, WHO, AWAY); everything else (the bulk
+		// of RPL_*/ERR_* — LUSERS 251-255, VERSION 351, ADMIN 256-259,
+		// TIME 391, LINKS 364/365, WHOIS 311-319, WHOWAS 314/369,
+		// INFO 371/374, plus all 4xx/5xx error numerics) flows
+		// through with just Message populated. The renderer treats
+		// them all uniformly: surface in the ~server log and capture
+		// inline in the Advanced panel.
+		//
+		// Without this, slash commands like /lusers, /version, /admin,
+		// /time, /links, /whois, /whowas just silently swallow their
+		// reply — the engine drops it, the renderer shows nothing.
+		if len(e.Command) == 3 && e.Command[0] >= '0' && e.Command[0] <= '9' {
 			out.Message = e.Last()
+			// Carry remaining params too — some replies pack data
+			// across multiple positional params (e.g. RPL_WHOISUSER
+			// is `<mynick> <nick> <user> <host> * :realname`). The
+			// renderer can stringify Args when Message alone isn't
+			// enough.
+			if len(e.Params) > 1 {
+				out.Args = append([]string(nil), e.Params[1:]...)
+			}
 			return out
 		}
 		return Event{}
