@@ -1,3 +1,9 @@
+## [0.12.0](https://github.com/boson-chat/boson/compare/v0.11.0...v0.12.0) (2026-06-01)
+
+### Features
+
+* AccountService refactor + framework detector + e2e infra ([1c8ec0a](https://github.com/boson-chat/boson/commit/1c8ec0a21f75d9f0e3450474de920864939c9ac1))
+
 ## [0.11.0](https://github.com/boson-chat/boson/compare/v0.10.2...v0.11.0) (2026-05-29)
 
 ### Features
