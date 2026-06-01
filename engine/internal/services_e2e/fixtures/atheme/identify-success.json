@@ -1,0 +1,37 @@
+{
+  "stack": "atheme",
+  "scenario": "identify-success",
+  "recorded": "2026-05-30T19:48:59.594620369Z",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok530581168",
+      "message": "This nickname is registered. Please choose a different nickname, or identify via \u0002/msg NickServ identify \u003cpassword\u003e\u0002."
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok530581168",
+      "message": "You are now identified for \u0002e2eidok530581168\u0002."
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2eidok530581168",
+      "args": [
+        "e2eidok530581168!e2eidok530@172.18.0.1",
+        "e2eidok530581168",
+        "You are now logged in as e2eidok530581168"
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok530581168",
+      "message": "Invalid command. Use \u0002/msg NickServ help\u0002 for a command listing."
+    }
+  ]
+}

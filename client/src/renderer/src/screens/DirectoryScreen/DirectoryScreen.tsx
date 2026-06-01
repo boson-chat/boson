@@ -152,6 +152,12 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             servicesFramework={chatState.servicesFramework}
             onTriggerAutoIdentify={() => target.chat.triggerAutoIdentify()}
             onRunCommand={(line) => target.chat.input(line)}
+            onDropAccount={(acct, pw) => target.chat.dropAccount(acct, pw)}
+            onIdentifyAccount={(pw) => target.chat.identifyAccount(pw)}
+            onRegisterAccount={(pw, em) => target.chat.registerAccount(pw, em)}
+            onConfirmAccount={(acct, code) => target.chat.confirmAccount(acct, code)}
+            onResendConfirmation={(acct) => target.chat.resendConfirmation(acct)}
+            supportsResend={target.chat.supportsResendConfirmation()}
             // Ownership check: render the Edit tab only when (a) the
             // current connection knows the full directory Server (not
             // a cold-start SavedServer snapshot which lacks profile

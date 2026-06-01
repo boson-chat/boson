@@ -25,6 +25,7 @@ type UserServiceImpl interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*User, error)
 	Create(ctx context.Context, in CreateUserInput) (*User, error)
 	Delete(ctx context.Context, id uuid.UUID) error
+	UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error)
 }
 
 type UserService struct {
@@ -72,4 +73,24 @@ func (s *UserService) Create(ctx context.Context, in CreateUserInput) (*User, er
 
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.Repository.Delete(ctx, id)
+}
+
+// UpdateHandle renames the authenticated user. Trims + validates length,
+// checks that the new handle is free (case-insensitively, matching the
+// users_handle_lower_idx unique semantics), and delegates to the repo
+// to do the actual swap in a transaction that also records a
+// handle_changes audit row.
+func (s *UserService) UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error) {
+	handle := strings.TrimSpace(newHandle)
+	if len(handle) < 3 {
+		return nil, ErrHandleInvalid
+	}
+
+	if existing, err := s.Repository.FindByHandle(ctx, handle); err == nil && existing != nil && existing.ID != id {
+		return nil, ErrHandleTaken
+	} else if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+
+	return s.Repository.UpdateHandle(ctx, id, handle)
 }

@@ -1,0 +1,43 @@
+{
+  "stack": "atheme",
+  "scenario": "drop-confirm-prompt",
+  "recorded": "2026-05-30T19:49:06.626360989Z",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop149318674",
+      "message": "Invalid command. Use \u0002/msg NickServ help\u0002 for a command listing."
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop149318674",
+      "message": "\u0002e2edrop149318674\u0002 is now registered to \u0002nobody@test.invalid\u0002, with the password \u0002hunter2-p149319513\u0002."
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2edrop149318674",
+      "args": [
+        "e2edrop149318674!e2edrop149@172.18.0.1",
+        "e2edrop149318674",
+        "You are now logged in as e2edrop149318674"
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop149318674",
+      "message": "This is a friendly reminder that you are about to \u0002destroy\u0002 the account \u0002e2edrop149318674\u0002."
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop149318674",
+      "message": "To avoid accidental use of this command, this operation has to be confirmed. Please confirm by replying with \u0002/msg NickServ DROP e2edrop149318674 hunter2-p149319513 3d892700:e7ba702b\u0002"
+    }
+  ]
+}

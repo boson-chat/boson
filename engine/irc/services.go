@@ -112,11 +112,17 @@ func IsServiceSender(from string) bool {
 //   vs Anope, taken from each project's HELP output:
 //     - CONFIRM: Anope's post-REGISTER passcode flow. Atheme uses
 //       a different "VERIFY REGISTER" form, no CONFIRM verb.
-//     - TAXONOMY / UNGROUP / FLAGS: Atheme-specific verbs. FLAGS is
-//       Atheme's primary channel-access UI; Anope uses ACCESS.
-//       TAXONOMY is Atheme's per-account metadata browser.
-//       UNGROUP detaches an alias nick (the inverse of GROUP);
-//       Anope doesn't expose UNGROUP.
+//     - TAXONOMY / UNGROUP: Atheme-specific verbs. TAXONOMY is
+//       Atheme's per-account metadata browser. UNGROUP detaches an
+//       alias nick (the inverse of GROUP); Anope doesn't expose
+//       UNGROUP.
+//     - FLAGS is NOT Atheme-exclusive — Anope ChanServ also ships
+//       FLAGS (cs_flags.cpp in Anope 2.0). Verified live: a HELP
+//       reply from Anope ChanServ on irc.boson.chat lists FLAGS,
+//       which previously triggered a false-positive Atheme verdict
+//       and routed DROP through the wrong adapter (2-arg form),
+//       leaking the saved password into the nick lookup. FLAGS is
+//       deliberately excluded from the Atheme fingerprint below.
 //
 // Case-insensitive word-boundary match against these verbs lets us
 // classify off any HELP reply even when no brand text is present.
@@ -129,8 +135,29 @@ var (
 	// / RPL_CREATED). Same word-boundary safety.
 	rxErgo   = regexp.MustCompile(`(?i)\bergo\b`)
 
-	rxAnopeVerb  = regexp.MustCompile(`(?i)\bconfirm\b`)
-	rxAthemeVerb = regexp.MustCompile(`(?i)\b(?:taxonomy|ungroup|flags)\b`)
+	// Anope-exclusive verbs. Adding to this set strictly *helps* — a
+	// false-positive Anope match on an Atheme network would require
+	// Atheme to ship a verb by this exact name, which none of these
+	// do (verified against Atheme 7.2.x module list):
+	//   - CONFIRM: Anope post-REGISTER passcode verb. Atheme uses
+	//     VERIFY REGISTER. (atheme/nickserv/verify.c)
+	//   - RESEND: Anope resend-email verb. Atheme has no resend.
+	//   - GLIST: Anope NickServ group-list. Atheme uses LISTGROUPS.
+	//   - ENFORCE: Anope ChanServ enforce-akick subcommand
+	//     (anope/modules/commands/cs_akick.cpp). Atheme's akick has
+	//     no ENFORCE verb.
+	//   - CLONE: Anope ChanServ channel-settings clone
+	//     (anope/modules/commands/cs_clone.cpp). Atheme has no
+	//     direct equivalent verb. Word boundaries prevent matching
+	//     prose like "clone of" since the regex is `\bclone\b`,
+	//     same protection used for the brand match.
+	// CLONE was specifically observed in the wild on irc.boson.chat's
+	// ChanServ HELP listing, where it appears alongside AKICK /
+	// ENFORCE / ENTRYMSG in the Anope ChanServ verb roster.
+	rxAnopeVerb  = regexp.MustCompile(`(?i)\b(?:confirm|resend|glist|enforce|clone)\b`)
+	// FLAGS deliberately excluded — Anope's cs_flags.cpp ships the
+	// same verb. TAXONOMY + UNGROUP remain genuinely Atheme-only.
+	rxAthemeVerb = regexp.MustCompile(`(?i)\b(?:taxonomy|ungroup)\b`)
 )
 
 // DetectServicesFramework classifies a single service NOTICE/PRIVMSG body

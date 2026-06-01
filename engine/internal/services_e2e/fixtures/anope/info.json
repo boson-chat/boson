@@ -1,0 +1,109 @@
+{
+  "stack": "anope",
+  "scenario": "info",
+  "recorded": "2026-05-30T19:48:37.638272068Z",
+  "ircdLabel": "unrealircd-5.0.7 + anope-2.0.19",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "Unknown command \u0002VERSION\u0002. \"/msg NickServ HELP\" for help.",
+      "tags": {
+        "msgid": "Ksgwm2j0i7Lftv8cw5xy9M",
+        "time": "2026-05-30T19:48:37.037Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "Nickname \u0002e2einfo531810523\u0002 registered.",
+      "tags": {
+        "msgid": "lZv421EaQOxWaZ24aM2AUx",
+        "time": "2026-05-30T19:48:37.037Z"
+      }
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2einfo531810523.",
+      "args": [
+        "e2einfo531810523!e2einfo531@172.18.0.1",
+        "e2einfo531810523",
+        "You are now logged in as e2einfo531810523."
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "e2einfo531810523 is e2einfo531810523",
+      "tags": {
+        "msgid": "0PGoayIQOZdBJtZcBAKANY",
+        "time": "2026-05-30T19:48:37.538Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "  Online from: e2einfo531@172.18.0.1",
+      "tags": {
+        "msgid": "EZxyy6jfm0WKONSr8smSvv",
+        "time": "2026-05-30T19:48:37.538Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "  Online from: e2einfo531@BCF06B4E.495D34DD.111C25E8.IP",
+      "tags": {
+        "msgid": "VLwM07Ba41YERXXQ7hHcKg",
+        "time": "2026-05-30T19:48:37.538Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "      Account: e2einfo531810523",
+      "tags": {
+        "msgid": "1OwxSnf7JzdFr99YV8e4md",
+        "time": "2026-05-30T19:48:37.538Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "   Registered: May 30 19:48:37 2026 UTC (now)",
+      "tags": {
+        "msgid": "5I4SjzJBVl0nqYyJyJJPUJ",
+        "time": "2026-05-30T19:48:37.538Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "Email address: nobody@test.invalid",
+      "tags": {
+        "msgid": "344G44HaMvGwP2WLy9cqPN",
+        "time": "2026-05-30T19:48:37.538Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2einfo531810523",
+      "message": "      Options: Security",
+      "tags": {
+        "msgid": "NEiUX5QbbFi43Cp3OqSi0w",
+        "time": "2026-05-30T19:48:37.538Z"
+      }
+    }
+  ]
+}

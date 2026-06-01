@@ -12,11 +12,18 @@ import (
 
 // stubUserService is a hand-written mock of user.UserServiceImpl.
 type stubUserService struct {
-	getByID    func(ctx context.Context, id uuid.UUID) (*user.User, error)
-	create     func(ctx context.Context, in user.CreateUserInput) (*user.User, error)
-	deleteFn   func(ctx context.Context, id uuid.UUID) error
-	createArgs []user.CreateUserInput
-	deleteArgs []uuid.UUID
+	getByID          func(ctx context.Context, id uuid.UUID) (*user.User, error)
+	create           func(ctx context.Context, in user.CreateUserInput) (*user.User, error)
+	deleteFn         func(ctx context.Context, id uuid.UUID) error
+	updateHandle     func(ctx context.Context, id uuid.UUID, newHandle string) (*user.User, error)
+	createArgs       []user.CreateUserInput
+	deleteArgs       []uuid.UUID
+	updateHandleArgs []updateHandleCall
+}
+
+type updateHandleCall struct {
+	ID        uuid.UUID
+	NewHandle string
 }
 
 func (s *stubUserService) GetByID(ctx context.Context, id uuid.UUID) (*user.User, error) {
@@ -32,6 +39,13 @@ func (s *stubUserService) Delete(ctx context.Context, id uuid.UUID) error {
 		return s.deleteFn(ctx, id)
 	}
 	return nil
+}
+func (s *stubUserService) UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*user.User, error) {
+	s.updateHandleArgs = append(s.updateHandleArgs, updateHandleCall{ID: id, NewHandle: newHandle})
+	if s.updateHandle != nil {
+		return s.updateHandle(ctx, id, newHandle)
+	}
+	return nil, nil
 }
 
 // stubServerService is a hand-written mock of server.ServerServiceImpl.

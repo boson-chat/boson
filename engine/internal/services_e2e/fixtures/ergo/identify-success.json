@@ -1,0 +1,26 @@
+{
+  "stack": "ergo",
+  "scenario": "identify-success",
+  "recorded": "2026-05-30T19:45:54.151053968Z",
+  "ircdLabel": "ergo-stable",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok536894700",
+      "message": "Unknown command. To see available commands, run: /NS HELP",
+      "tags": {
+        "time": "2026-05-30T19:45:54.050Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok536894700",
+      "message": "You're now logged in as e2eidok536894700",
+      "tags": {
+        "time": "2026-05-30T19:45:54.051Z"
+      }
+    }
+  ]
+}

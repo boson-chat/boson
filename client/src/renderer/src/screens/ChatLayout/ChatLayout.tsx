@@ -118,6 +118,16 @@ export function ChatLayout({
         }}
         engineState={engineState}
         serverName={serverName}
+        // Active server id + open-settings handler thread through so the
+        // pending-confirmation banner (below the chat header) can
+        // subscribe to the right credentials entry + jump the user to
+        // Advanced → Services on click.
+        activeServerId={activeServerId}
+        onOpenServerSettings={
+          onOpenServerSettings && activeServerId
+            ? () => onOpenServerSettings(activeServerId)
+            : undefined
+        }
         onReconnect={onReconnect}
         onCancelReconnect={onCancelReconnect}
         reconnectActive={reconnectActive}

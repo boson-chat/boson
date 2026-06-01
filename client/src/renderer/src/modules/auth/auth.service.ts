@@ -92,6 +92,16 @@ export class AuthService {
     await this.supabase.auth.signOut();
   }
 
+  // Mirror a field into Supabase user_metadata so consumers reading
+  // `session.user.user_metadata.<field>` (title bar, settings, etc.)
+  // pick up the change immediately via the onAuthStateChange callback
+  // — no page reload required. Backend remains the source of truth
+  // for persistent state; this is just the renderer's cache key.
+  async updateMetadata(data: Record<string, unknown>): Promise<void> {
+    const { error } = await this.supabase.auth.updateUser({ data });
+    if (error) throw error;
+  }
+
   async getToken(): Promise<string | null> {
     return this.state.session?.access_token ?? null;
   }

@@ -11,14 +11,21 @@ import (
 )
 
 // stubRepo is a hand-written mock of UserRepositoryImpl driven by lambdas
-// stored on the struct. Cleaner than reflection-based mocks for a 3-method interface.
+// stored on the struct. Cleaner than reflection-based mocks.
 type stubRepo struct {
-	findByID     func(ctx context.Context, id uuid.UUID) (*User, error)
-	findByHandle func(ctx context.Context, handle string) (*User, error)
-	create       func(ctx context.Context, u *User) error
-	deleteFn     func(ctx context.Context, id uuid.UUID) error
-	createCalls  []*User
-	deleteCalls  []uuid.UUID
+	findByID         func(ctx context.Context, id uuid.UUID) (*User, error)
+	findByHandle     func(ctx context.Context, handle string) (*User, error)
+	create           func(ctx context.Context, u *User) error
+	deleteFn         func(ctx context.Context, id uuid.UUID) error
+	updateHandle     func(ctx context.Context, id uuid.UUID, newHandle string) (*User, error)
+	createCalls      []*User
+	deleteCalls      []uuid.UUID
+	updateHandleCalls []stubRepoUpdateHandleCall
+}
+
+type stubRepoUpdateHandleCall struct {
+	ID        uuid.UUID
+	NewHandle string
 }
 
 func (s *stubRepo) FindByID(ctx context.Context, id uuid.UUID) (*User, error) {
@@ -40,6 +47,13 @@ func (s *stubRepo) Delete(ctx context.Context, id uuid.UUID) error {
 		return s.deleteFn(ctx, id)
 	}
 	return nil
+}
+func (s *stubRepo) UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error) {
+	s.updateHandleCalls = append(s.updateHandleCalls, stubRepoUpdateHandleCall{ID: id, NewHandle: newHandle})
+	if s.updateHandle != nil {
+		return s.updateHandle(ctx, id, newHandle)
+	}
+	return nil, nil
 }
 
 func newNotFoundRepo() *stubRepo {
@@ -136,5 +150,87 @@ func TestUserService_Create_RepoErrorPropagates(t *testing.T) {
 		ID:     uuid.New(),
 		Handle: "alice",
 	})
+	assert.ErrorIs(t, err, boom)
+}
+
+func TestUserService_UpdateHandle_Success(t *testing.T) {
+	id := uuid.New()
+	want := &User{ID: id, Handle: "alice-new"}
+	repo := newNotFoundRepo()
+	repo.updateHandle = func(_ context.Context, gotID uuid.UUID, h string) (*User, error) {
+		assert.Equal(t, id, gotID)
+		assert.Equal(t, "alice-new", h)
+		return want, nil
+	}
+	svc := NewUserService(repo)
+
+	got, err := svc.UpdateHandle(context.Background(), id, "  alice-new  ")
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+	require.Len(t, repo.updateHandleCalls, 1)
+	assert.Equal(t, "alice-new", repo.updateHandleCalls[0].NewHandle, "service must trim before delegating")
+}
+
+func TestUserService_UpdateHandle_TooShort(t *testing.T) {
+	svc := NewUserService(newNotFoundRepo())
+	_, err := svc.UpdateHandle(context.Background(), uuid.New(), "ab")
+	assert.ErrorIs(t, err, ErrHandleInvalid)
+}
+
+func TestUserService_UpdateHandle_TrimsToTooShort(t *testing.T) {
+	svc := NewUserService(newNotFoundRepo())
+	_, err := svc.UpdateHandle(context.Background(), uuid.New(), "   ")
+	assert.ErrorIs(t, err, ErrHandleInvalid)
+}
+
+func TestUserService_UpdateHandle_HandleTakenByOther(t *testing.T) {
+	otherID := uuid.New()
+	repo := newNotFoundRepo()
+	repo.findByHandle = func(_ context.Context, h string) (*User, error) {
+		return &User{ID: otherID, Handle: h}, nil
+	}
+	svc := NewUserService(repo)
+
+	_, err := svc.UpdateHandle(context.Background(), uuid.New(), "alice")
+	assert.ErrorIs(t, err, ErrHandleTaken)
+}
+
+// Re-claiming the handle the user already owns is a no-op rename — the
+// service must let it through (not flag it as ErrHandleTaken) so the
+// repo's transactional path returns the unchanged row.
+func TestUserService_UpdateHandle_SameUserOwnsHandle(t *testing.T) {
+	id := uuid.New()
+	want := &User{ID: id, Handle: "alice"}
+	repo := newNotFoundRepo()
+	repo.findByHandle = func(_ context.Context, h string) (*User, error) {
+		return &User{ID: id, Handle: h}, nil
+	}
+	repo.updateHandle = func(_ context.Context, _ uuid.UUID, _ string) (*User, error) {
+		return want, nil
+	}
+	svc := NewUserService(repo)
+
+	got, err := svc.UpdateHandle(context.Background(), id, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestUserService_UpdateHandle_NotFound(t *testing.T) {
+	repo := newNotFoundRepo()
+	repo.updateHandle = func(_ context.Context, _ uuid.UUID, _ string) (*User, error) {
+		return nil, ErrNotFound
+	}
+	svc := NewUserService(repo)
+	_, err := svc.UpdateHandle(context.Background(), uuid.New(), "alice")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestUserService_UpdateHandle_FindByHandleErrorPropagates(t *testing.T) {
+	boom := errors.New("db down")
+	repo := newNotFoundRepo()
+	repo.findByHandle = func(_ context.Context, _ string) (*User, error) { return nil, boom }
+	svc := NewUserService(repo)
+
+	_, err := svc.UpdateHandle(context.Background(), uuid.New(), "alice")
 	assert.ErrorIs(t, err, boom)
 }

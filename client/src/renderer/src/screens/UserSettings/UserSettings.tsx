@@ -8,6 +8,9 @@ import {
   saveGuestSession,
 } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
+import type { DirectoryService } from '../../modules/directory';
+import type { AuthService } from '../../modules/auth';
+import { HttpError } from '../../shared/http/http.client';
 // Pulled at build time from client/package.json. semantic-release keeps
 // every workspace package.json in lockstep with the latest tag via
 // scripts/sync-version.cjs, so this matches what the GitHub release
@@ -41,13 +44,19 @@ interface UserSettingsProps {
   open: boolean;
   onClose: () => void;
   // Authenticated handle when signed in via Supabase. Null in guest mode.
+  // Cached on session.user_metadata.handle — the Identity section
+  // re-syncs from the authoritative backend (/me) when opened.
   authedHandle: string | null;
   // Authenticated email (for the Account section). Null in guest mode.
   authedEmail: string | null;
   onSignOut: () => void;
+  // Required for the Identity section's authoritative read + rename.
+  // The renderer-only test harness wires these via buildApp().
+  directory: DirectoryService;
+  auth: AuthService;
 }
 
-export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut }: UserSettingsProps) {
+export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, auth }: UserSettingsProps) {
   const [section, setSection] = useState<SectionId>('identity');
   const guest = loadGuestSession();
   const mode: 'guest' | 'account' = guest ? 'guest' : 'account';
@@ -76,6 +85,9 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               mode={mode}
               authedHandle={authedHandle}
               guestNick={guest?.nick ?? ''}
+              directory={directory}
+              auth={auth}
+              open={open}
             />
           )}
           {section === 'appearance' && <AppearanceSection />}
@@ -94,24 +106,14 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
   );
 }
 
-function IdentitySection({ mode, authedHandle, guestNick }: {
+function IdentitySection({ mode, authedHandle, guestNick, directory, auth, open }: {
   mode: 'guest' | 'account';
   authedHandle: string | null;
   guestNick: string;
+  directory: DirectoryService;
+  auth: AuthService;
+  open: boolean;
 }) {
-  const [draft, setDraft] = useState(guestNick);
-  const [saved, triggerSaved] = useTransientFlag();
-
-  const submit = (e: Event): void => {
-    e.preventDefault();
-    if (mode !== 'guest') return;
-    const nick = sanitizeIrcNick(draft.trim());
-    if (!nick) return;
-    saveGuestSession({ nick });
-    emitGuestChange();
-    triggerSaved();
-  };
-
   return (
     <SectionFrame
       title="Identity"
@@ -122,26 +124,14 @@ function IdentitySection({ mode, authedHandle, guestNick }: {
       <Card>
         <div class="user-settings-card-body">
           {mode === 'account' ? (
-            <DetailRow label="Handle" value={authedHandle ?? '—'} />
+            <AccountHandleForm
+              authedHandle={authedHandle}
+              directory={directory}
+              auth={auth}
+              open={open}
+            />
           ) : (
-            <form onSubmit={submit} class="user-settings-form">
-              <Field
-                label="Nick"
-                hint="Sanitised on connect — IRC nicks can't contain @, ., or spaces."
-              >
-                <Input
-                  value={draft}
-                  onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
-                  required
-                  autoComplete="off"
-                  spellcheck={false}
-                />
-              </Field>
-              <div class="user-settings-form-actions">
-                {saved && <span class="user-settings-saved">Saved</span>}
-                <Button type="submit" variant="primary" disabled={!draft.trim()}>Save</Button>
-              </div>
-            </form>
+            <GuestNickForm guestNick={guestNick} />
           )}
           <Divider />
           <DetailRow label="Mode" customValue={
@@ -152,6 +142,141 @@ function IdentitySection({ mode, authedHandle, guestNick }: {
         </div>
       </Card>
     </SectionFrame>
+  );
+}
+
+function GuestNickForm({ guestNick }: { guestNick: string }) {
+  const [draft, setDraft] = useState(guestNick);
+  const [saved, triggerSaved] = useTransientFlag();
+
+  const submit = (e: Event): void => {
+    e.preventDefault();
+    const nick = sanitizeIrcNick(draft.trim());
+    if (!nick) return;
+    saveGuestSession({ nick });
+    emitGuestChange();
+    triggerSaved();
+  };
+
+  return (
+    <form onSubmit={submit} class="user-settings-form">
+      <Field
+        label="Nick"
+        hint="Sanitised on connect — IRC nicks can't contain @, ., or spaces."
+      >
+        <Input
+          value={draft}
+          onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
+          required
+          autoComplete="off"
+          spellcheck={false}
+        />
+      </Field>
+      <div class="user-settings-form-actions">
+        {saved && <span class="user-settings-saved">Saved</span>}
+        <Button type="submit" variant="primary" disabled={!draft.trim()}>Save</Button>
+      </div>
+    </form>
+  );
+}
+
+// Editable global handle for signed-in users. Fetches the authoritative
+// value from /me on mount (and whenever the modal re-opens) so a stale
+// Supabase user_metadata cache can't pin the field to the wrong value.
+// On save: PATCH /me first, then mirror the new handle into Supabase
+// user_metadata so the TitleBar and the rest of the app pick it up
+// without a reload.
+function AccountHandleForm({ authedHandle, directory, auth, open }: {
+  authedHandle: string | null;
+  directory: DirectoryService;
+  auth: AuthService;
+  open: boolean;
+}) {
+  const [draft, setDraft] = useState(authedHandle ?? '');
+  const [currentHandle, setCurrentHandle] = useState<string | null>(authedHandle);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, triggerSaved] = useTransientFlag();
+
+  // Pull the authoritative handle from the backend each time the modal
+  // opens. Guarded by `open` so closed-modal mounts (e.g. the
+  // <UserSettings> instance App always renders) don't fire the request
+  // until the user actually navigates here.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void directory.getMe()
+      .then((me) => {
+        if (cancelled) return;
+        if (me) {
+          setCurrentHandle(me.handle);
+          setDraft(me.handle);
+        }
+      })
+      .catch(() => { /* fall back to authedHandle silently */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, directory]);
+
+  const submit = async (e: Event): Promise<void> => {
+    e.preventDefault();
+    const trimmed = draft.trim();
+    if (!trimmed || trimmed === currentHandle) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await directory.updateMe({ handle: trimmed });
+      setCurrentHandle(updated.handle);
+      setDraft(updated.handle);
+      // Mirror the new handle into Supabase user_metadata so the
+      // TitleBar + any other consumer that reads from the session
+      // sees the rename immediately. Failure here is non-fatal — the
+      // backend already wrote the canonical value.
+      try { await auth.updateMetadata({ handle: updated.handle }); } catch { /* non-fatal */ }
+      triggerSaved();
+    } catch (err) {
+      if (err instanceof HttpError) {
+        if (err.status === 409) setError('That handle is taken — pick another.');
+        else if (err.status === 400) setError('Handle must be at least 3 characters.');
+        else if (err.status === 404) setError('No account row yet. Sign in again to create one.');
+        else setError('Could not save — try again.');
+      } else {
+        setError('Could not save — try again.');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const trimmed = draft.trim();
+  const disabled = saving || loading || !trimmed || trimmed === currentHandle;
+
+  return (
+    <form onSubmit={submit} class="user-settings-form">
+      <Field
+        label="Handle"
+        hint="Your global Boson handle — what other users find you by."
+      >
+        <Input
+          value={draft}
+          onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
+          required
+          autoComplete="off"
+          spellcheck={false}
+          disabled={loading || saving}
+        />
+      </Field>
+      {error && <div class="user-settings-error">{error}</div>}
+      <div class="user-settings-form-actions">
+        {saved && <span class="user-settings-saved">Saved</span>}
+        <Button type="submit" variant="primary" disabled={disabled}>
+          {saving ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </form>
   );
 }
 

@@ -264,7 +264,12 @@ func TestServerService_Verify_FailKeepsPending(t *testing.T) {
 		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
 	}
 	verifier := &stubVerifier{report: dns.Report{Success: false, Results: map[string]dns.Result{}}}
-	svc := newServiceForTest(repo, time.Now(), verifier)
+	// Fixed clock pinned to ~1h after issued so the token is fresh.
+	// Using time.Now() here was date-fragile — once the wall clock
+	// crept past the 72h VerificationTokenTTL, the token expired and
+	// the test surfaced ErrTokenExpired instead of testing the
+	// fail-keeps-pending path.
+	svc := newServiceForTest(repo, issued.Add(time.Hour), verifier)
 
 	srv, report, err := svc.Verify(context.Background(), uuid.New(), owner, dns.ModeStrict)
 	require.NoError(t, err)

@@ -169,18 +169,34 @@ export class LoginBloc {
     this.setState({ ...this.state, busy: true, error: null, unrecoverable: null });
     try {
       await this.auth.signUp(email, password);
-      // We deliberately do NOT initialize the identity here. Supabase
-      // returns the user row but no session when email confirmation is
-      // on — without a user_id we can't persist the encrypted secret
-      // to the keychain anyway. The identity gets minted on the first
-      // post-confirmation sign-in, which already has the
-      // "no encrypted_user_secret yet → initializeForNewUser" branch
-      // wired up in signIn() below.
-      this.setState({
-        ...this.state,
-        busy: false,
-        awaitingConfirmation: email,
-      });
+      // Supabase's response depends on whether email confirmation is
+      // ENABLED on the project:
+      //
+      //   Confirmation ON  → no session yet; user must click the
+      //     emailed link. We show "Check your email" and wait for
+      //     the deep-link → setSessionFromTokens → router moves on.
+      //
+      //   Confirmation OFF (local dev with `enable_confirmations =
+      //     false`, or hosted projects with that toggle) → Supabase
+      //     returns a session immediately and onAuthStateChange has
+      //     already fired by the time we reach this line. If we just
+      //     set awaitingConfirmation here, the user gets stuck on a
+      //     "check your email" panel for an email that never comes,
+      //     while the router sits at LoginScreen because identity
+      //     isn't unlocked. Initialize the identity NOW so the
+      //     SetupPrompt path takes over on the DirectoryScreen.
+      const session = this.auth.getState().session;
+      if (session) {
+        await this.identity.initializeForNewUser(password);
+        await this.persistIdentity();
+        this.setState({ ...this.state, busy: false });
+      } else {
+        this.setState({
+          ...this.state,
+          busy: false,
+          awaitingConfirmation: email,
+        });
+      }
     } catch (err) {
       this.setState({
         ...this.state,

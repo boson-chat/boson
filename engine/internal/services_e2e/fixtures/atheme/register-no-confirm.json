@@ -1,0 +1,31 @@
+{
+  "stack": "atheme",
+  "scenario": "register-no-confirm",
+  "recorded": "2026-05-30T19:48:56.529903694Z",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2ereg878118139",
+      "message": "Invalid command. Use \u0002/msg NickServ help\u0002 for a command listing."
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2ereg878118139",
+      "args": [
+        "e2ereg878118139!e2ereg8781@172.18.0.1",
+        "e2ereg878118139",
+        "You are now logged in as e2ereg878118139"
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2ereg878118139",
+      "message": "\u0002e2ereg878118139\u0002 is now registered to \u0002nobody@test.invalid\u0002, with the password \u0002hunter2-p878119562\u0002."
+    }
+  ]
+}

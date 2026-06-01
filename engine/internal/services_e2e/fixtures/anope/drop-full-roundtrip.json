@@ -1,0 +1,69 @@
+{
+  "stack": "anope",
+  "scenario": "drop-full-roundtrip",
+  "recorded": "2026-05-30T22:31:11.81846022Z",
+  "ircdLabel": "unrealircd-5.0.7 + anope-2.0.19",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull351004226",
+      "message": "Unknown command \u0002VERSION\u0002. \"/msg NickServ HELP\" for help.",
+      "tags": {
+        "msgid": "NWgpftcDA1byxMFa4J9e8i",
+        "time": "2026-05-30T22:31:06.910Z"
+      }
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2efull351004226.",
+      "args": [
+        "e2efull351004226!e2efull351@172.18.0.1",
+        "e2efull351004226",
+        "You are now logged in as e2efull351004226."
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull351004226",
+      "message": "Nickname \u0002e2efull351004226\u0002 registered.",
+      "tags": {
+        "msgid": "TNXHKdKbqoM5i2qvIwLPnQ",
+        "time": "2026-05-30T22:31:06.910Z"
+      }
+    },
+    {
+      "kind": "901",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged out.",
+      "args": [
+        "e2efull351004226!e2efull351@172.18.0.1",
+        "You are now logged out."
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull351004226",
+      "message": "Nickname \u0002e2efull351004226\u0002 has been dropped.",
+      "tags": {
+        "msgid": "xhyGVBuyliThwgdIrzUSx9",
+        "time": "2026-05-30T22:31:08.172Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull351004226",
+      "message": "Unknown command \u0002HELP\u0002. \"/msg NickServ HELP\" for help.",
+      "tags": {
+        "msgid": "j5yNQwrdPET7WIMofkXEW7",
+        "time": "2026-05-30T22:31:10.018Z"
+      }
+    }
+  ]
+}

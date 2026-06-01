@@ -21,3 +21,17 @@ type User struct {
 }
 
 func (User) TableName() string { return "users" }
+
+// HandleChange is one audit row written every time a user renames their
+// handle. redirect_until is how long the old handle stays reserved (so
+// lookups of stale identifiers still resolve back to the same user
+// while clients catch up).
+type HandleChange struct {
+	UserID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"user_id"`
+	OldHandle     string    `gorm:"not null" json:"old_handle"`
+	NewHandle     string    `gorm:"not null" json:"new_handle"`
+	ChangedAt     time.Time `gorm:"primaryKey;not null;default:now()" json:"changed_at"`
+	RedirectUntil time.Time `gorm:"not null" json:"redirect_until"`
+}
+
+func (HandleChange) TableName() string { return "handle_changes" }

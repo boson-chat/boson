@@ -104,4 +104,35 @@ describe('DirectoryService', () => {
     expect(url).toBe('http://api/me');
     expect(init?.method).toBe('DELETE');
   });
+
+  it('updateMe PATCHes /me with the supplied handle', async () => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([input as string, init]);
+      return mockResponse({
+        id: '1', handle: 'renamed', is_discoverable: true,
+        encrypted_user_secret: '', created_at: '2026-01-01',
+      });
+    }) as typeof fetch;
+
+    const updated = await svc.updateMe({ handle: 'renamed' });
+    expect(updated.handle).toBe('renamed');
+    const [url, init] = calls[0];
+    expect(url).toBe('http://api/me');
+    expect(init?.method).toBe('PATCH');
+    expect(JSON.parse(init!.body as string)).toEqual({ handle: 'renamed' });
+  });
+
+  it('updateMe surfaces 409 (handle taken) as HttpError', async () => {
+    globalThis.fetch = (async () => mockResponse({ error: 'handle taken' }, 409)) as typeof fetch;
+    await expect(svc.updateMe({ handle: 'taken' })).rejects.toMatchObject({
+      status: 409,
+    });
+  });
+
+  it('updateMe surfaces 400 (too short) as HttpError', async () => {
+    globalThis.fetch = (async () => mockResponse({ error: 'handle must be at least 3 characters' }, 400)) as typeof fetch;
+    await expect(svc.updateMe({ handle: 'ab' })).rejects.toMatchObject({
+      status: 400,
+    });
+  });
 });

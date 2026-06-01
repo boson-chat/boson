@@ -1,0 +1,59 @@
+{
+  "stack": "atheme",
+  "scenario": "drop-full-roundtrip",
+  "recorded": "2026-05-30T22:29:07.214849314Z",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull44934314",
+      "message": "Invalid command. Use \u0002/msg NickServ help\u0002 for a command listing."
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2efull44934314",
+      "args": [
+        "e2efull44934314!e2efull449@172.18.0.1",
+        "e2efull44934314",
+        "You are now logged in as e2efull44934314"
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull44934314",
+      "message": "\u0002e2efull44934314\u0002 is now registered to \u0002nobody@test.invalid\u0002, with the password \u0002hunter2-p44935452\u0002."
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull44934314",
+      "message": "To avoid accidental use of this command, this operation has to be confirmed. Please confirm by replying with \u0002/msg NickServ DROP e2efull44934314 hunter2-p44935452 1b4fc401:664c8114\u0002"
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull44934314",
+      "message": "This is a friendly reminder that you are about to \u0002destroy\u0002 the account \u0002e2efull44934314\u0002."
+    },
+    {
+      "kind": "901",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged out",
+      "args": [
+        "e2efull44934314!e2efull449@172.18.0.1",
+        "You are now logged out"
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2efull44934314",
+      "message": "The account \u0002e2efull44934314\u0002 has been dropped."
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "stack": "ergo",
+  "scenario": "drop-confirm-prompt",
+  "recorded": "2026-05-30T19:45:57.074413857Z",
+  "ircdLabel": "ergo-stable",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "Unknown command. To see available commands, run: /NS HELP",
+      "tags": {
+        "time": "2026-05-30T19:45:56.474Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "Account created",
+      "tags": {
+        "time": "2026-05-30T19:45:56.475Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "You're now logged in as e2edrop465933303",
+      "tags": {
+        "time": "2026-05-30T19:45:56.475Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "\u0002Warning: unregistering this account will remove its stored privileges.\u0002",
+      "tags": {
+        "time": "2026-05-30T19:45:56.974Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "\u0002If you are having problems with your account, contact an administrator.\u0002",
+      "tags": {
+        "time": "2026-05-30T19:45:56.974Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "\u0002Unregistering your account will unregister all channels you founded.\u0002",
+      "tags": {
+        "time": "2026-05-30T19:45:56.974Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "\u0002Note that an unregistered account name remains reserved and cannot be re-registered.\u0002",
+      "tags": {
+        "time": "2026-05-30T19:45:56.974Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "\u0002To prevent this, transfer your channels first with CS TRANSFER.\u0002",
+      "tags": {
+        "time": "2026-05-30T19:45:56.974Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop465933303",
+      "message": "To confirm, run this command: /NS UNREGISTER e2edrop465933303 xjzda",
+      "tags": {
+        "time": "2026-05-30T19:45:56.974Z"
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "stack": "anope",
+  "scenario": "drop-success",
+  "recorded": "2026-05-30T19:48:39.994298369Z",
+  "ircdLabel": "unrealircd-5.0.7 + anope-2.0.19",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop829604425",
+      "message": "Unknown command \u0002VERSION\u0002. \"/msg NickServ HELP\" for help.",
+      "tags": {
+        "msgid": "aVF6MmiJFhEvbvYYWlAnNu",
+        "time": "2026-05-30T19:48:39.094Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop829604425",
+      "message": "Nickname \u0002e2edrop829604425\u0002 registered.",
+      "tags": {
+        "msgid": "Ib2ZkujtuobVlSJgtHJgre",
+        "time": "2026-05-30T19:48:39.094Z"
+      }
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2edrop829604425.",
+      "args": [
+        "e2edrop829604425!e2edrop829@172.18.0.1",
+        "e2edrop829604425",
+        "You are now logged in as e2edrop829604425."
+      ]
+    },
+    {
+      "kind": "901",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged out.",
+      "args": [
+        "e2edrop829604425!e2edrop829@172.18.0.1",
+        "You are now logged out."
+      ]
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2edrop829604425",
+      "message": "Nickname \u0002e2edrop829604425\u0002 has been dropped.",
+      "tags": {
+        "msgid": "Pry89KJNiEdFzEVIIylDoE",
+        "time": "2026-05-30T19:48:39.894Z"
+      }
+    }
+  ]
+}

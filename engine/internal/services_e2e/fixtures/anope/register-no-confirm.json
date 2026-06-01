@@ -1,0 +1,39 @@
+{
+  "stack": "anope",
+  "scenario": "register-no-confirm",
+  "recorded": "2026-05-30T19:48:33.371666593Z",
+  "ircdLabel": "unrealircd-5.0.7 + anope-2.0.19",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2ereg756073298",
+      "message": "Unknown command \u0002VERSION\u0002. \"/msg NickServ HELP\" for help.",
+      "tags": {
+        "msgid": "lBLmblnGcycqG3bMsbVTCq",
+        "time": "2026-05-30T19:48:33.314Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2ereg756073298",
+      "message": "Nickname \u0002e2ereg756073298\u0002 registered.",
+      "tags": {
+        "msgid": "19MgXUGdZqqZRh0U0xiOp3",
+        "time": "2026-05-30T19:48:33.314Z"
+      }
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2ereg756073298.",
+      "args": [
+        "e2ereg756073298!e2ereg7560@172.18.0.1",
+        "e2ereg756073298",
+        "You are now logged in as e2ereg756073298."
+      ]
+    }
+  ]
+}

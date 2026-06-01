@@ -207,6 +207,30 @@
   font-style: italic;
 }
 
+.server-settings-drop-error {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-2);
+  background: var(--surface-danger, color-mix(in srgb, var(--accent-danger, #c0392b) 12%, transparent));
+  color: var(--accent-danger, #c0392b);
+  font-size: var(--font-size-1);
+}
+
+.server-settings-identify-feedback {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-2);
+  font-size: var(--font-size-1);
+}
+.server-settings-identify-success {
+  background: var(--surface-success, color-mix(in srgb, var(--accent-success, #27ae60) 12%, transparent));
+  color: var(--accent-success, #27ae60);
+}
+.server-settings-identify-error {
+  background: var(--surface-danger, color-mix(in srgb, var(--accent-danger, #c0392b) 12%, transparent));
+  color: var(--accent-danger, #c0392b);
+}
+
 /* Advanced section — stacked card layout, one card per command surface
    (Services, IRC commands, future: ChanServ, user modes, etc.). */
 .server-settings-advanced {
@@ -242,6 +266,103 @@
 
 .server-settings-services-fw {
   display: inline-flex;
+}
+
+/* Services panel — Detected + Status rows stacked at the top of the
+   card. Each is a DetailRow so colon-alignment matches the rest of
+   the settings screen. */
+.services-creds-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+/* Status-driven copy block above the form. One paragraph + (when
+   pending) an inline confirm-code input. Tone-tinted so the user
+   reads the right urgency at a glance. */
+.services-creds-status-msg {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  border-radius: var(--radius-sm);
+  border-left: 3px solid transparent;
+}
+.services-creds-status-msg code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.services-creds-status-msg-ok {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--success, #10b981) 8%, var(--surface));
+  border-left-color: var(--success, #10b981);
+}
+.services-creds-status-msg-error {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--danger, #ef4444) 8%, var(--surface));
+  border-left-color: var(--danger, #ef4444);
+}
+.services-creds-status-msg-warn {
+  color: var(--fg);
+  background: color-mix(in oklab, var(--warn, #f5a524) 8%, var(--surface));
+  border-left-color: var(--warn, #f5a524);
+}
+.services-creds-status-msg-info {
+  color: var(--fg-2);
+  background: var(--surface);
+  border-left-color: var(--border);
+}
+
+.services-creds-status-pending {
+  margin-bottom: var(--space-3);
+}
+.services-creds-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.services-creds-confirm-row > .bds-input {
+  flex: 1;
+  min-width: 200px;
+  max-width: 360px;
+}
+
+/* Destructive Drop action — sits below the action row. Two visual
+   states: idle (just the ghost "Drop account" button), and confirming
+   (a warning line + Yes/Cancel pair tinted with danger-ish color).
+   Border-left accent matches the warn/error status banners so the
+   destructive intent is visually obvious without a full modal. */
+.services-creds-drop-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.services-creds-drop-row-confirming {
+  padding: var(--space-2);
+  border-left: 3px solid var(--danger, #ef4444);
+  background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
+  border-radius: var(--radius-sm, 4px);
+  flex-wrap: wrap;
+}
+.services-creds-drop-warning {
+  color: var(--danger, #ef4444);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  flex: 1 1 auto;
+  min-width: 220px;
+}
+.services-creds-drop-warning code {
+  font-family: var(--font-mono);
+  background: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent);
+  padding: 0 4px;
+  border-radius: 3px;
 }
 
 /* Search input above the Advanced subsections. Constrains its width so

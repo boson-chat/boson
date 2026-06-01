@@ -72,6 +72,11 @@ export interface FakeAuthOptions {
   signInError?: Error | null;
   // signUp rejects with this if set.
   signUpError?: Error | null;
+  // When true, signUp() also establishes a session (matches the
+  // Supabase confirm-disabled flow on local dev). Default false
+  // matches the canonical confirm-enabled flow where signUp returns
+  // user-but-no-session and the user lands on "Check your email".
+  signUpEstablishesSession?: boolean;
 }
 
 export class FakeAuthService {
@@ -80,6 +85,7 @@ export class FakeAuthService {
   private signInError: Error | null;
   private signUpError: Error | null;
   private email: string;
+  signUpEstablishesSession: boolean;
 
   // Each call records its (email,password) tuple so tests can assert.
   signInCalls: Array<{ email: string; password: string }> = [];
@@ -91,6 +97,7 @@ export class FakeAuthService {
     this.signInError = opts.signInError ?? null;
     this.signUpError = opts.signUpError ?? null;
     this.email = opts.email ?? 'test@boson.dev';
+    this.signUpEstablishesSession = opts.signUpEstablishesSession ?? false;
   }
 
   async init(): Promise<void> {
@@ -113,13 +120,23 @@ export class FakeAuthService {
   async signUp(email: string, password: string): Promise<void> {
     this.signUpCalls.push({ email, password });
     if (this.signUpError) throw this.signUpError;
-    this._setSession({
-      access_token: 'jwt-test',
-      token_type: 'bearer',
-      expires_in: 3600,
-      refresh_token: 'refresh',
-      user: { id: 'u1', email } as unknown as Session['user'],
-    } as unknown as Session);
+    // Real Supabase only returns a session immediately when email
+    // confirmation is DISABLED on the project. The default flow
+    // (confirm-on, hosted dev → click email link) returns no session
+    // here — the user lands on "Check your email" until the deep
+    // link fires. Tests that want auto-session can opt-in via
+    // signUpEstablishesSession=true; default matches the
+    // confirm-enabled flow that LoginBloc's awaitingConfirmation
+    // branch was designed for.
+    if (this.signUpEstablishesSession) {
+      this._setSession({
+        access_token: 'jwt-test',
+        token_type: 'bearer',
+        expires_in: 3600,
+        refresh_token: 'refresh',
+        user: { id: 'u1', email } as unknown as Session['user'],
+      } as unknown as Session);
+    }
   }
 
   async signOut(): Promise<void> {

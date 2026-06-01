@@ -1,8 +1,21 @@
 import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
 import { containsNickMention } from './mention';
-import { SERVICE_CHANNEL, isMemoServSender, isServerWildcardTarget, isServiceSender } from './services';
+import {
+  SERVICE_CHANNEL,
+  classifyNickServReply,
+  isMemoServSender,
+  isNickServSender,
+  isServerWildcardTarget,
+  isServiceSender,
+  nickServReplyToStatus,
+} from './services';
 import { getServiceCredentialsStore } from './services-credentials';
+import { getAdapter } from './adapters';
+import { AnopeAccountService } from './account-service-anope';
+import { AthemeAccountService } from './account-service-atheme';
+import { ErgoAccountService } from './account-service-ergo';
+import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from './account-service';
 import { getMemoStore } from '../memos';
 import type {
   ChannelDirectory,
@@ -319,6 +332,131 @@ export class ChatService {
     this.identifyNickserv(creds.nickservPassword);
   }
 
+  // Re-send the confirmation email for a pending registration.
+  // Anope-only on the wire; for Atheme/Ergo this resolves to
+  // { kind: 'unsupported', verb: 'resend' } immediately without
+  // contacting the server (caller's UI should have hidden the
+  // affordance based on supportsResend()).
+  async resendConfirmation(accountName: string): Promise<ResendResult | UnsupportedResult> {
+    const fw = this.servicesFramework;
+    if (fw === 'atheme') return this.getAthemeAccountService().resend(accountName);
+    if (fw === 'ergo') return this.getErgoAccountService().resend(accountName);
+    return this.getAnopeAccountService().resend(accountName);
+  }
+
+  // Reports whether this network's services package supports a
+  // resend-confirmation-email operation. UI uses this to hide the
+  // Resend button entirely on packages that don't (Atheme/Ergo).
+  supportsResendConfirmation(): boolean {
+    const fw = this.servicesFramework;
+    if (fw === 'atheme') return this.getAthemeAccountService().supportsResend();
+    if (fw === 'ergo') return this.getErgoAccountService().supportsResend();
+    return this.getAnopeAccountService().supportsResend();
+  }
+
+  // Submit the confirmation code from the user's email to finalize
+  // registration. Returns a discrete ConfirmResult so the panel can
+  // surface wrong-code / expired / failed inline.
+  async confirmAccount(accountName: string, code: string): Promise<ConfirmResult> {
+    const fw = this.servicesFramework;
+    if (fw === 'atheme') return this.getAthemeAccountService().confirm(accountName, code);
+    if (fw === 'ergo') return this.getErgoAccountService().confirm(accountName, code);
+    return this.getAnopeAccountService().confirm(accountName, code);
+  }
+
+  // Register a new NickServ account on this network. Returns a
+  // discrete RegisterResult so the caller can route to the next
+  // step (confirm-code prompt vs auto-identify) based on the kind.
+  async registerAccount(password: string, email: string): Promise<RegisterResult> {
+    const fw = this.servicesFramework;
+    if (fw === 'atheme') return this.getAthemeAccountService().register(password, email);
+    if (fw === 'ergo') return this.getErgoAccountService().register(password, email);
+    return this.getAnopeAccountService().register(password, email);
+  }
+
+  // Identify against NickServ with the given password. Returns a
+  // discrete IdentifyResult so the caller can surface a precise
+  // error (wrong-password / no-such-account / timeout) instead of
+  // waiting for the credentials store to flip via the classifier.
+  //
+  // Routes by detected framework — all three impls share the same
+  // logic via the runIdentify helper, but the per-framework dispatch
+  // preserves the option for any package to override behaviour
+  // later if needed.
+  async identifyAccount(password: string): Promise<IdentifyResult> {
+    const fw = this.servicesFramework;
+    if (fw === 'atheme') {
+      return this.getAthemeAccountService().identify(password);
+    }
+    if (fw === 'ergo') {
+      return this.getErgoAccountService().identify(password);
+    }
+    return this.getAnopeAccountService().identify(password);
+  }
+
+  // Drop the NickServ account on this network. Returns a discrete
+  // result kind so the caller (Identity panel) can switch without
+  // parsing strings or knowing about per-package quirks.
+  //
+  // All three packages (Anope, Atheme, Ergo) are now migrated to
+  // AccountService impls that own their per-package multi-step
+  // dances internally. When the detector hasn't classified yet,
+  // default to the Anope shape (same fallback adapters.ts uses).
+  async dropAccount(accountName: string, password: string): Promise<DropResult> {
+    const fw = this.servicesFramework;
+    if (fw === 'atheme') {
+      return this.getAthemeAccountService().drop(accountName, password);
+    }
+    if (fw === 'ergo') {
+      return this.getErgoAccountService().drop(accountName, password);
+    }
+    // Anope + null + 'unknown' all route to the Anope impl as the
+    // safe default.
+    return this.getAnopeAccountService().drop(accountName, password);
+  }
+
+  private anopeAccountService: AnopeAccountService | null = null;
+  private athemeAccountService: AthemeAccountService | null = null;
+  private ergoAccountService: ErgoAccountService | null = null;
+
+  // Lazily constructed the first time dropAccount() needs it; cached
+  // so subscriber state (the status observable) persists across
+  // operations. Reset when the session disconnects (in detach()).
+  private getAnopeAccountService(): AnopeAccountService {
+    if (!this.anopeAccountService) {
+      this.anopeAccountService = new AnopeAccountService(this.session, {
+        myNick: this.myNick,
+      });
+    } else {
+      // Live-update myNick so the AccountService's NickServ-reply
+      // filter stays correct across nick changes.
+      this.anopeAccountService._setMyNick(this.myNick);
+    }
+    return this.anopeAccountService;
+  }
+
+  private getAthemeAccountService(): AthemeAccountService {
+    if (!this.athemeAccountService) {
+      this.athemeAccountService = new AthemeAccountService(this.session, {
+        myNick: this.myNick,
+      });
+    } else {
+      this.athemeAccountService._setMyNick(this.myNick);
+    }
+    return this.athemeAccountService;
+  }
+
+  private getErgoAccountService(): ErgoAccountService {
+    if (!this.ergoAccountService) {
+      this.ergoAccountService = new ErgoAccountService(this.session, {
+        myNick: this.myNick,
+      });
+    } else {
+      this.ergoAccountService._setMyNick(this.myNick);
+    }
+    return this.ergoAccountService;
+  }
+
   send(channel: string, message: string): void {
     if (!message.trim()) return;
     this.session.privmsg(channel, message);
@@ -356,6 +494,168 @@ export class ChatService {
       text: from ? `<${from}> ${body}` : body,
       timestamp: Date.now(),
     });
+  }
+
+  // Pipe a NickServ NOTICE body through the classifier. On a hit,
+  // merge the new status onto the existing credentials entry so the
+  // Services panel's badge stays current. We never overwrite saved
+  // password / email / accountName from here — only the `status`
+  // field — so the UI's "credentials are saved" state is untouched
+  // by a transient identify-failed (the user might just be typing
+  // a typo).
+  //
+  // Silent no-op when persistence isn't configured (no stable
+  // serverId to key by) or when the body doesn't match any pattern.
+  private maybeUpdateAccountStatus(body: string): void {
+    const serverId = this.persistence?.scope.serverId;
+    if (!serverId) return;
+    const kind = classifyNickServReply(body);
+    if (!kind) return;
+
+    // Side-effect-only kinds run BEFORE we filter on "did we get a
+    // persisted-status mapping?" — they want to fire a follow-up
+    // regardless of whether the badge should move.
+    //
+    // NOTE: 'drop-confirm-prompt' and 'drop-needs-password' used to
+    // dispatch follow-up commands here. After Step 2 of the
+    // AccountService migration (account-service-anope.ts), the
+    // Anope drop conversation is encapsulated inside
+    // AnopeAccountService.drop() — it owns its own multi-step
+    // dance. Firing the follow-ups here too would cause double-
+    // sends, so the side-effect branches were removed. The kinds
+    // still classify (status badge can react), they just no longer
+    // drive control flow from this method.
+
+    // Generic verbatim replay: NickServ says "please confirm by
+    // replying with /msg NickServ <verb> <args>". Parse the inline
+    // command and send <verb> <args> verbatim to NickServ. Handles:
+    //   * Atheme's token-based confirms
+    //   * Anope's "DROP CONFIRM" two-step (covered by the simpler
+    //     drop-confirm-prompt branch above too — first match wins)
+    //   * irc.boson.chat's 3-arg "DROP <nick> <hostmask> <token>"
+    //     variant that defies template categorization
+    // Strips IRCv3 formatting bytes (\x02 bold, \x1d italic,
+    // \x1f underline, \x0f reset) before parsing so wrapped
+    // arguments like `\x02alice\x02` come out as `alice`.
+    // Anope RESEND rejected because the rate-limit cooldown hasn't
+    // elapsed. Anope's `resenddelay` default sits in the 5-min
+    // range and the reply doesn't carry a precise remaining time,
+    // so we pin the disable to Date.now() + 5min. UI subscribes
+    // and dims the Resend button accordingly.
+    if (kind === 'resend-cooldown') {
+      const store = getServiceCredentialsStore();
+      const existing = store.get(serverId) ?? {};
+      store.set(serverId, {
+        ...existing,
+        resendCooldownUntil: Date.now() + 5 * 60 * 1000,
+      });
+      return;
+    }
+
+    // NOTE: 'service-confirm-replay' used to dispatch the inline
+    // /msg NickServ command back to the server here. After Steps 2
+    // (Anope drop) and 3 (Atheme drop), both packages' drop flows
+    // own their own replay logic internally — the side-effect was
+    // removed to prevent double-sends. The classifier kind still
+    // exists (it's emitted, just not acted on at this level) so
+    // the badge tests / debug log still see it. Ergo drop and any
+    // future REGISTER-confirm replay cases will move into their
+    // respective AccountService impls in Steps 4 and 7.
+
+    const rawNextStatus = nickServReplyToStatus(kind);
+    if (!rawNextStatus) return;
+    const store = getServiceCredentialsStore();
+    const existing = store.get(serverId) ?? {};
+
+    // drop-success means the account is gone — wipe the saved
+    // password + email so we don't auto-IDENTIFY into a void on the
+    // next connect. Keep `accountName` around so the UI's empty state
+    // can still say what was dropped (the user might want to re-
+    // register the same nick).
+    if (kind === 'drop-success') {
+      store.set(serverId, {
+        accountName: existing.accountName,
+        status: 'no-account',
+      });
+      return;
+    }
+
+    // Context-aware promotion / preservation:
+    //
+    // Anope (and Atheme in their unconfirmed-grace mode) lets an
+    // account IDENTIFY *before* the email confirmation is done. A
+    // raw `identified-success` reply means "your password matched",
+    // not "your account is confirmed". If we previously persisted
+    // `pending-confirmation` from the REGISTER reply, a naive
+    // overwrite to plain `identified` would erase the confirm prompt
+    // even though the server still considers the account unconfirmed
+    // and will silently expire it. Map to `identified-unconfirmed`
+    // so the UI keeps surfacing the code input.
+    //
+    // Symmetric case for `registration-confirmed`: if we're already
+    // identified (or identified-unconfirmed) when CONFIRM lands,
+    // promote to plain `identified`, not back down to `registered`.
+    // The natural flow on irc.boson.chat is REGISTER → IDENTIFY →
+    // (later) CONFIRM, with the user already logged in when the
+    // code goes through.
+    let nextStatus: typeof rawNextStatus = rawNextStatus;
+    if (
+      rawNextStatus === 'identified' &&
+      (existing.status === 'pending-confirmation' ||
+        existing.status === 'identified-unconfirmed')
+    ) {
+      nextStatus = 'identified-unconfirmed';
+    } else if (
+      rawNextStatus === 'registered' &&
+      (existing.status === 'identified' ||
+        existing.status === 'identified-unconfirmed')
+    ) {
+      nextStatus = 'identified';
+    }
+
+    if (existing.status !== nextStatus) {
+      store.set(serverId, { ...existing, status: nextStatus });
+    }
+
+    // After a successful registration (either post-CONFIRM, or a
+    // no-confirm flow where NickServ just says "account registered"),
+    // auto-fire IDENTIFY using the saved password. The user explicitly
+    // chose to register from the panel and saved their password in the
+    // same action — sending IDENTIFY right away lands them in the
+    // 'identified' state without a second click. The follow-up
+    // classifier hit will overwrite our `registered` write with
+    // 'identified' (or 'identify-failed' if something's off).
+    if (kind === 'registration-confirmed' && existing.nickservPassword) {
+      this.identifyNickserv(existing.nickservPassword);
+    }
+
+    // Verify-confirmation auto-probe. When we transition INTO
+    // `identified` from anything other than identified, fire an
+    // `INFO <acct>` to ground-truth whether the account is also
+    // CONFIRMED — Anope (and Atheme in unconfirmed-grace mode) lets
+    // you identify against an unconfirmed account, and the priority
+    // logic above only catches the case where the prior status was
+    // already `pending-confirmation`. After a cold reload + fresh
+    // identify the prior was `unknown`, so we'd persist plain
+    // `identified` and the user would never see the "confirm your
+    // email" prompt until they manually ran Check status.
+    //
+    // The INFO reply flows back through this same handler:
+    //   - "is an unconfirmed nickname" → kind=account-unconfirmed →
+    //     status flips to identified-unconfirmed, UI surfaces the
+    //     code input.
+    //   - Anything else → no change; the badge stays identified.
+    //
+    // Only fires on the transition edge (prev !== identified) so we
+    // don't loop on duplicate "you are now identified" replies.
+    if (
+      existing.status !== 'identified' &&
+      nextStatus === 'identified' &&
+      (existing.accountName || this.myNick)
+    ) {
+      const acct = existing.accountName || this.myNick;
+      this.session.privmsg('NickServ', getAdapter(this.servicesFramework).buildInfo(acct).replace(/^\/msg NickServ\s+/i, ''));
+    }
   }
 
   // input() is the single entrypoint for the chat input box. Plain text goes
@@ -745,6 +1045,17 @@ export class ChatService {
           this.maybeStoreMemo(e.From, e.Message);
           return;
         }
+        // NickServ NOTICEs feed into the Services panel's status
+        // indicator. We classify the body against a small phrase
+        // table (see `classifyNickServReply`) and persist the result
+        // to the credentials store, where the UI subscribes. The
+        // message itself still flows through to the ~server pseudo-
+        // channel via the normal routing below — we want the audit
+        // trail visible to the user, not hidden behind a status
+        // badge.
+        if (isToMe && isNickServSender(e.From)) {
+          this.maybeUpdateAccountStatus(e.Message);
+        }
         // Decide which UI channel this message belongs in:
         //   - real channel (#foo): keep the original target
         //   - DM from a service (NickServ, server-source): pseudo `~server`
@@ -1072,6 +1383,25 @@ export class ChatService {
         if (args[1]) next.version = args[1];
         this.serverInfo = next;
         this.emit();
+        break;
+      }
+      case '900': {
+        // RPL_LOGGEDIN (IRCv3) — the server confirms our account in
+        // a side-channel. Format:
+        //   :server 900 <nick> <nick>!<user>@<host> <account> :You are now logged in as <account>
+        // Fires on SASL success, on NickServ CONFIRM completion, and
+        // some daemons re-emit on every connect once identified. We
+        // treat it as a strong "you're identified" signal and flip
+        // the persisted status immediately — no NickServ NOTICE
+        // round-trip needed. Account name lives in Args[2] on
+        // engines that split params; fall back to e.Message tail.
+        const serverId = this.persistence?.scope.serverId;
+        if (!serverId) break;
+        const store = getServiceCredentialsStore();
+        const existing = store.get(serverId) ?? {};
+        if (existing.status !== 'identified') {
+          store.set(serverId, { ...existing, status: 'identified' });
+        }
         break;
       }
       case 'CAP': {

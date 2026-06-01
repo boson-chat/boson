@@ -1,0 +1,35 @@
+{
+  "stack": "ergo",
+  "scenario": "register-no-confirm",
+  "recorded": "2026-05-30T19:45:53.536280715Z",
+  "ircdLabel": "ergo-stable",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2ereg421192226",
+      "message": "Unknown command. To see available commands, run: /NS HELP",
+      "tags": {
+        "time": "2026-05-30T19:45:53.435Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2ereg421192226",
+      "message": "Account created",
+      "tags": {
+        "time": "2026-05-30T19:45:53.437Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2ereg421192226",
+      "message": "You're now logged in as e2ereg421192226",
+      "tags": {
+        "time": "2026-05-30T19:45:53.437Z"
+      }
+    }
+  ]
+}

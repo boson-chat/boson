@@ -21,6 +21,7 @@ func NewMeHandler(users user.UserServiceImpl) *MeHandler {
 func (h *MeHandler) Register(mux *stdhttp.ServeMux) {
 	mux.HandleFunc("GET /me", h.get)
 	mux.HandleFunc("POST /me", h.create)
+	mux.HandleFunc("PATCH /me", h.patch)
 	mux.HandleFunc("DELETE /me", h.delete)
 }
 
@@ -84,6 +85,46 @@ func (h *MeHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	writeJSON(w, stdhttp.StatusCreated, u)
+}
+
+type patchMeRequest struct {
+	Handle *string `json:"handle,omitempty"`
+}
+
+// patch updates mutable fields on the caller's user row. Currently the
+// only one is `handle`; other writable fields will join this surface as
+// they appear (display_name, avatar, is_discoverable). Omitting a field
+// in the body leaves it untouched.
+func (h *MeHandler) patch(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	p := middleware.MustUser(r.Context())
+
+	var req patchMeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid json")
+		return
+	}
+
+	if req.Handle == nil {
+		writeError(w, stdhttp.StatusBadRequest, "no fields to update")
+		return
+	}
+
+	u, err := h.Users.UpdateHandle(r.Context(), p.UserID, *req.Handle)
+	switch {
+	case errors.Is(err, user.ErrHandleInvalid):
+		writeError(w, stdhttp.StatusBadRequest, "handle must be at least 3 characters")
+		return
+	case errors.Is(err, user.ErrHandleTaken):
+		writeError(w, stdhttp.StatusConflict, "handle taken")
+		return
+	case errors.Is(err, user.ErrNotFound):
+		writeError(w, stdhttp.StatusNotFound, "user not found")
+		return
+	case err != nil:
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, u)
 }
 
 // delete removes the caller's user row. Cascading FKs clean up dependents

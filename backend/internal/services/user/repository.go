@@ -3,6 +3,7 @@ package user
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/boson-chat/boson/backend/internal/db"
 
@@ -12,11 +13,21 @@ import (
 
 var ErrNotFound = errors.New("user not found")
 
+// HandleRedirectWindow is how long an old handle stays reserved after a
+// rename. Lookups of the old handle should keep resolving back to the
+// owner for this window so clients with stale references catch up.
+const HandleRedirectWindow = 90 * 24 * time.Hour
+
 type UserRepositoryImpl interface {
 	FindByID(ctx context.Context, id uuid.UUID) (*User, error)
 	FindByHandle(ctx context.Context, handle string) (*User, error)
 	Create(ctx context.Context, u *User) error
 	Delete(ctx context.Context, id uuid.UUID) error
+	// UpdateHandle swaps the user's handle to newHandle in a single
+	// transaction with a handle_changes audit row. Returns the refreshed
+	// User on success, or ErrNotFound / a unique-violation error if the
+	// new handle is taken.
+	UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error)
 }
 
 type UserRepository struct {
@@ -65,4 +76,55 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *UserRepository) UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error) {
+	var refreshed User
+	err := r.db.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current User
+		if err := tx.Where("id = ?", id).First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+
+		now := time.Now().UTC()
+
+		// No-op when the handle is unchanged (case-sensitive) — return
+		// the current row without writing an audit entry.
+		if current.Handle == newHandle {
+			refreshed = current
+			return nil
+		}
+
+		change := HandleChange{
+			UserID:        current.ID,
+			OldHandle:     current.Handle,
+			NewHandle:     newHandle,
+			ChangedAt:     now,
+			RedirectUntil: now.Add(HandleRedirectWindow),
+		}
+		if err := tx.Create(&change).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&User{}).
+			Where("id = ?", id).
+			Updates(map[string]any{
+				"handle":            newHandle,
+				"handle_changed_at": now,
+			}).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Where("id = ?", id).First(&refreshed).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &refreshed, nil
 }

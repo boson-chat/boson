@@ -2,7 +2,13 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, ChipInput, Divider, Field, Input, Tabs, Toggle, useTransientFlag } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
-import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
+import {
+  getServiceCredentialsStore,
+  type AccountStatus,
+  type ServiceCredentials,
+} from '../../modules/chat/services-credentials';
+import { getAdapter } from '../../modules/chat/adapters';
+import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
 import './ServerSettings.css';
 
 // Server settings screen. Renders to the right of the persistent ServerRail
@@ -67,6 +73,33 @@ interface ServerSettingsProps {
   // input pipeline as the chat box for parity (slash parsing, help
   // commands, feedback banner, etc.).
   onRunCommand?: (line: string) => void;
+  // Step 2 of the AccountService migration. When present, the
+  // Identity section's Drop button calls this instead of building
+  // a raw command via the legacy adapter. The promise resolves to
+  // a discrete DropResult once the multi-step Anope/Atheme/Ergo
+  // dance has fully completed (or timed out).
+  onDropAccount?: (accountName: string, password: string) => Promise<DropResult>;
+  // Step 5. Manual "Identify now" path that returns a discrete
+  // IdentifyResult — the panel surfaces wrong-password / no-such-
+  // account inline instead of just waiting for the badge to flip.
+  // Falls back to onTriggerAutoIdentify (fire-and-forget) when
+  // omitted, preserving compatibility with mid-migration callers.
+  onIdentifyAccount?: (password: string) => Promise<IdentifyResult>;
+  // Step 6. Register button uses this when present — returns a
+  // discrete RegisterResult (pending-confirmation / registered /
+  // nick-taken / email-rejected / failed). Falls back to the
+  // legacy onRunCommand path when omitted.
+  onRegisterAccount?: (password: string, email: string) => Promise<RegisterResult>;
+  // Step 7. Confirm button uses this when present — discrete
+  // ConfirmResult (confirmed / wrong-code / expired / failed).
+  onConfirmAccount?: (accountName: string, code: string) => Promise<ConfirmResult>;
+  // Step 8. Resend uses the new AccountService path. Returns
+  // ResendResult (sent/cooldown/failed) or UnsupportedResult on
+  // packages that don't have a resend (Atheme/Ergo).
+  onResendConfirmation?: (accountName: string) => Promise<ResendResult | UnsupportedResult>;
+  // True when this network's services package supports resend.
+  // When false, the panel hides the Resend button entirely.
+  supportsResend?: boolean;
   // Optional — when both are present, an "Edit" tab is added that
   // lets the row's owner update profile-shaped fields and submit
   // them through onSaveProfile (which hits PATCH /servers/{id}).
@@ -94,7 +127,7 @@ const MENU: readonly MenuItem[] = [
 
 export function ServerSettings({
   serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
-  serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand,
+  serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend,
   directoryEntry, onSaveProfile,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
@@ -141,13 +174,25 @@ export function ServerSettings({
 
         <div class="server-settings-body" role="tabpanel">
           {section === 'info' && <InfoSection info={serverInfo} />}
-          {section === 'identity' && <IdentitySection myNick={myNick} onChangeNick={onChangeNick} />}
-          {section === 'advanced' && (
-            <AdvancedSection
+          {section === 'identity' && (
+            <IdentitySection
+              myNick={myNick}
+              onChangeNick={onChangeNick}
               serverId={serverId}
               servicesFramework={servicesFramework}
-              myNick={myNick}
               onTriggerAutoIdentify={onTriggerAutoIdentify}
+              onRunCommand={onRunCommand}
+              onDropAccount={onDropAccount}
+              onIdentifyAccount={onIdentifyAccount}
+              onRegisterAccount={onRegisterAccount}
+              onConfirmAccount={onConfirmAccount}
+              onResendConfirmation={onResendConfirmation}
+              supportsResend={supportsResend}
+            />
+          )}
+          {section === 'advanced' && (
+            <AdvancedSection
+              myNick={myNick}
               onRunCommand={onRunCommand}
               serverLog={serverLog}
             />
@@ -197,73 +242,563 @@ function InfoSection({ info }: { info: ServerInfo }) {
   );
 }
 
-function IdentitySection({ myNick, onChangeNick }: { myNick: string; onChangeNick?: (nick: string) => void }) {
+interface IdentitySectionProps {
+  myNick: string;
+  onChangeNick?: (nick: string) => void;
+  serverId?: string;
+  servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null;
+  onTriggerAutoIdentify?: () => void;
+  onRunCommand?: (line: string) => void;
+  // Step 2 of the AccountService migration — when present, the
+  // Identity section calls this for the Drop button instead of
+  // building a raw command via the legacy adapter. Returns a
+  // discrete DropResult so the panel can surface a precise error
+  // (wrong password / no such account / timeout) instead of
+  // waiting for the credentials store to flip.
+  onDropAccount?: (accountName: string, password: string) => Promise<DropResult>;
+  // Step 5 — same shape as onDropAccount but for IDENTIFY.
+  onIdentifyAccount?: (password: string) => Promise<IdentifyResult>;
+  // Step 6 — same shape but for REGISTER.
+  onRegisterAccount?: (password: string, email: string) => Promise<RegisterResult>;
+  // Step 7 — discrete ConfirmResult.
+  onConfirmAccount?: (accountName: string, code: string) => Promise<ConfirmResult>;
+  // Step 8 props (same shape as the top-level one — re-declared
+  // here because IdentitySectionProps drives the inner section
+  // directly rather than spreading the parent props).
+  onResendConfirmation?: (accountName: string) => Promise<ResendResult | UnsupportedResult>;
+  supportsResend?: boolean;
+}
+
+// Identity owns the full per-server account surface: current nick +
+// change-nick, plus the NickServ account flow (status, password,
+// email, register, confirm). One unified Card so it reads as a
+// single screen of "who you are on this network" rather than a stack
+// of unrelated panels.
+//
+// The raw "/msg NickServ <verb>" forms in Advanced → NickServ stay
+// for power-user use; everything a normal user wants is here.
+function IdentitySection({
+  myNick, onChangeNick,
+  serverId, servicesFramework, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend,
+}: IdentitySectionProps) {
+  // --- Change-nick state ----------------------------------------------
   // Optimistic input: we update the local draft as the user types, and
   // submit dispatches through onChangeNick. The actual rename only
   // applies when the server echoes a NICK event — which the bloc
   // handles globally — so this form intentionally doesn't update the
   // visible "Nick" row directly. If the server rejects (433 in-use,
   // 432 bad), the chat service surfaces an error banner.
-  const [draft, setDraft] = useState(myNick);
-  const submit = (e: Event): void => {
+  const [nickDraft, setNickDraft] = useState(myNick);
+  useEffect(() => { setNickDraft(myNick); }, [myNick]);
+  const submitNick = (e: Event): void => {
     e.preventDefault();
-    const next = draft.trim();
+    const next = nickDraft.trim();
     if (!onChangeNick || !next || next === myNick) return;
     onChangeNick(next);
   };
-  // Keep the draft in sync when the server's authoritative nick
-  // changes (e.g. NICK echo after success, or NickServ-driven rename).
-  useEffect(() => { setDraft(myNick); }, [myNick]);
+
+  // --- Account state --------------------------------------------------
+  // Form values shadow the saved credentials so the user can edit
+  // before committing. The subscribe below keeps everything in sync
+  // with ChatService's classifier writes.
+  const [accountName, setAccountName] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  const [email, setEmail] = useState<string>('');
+  const [confirmCode, setConfirmCode] = useState<string>('');
+  const [savedFlash, triggerSavedFlash] = useTransientFlag();
+  const [creds, setCreds] = useState<ServiceCredentials | null>(null);
+  // Two-state confirm for the destructive Drop action. First click on
+  // "Drop account" flips this to true and reveals an inline confirm /
+  // cancel pair in place of the original button. Resets to false
+  // whenever the active server changes or the saved password is
+  // cleared (so a stale "really drop?" never lingers across nicks).
+  const [dropConfirming, setDropConfirming] = useState(false);
+
+  useEffect(() => {
+    if (!serverId) {
+      setCreds(null);
+      setAccountName(''); setPassword(''); setEmail('');
+      return;
+    }
+    return getServiceCredentialsStore().subscribe(serverId, (v) => {
+      setCreds(v);
+      setAccountName(v?.accountName ?? '');
+      setPassword(v?.nickservPassword ?? '');
+      setEmail(v?.email ?? '');
+      // Cancel any in-flight "really drop?" prompt if the underlying
+      // creds change out from under us (server flip, classifier wrote
+      // a new status, etc.). The user shouldn't accidentally confirm
+      // a stale action.
+      setDropConfirming(false);
+    });
+  }, [serverId]);
+
+  const onSaveCreds = (e: Event): void => {
+    e.preventDefault();
+    if (!serverId) return;
+    const store = getServiceCredentialsStore();
+    const pw = password.trim(), em = email.trim(), acct = accountName.trim();
+    if (!pw && !em && !acct) {
+      store.clear(serverId);
+      triggerSavedFlash();
+      return;
+    }
+    store.set(serverId, {
+      ...(creds ?? {}),
+      nickservPassword: pw || undefined,
+      email: em || undefined,
+      accountName: acct || undefined,
+    });
+    triggerSavedFlash();
+  };
+
+  const onClearCreds = (): void => {
+    if (!serverId) return;
+    getServiceCredentialsStore().clear(serverId);
+  };
+
+  // Inline feedback for REGISTER outcomes (Step 6). Cleared when
+  // the user retries.
+  const [registerStatus, setRegisterStatus] = useState<{ kind: 'pending' | 'success' | 'error'; message: string } | null>(null);
+
+  const onRegister = async (): Promise<void> => {
+    if (!serverId) return;
+    const pw = password.trim(), em = email.trim();
+    if (!pw || !em) return;
+    setRegisterStatus({ kind: 'pending', message: 'Registering…' });
+    // Save creds + flag as 'registering' (transient). The classifier
+    // will overwrite this with the real status once NickServ replies.
+    // We save BEFORE firing so a reload mid-operation doesn't lose
+    // the pending state.
+    getServiceCredentialsStore().set(serverId, {
+      ...(creds ?? {}),
+      nickservPassword: pw,
+      email: em,
+      accountName: accountName.trim() || myNick || undefined,
+      status: 'registering',
+    });
+    if (!onRegisterAccount) {
+      // The button itself is gated on this prop being present
+      // (see render). Defensive null-check to satisfy the linter.
+      setRegisterStatus({ kind: 'error', message: 'Register is unavailable on this connection.' });
+      return;
+    }
+    const result = await onRegisterAccount(pw, em);
+    switch (result.kind) {
+      case 'pending-confirmation':
+        setRegisterStatus({ kind: 'success', message: `Check ${result.email} for a confirmation code.` });
+        break;
+      case 'registered':
+        setRegisterStatus({ kind: 'success', message: 'Account registered. Auto-identifying…' });
+        setTimeout(() => setRegisterStatus(null), 4000);
+        break;
+      case 'nick-taken':
+        setRegisterStatus({ kind: 'error', message: 'That nick is already registered. Pick a different account name or identify against the existing one.' });
+        break;
+      case 'email-rejected':
+        setRegisterStatus({ kind: 'error', message: `Email rejected: ${result.reason}` });
+        break;
+      case 'failed':
+        setRegisterStatus({ kind: 'error', message: result.reason === 'timeout'
+          ? 'Server never replied. Check the connection and try again.'
+          : `Register failed: ${result.reason}` });
+        break;
+    }
+  };
+
+  // Inline feedback for CONFIRM outcomes (Step 7).
+  const [confirmStatus, setConfirmStatus] = useState<{ kind: 'pending' | 'success' | 'error'; message: string } | null>(null);
+
+  const onConfirm = async (): Promise<void> => {
+    if (!serverId) return;
+    const code = confirmCode.trim();
+    if (!code) return;
+    const acct = accountName.trim() || creds?.accountName || '';
+    setConfirmStatus({ kind: 'pending', message: 'Confirming…' });
+    if (!onConfirmAccount) {
+      setConfirmStatus({ kind: 'error', message: 'Confirm is unavailable on this connection.' });
+      return;
+    }
+    const result = await onConfirmAccount(acct, code);
+    switch (result.kind) {
+      case 'confirmed':
+        setConfirmStatus({ kind: 'success', message: 'Account confirmed.' });
+        setConfirmCode('');
+        setTimeout(() => setConfirmStatus(null), 4000);
+        break;
+      case 'wrong-code':
+        setConfirmStatus({ kind: 'error', message: 'Code rejected. Check your email for the correct one.' });
+        break;
+      case 'expired':
+        setConfirmStatus({ kind: 'error', message: 'Code expired or no longer pending. Register again to get a fresh code.' });
+        break;
+      case 'failed':
+        setConfirmStatus({ kind: 'error', message: result.reason === 'timeout'
+          ? 'Server never replied. Check the connection and try again.'
+          : `Confirm failed: ${result.reason}` });
+        break;
+    }
+  };
+
+  // Inline error message surfaced to the user when a drop fails for
+  // a recoverable reason (wrong password, no such account, timeout).
+  // Auto-clears when the user re-opens the confirm prompt.
+  const [dropError, setDropError] = useState<string | null>(null);
+  // Pending guard: prevents a double-click on "Yes, drop it" from
+  // firing two parallel drop() calls. The race matters on Atheme,
+  // where the server issues a single key per drop session — the
+  // second replay sends a stale key and the server replies "Invalid
+  // key for DROP", which is mystifying to the user.
+  const [dropPending, setDropPending] = useState(false);
+
+  // Transient identify status — "Identifying…" while the promise
+  // is in flight, success/error message when it settles. Cleared
+  // automatically after a success since the status badge already
+  // reflects the outcome.
+  const [identifyStatus, setIdentifyStatus] = useState<{ kind: 'pending' | 'success' | 'error'; message: string } | null>(null);
+
+  const handleIdentifyNow = async (): Promise<void> => {
+    const pw = (creds?.nickservPassword ?? '').trim();
+    if (!pw) return;
+    setIdentifyStatus({ kind: 'pending', message: 'Identifying…' });
+    if (onIdentifyAccount) {
+      const result = await onIdentifyAccount(pw);
+      switch (result.kind) {
+        case 'identified':
+          setIdentifyStatus({ kind: 'success', message: 'Identified.' });
+          // Hide the success indicator after a short moment so the
+          // panel doesn't accumulate stale "Identified." labels.
+          setTimeout(() => setIdentifyStatus(null), 3000);
+          break;
+        case 'identified-unconfirmed':
+          setIdentifyStatus({ kind: 'success', message: 'Identified — confirm your email.' });
+          break;
+        case 'wrong-password':
+          setIdentifyStatus({ kind: 'error', message: 'Password rejected. Update the saved password and try again.' });
+          break;
+        case 'no-such-account':
+          setIdentifyStatus({ kind: 'error', message: 'No account by that name on this server.' });
+          break;
+        case 'failed':
+          setIdentifyStatus({ kind: 'error', message: result.reason === 'timeout'
+            ? 'Server never replied. Check the connection and try again.'
+            : `Identify failed: ${result.reason}` });
+          break;
+      }
+      return;
+    }
+    // Legacy fallback for callers that didn't thread the new prop.
+    onTriggerAutoIdentify?.();
+    setIdentifyStatus(null);
+  };
+
+  // Drop the registered account on the network. Calls into the new
+  // AccountService path (Step 2 of the migration) when available —
+  // that path owns the multi-step Anope dance internally and resolves
+  // to a discrete DropResult. Falls back to the legacy adapter+classifier
+  // path when the parent didn't thread the new handler through (e.g.
+  // pre-migration callers, or Atheme/Ergo until Steps 3 + 4 land).
+  const handleDropAccount = async (): Promise<void> => {
+    if (!serverId) return;
+    // Guard against double-fire (double-clicking "Yes, drop it").
+    // Important on Atheme: the server issues a single second-step
+    // key per drop session, so the duplicate replay sends a stale
+    // key and the server replies "Invalid key for DROP" — surfaces
+    // as `failed: invalid-key` and confuses the user.
+    if (dropPending) return;
+    const pw = (creds?.nickservPassword ?? '').trim();
+    const acct = (accountName.trim() || creds?.accountName || myNick || '').trim();
+    if (!pw || !acct) return;
+    setDropError(null);
+    if (!onDropAccount) {
+      setDropError('Drop is unavailable on this connection.');
+      return;
+    }
+    setDropPending(true);
+    try {
+      const result = await onDropAccount(acct, pw);
+      switch (result.kind) {
+        case 'dropped':
+          // ChatService's classifier path (drop-success kind) also
+          // wipes the credentials store on the "has been dropped"
+          // NickServ reply — the panel will re-render via the store
+          // subscription. We just dismiss the confirm UI here.
+          setDropConfirming(false);
+          break;
+        case 'wrong-password':
+          setDropError('Password was rejected. Save the correct one and try again.');
+          break;
+        case 'no-such-account':
+          setDropError(`No account named "${acct}" on this server.`);
+          break;
+        case 'failed':
+          if (result.reason === 'timeout') {
+            setDropError('Server never replied. Check the connection and try again.');
+          } else if (result.reason === 'invalid-key') {
+            // Atheme's wrong second-step key. The first request
+            // already consumed the key, so the user just needs to
+            // start a fresh drop — clicking again resends the
+            // first-step DROP and the server issues a new key.
+            setDropError('Server-issued key was rejected — click Drop again to retry with a fresh key.');
+          } else {
+            setDropError(`Drop failed: ${result.reason}`);
+          }
+          break;
+      }
+    } finally {
+      setDropPending(false);
+    }
+  };
+
+  // Probe NickServ for the current account state. INFO is the most
+  // portable verb — both Atheme and Anope return a multi-line block
+  // including identification + confirmation state. Reply flows
+  // through the normal classifier path and onto ~server, so the user
+  // can read it directly; the classifier also picks up "you are
+  // already identified" / "isn't registered" etc. and flips the
+  // badge.
+  const onCheckStatus = (): void => {
+    if (!onRunCommand) return;
+    const acct = (accountName.trim() || creds?.accountName || myNick || '').trim();
+    if (!acct) return;
+    onRunCommand(getAdapter(servicesFramework).buildInfo(acct));
+  };
+
+  // Resend the confirmation email (Anope-only). The new
+  // AccountService path resolves to {kind:'sent'} / 'cooldown' /
+  // 'failed' / 'unsupported' — we surface 'sent' as a transient
+  // success toast and persist 'cooldown' to the creds store so the
+  // button stays disabled across reloads (matching the legacy
+  // resendCooldownUntil behaviour).
+  //
+  // Falls back to the legacy fire-and-forget path when the new prop
+  // isn't threaded (mid-migration compatibility).
+  const onResend = (() => {
+    if (!onResendConfirmation) return null;
+    if (supportsResend === false) return null;
+    const acct = (accountName.trim() || creds?.accountName || myNick || '').trim();
+    if (!acct) return null;
+    return async () => {
+      const result = await onResendConfirmation(acct);
+      if (result.kind === 'cooldown' && serverId) {
+        const store = getServiceCredentialsStore();
+        const existing = store.get(serverId) ?? {};
+        store.set(serverId, {
+          ...existing,
+          resendCooldownUntil: Date.now() + result.retryAfterMs,
+        });
+      }
+      // 'sent' is handled by the badge / chat-area notice path;
+      // 'unsupported' shouldn't reach here (supportsResend gates it).
+    };
+  })();
+
+  const status = creds?.status;
+
+  // Auto-probe NickServ when we're in an in-flight registration
+  // state. Fires INFO 5s after entering 'registering' or
+  // 'pending-confirmation' so the badge updates without a manual
+  // click — the user came back to a stale screen after checking
+  // email, the classifier handles the reply, status flips. The
+  // 5s delay lets the original REGISTER finish server-side before
+  // we ask, and debounces against the user typing in the
+  // accountName field (the effect re-arms on every keystroke).
+  useEffect(() => {
+    if (!onRunCommand) return;
+    if (
+      status !== 'registering' &&
+      status !== 'pending-confirmation' &&
+      status !== 'identified-unconfirmed'
+    ) return;
+    const acct = (accountName.trim() || creds?.accountName || myNick || '').trim();
+    if (!acct) return;
+    const adapter = getAdapter(servicesFramework);
+    const t = setTimeout(() => {
+      onRunCommand(adapter.buildInfo(acct));
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [status, accountName, creds?.accountName, myNick, onRunCommand, servicesFramework]);
+
   return (
     <SectionFrame
       title="Identity"
-      description="Your IRC identity on this network. NickServ replies appear in the Log section."
+      description="Your nick + NickServ account on this network."
     >
       <Card>
         <div class="server-settings-card-body">
+          {/* --- Current nick + change-nick ----------------------- */}
           <DetailRow label="Nick" value={myNick} />
           {onChangeNick && (
+            <form class="server-settings-nick-form" onSubmit={submitNick}>
+              <Field
+                label="Change nick"
+                hint="Server may reject duplicates or invalid characters; you'll see an error banner if it does."
+              >
+                <Input
+                  value={nickDraft}
+                  onInput={(e) => setNickDraft((e.target as HTMLInputElement).value)}
+                  autoComplete="off"
+                  spellcheck={false}
+                />
+              </Field>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={!nickDraft.trim() || nickDraft.trim() === myNick}
+              >
+                Save
+              </Button>
+            </form>
+          )}
+
+          {/* --- Account section starts here. Everything below is
+              the NickServ account flow; the visual divider tells
+              the user where "nick" ends and "account" begins. */}
+          <Divider />
+
+          {!serverId ? (
+            <p class="server-settings-empty">
+              Saved account credentials need a stable server id. Reconnect from the directory to enable this section.
+            </p>
+          ) : (
             <>
-              <Divider />
-              <form class="server-settings-nick-form" onSubmit={submit}>
+              <div class="services-creds-status-row">
+                <DetailRow label="Services" customValue={
+                  <span class="server-settings-services-fw">
+                    <Badge tone={servicesFramework === 'atheme' || servicesFramework === 'anope' || servicesFramework === 'ergo' ? 'info' : 'warn'}>
+                      {frameworkLabel(servicesFramework)}
+                    </Badge>
+                  </span>
+                } />
+                <DetailRow label="Account" customValue={
+                  <span class="server-settings-services-fw">
+                    <Badge tone={statusTone(status)}>{statusLabel(status)}</Badge>
+                  </span>
+                } />
+              </div>
+
+              <ServicesStatusPanel
+                status={status}
+                accountName={creds?.accountName || myNick}
+                email={creds?.email}
+                confirmCode={confirmCode}
+                setConfirmCode={setConfirmCode}
+                onConfirm={() => { void onConfirm(); }}
+                confirmDisabled={!onConfirmAccount || confirmStatus?.kind === 'pending'}
+                confirmStatus={confirmStatus}
+                onResend={onResend}
+                resendCooldownUntil={creds?.resendCooldownUntil}
+              />
+
+              <form onSubmit={onSaveCreds} class="user-settings-form">
                 <Field
-                  label="Change nick"
-                  hint="Server may reject duplicates or invalid characters; you'll see an error banner if it does."
+                  label="Account nick"
+                  hint={`The nick your NickServ account is registered under. Defaults to ${myNick || 'your current nick'}.`}
                 >
                   <Input
-                    value={draft}
-                    onInput={(e) => setDraft((e.target as HTMLInputElement).value)}
+                    value={accountName}
+                    onInput={(e) => setAccountName((e.target as HTMLInputElement).value)}
+                    placeholder={myNick}
                     autoComplete="off"
                     spellcheck={false}
                   />
                 </Field>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={!draft.trim() || draft.trim() === myNick}
+                <Field
+                  label="Password"
+                  hint="Stored locally in plain text. Auto-sent as IDENTIFY after the server welcomes us."
                 >
-                  Save
-                </Button>
+                  <Input
+                    type="password"
+                    value={password}
+                    onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
+                    autoComplete="off"
+                    spellcheck={false}
+                  />
+                </Field>
+                <Field
+                  label="Email"
+                  hint="Many networks require an email at REGISTER time and again to CONFIRM. Saved so we can remind you what address received the code."
+                >
+                  <Input
+                    value={email}
+                    onInput={(e) => setEmail((e.target as HTMLInputElement).value)}
+                    placeholder="you@example.com"
+                    autoComplete="off"
+                    spellcheck={false}
+                  />
+                </Field>
+                <div class="user-settings-form-actions">
+                  {savedFlash && <span class="user-settings-saved">Saved</span>}
+                  <Button type="submit" variant="primary">Save</Button>
+                  {creds?.nickservPassword && (onIdentifyAccount || onTriggerAutoIdentify) && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => { void handleIdentifyNow(); }}
+                      disabled={identifyStatus?.kind === 'pending'}
+                    >
+                      {identifyStatus?.kind === 'pending' ? 'Identifying…' : 'Identify now'}
+                    </Button>
+                  )}
+                  {(accountName.trim() || creds?.accountName || myNick) && (
+                    <Button type="button" variant="ghost" onClick={onCheckStatus} disabled={!onRunCommand}>
+                      Check status
+                    </Button>
+                  )}
+                  {password.trim() && email.trim() && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => { void onRegister(); }}
+                      disabled={!onRegisterAccount || registerStatus?.kind === 'pending'}
+                    >
+                      {registerStatus?.kind === 'pending' ? 'Registering…' : 'Register new account'}
+                    </Button>
+                  )}
+                  {creds && (creds.nickservPassword || creds.email || creds.accountName) && (
+                    <Button type="button" variant="ghost" onClick={onClearCreds}>Clear</Button>
+                  )}
+                </div>
+                {identifyStatus && identifyStatus.kind !== 'pending' && (
+                  <p
+                    class={`server-settings-identify-feedback server-settings-identify-${identifyStatus.kind}`}
+                    role={identifyStatus.kind === 'error' ? 'alert' : 'status'}
+                  >
+                    {identifyStatus.message}
+                  </p>
+                )}
+                {registerStatus && registerStatus.kind !== 'pending' && (
+                  <p
+                    class={`server-settings-identify-feedback server-settings-identify-${registerStatus.kind}`}
+                    role={registerStatus.kind === 'error' ? 'alert' : 'status'}
+                  >
+                    {registerStatus.message}
+                  </p>
+                )}
+                {/* Destructive: irreversible network-side delete. Two-
+                    state inline confirm — first click reveals the
+                    confirm/cancel pair, so a misclick can't drop the
+                    account. Hidden entirely when there's no password
+                    to send (we'd just bounce off NickServ anyway).  */}
+                {creds?.nickservPassword && (accountName.trim() || creds?.accountName || myNick) && (
+                  <>
+                    <DropAccountRow
+                      confirming={dropConfirming}
+                      onAsk={() => { setDropError(null); setDropConfirming(true); }}
+                      onConfirm={() => { void handleDropAccount(); }}
+                      onCancel={() => { setDropError(null); setDropConfirming(false); }}
+                      accountName={accountName.trim() || creds?.accountName || myNick}
+                      disabled={!onDropAccount}
+                      pending={dropPending}
+                    />
+                    {dropError && (
+                      <p class="server-settings-drop-error" role="alert">{dropError}</p>
+                    )}
+                  </>
+                )}
               </form>
             </>
           )}
-          <Divider />
-          <DetailRow
-            label="NickServ"
-            customValue={
-              <div class="server-settings-hint">
-                <div>
-                  To claim a registered nick, message <code class="server-settings-code">NickServ</code> directly from any channel:
-                </div>
-                <code class="server-settings-code-block">
-                  /msg NickServ identify &lt;your-password&gt;
-                </code>
-                <div class="server-settings-hint-muted">
-                  A dedicated identify form is planned.
-                </div>
-              </div>
-            }
-          />
         </div>
       </Card>
     </SectionFrame>
@@ -409,10 +944,7 @@ function frameworkLabel(fw: 'atheme' | 'anope' | 'ergo' | 'unknown' | null): str
 }
 
 interface AdvancedSectionProps {
-  serverId?: string;
-  servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null;
   myNick: string;
-  onTriggerAutoIdentify?: () => void;
   onRunCommand?: (line: string) => void;
   // Live server-log buffer from ChatService. Each command row uses this
   // to capture and display the server's reply inline (services NOTICEs,
@@ -424,8 +956,15 @@ interface AdvancedSectionProps {
 // stored credentials) plus a small IRC commands surface (currently just
 // `/whois`). Designed to grow: each command lives in its own SubCard
 // so adding ChanServ, user-modes, etc. is just another card below.
+// Advanced is the raw-commands playground. The status-aware account
+// management UI (password, email, register, confirm) lives on the
+// Identity section instead — that's what users expect, and the menu
+// item literally says "Your nick + NickServ account". Advanced still
+// has a NickServ tab for the raw `/msg NickServ ...` forms (IDENTIFY
+// with a typed password, INFO, GHOST, SET *), which is useful for
+// power users debugging an account or invoking commands outside the
+// Identity flow.
 type AdvancedTabId =
-  | 'services'
   | 'nickserv'
   | 'account'
   | 'lookups'
@@ -436,7 +975,6 @@ type AdvancedTabId =
   | 'cloak';
 
 const ADVANCED_TABS: ReadonlyArray<{ id: AdvancedTabId; label: string }> = [
-  { id: 'services', label: 'Services' },
   { id: 'nickserv', label: 'NickServ' },
   { id: 'account',  label: 'Account'  },
   { id: 'lookups',  label: 'Lookups'  },
@@ -448,7 +986,7 @@ const ADVANCED_TABS: ReadonlyArray<{ id: AdvancedTabId; label: string }> = [
 ];
 
 function AdvancedSection({
-  serverId, servicesFramework, myNick, onTriggerAutoIdentify, onRunCommand, serverLog,
+  myNick, onRunCommand, serverLog,
 }: AdvancedSectionProps) {
   // Search filters within the active tab. When the box has any content
   // we ALSO render every other tab's subsection below (each hides
@@ -457,18 +995,10 @@ function AdvancedSection({
   // active tab still renders even when empty after filter — gives the
   // user feedback that this tab has no matches.
   const [search, setSearch] = useState('');
-  const [tab, setTab] = useState<AdvancedTabId>('services');
+  const [tab, setTab] = useState<AdvancedTabId>('nickserv');
   const subProps = { onRunCommand, serverLog, search };
   const renderTab = (id: AdvancedTabId): ComponentChildren => {
     switch (id) {
-      case 'services':
-        return (
-          <ServicesCredentialsSubSection
-            serverId={serverId}
-            framework={servicesFramework}
-            onTriggerAutoIdentify={onTriggerAutoIdentify}
-          />
-        );
       case 'nickserv': return <NickServSubSection myNick={myNick} {...subProps} />;
       case 'account':  return <AccountSubSection  myNick={myNick} {...subProps} />;
       case 'lookups':  return <LookupCommandsSubSection myNick={myNick} {...subProps} />;
@@ -824,105 +1354,263 @@ function anyMatch(search: string, candidates: Array<[string, string?]>): boolean
   return false;
 }
 
-// ---- Subsection: Services credentials -----------------------------------
+// ---- Account / Identity helpers ----------------------------------------
+//
+// Used inline by `IdentitySection` (where the account UI lives). Kept
+// as free functions rather than inlined helpers so the status mapping
+// can be unit-tested independently of the renderer.
 
-interface ServicesSubSectionProps {
-  serverId?: string;
-  framework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null;
-  onTriggerAutoIdentify?: () => void;
+// Resolve a human label for a saved AccountStatus. Centralised so the
+// badge + the status-driven copy block agree on wording.
+function statusLabel(status: AccountStatus | undefined): string {
+  switch (status) {
+    case 'identified':              return 'Identified';
+    case 'identified-unconfirmed':  return 'Identified — confirm your email';
+    case 'registering':             return 'Registering…';
+    case 'pending-confirmation':    return 'Confirm your email';
+    case 'identify-failed':         return 'Identify failed';
+    case 'registered':              return 'Saved — will auto-identify';
+    case 'no-account':              return 'No account';
+    case 'unknown':                 return 'Unknown';
+    default:                        return 'Not connected yet';
+  }
 }
 
-// Manages the saved NickServ password for this server (used for auto-
-// identify on connect). Storage is localStorage (plain text). The
-// detected services package badge lives here too since both are
-// "services status" concerns.
-function ServicesCredentialsSubSection({
-  serverId, framework, onTriggerAutoIdentify,
-}: ServicesSubSectionProps) {
-  const [password, setPassword] = useState<string>('');
-  const [hasSaved, setHasSaved] = useState<boolean>(false);
-  const [saved, triggerSaved] = useTransientFlag();
+// Tone for the status badge. `identified` is the calm green-ish "info";
+// `identify-failed` is the alarming red; pending is the friendly
+// amber/warn. Other states are neutral.
+function statusTone(status: AccountStatus | undefined): 'info' | 'warn' | 'danger' | 'success' {
+  switch (status) {
+    case 'identified':              return 'success';
+    case 'identified-unconfirmed':  return 'warn';
+    case 'identify-failed':         return 'danger';
+    case 'pending-confirmation':    return 'warn';
+    case 'registering':             return 'warn';
+    default:                        return 'info';
+  }
+}
 
-  useEffect(() => {
-    if (!serverId) {
-      setPassword('');
-      setHasSaved(false);
-      return;
-    }
-    const store = getServiceCredentialsStore();
-    const creds = store.get(serverId);
-    setPassword(creds?.nickservPassword ?? '');
-    setHasSaved(!!creds?.nickservPassword);
-  }, [serverId]);
+interface ServicesStatusPanelProps {
+  status: AccountStatus | undefined;
+  accountName: string;
+  email?: string;
+  confirmCode: string;
+  setConfirmCode: (s: string) => void;
+  onConfirm: () => void;
+  confirmDisabled: boolean;
+  // Step 7 — inline feedback for the CONFIRM operation. When set,
+  // rendered below the code input.
+  confirmStatus?: { kind: 'pending' | 'success' | 'error'; message: string } | null;
+  // Resend affordance. `onResend` is null on packages that have
+  // no upstream resend (Atheme, Ergo) — the button is hidden in
+  // that case. `resendCooldownUntil` is the epoch-ms after which
+  // the button re-enables; when in the past, the button is live.
+  onResend: (() => void) | null;
+  resendCooldownUntil?: number;
+}
 
-  const onSave = (e: Event): void => {
-    e.preventDefault();
-    if (!serverId) return;
-    const store = getServiceCredentialsStore();
-    if (password.trim()) {
-      store.set(serverId, { nickservPassword: password.trim() });
-      setHasSaved(true);
-      triggerSaved();
-    } else {
-      store.clear(serverId);
-      setHasSaved(false);
-      triggerSaved();
-    }
-  };
-
-  const onClear = (): void => {
-    if (!serverId) return;
-    getServiceCredentialsStore().clear(serverId);
-    setPassword('');
-    setHasSaved(false);
-  };
-
-  return (
-    <Card>
-      <div class="server-settings-card-body">
-        <h3 class="server-settings-subhead">Services</h3>
-        <DetailRow label="Detected" customValue={
-          <span class="server-settings-services-fw">
-            <Badge tone={framework === 'atheme' || framework === 'anope' || framework === 'ergo' ? 'info' : 'warn'}>
-              {frameworkLabel(framework)}
-            </Badge>
-          </span>
-        } />
-        <Divider />
-        {!serverId ? (
-          <p class="server-settings-empty">
-            Saved credentials need a stable server id. Reconnect from the directory to enable this section.
-          </p>
-        ) : (
-          <form onSubmit={onSave} class="user-settings-form">
-            <Field
-              label="NickServ password"
-              hint="Stored locally in plain text. Auto-sent as IDENTIFY after the server welcomes us. Leave blank to clear."
-            >
-              <Input
-                type="password"
-                value={password}
-                onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
-                autoComplete="off"
-                spellcheck={false}
-              />
-            </Field>
-            <div class="user-settings-form-actions">
-              {saved && <span class="user-settings-saved">Saved</span>}
-              <Button type="submit" variant="primary">Save</Button>
-              {hasSaved && (
-                <Button type="button" variant="ghost" onClick={onClear}>Clear</Button>
-              )}
-              {hasSaved && onTriggerAutoIdentify && (
-                <Button type="button" variant="secondary" onClick={onTriggerAutoIdentify}>
-                  Identify now
-                </Button>
-              )}
-            </div>
-          </form>
-        )}
+// Status-driven copy + actions above the form. Each AccountStatus
+// gets a tailored block: identified shows "Signed in as X" with a
+// muted tone; pending-confirmation shows the code input; failed
+// shows a red banner; the empty states show a friendly hint.
+function ServicesStatusPanel({
+  status, accountName, email, confirmCode, setConfirmCode, onConfirm, confirmDisabled,
+  confirmStatus, onResend, resendCooldownUntil,
+}: ServicesStatusPanelProps) {
+  // Renders below the confirm form in both pending-confirmation and
+  // identified-unconfirmed states.
+  const confirmFeedback = confirmStatus && confirmStatus.kind !== 'pending' ? (
+    <p
+      class={`server-settings-identify-feedback server-settings-identify-${confirmStatus.kind}`}
+      role={confirmStatus.kind === 'error' ? 'alert' : 'status'}
+    >
+      {confirmStatus.message}
+    </p>
+  ) : null;
+  if (status === 'identified') {
+    return (
+      <p class="services-creds-status-msg services-creds-status-msg-ok">
+        Identified as <code>{accountName}</code>.
+      </p>
+    );
+  }
+  if (status === 'identify-failed') {
+    return (
+      <p class="services-creds-status-msg services-creds-status-msg-error">
+        Last identify was rejected. The password may be wrong, or the account doesn't exist on this network.
+      </p>
+    );
+  }
+  // Identified, but the account itself is unconfirmed — common on
+  // Anope between REGISTER and CONFIRM. The user IS logged in and
+  // can chat; we just nag them to finish the email step before the
+  // account expires (~24h on most networks). Same confirm-code
+  // input as the pending state, but the banner copy reflects that
+  // the identify itself worked.
+  if (status === 'identified-unconfirmed') {
+    return (
+      <div class="services-creds-status-pending">
+        <p class="services-creds-status-msg services-creds-status-msg-warn">
+          Identified as <code>{accountName}</code>{email ? <> ({email})</> : ''}, but the
+          account hasn't been email-confirmed yet. Paste the code from your inbox to finish —
+          most networks expire unconfirmed accounts within 24 hours.
+        </p>
+        <form
+          class="services-creds-confirm-row"
+          onSubmit={(e) => { e.preventDefault(); onConfirm(); }}
+        >
+          <Input
+            value={confirmCode}
+            onInput={(e) => setConfirmCode((e.target as HTMLInputElement).value)}
+            placeholder="paste the code from your email"
+            autoComplete="off"
+            spellcheck={false}
+          />
+          <Button type="submit" variant="primary" disabled={confirmDisabled || !confirmCode.trim()}>
+            {confirmStatus?.kind === 'pending' ? 'Confirming…' : 'Confirm'}
+          </Button>
+          <ResendButton onResend={onResend} cooldownUntil={resendCooldownUntil} />
+        </form>
+        {confirmFeedback}
       </div>
-    </Card>
+    );
+  }
+  // `registering` (we fired REGISTER, no terminal reply yet) and
+  // `pending-confirmation` (classifier saw "please confirm") both
+  // surface the same affordance: a code input the user can paste
+  // into. This matters because the optimistic flow can land you in
+  // 'registering' even though an email with a code already arrived
+  // — and the user wants to type the code regardless of what our
+  // local status thinks.
+  if (status === 'registering' || status === 'pending-confirmation') {
+    return (
+      <div class="services-creds-status-pending">
+        <p class="services-creds-status-msg services-creds-status-msg-warn">
+          {status === 'registering' ? (
+            <>Registering <code>{accountName}</code>{email ? <> with <code>{email}</code></> : ''}…
+            waiting for NickServ. If you already received a confirmation code by email, paste it below:</>
+          ) : (
+            <>Registered <code>{accountName}</code>{email ? <> with <code>{email}</code></> : ''}.
+            Check your inbox for a confirmation code, then enter it here:</>
+          )}
+        </p>
+        <form
+          class="services-creds-confirm-row"
+          onSubmit={(e) => { e.preventDefault(); onConfirm(); }}
+        >
+          <Input
+            value={confirmCode}
+            onInput={(e) => setConfirmCode((e.target as HTMLInputElement).value)}
+            placeholder="paste the code from your email"
+            autoComplete="off"
+            spellcheck={false}
+          />
+          <Button type="submit" variant="primary" disabled={confirmDisabled || !confirmCode.trim()}>
+            {confirmStatus?.kind === 'pending' ? 'Confirming…' : 'Confirm'}
+          </Button>
+          <ResendButton onResend={onResend} cooldownUntil={resendCooldownUntil} />
+        </form>
+        {confirmFeedback}
+      </div>
+    );
+  }
+  if (status === 'registered') {
+    return (
+      <p class="services-creds-status-msg services-creds-status-msg-info">
+        Credentials saved. Auto-IDENTIFY will run on the next connect.
+      </p>
+    );
+  }
+  // unknown / no-account / undefined — first-time hint.
+  return (
+    <p class="services-creds-status-msg services-creds-status-msg-info">
+      No account saved for this server yet. Fill in a password + email below and click
+      <strong> Register new account </strong> to create one — or fill in just a password and click
+      <strong> Save </strong> if you already have one.
+    </p>
+  );
+}
+
+// "Resend confirmation email" affordance shown inline with the
+// confirm-code input. Hidden when `onResend` is null — that's the
+// signal from the adapter that this services package has no
+// upstream resend command (Atheme, Ergo). When a cooldown is
+// active, button is disabled and the title attribute carries the
+// human countdown so a hover reveals "Try again in N min".
+//
+// Uses a tick to re-render once a second so the countdown stays
+// fresh and the button auto-re-enables when the cooldown expires
+// without requiring a parent prop change.
+function ResendButton({
+  onResend, cooldownUntil,
+}: {
+  onResend: (() => void) | null;
+  cooldownUntil?: number;
+}) {
+  if (!onResend) return null;
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    if (!cooldownUntil || cooldownUntil <= Date.now()) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [cooldownUntil]);
+  const remainingMs = (cooldownUntil ?? 0) - now;
+  const cooling = remainingMs > 0;
+  const remainingMin = Math.ceil(remainingMs / 60_000);
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onResend}
+      disabled={cooling}
+      title={cooling ? `Server is rate-limited — try again in ${remainingMin} min` : 'Re-send the confirmation email'}
+    >
+      {cooling ? `Resend (${remainingMin}m)` : 'Resend email'}
+    </Button>
+  );
+}
+
+// Inline destructive action: drop the account on the network. Two-
+// state — first click on "Drop account" asks for confirmation; the
+// second click fires the DROP command. Cancel is always available
+// while confirming. Parent owns the `confirming` flag so changing
+// servers / clearing creds resets the prompt for free.
+function DropAccountRow({
+  confirming, onAsk, onConfirm, onCancel, accountName, disabled, pending,
+}: {
+  confirming: boolean;
+  onAsk: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+  accountName: string;
+  disabled: boolean;
+  // True while a drop() operation is in flight. Disables the
+  // "Yes, drop it" button so a double-click can't fire two parallel
+  // requests (which on Atheme would land the second one with a
+  // stale server-issued key → "Invalid key for DROP").
+  pending: boolean;
+}) {
+  if (!confirming) {
+    return (
+      <div class="services-creds-drop-row">
+        <Button type="button" variant="ghost" onClick={onAsk} disabled={disabled}>
+          Drop account
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div class="services-creds-drop-row services-creds-drop-row-confirming">
+      <span class="services-creds-drop-warning">
+        Drop <code>{accountName}</code> on this network? This is irreversible.
+      </span>
+      <Button type="button" variant="secondary" onClick={onConfirm} disabled={disabled || pending}>
+        {pending ? 'Dropping…' : 'Yes, drop it'}
+      </Button>
+      <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>
+        Cancel
+      </Button>
+    </div>
   );
 }
 

@@ -51,9 +51,106 @@ services:
     profiles:
       - testing
 
+  # ---- Anope + UnrealIRCd e2e stack -----------------------------------
+  #
+  # Only spun up when the e2e-anope profile is explicitly requested:
+  #   docker compose --profile e2e-anope up -d
+  #
+  # Client traffic exposed on host port 6668 so it doesn't collide with
+  # the testing-profile Ergo container on 6667. The services link runs
+  # on 6900 entirely inside the docker network.
+  unrealircd:
+    # `ircd/unrealircd` is the community image referenced by
+    # https://www.unrealircd.org/docs/Docker — there is no official
+    # Unreal-published image. Pinned to `nightly` because that's the
+    # only tag the registry actually publishes; the `latest` tag is
+    # missing despite docs assuming it.
+    image: ircd/unrealircd:nightly
+    profiles:
+      - e2e-anope
+    # Image has no default CMD — run the binary directly in
+    # foreground so docker manages the lifecycle. U5 refuses to
+    # start without a TLS cert in /ircd/tls/, so we bake throwaway
+    # self-signed certs into infra/anope/tls/ and mount them
+    # alongside the config. Those certs are CN=irc.test, RSA-2048,
+    # expire 100y out — safe to commit.
+    command: ["/app/unrealircd/bin/unrealircd", "-F"]
+    ports:
+      - '6668:6667'
+    volumes:
+      - ./infra/anope/unrealircd.conf:/ircd/unrealircd.conf:ro
+      - ./infra/anope/tls/server.cert.pem:/ircd/tls/server.cert.pem:ro
+      - ./infra/anope/tls/server.key.pem:/ircd/tls/server.key.pem:ro
+    healthcheck:
+      # Services-only port readiness — Anope refuses to link if this
+      # port isn't accepting yet. nc is part of the base image.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6900 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      - boson-network
+
+  anope:
+    image: anope/anope:latest
+    profiles:
+      - e2e-anope
+    volumes:
+      - ./infra/anope/conf:/anope/conf:ro
+      - anope_data:/anope/data
+    depends_on:
+      unrealircd:
+        condition: service_healthy
+    networks:
+      - boson-network
+
+  # ---- Atheme + InspIRCd e2e stack ------------------------------------
+  #
+  # Pinned to InspIRCd 3.18 (not 4.x) because Atheme 7.2.12 (the
+  # version shipped by `ovdnet/atheme:latest`) speaks the InspIRCd 3
+  # wire protocol. InspIRCd 4 removed v3 compat — see
+  # https://github.com/atheme/atheme/issues/904. Atheme master
+  # (post-Nov 2024) fixed this, but no public Docker image ships that
+  # build yet.
+  #
+  # Activated via:  docker compose --profile e2e-atheme up -d
+  # Host port: 6669 (client). 7000 internal-only services link.
+  inspircd:
+    image: inspircd/inspircd-docker:3.18
+    profiles:
+      - e2e-atheme
+    ports:
+      - '6669:6667'
+    volumes:
+      - ./infra/atheme/inspircd.conf:/inspircd/conf/inspircd.conf:ro
+    healthcheck:
+      # Services-only port readiness — Atheme refuses to link if this
+      # port isn't accepting yet. nc is in busybox baseline.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 7000 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      - boson-network
+
+  atheme:
+    image: ovdnet/atheme:latest
+    profiles:
+      - e2e-atheme
+    volumes:
+      - ./infra/atheme/atheme.conf:/atheme/etc/atheme.conf:ro
+      - atheme_data:/atheme/var
+    depends_on:
+      inspircd:
+        condition: service_healthy
+    networks:
+      - boson-network
+
 networks:
   boson-network:
 
 volumes:
   postgres_data:
   ergo_data:
+  anope_data:
+  atheme_data:

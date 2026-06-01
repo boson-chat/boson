@@ -45,6 +45,16 @@ export class DirectoryService {
     });
   }
 
+  // Rename the caller's global handle. Server validates length + uniqueness
+  // (case-insensitive against the users_handle_lower_idx) and writes a
+  // handle_changes audit row in the same transaction. Throws an
+  // HttpError on the wire-level statuses the caller cares about: 409
+  // when the handle is taken, 400 when too short, 404 if the row hasn't
+  // been created yet via setupMe.
+  async updateMe(patch: { handle?: string }): Promise<User> {
+    return this.http.patch<User>('/me', patch);
+  }
+
   // Destructive: drops the caller's user row + cascades through user_server_links
   // and handle_changes. Used by the LoginScreen "Start fresh" recovery flow
   // when the stored encrypted_user_secret cannot be decrypted.

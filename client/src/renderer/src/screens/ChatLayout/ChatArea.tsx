@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatChannel, ServerInfo, ServerLogEntry } from '../../modules/chat';
+import {
+  getServiceCredentialsStore,
+  type AccountStatus,
+} from '../../modules/chat/services-credentials';
 import type { EngineState } from '../../modules/engine';
 import { ChatInputBloc, type ChatInputState } from './ChatInputBloc';
 import { ChatInputBar } from './ChatInputBar';
@@ -55,6 +59,15 @@ interface ChatAreaProps {
   // Action callbacks forwarded to MessageList → MessageRow. Wired into the
   // right-click nick context menu (Copy/Send/Mention/Ignore).
   nickActions?: NickActions;
+  // Stable id for the active connection. Used by the pending-
+  // confirmation banner to subscribe to THIS server's credentials
+  // entry. Omit when the host doesn't have a stable id (legacy tests).
+  activeServerId?: string | null;
+  // Open the active server's Advanced → Services settings. Wired
+  // through ChatLayout → DirectoryScreen. The banner's "Open settings"
+  // link fires this; if omitted, the banner falls back to a copy-only
+  // hint without a click target.
+  onOpenServerSettings?: () => void;
 }
 
 export function ChatArea({
@@ -74,6 +87,8 @@ export function ChatArea({
   onTyping,
   serverInfo,
   nickActions,
+  activeServerId,
+  onOpenServerSettings,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -236,6 +251,12 @@ export function ChatArea({
         </div>
       </div>
 
+      <PendingConfirmationBanner
+        serverId={activeServerId ?? null}
+        serverName={serverName}
+        onOpenSettings={onOpenServerSettings}
+      />
+
       <MessageList
         messages={channel.messages}
         members={channel.members}
@@ -365,6 +386,57 @@ function ServerLogTail({ entries }: ServerLogTailProps) {
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+interface PendingConfirmationBannerProps {
+  serverId: string | null;
+  serverName?: string;
+  onOpenSettings?: () => void;
+}
+
+// Slim amber strip under the chat header that surfaces when the
+// active server's NickServ account is pending email confirmation.
+// Subscribes to the credentials store keyed by serverId so it stays
+// in sync with the Services panel — opening the inbox / confirming
+// elsewhere makes the banner self-dismiss on the next status
+// transition.
+//
+// Renders nothing when serverId is missing or status !=
+// pending-confirmation. Lives in ChatArea.tsx (rather than its own
+// file) because it's tightly tied to the chat-header layout and
+// only used here.
+function PendingConfirmationBanner({
+  serverId, serverName, onOpenSettings,
+}: PendingConfirmationBannerProps) {
+  const [status, setStatus] = useState<AccountStatus | undefined>(undefined);
+  useEffect(() => {
+    if (!serverId) {
+      setStatus(undefined);
+      return;
+    }
+    return getServiceCredentialsStore().subscribe(serverId, (creds) => {
+      setStatus(creds?.status);
+    });
+  }, [serverId]);
+  if (status !== 'pending-confirmation') return null;
+  const where = serverName ? ` on ${serverName}` : '';
+  return (
+    <div class="chat-pending-confirm-banner" role="status">
+      <span class="chat-pending-confirm-icon" aria-hidden="true">✉</span>
+      <span class="chat-pending-confirm-text">
+        Confirm your registration{where}.
+      </span>
+      {onOpenSettings && (
+        <button
+          type="button"
+          class="chat-pending-confirm-link"
+          onClick={onOpenSettings}
+        >
+          Open settings
+        </button>
+      )}
     </div>
   );
 }

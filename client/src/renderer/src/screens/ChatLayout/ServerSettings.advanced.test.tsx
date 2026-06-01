@@ -8,6 +8,12 @@ import {
   getServiceCredentialsStore,
 } from '../../modules/chat/services-credentials';
 
+// Advanced is the raw-command playground (NickServ raw, ChanServ, user
+// modes, lookups, server info, memos, cloak). The status-aware account
+// UI lives on the Identity tab — those tests are in
+// `ServerSettings.identity.test.tsx`. This file covers only what's
+// inside Advanced.
+
 function memStorage(): Storage {
   const m = new Map<string, string>();
   return {
@@ -51,96 +57,24 @@ function switchToAdvanced(): void {
   fireEvent.click(screen.getByRole('tab', { name: /Advanced/ }));
 }
 
-// The Advanced section now has its own inner Tabs row (Services /
-// NickServ / Account / Lookups / ChanServ / Modes / Server / Memos /
-// Cloak). Helper picks an inner tab by visible label.
+// Inner-tab switcher — Advanced has its own Tabs row (NickServ /
+// Account / Lookups / ChanServ / Modes / Server / Memos / Cloak).
 function switchAdvancedTab(label: string): void {
   const tabs = screen.getAllByRole('tab', { name: label });
-  // The outer ServerSettings menu also uses role="tab" — the inner
-  // tab is the second match for labels that appear in both (none in
-  // practice, but defensive).
+  // Outer ServerSettings menu also uses role=tab; inner Advanced tab
+  // is the second match for any duplicate label.
   fireEvent.click(tabs[tabs.length - 1]!);
 }
 
-describe('ServerSettings — Advanced section', () => {
-  it('exposes the Advanced tab in the menu', () => {
+describe('ServerSettings — Advanced (raw commands)', () => {
+  it('exposes the Advanced tab in the outer menu', () => {
     render(<ServerSettings {...baseProps()} />);
     expect(screen.getByRole('tab', { name: /Advanced/ })).toBeInTheDocument();
   });
 
-  it("renders 'Not detected' badge when no services have spoken yet", () => {
-    render(<ServerSettings {...baseProps({ servicesFramework: null })} />);
-    switchToAdvanced();
-    expect(screen.getByText('Not detected')).toBeInTheDocument();
-  });
+  // ---- Lookups tab — WHOIS form ----------------------------------------
 
-  it('renders "Atheme" badge when the framework is detected', () => {
-    render(<ServerSettings {...baseProps({ servicesFramework: 'atheme' })} />);
-    switchToAdvanced();
-    expect(screen.getByText('Atheme')).toBeInTheDocument();
-  });
-
-  it('renders "Anope" badge when the framework is detected', () => {
-    render(<ServerSettings {...baseProps({ servicesFramework: 'anope' })} />);
-    switchToAdvanced();
-    expect(screen.getByText('Anope')).toBeInTheDocument();
-  });
-
-  it("renders 'Detected (unknown package)' when a service spoke but we couldn't classify", () => {
-    render(<ServerSettings {...baseProps({ servicesFramework: 'unknown' })} />);
-    switchToAdvanced();
-    expect(screen.getByText(/Detected \(unknown package\)/)).toBeInTheDocument();
-  });
-
-  it('saves a NickServ password to the credentials store on submit', async () => {
-    const { container } = render(<ServerSettings {...baseProps()} />);
-    switchToAdvanced();
-    const input = container.querySelector('input[type="password"]') as HTMLInputElement;
-    expect(input).not.toBeNull();
-    await userEvent.setup().type(input, 'hunter2');
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(getServiceCredentialsStore().get('libera')).toEqual({ nickservPassword: 'hunter2' });
-  });
-
-  it('pre-fills the input from the store on mount', () => {
-    getServiceCredentialsStore().set('libera', { nickservPassword: 'persisted-pw' });
-    const { container } = render(<ServerSettings {...baseProps()} />);
-    switchToAdvanced();
-    const input = container.querySelector('input[type="password"]') as HTMLInputElement;
-    expect(input.value).toBe('persisted-pw');
-  });
-
-  it('Clear button removes the saved password', async () => {
-    getServiceCredentialsStore().set('libera', { nickservPassword: 'oldpw' });
-    render(<ServerSettings {...baseProps()} />);
-    switchToAdvanced();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
-    expect(getServiceCredentialsStore().get('libera')).toBeNull();
-  });
-
-  it("'Identify now' button fires onTriggerAutoIdentify and is only shown when a password is saved", () => {
-    const onTriggerAutoIdentify = vi.fn();
-    getServiceCredentialsStore().set('libera', { nickservPassword: 'pw' });
-    render(<ServerSettings {...baseProps({ onTriggerAutoIdentify })} />);
-    switchToAdvanced();
-    fireEvent.click(screen.getByRole('button', { name: 'Identify now' }));
-    expect(onTriggerAutoIdentify).toHaveBeenCalledOnce();
-  });
-
-  it("hides 'Identify now' when no password is stored", () => {
-    render(<ServerSettings {...baseProps()} />);
-    switchToAdvanced();
-    expect(screen.queryByRole('button', { name: 'Identify now' })).toBeNull();
-  });
-
-  it('shows an empty-state notice and no form when serverId is omitted', () => {
-    render(<ServerSettings {...baseProps({ serverId: undefined })} />);
-    switchToAdvanced();
-    expect(screen.getByText(/Saved credentials need a stable server id/)).toBeInTheDocument();
-    expect(screen.queryByLabelText('NickServ password')).toBeNull();
-  });
-
-  it('WHOIS command in the Lookups tab routes "/whois <nick>" through onRunCommand', async () => {
+  it('WHOIS form on the Lookups tab routes "/whois <nick>" through onRunCommand', async () => {
     const onRunCommand = vi.fn();
     const { container } = render(<ServerSettings {...baseProps({ onRunCommand })} />);
     switchToAdvanced();
@@ -150,7 +84,6 @@ describe('ServerSettings — Advanced section', () => {
     expect(whoisLabel).toBeDefined();
     const row = whoisLabel!.closest('.server-settings-cmd-row') as HTMLElement;
     const input = row.querySelector('input[placeholder="nick"]') as HTMLInputElement;
-    expect(input).not.toBeNull();
     await userEvent.setup().type(input, 'bob');
     fireEvent.click(row.querySelector('button[type="submit"]') as HTMLButtonElement);
     expect(onRunCommand).toHaveBeenCalledWith('/whois bob');
@@ -166,26 +99,13 @@ describe('ServerSettings — Advanced section', () => {
     expect(row.querySelector('button[type="submit"]')).toBeDisabled();
   });
 
-  it('saving an empty password clears the entry (treated as a delete)', async () => {
-    getServiceCredentialsStore().set('libera', { nickservPassword: 'old' });
-    const { container } = render(<ServerSettings {...baseProps()} />);
-    switchToAdvanced();
-    const input = container.querySelector('input[type="password"]') as HTMLInputElement;
-    await userEvent.setup().clear(input);
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(getServiceCredentialsStore().get('libera')).toBeNull();
-  });
-
-  // ---- Search filter -----------------------------------------------------
+  // ---- Search filter ---------------------------------------------------
 
   it('search filters command rows by label substring (case-insensitive), across all tabs', async () => {
     const { container } = render(<ServerSettings {...baseProps()} />);
     switchToAdvanced();
     const labels = (): string[] => Array.from(container.querySelectorAll('.server-settings-cmd-label'))
       .map((el) => el.textContent ?? '');
-    // Default view is the Services tab — no command rows yet (only the
-    // credentials form), so labels() is empty here. Search expands the
-    // view across every tab, then filters.
     const search = container.querySelector('.server-settings-advanced-search input') as HTMLInputElement;
     expect(search).not.toBeNull();
     await userEvent.setup().type(search, 'whois');
@@ -211,14 +131,13 @@ describe('ServerSettings — Advanced section', () => {
     const cardHeaders = (): string[] => Array.from(container.querySelectorAll('.server-settings-subhead'))
       .map((el) => el.textContent ?? '');
     const search = container.querySelector('.server-settings-advanced-search input') as HTMLInputElement;
-    // Query matches nothing inside HostServ (whose verbs are REQUEST/ON/OFF).
     await userEvent.setup().type(search, 'whois');
     expect(cardHeaders()).toContain('Lookups');     // hosts WHOIS
     expect(cardHeaders()).not.toContain('HostServ'); // collapsed
     expect(cardHeaders()).not.toContain('MemoServ'); // collapsed
   });
 
-  // ---- Output capture ----------------------------------------------------
+  // ---- Output capture --------------------------------------------------
 
   it('shows "(no reply captured)" when nothing arrives within the capture window', () => {
     vi.useFakeTimers();
@@ -267,16 +186,11 @@ describe('ServerSettings — Advanced section', () => {
         input.value = 'alice';
         input.dispatchEvent(new Event('input', { bubbles: true }));
       });
-      // Fire the command.
       const button = row.querySelector('button[type="submit"]') as HTMLButtonElement;
       act(() => { button.click(); });
-      // Engine pushes the reply into the serverLog — re-render so the
-      // ref inside the capture hook sees the new entries when the
-      // timeout fires.
       rerender(
         <ServerSettings {...baseProps({ onRunCommand: vi.fn(), serverLog: [replyEntry] })} />,
       );
-      // Past the capture window — the NOTICE renders inline.
       act(() => { vi.advanceTimersByTime(4000); });
       expect(container.querySelector('.server-settings-cmd-output')?.textContent)
         .toMatch(/Last seen: 12 hours ago/);
@@ -284,5 +198,4 @@ describe('ServerSettings — Advanced section', () => {
       vi.useRealTimers();
     }
   });
-
 });

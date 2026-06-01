@@ -2,8 +2,9 @@
         supabase-check supabase-init supabase-up supabase-down supabase-status supabase-reset \
         ergo-up typingbot seed-dev dev-up dev-down \
         client-install client-env client-dev client-build \
-        engine-build engine-connect engine-serve engine-env \
-        test test-go test-client test-e2e hooks-install
+        engine-build engine-connect engine-serve engine-env sidecar-build \
+        test test-go test-client test-e2e hooks-install \
+        test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme
 
 setup: tidy up
 	@echo "Waiting for postgres..."
@@ -136,6 +137,23 @@ client-build:
 engine-build:
 	go build -o bin/engine ./engine/cmd/engine
 
+# Rebuild the sidecar engine binaries that `make client-dev` (and the
+# packaged app) spawn from `client/resources/engine/`. The binaries
+# here are committed so a clean checkout can `npm run dev` without a
+# Go toolchain, but they go stale whenever `engine/` source changes.
+# Run this after engine/ edits OR before testing renderer ↔ engine
+# IPC changes — `make client-dev` won't pick up engine changes
+# otherwise.
+#
+# Both targets cross-compile via `GOOS=...` so a single dev machine
+# can rebuild the Windows binary too (Go cross-compiles cleanly
+# without cgo).
+sidecar-build:
+	@echo "Building sidecar engine binaries for client/resources/engine/..."
+	GOOS=linux   GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64       ./engine/cmd/engine
+	GOOS=windows GOARCH=amd64 go build -o client/resources/engine/engine-windows-amd64.exe ./engine/cmd/engine
+	@ls -la client/resources/engine/
+
 # Run the engine WebSocket bridge (foreground). Writes discovery to
 # ~/.boson/engine.json (or $XDG_RUNTIME_DIR/boson/engine.json).
 engine-serve:
@@ -193,6 +211,99 @@ test-client:
 # without paying the `go run` compile cost on every test run.
 test-e2e: engine-build
 	cd client && npm run test:e2e
+
+# ----- Services e2e (live IRC services packages) -----
+#
+# Drives real REGISTER / IDENTIFY / DROP / INFO flows against Ergo,
+# Anope, and Atheme containers — captures NickServ replies to JSON
+# fixtures under engine/internal/services_e2e/fixtures/<stack>/. The
+# renderer's classifier test then replays those fixtures so the
+# pattern table stays honest against ground-truth server output.
+#
+# Each stack target boots its own docker profile, waits for IRCd
+# readiness, runs the per-stack Go tests with the `e2e` build tag.
+
+# Boot Ergo and run its scenarios. Ergo is already wired into the
+# `testing` profile in docker-compose.yml. `-v` surfaces per-test
+# PASS / FAIL lines so the parent `test-e2e-services` log reads as
+# a checklist of what ran (vs. a single package-level "ok").
+#
+# After the engine-level Go tests pass, we ALSO run the Playwright
+# spec (tests/e2e/nickserv-flow.spec.ts) parameterized at this
+# stack's IRC endpoint. That's the full Electron → IPC → engine →
+# IRC → reply → renderer round-trip; the Go suite only proves the
+# bottom half of the pipeline.
+test-e2e-services-ergo: ergo-up engine-build seed-dev
+	@echo "Waiting for ergo readiness..."
+	@timeout 30 bash -c 'until echo > /dev/tcp/127.0.0.1/6667 2>/dev/null; do sleep 0.2; done' || \
+		{ echo "ergo never came up on :6667"; exit 1; }
+	E2E_ERGO_HOST=127.0.0.1 E2E_ERGO_PORT=6667 \
+		go test -tags=e2e -count=1 -v ./engine/internal/services_e2e/ergo/...
+	@echo "---- Playwright NickServ flow against ergo ----"
+	cd client && E2E_IRC_HOST=127.0.0.1 E2E_IRC_PORT=6667 E2E_STACK_NAME=ergo \
+		npx playwright test tests/e2e/nickserv-flow.spec.ts --reporter=list
+
+# Anope + UnrealIRCd. Infra lives under infra/anope/ — the existence
+# marker is the unrealircd.conf file (not anope.conf — the Anope side
+# splits config across multiple files under infra/anope/conf/).
+test-e2e-services-anope: engine-build
+	@if [ ! -f infra/anope/unrealircd.conf ]; then \
+		echo "Anope e2e infra not yet built — see task #83 (infra/anope/ + docker-compose anope profile)."; \
+		exit 1; \
+	fi
+	docker compose --profile e2e-anope up -d
+	@echo "Waiting for anope+unrealircd readiness..."
+	@timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/6668 2>/dev/null; do sleep 0.5; done' || \
+		{ echo "anope+unreal never came up on :6668"; exit 1; }
+	@sleep 5  # give Anope's burst link to settle
+	@# Seed the directory so the Playwright spec can find the stack
+	@# as a `verified` row (public GET /servers filters out pending).
+	@docker compose exec -T postgres psql -U boson -d boson -v ON_ERROR_STOP=1 < backend/db/seeds/dev-anope.sql
+	E2E_ANOPE_HOST=127.0.0.1 E2E_ANOPE_PORT=6668 \
+		go test -tags=e2e -count=1 -v ./engine/internal/services_e2e/anope/...
+	@echo "---- Playwright NickServ flow against anope ----"
+	cd client && E2E_IRC_HOST=127.0.0.1 E2E_IRC_PORT=6668 E2E_STACK_NAME=anope \
+		npx playwright test tests/e2e/nickserv-flow.spec.ts --reporter=list
+
+# Atheme + InspIRCd. Infra in infra/atheme/.
+test-e2e-services-atheme: engine-build
+	@if [ ! -f infra/atheme/atheme.conf ]; then \
+		echo "Atheme e2e infra not yet built — see task #84 (infra/atheme/ + docker-compose atheme profile)."; \
+		exit 1; \
+	fi
+	docker compose --profile e2e-atheme up -d
+	@echo "Waiting for atheme readiness..."
+	@timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/6669 2>/dev/null; do sleep 0.5; done' || \
+		{ echo "atheme+inspircd never came up on :6669"; exit 1; }
+	@sleep 5
+	@docker compose exec -T postgres psql -U boson -d boson -v ON_ERROR_STOP=1 < backend/db/seeds/dev-atheme.sql
+	E2E_ATHEME_HOST=127.0.0.1 E2E_ATHEME_PORT=6669 \
+		go test -tags=e2e -count=1 -v ./engine/internal/services_e2e/atheme/...
+	@echo "---- Playwright NickServ flow against atheme ----"
+	cd client && E2E_IRC_HOST=127.0.0.1 E2E_IRC_PORT=6669 E2E_STACK_NAME=atheme \
+		npx playwright test tests/e2e/nickserv-flow.spec.ts --reporter=list
+
+# Run every stack in sequence. Stacks without infra skip with a note
+# (so a fresh checkout that lacks one of the stacks doesn't fail
+# the whole run). Strict on a stack-level failure: if Ergo passes
+# but Anope's scenarios fail, the make exits non-zero — that's the
+# desired CI signal.
+test-e2e-services:
+	@echo "===== ergo ====="
+	@$(MAKE) test-e2e-services-ergo
+	@if [ -f infra/anope/unrealircd.conf ]; then \
+		echo "===== anope ====="; \
+		$(MAKE) test-e2e-services-anope; \
+	else \
+		echo "===== anope ===== (skipped — infra/anope/ not present)"; \
+	fi
+	@if [ -f infra/atheme/atheme.conf ]; then \
+		echo "===== atheme ====="; \
+		$(MAKE) test-e2e-services-atheme; \
+	else \
+		echo "===== atheme ===== (skipped — infra/atheme/ not present)"; \
+	fi
+	@echo "===== services e2e — done ====="
 
 # ----- Git hooks -----
 

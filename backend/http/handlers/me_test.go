@@ -148,6 +148,83 @@ func TestMeHandler_Post_InternalError(t *testing.T) {
 	assert.Equal(t, stdhttp.StatusInternalServerError, rr.Code)
 }
 
+func TestMeHandler_Patch_Success(t *testing.T) {
+	uid := uuid.New()
+	want := &user.User{ID: uid, Handle: "alice-new"}
+	svc := &stubUserService{
+		updateHandle: func(_ context.Context, gotID uuid.UUID, h string) (*user.User, error) {
+			assert.Equal(t, uid, gotID)
+			assert.Equal(t, "alice-new", h)
+			return want, nil
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uid}, "PATCH", "/me",
+		`{"handle":"alice-new"}`)
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+	var got user.User
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&got))
+	assert.Equal(t, "alice-new", got.Handle)
+}
+
+func TestMeHandler_Patch_InvalidJSON(t *testing.T) {
+	rr := callMe(t, &stubUserService{}, middleware.Principal{UserID: uuid.New()},
+		"PATCH", "/me", `not json`)
+	assert.Equal(t, stdhttp.StatusBadRequest, rr.Code)
+}
+
+func TestMeHandler_Patch_NoFields(t *testing.T) {
+	svc := &stubUserService{}
+	rr := callMe(t, svc, middleware.Principal{UserID: uuid.New()},
+		"PATCH", "/me", `{}`)
+	assert.Equal(t, stdhttp.StatusBadRequest, rr.Code)
+	// Service must not have been touched.
+	assert.Empty(t, svc.updateHandleArgs)
+}
+
+func TestMeHandler_Patch_HandleInvalid(t *testing.T) {
+	svc := &stubUserService{
+		updateHandle: func(_ context.Context, _ uuid.UUID, _ string) (*user.User, error) {
+			return nil, user.ErrHandleInvalid
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uuid.New()},
+		"PATCH", "/me", `{"handle":"ab"}`)
+	assert.Equal(t, stdhttp.StatusBadRequest, rr.Code)
+}
+
+func TestMeHandler_Patch_HandleTaken(t *testing.T) {
+	svc := &stubUserService{
+		updateHandle: func(_ context.Context, _ uuid.UUID, _ string) (*user.User, error) {
+			return nil, user.ErrHandleTaken
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uuid.New()},
+		"PATCH", "/me", `{"handle":"alice"}`)
+	assert.Equal(t, stdhttp.StatusConflict, rr.Code)
+}
+
+func TestMeHandler_Patch_NotFound(t *testing.T) {
+	svc := &stubUserService{
+		updateHandle: func(_ context.Context, _ uuid.UUID, _ string) (*user.User, error) {
+			return nil, user.ErrNotFound
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uuid.New()},
+		"PATCH", "/me", `{"handle":"alice"}`)
+	assert.Equal(t, stdhttp.StatusNotFound, rr.Code)
+}
+
+func TestMeHandler_Patch_InternalError(t *testing.T) {
+	svc := &stubUserService{
+		updateHandle: func(_ context.Context, _ uuid.UUID, _ string) (*user.User, error) {
+			return nil, errors.New("db down")
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uuid.New()},
+		"PATCH", "/me", `{"handle":"alice"}`)
+	assert.Equal(t, stdhttp.StatusInternalServerError, rr.Code)
+}
+
 func TestMeHandler_Delete_Success(t *testing.T) {
 	uid := uuid.New()
 	svc := &stubUserService{}

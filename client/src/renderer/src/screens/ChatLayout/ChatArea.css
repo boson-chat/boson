@@ -730,6 +730,49 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Pending-email-confirmation banner. Slim amber strip directly under
+   the chat header — separate component from .chat-banner because:
+   - it lives at the layout level (above MessageList) rather than
+     inside the input bar;
+   - it's status-driven (not user-dismissable);
+   - it has a contextual jump-to-settings link.
+   Self-hides when the credentials store's status flips away from
+   pending-confirmation, so no manual dismiss is needed. */
+.chat-pending-confirm-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: color-mix(in oklab, var(--warn, #f5a524), transparent 85%);
+  border-bottom: 1px solid color-mix(in oklab, var(--warn, #f5a524), transparent 60%);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  animation: chat-banner-slide-in 180ms var(--ease-standard);
+}
+.chat-pending-confirm-icon {
+  font-size: var(--text-sm);
+  color: var(--warn, #f5a524);
+}
+.chat-pending-confirm-text {
+  flex: 1;
+}
+.chat-pending-confirm-link {
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--warn, #f5a524), transparent 50%);
+  color: var(--fg);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.chat-pending-confirm-link:hover {
+  background: color-mix(in oklab, var(--warn, #f5a524), transparent 70%);
+}
+
 .chat-input-wrap {
   display: flex;
   align-items: center;

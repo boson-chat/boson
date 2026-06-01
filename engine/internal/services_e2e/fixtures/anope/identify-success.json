@@ -1,0 +1,69 @@
+{
+  "stack": "anope",
+  "scenario": "identify-success",
+  "recorded": "2026-05-30T19:48:34.984971412Z",
+  "ircdLabel": "unrealircd-5.0.7 + anope-2.0.19",
+  "events": [
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok372374249",
+      "message": "nick, type \u0002/msg NickServ IDENTIFY \u001fpassword\u001f\u0002.  Otherwise,",
+      "tags": {
+        "msgid": "juQvYOENZ8mLDUv8LvrQux",
+        "time": "2026-05-30T19:48:34.884Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok372374249",
+      "message": "please choose a different nick.",
+      "tags": {
+        "msgid": "3sHW80SjHpOJ6Nm5KhOTxS",
+        "time": "2026-05-30T19:48:34.884Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok372374249",
+      "message": "This nickname is registered and protected.  If it is your",
+      "tags": {
+        "msgid": "TD1bkMzg5GYflxmaVdEqOh",
+        "time": "2026-05-30T19:48:34.884Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok372374249",
+      "message": "Unknown command \u0002VERSION\u0002. \"/msg NickServ HELP\" for help.",
+      "tags": {
+        "msgid": "W0MHFaU74Fg9WjvZFvrL4W",
+        "time": "2026-05-30T19:48:34.885Z"
+      }
+    },
+    {
+      "kind": "NOTICE",
+      "from": "NickServ",
+      "target": "e2eidok372374249",
+      "message": "Password accepted - you are now recognized.",
+      "tags": {
+        "msgid": "bmUcGDZWJ8WPLojtWcaZJM",
+        "time": "2026-05-30T19:48:34.885Z"
+      }
+    },
+    {
+      "kind": "900",
+      "from": "irc.test",
+      "target": "",
+      "message": "You are now logged in as e2eidok372374249.",
+      "args": [
+        "e2eidok372374249!e2eidok372@172.18.0.1",
+        "e2eidok372374249",
+        "You are now logged in as e2eidok372374249."
+      ]
+    }
+  ]
+}

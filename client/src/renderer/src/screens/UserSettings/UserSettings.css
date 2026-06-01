@@ -120,6 +120,12 @@
   justify-content: flex-end;
   gap: var(--space-3);
 }
+.user-settings-error {
+  color: var(--danger, #ef4444);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  margin: 0;
+}
 .user-settings-saved {
   color: var(--success, #10b981);
   font-family: var(--font-mono);
