@@ -14,6 +14,10 @@ export interface Server {
   user_count?: number;
   registered_by?: string;
   registered_at: string;
+  // Computed CDN URLs for the listing's icon (square) + banner (wide),
+  // absent when unset. Owners manage these via the icon/banner endpoints.
+  icon_url?: string;
+  banner_url?: string;
 }
 
 // Owner-scoped server view returned from POST /servers,

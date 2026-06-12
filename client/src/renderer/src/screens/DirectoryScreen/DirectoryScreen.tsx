@@ -516,8 +516,10 @@ function ServerCard({
   return (
     <article class="directory-card" role="listitem">
       <header class="directory-card-head">
-        <div class="directory-card-avatar" style={avatarStyle} aria-hidden="true">
-          {initials}
+        <div class="directory-card-avatar" style={server.icon_url ? undefined : avatarStyle} aria-hidden="true">
+          {server.icon_url
+            ? <img class="directory-card-avatar-img" src={server.icon_url} alt="" loading="lazy" />
+            : initials}
         </div>
         <div class="directory-card-titles">
           <h3 class="directory-card-name">
@@ -607,6 +609,7 @@ function buildEditableProps(
   onSaveProfile?: (
     patch: Partial<import('../ChatLayout/ServerSettings').DirectoryEntryProfile>,
   ) => Promise<void>;
+  onSaveServerImage?: (kind: 'icon' | 'banner', image: Blob | null) => Promise<void>;
 } {
   // SavedServer doesn't carry the directory profile fields — only
   // hostname/port/tls/name/id. Narrow via a property check so TS
@@ -622,8 +625,11 @@ function buildEditableProps(
       tags: server.tags ?? [],
       languages: server.languages ?? [],
       isNsfw: server.is_nsfw ?? false,
+      iconUrl: server.icon_url,
+      bannerUrl: server.banner_url,
     },
     onSaveProfile: (patch) => bloc.updateServerProfile(server.id, patch),
+    onSaveServerImage: (kind, image) => bloc.setServerImage(server.id, kind, image),
   };
 }
 

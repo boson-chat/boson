@@ -186,6 +186,17 @@ export class DirectoryService {
     return this.http.patch<ServerWithToken>(`/servers/${serverID}`, patch);
   }
 
+  // Owner-only listing images. `kind` is 'icon' (square) or 'banner' (wide).
+  // The backend validates + resizes + stores in R2; returns the refreshed
+  // server (with the new icon_url/banner_url).
+  async uploadServerImage(serverID: string, kind: 'icon' | 'banner', image: Blob): Promise<Server> {
+    return this.http.postBlob<Server>(`/servers/${serverID}/${kind}`, image, image.type || 'application/octet-stream');
+  }
+
+  async deleteServerImage(serverID: string, kind: 'icon' | 'banner'): Promise<Server> {
+    return this.http.delete<Server>(`/servers/${serverID}/${kind}`);
+  }
+
   // Run the DNS TXT check against the registered hostname. Returns the
   // full report (per-resolver outcomes) on both success AND failure —
   // a 409 partial-match response carries the same body, so the caller

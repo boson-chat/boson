@@ -811,6 +811,20 @@ export class DirectoryBloc {
     this.emit();
   }
 
+  // Upload (image != null) or remove (null) the server's icon/banner, then
+  // refresh the in-memory row + connection snapshot like updateServerProfile.
+  async setServerImage(serverID: string, kind: 'icon' | 'banner', image: Blob | null): Promise<void> {
+    const updated = image
+      ? await this.directory.uploadServerImage(serverID, kind, image)
+      : await this.directory.deleteServerImage(serverID, kind);
+    if (this.servers) {
+      this.servers = this.servers.map((s) => (s.id === serverID ? updated : s));
+    }
+    const conn = this.connections.get(serverID);
+    if (conn) conn.server = updated;
+    this.emit();
+  }
+
   // Deep-link handler. The marketing site's /discover page links to
   // `boson://join?host=…&port=…&tls=…&name=…` for every directory card;
   // the main process passes the parsed params here.

@@ -8,6 +8,8 @@ import {
   type ServiceCredentials,
 } from '../../modules/chat/services-credentials';
 import { getAdapter } from '../../modules/chat/adapters';
+import { Avatar } from '../../shared/Avatar/Avatar';
+import { HttpError } from '../../shared/http/http.client';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
 import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
 import './ServerSettings.css';
@@ -38,6 +40,8 @@ export interface DirectoryEntryProfile {
   tags: string[];
   languages: string[];
   isNsfw: boolean;
+  iconUrl?: string;
+  bannerUrl?: string;
 }
 
 interface ServerSettingsProps {
@@ -130,6 +134,8 @@ interface ServerSettingsProps {
   // expected to gate this on (authed && server.registered_by === me.id).
   directoryEntry?: DirectoryEntryProfile;
   onSaveProfile?: (patch: Partial<DirectoryEntryProfile>) => Promise<void>;
+  // Upload (image != null) or remove (null) the listing's icon/banner.
+  onSaveServerImage?: (kind: 'icon' | 'banner', image: Blob | null) => Promise<void>;
 }
 
 interface MenuItem {
@@ -150,7 +156,7 @@ const MENU: readonly MenuItem[] = [
 export function ServerSettings({
   serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
   serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
-  directoryEntry, onSaveProfile,
+  directoryEntry, onSaveProfile, onSaveServerImage,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
   // Hide the Edit tab when the parent didn't pass ownership context.
@@ -224,7 +230,7 @@ export function ServerSettings({
             />
           )}
           {section === 'edit' && editable && directoryEntry && onSaveProfile && (
-            <EditProfileSection entry={directoryEntry} onSave={onSaveProfile} />
+            <EditProfileSection entry={directoryEntry} onSave={onSaveProfile} onSaveImage={onSaveServerImage} />
           )}
           {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
           {section === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
@@ -1134,12 +1140,81 @@ function IdentitySection({
   );
 }
 
+// Icon/banner upload control for the owner's Edit panel. Square variant
+// previews via <Avatar>; banner variant shows a wide preview. Validates
+// type + size client-side, then delegates to onSave (upload) / onSave(null)
+// (remove).
+function ServerImageControl({ kind, label, hint, currentUrl, fallbackName, variant, onSave }: {
+  kind: 'icon' | 'banner';
+  label: string;
+  hint: string;
+  currentUrl?: string;
+  fallbackName: string;
+  variant: 'square' | 'banner';
+  onSave: (kind: 'icon' | 'banner', image: Blob | null) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const run = (fn: () => Promise<void>): void => {
+    setBusy(true);
+    setError(null);
+    fn()
+      .catch((err) => {
+        if (err instanceof HttpError && err.status === 503) setError('Image storage isn’t available.');
+        else if (err instanceof HttpError && err.status === 413) setError('Image is too large (max 5 MB).');
+        else if (err instanceof HttpError && err.status === 400) setError('That file isn’t a supported image.');
+        else if (err instanceof HttpError && err.status === 403) setError('Only the listing owner can change this.');
+        else setError('Failed — try again.');
+      })
+      .finally(() => setBusy(false));
+  };
+
+  const pick = (e: Event): void => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setError('Please choose an image file.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('Image must be under 5 MB.'); return; }
+    run(() => onSave(kind, file));
+  };
+
+  return (
+    <Field label={label} hint={hint}>
+      <div class="server-image-control">
+        {variant === 'square' ? (
+          <Avatar nick={fallbackName} url={currentUrl} size={56} />
+        ) : (
+          <div class="server-image-banner-preview">
+            {currentUrl ? <img src={currentUrl} alt="" /> : <span>No banner</span>}
+          </div>
+        )}
+        <div class="server-image-actions">
+          <input ref={fileRef} type="file" accept="image/*" style="display:none" onChange={pick} />
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+            {busy ? 'Working…' : (currentUrl ? 'Change' : 'Upload')}
+          </Button>
+          {currentUrl && (
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => run(() => onSave(kind, null))}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+      {error && <div class="server-settings-error">{error}</div>}
+    </Field>
+  );
+}
+
 function EditProfileSection({
   entry,
   onSave,
+  onSaveImage,
 }: {
   entry: DirectoryEntryProfile;
   onSave: (patch: Partial<DirectoryEntryProfile>) => Promise<void>;
+  onSaveImage?: (kind: 'icon' | 'banner', image: Blob | null) => Promise<void>;
 }) {
   // Local draft owned by this component; we ONLY submit a patch with
   // the fields the user actually changed. That way submitting "rename
@@ -1197,6 +1272,22 @@ function EditProfileSection({
       title="Directory profile"
       description="Edit the public-facing fields of this server. Hostname / port / TLS are immutable — changing them would invalidate the existing TXT verification."
     >
+      {onSaveImage && (
+        <Card>
+          <div class="server-settings-images">
+            <ServerImageControl
+              kind="icon" label="Icon" hint="Square. Shown in the directory grid + server rail."
+              currentUrl={entry.iconUrl} fallbackName={entry.name} variant="square"
+              onSave={onSaveImage}
+            />
+            <ServerImageControl
+              kind="banner" label="Banner" hint="Wide (3:1). Shown atop the listing."
+              currentUrl={entry.bannerUrl} fallbackName={entry.name} variant="banner"
+              onSave={onSaveImage}
+            />
+          </div>
+        </Card>
+      )}
       <Card>
         <form class="server-settings-form" onSubmit={submit}>
           <Field label="Display name" hint="What users see in the directory grid.">

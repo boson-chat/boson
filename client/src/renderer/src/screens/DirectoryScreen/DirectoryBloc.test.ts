@@ -205,6 +205,7 @@ function fakeDirectory(opts: {
   servers?: Server[];
   list?: DirectoryService['listServers'];
 }): DirectoryService {
+  const find = (id: string) => opts.servers?.find((s) => s.id === id) ?? fakeServer(id);
   return {
     getMe: vi.fn(async () => opts.user ?? null),
     listServers: opts.list ?? (vi.fn(async () => opts.servers ?? [])),
@@ -212,6 +213,8 @@ function fakeDirectory(opts: {
     deleteMe: vi.fn(),
     getSavedSession: vi.fn(async () => null),
     putSavedSession: vi.fn(async () => undefined),
+    uploadServerImage: vi.fn(async (id: string, _kind: string, _img: Blob) => ({ ...find(id), icon_url: 'https://cdn/i.png' })),
+    deleteServerImage: vi.fn(async (id: string) => ({ ...find(id), icon_url: undefined })),
   } as unknown as DirectoryService;
 }
 
@@ -230,6 +233,35 @@ describe('DirectoryBloc', () => {
     setServiceCredentialsStore(new LocalStorageServiceCredentialsStore(memStorage()));
   });
   afterEach(() => { vi.useRealTimers(); });
+
+  it('setServerImage uploads + refreshes the row in state', async () => {
+    const dir = fakeDirectory({ user: fakeUser(), servers: [fakeServer('a')] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: dir,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises();
+    await bloc.setServerImage('a', 'icon', new Blob(['x']));
+    expect(dir.uploadServerImage).toHaveBeenCalledWith('a', 'icon', expect.anything());
+    expect(bloc.getState().servers?.find((s) => s.id === 'a')?.icon_url).toBe('https://cdn/i.png');
+  });
+
+  it('setServerImage(null) removes + refreshes the row', async () => {
+    const dir = fakeDirectory({ user: fakeUser(), servers: [fakeServer('a')] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: dir,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises();
+    await bloc.setServerImage('a', 'banner', null);
+    expect(dir.deleteServerImage).toHaveBeenCalledWith('a', 'banner');
+  });
 
   it('initial state: me undefined, servers null, defaults', () => {
     const bloc = new DirectoryBloc({
