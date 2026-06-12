@@ -1,3 +1,9 @@
+## [0.14.0](https://github.com/boson-chat/boson/compare/v0.13.1...v0.14.0) (2026-06-12)
+
+### Features
+
+* **client:** structured MemoServ inbox, service routing to ~server, activity collapse ([ebdf299](https://github.com/boson-chat/boson/commit/ebdf299ac2cfac2179f4a8d45b8cd287ace0217e))
+
 ## [0.13.1](https://github.com/boson-chat/boson/compare/v0.13.0...v0.13.1) (2026-06-12)
 
 ### Bug Fixes
