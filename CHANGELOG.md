@@ -1,3 +1,10 @@
+## [0.21.0](https://github.com/boson-chat/boson/compare/v0.20.0...v0.21.0) (2026-06-12)
+
+### Features
+
+* **backend:** server icon + banner images for directory listings ([876c00e](https://github.com/boson-chat/boson/commit/876c00e03caa9357c812ad32b63c5593d88a76d4))
+* **client:** server icon + banner upload UI + directory icon display ([2b1e7a3](https://github.com/boson-chat/boson/commit/2b1e7a3ef45b04a372588531cd87a2c94fef8385))
+
 ## [0.20.0](https://github.com/boson-chat/boson/compare/v0.19.1...v0.20.0) (2026-06-12)
 
 ### Features
