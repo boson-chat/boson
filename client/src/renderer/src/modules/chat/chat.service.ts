@@ -310,6 +310,9 @@ export class ChatService {
     // re-attaches (we don't have a use case for that today, but it's cheap).
     for (const handle of this.typingTimers.values()) clearTimeout(handle);
     this.typingTimers.clear();
+    for (const handle of this.namesRetryTimers.values()) clearTimeout(handle);
+    this.namesRetryTimers.clear();
+    this.namesRetryCount.clear();
     // Drop the engine's services-framework subscription so a fresh
     // service-framework event after detach can't fire emit() against
     // a torn-down chat service.
@@ -1394,15 +1397,50 @@ export class ChatService {
   // recently. Throttled to one request per channel per RENAME_THROTTLE_MS.
   private static readonly NAMES_THROTTLE_MS = 5000;
   private namesRequestedAt = new Map<string, number>();
+  // Self-healing fallback for a NAMES reply that never arrived. A joined
+  // channel ALWAYS has at least us, so an empty member list means the
+  // NAMREPLY was lost (WS buffer pressure, engine restart, a services
+  // hiccup). The event-driven triggers (join / channel-switch / first
+  // message) are all one-shot and miss the "idle on an empty channel" case,
+  // so we also keep re-requesting on a timer until it populates or we give up.
+  private static readonly NAMES_RETRY_MS = 5000;
+  private static readonly NAMES_MAX_RETRIES = 5;
+  private namesRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private namesRetryCount = new Map<string, number>();
+
   private maybeRefreshNames(channel: string): void {
     const key = this.channelKey(channel);
     const ch = this.channels.get(key);
-    if (!ch || !ch.joined) return;
-    if (ch.members.length > 0) return;
+    if (!ch || !ch.joined) { this.clearNamesRetry(key); return; }
+    if (ch.members.length > 0) { this.clearNamesRetry(key); return; }
     const last = this.namesRequestedAt.get(key) ?? 0;
-    if (Date.now() - last < ChatService.NAMES_THROTTLE_MS) return;
-    this.namesRequestedAt.set(key, Date.now());
-    this.session.names(key);
+    if (Date.now() - last >= ChatService.NAMES_THROTTLE_MS) {
+      this.namesRequestedAt.set(key, Date.now());
+      this.session.names(key);
+    }
+    // Arm the fallback in case this request is lost too. Bounded so a truly
+    // unanswerable channel doesn't poll forever.
+    this.scheduleNamesRetry(key);
+  }
+
+  private scheduleNamesRetry(key: string): void {
+    if (this.namesRetryTimers.has(key)) return; // one in flight already
+    if ((this.namesRetryCount.get(key) ?? 0) >= ChatService.NAMES_MAX_RETRIES) return;
+    this.namesRetryCount.set(key, (this.namesRetryCount.get(key) ?? 0) + 1);
+    const timer = setTimeout(() => {
+      this.namesRetryTimers.delete(key);
+      const ch = this.channels.get(key);
+      if (ch && ch.joined && ch.members.length === 0) {
+        this.maybeRefreshNames(key); // re-fires NAMES + re-arms (bounded)
+      }
+    }, ChatService.NAMES_RETRY_MS);
+    this.namesRetryTimers.set(key, timer);
+  }
+
+  private clearNamesRetry(key: string): void {
+    const t = this.namesRetryTimers.get(key);
+    if (t) { clearTimeout(t); this.namesRetryTimers.delete(key); }
+    this.namesRetryCount.delete(key);
   }
 
   // Channel names in IRC are case-insensitive per CASEMAPPING. We normalize
@@ -1762,6 +1800,9 @@ export class ChatService {
           if (pendingFlags && pendingFlags.size > 0) {
             this.applyAwayFlags(ch, pendingFlags);
           }
+          // Populated → cancel any pending self-heal retry. If it somehow
+          // committed empty, leave the retry armed to try again.
+          if (ch.members.length > 0) this.clearNamesRetry(key);
           this.emit();
         }
         break;

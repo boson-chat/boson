@@ -1033,6 +1033,50 @@ describe('ChatService server info capture', () => {
   });
 });
 
+describe('ChatService NAMES self-heal (empty member list fallback)', () => {
+  it('keeps re-requesting NAMES on a joined channel with an empty member list, then stops once populated', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const { engine } = makeChat('me');
+      engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#x' }));
+      engine.namesCalls.length = 0; // ignore any request from the join itself
+
+      // While the list stays empty, the fallback re-issues NAMES over time.
+      vi.advanceTimersByTime(8000);
+      const after1 = engine.namesCalls.filter((c) => c === '#x').length;
+      expect(after1).toBeGreaterThanOrEqual(1);
+      vi.advanceTimersByTime(6000);
+      expect(engine.namesCalls.filter((c) => c === '#x').length).toBeGreaterThan(after1);
+
+      // NAMES finally arrives → the retry is cancelled, no further requests.
+      engine.emit(makeEvent({ Kind: '353', Target: '#x', Message: 'me alice' }));
+      engine.emit(makeEvent({ Kind: '366', Target: '#x' }));
+      const afterPopulate = engine.namesCalls.length;
+      vi.advanceTimersByTime(60000);
+      expect(engine.namesCalls.length).toBe(afterPopulate);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('gives up after a bounded number of retries (no infinite polling)', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    try {
+      const { engine } = makeChat('me');
+      engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#y' }));
+      // Never populate; run well past the retry budget.
+      vi.advanceTimersByTime(120000);
+      const total = engine.namesCalls.filter((c) => c === '#y').length;
+      // Bounded — a handful of attempts, not unbounded polling.
+      expect(total).toBeLessThanOrEqual(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('ChatService channel topics', () => {
   function getChannel(chat: ReturnType<typeof makeChat>['chat'], name: string) {
     return chat.getState().channels.find((c) => c.name === name);
