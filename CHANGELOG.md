@@ -1,3 +1,13 @@
+## [0.16.0](https://github.com/boson-chat/boson/compare/v0.15.0...v0.16.0) (2026-06-12)
+
+### Features
+
+* **client:** nick-colored initial avatars in the member list ([7bafaf6](https://github.com/boson-chat/boson/commit/7bafaf697dcdd09580ac1b41d4a664943754eff1))
+
+### Bug Fixes
+
+* **client:** self-heal an empty channel member list ([0e2f015](https://github.com/boson-chat/boson/commit/0e2f0150a219f44b8b31f854b2457c345cb5e4db))
+
 ## [0.15.0](https://github.com/boson-chat/boson/compare/v0.14.0...v0.15.0) (2026-06-12)
 
 ### Features
