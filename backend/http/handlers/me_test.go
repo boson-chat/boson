@@ -85,6 +85,66 @@ func TestMeHandler_Post_Success(t *testing.T) {
 	assert.Equal(t, stdhttp.StatusCreated, rr.Code)
 }
 
+func TestMeHandler_Post_WithRecoveryWrap(t *testing.T) {
+	uid := uuid.New()
+	svc := &stubUserService{
+		create: func(_ context.Context, in user.CreateUserInput) (*user.User, error) {
+			assert.Equal(t, []byte("abcd"), in.EncryptedUserSecret)
+			assert.Equal(t, []byte("efgh"), in.EncryptedUserSecretRecovery)
+			return &user.User{ID: uid, Handle: "alice"}, nil
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uid}, "POST", "/me",
+		`{"handle":"alice","encrypted_user_secret":"YWJjZA==","encrypted_user_secret_recovery":"ZWZnaA=="}`)
+	assert.Equal(t, stdhttp.StatusCreated, rr.Code)
+}
+
+func TestMeHandler_Post_BadRecoveryBase64(t *testing.T) {
+	rr := callMe(t, &stubUserService{}, middleware.Principal{UserID: uuid.New()}, "POST", "/me",
+		`{"handle":"alice","encrypted_user_secret":"YWJjZA==","encrypted_user_secret_recovery":"!!notb64"}`)
+	assert.Equal(t, stdhttp.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "recovery must be base64")
+}
+
+func TestMeHandler_UpdateSecretWraps_Both(t *testing.T) {
+	uid := uuid.New()
+	svc := &stubUserService{
+		updateWraps: func(_ context.Context, id uuid.UUID, pw, rec []byte) (*user.User, error) {
+			assert.Equal(t, uid, id)
+			assert.Equal(t, []byte("abcd"), pw)
+			assert.Equal(t, []byte("efgh"), rec)
+			return &user.User{ID: uid, Handle: "alice"}, nil
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uid}, "PUT", "/me/secret-wraps",
+		`{"encrypted_user_secret":"YWJjZA==","encrypted_user_secret_recovery":"ZWZnaA=="}`)
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+}
+
+func TestMeHandler_UpdateSecretWraps_RecoveryOnly(t *testing.T) {
+	uid := uuid.New()
+	svc := &stubUserService{
+		updateWraps: func(_ context.Context, _ uuid.UUID, pw, rec []byte) (*user.User, error) {
+			assert.Nil(t, pw)               // password wrap untouched
+			assert.Equal(t, []byte("efgh"), rec)
+			return &user.User{ID: uid}, nil
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uid}, "PUT", "/me/secret-wraps",
+		`{"encrypted_user_secret_recovery":"ZWZnaA=="}`)
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+}
+
+func TestMeHandler_UpdateSecretWraps_Empty(t *testing.T) {
+	svc := &stubUserService{
+		updateWraps: func(_ context.Context, _ uuid.UUID, _, _ []byte) (*user.User, error) {
+			return nil, user.ErrInvalidWrap
+		},
+	}
+	rr := callMe(t, svc, middleware.Principal{UserID: uuid.New()}, "PUT", "/me/secret-wraps", `{}`)
+	assert.Equal(t, stdhttp.StatusBadRequest, rr.Code)
+}
+
 func TestMeHandler_Post_InvalidJSON(t *testing.T) {
 	rr := callMe(t, &stubUserService{}, middleware.Principal{UserID: uuid.New()},
 		"POST", "/me", `not json`)

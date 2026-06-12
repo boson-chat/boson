@@ -12,13 +12,15 @@ var (
 	ErrHandleTaken   = errors.New("handle already taken")
 	ErrHandleInvalid = errors.New("handle invalid")
 	ErrAlreadyExists = errors.New("user already exists")
+	ErrInvalidWrap   = errors.New("no secret wrap provided")
 )
 
 type CreateUserInput struct {
-	ID                  uuid.UUID
-	Handle              string
-	DisplayName         *string
-	EncryptedUserSecret []byte
+	ID                          uuid.UUID
+	Handle                      string
+	DisplayName                 *string
+	EncryptedUserSecret         []byte
+	EncryptedUserSecretRecovery []byte
 }
 
 type UserServiceImpl interface {
@@ -26,6 +28,12 @@ type UserServiceImpl interface {
 	Create(ctx context.Context, in CreateUserInput) (*User, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error)
+	// UpdateUserSecretWraps replaces the password and/or recovery wrap of the
+	// user_secret. A nil slice leaves that wrap untouched — so this serves both
+	// "enroll a recovery code later" (recovery only) and "re-wrap after a
+	// password reset" (password only). The plaintext user_secret is unchanged;
+	// only its server-stored ciphertext wraps are swapped.
+	UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error)
 }
 
 type UserService struct {
@@ -59,16 +67,26 @@ func (s *UserService) Create(ctx context.Context, in CreateUserInput) (*User, er
 	}
 
 	u := &User{
-		ID:                  in.ID,
-		Handle:              handle,
-		DisplayName:         in.DisplayName,
-		EncryptedUserSecret: in.EncryptedUserSecret,
-		IsDiscoverable:      true,
+		ID:                          in.ID,
+		Handle:                      handle,
+		DisplayName:                 in.DisplayName,
+		EncryptedUserSecret:         in.EncryptedUserSecret,
+		EncryptedUserSecretRecovery: in.EncryptedUserSecretRecovery,
+		IsDiscoverable:              true,
 	}
 	if err := s.Repository.Create(ctx, u); err != nil {
 		return nil, err
 	}
 	return u, nil
+}
+
+// UpdateUserSecretWraps delegates to the repository; nil wraps are left as-is.
+// Errors with ErrInvalidWrap if both are nil (nothing to do).
+func (s *UserService) UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error) {
+	if len(passwordWrap) == 0 && len(recoveryWrap) == 0 {
+		return nil, ErrInvalidWrap
+	}
+	return s.Repository.UpdateUserSecretWraps(ctx, id, passwordWrap, recoveryWrap)
 }
 
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {

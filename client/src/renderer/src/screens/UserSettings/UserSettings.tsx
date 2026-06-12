@@ -9,7 +9,9 @@ import {
 } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import type { DirectoryService } from '../../modules/directory';
+import type { IdentityService } from '../../modules/identity';
 import type { AuthService } from '../../modules/auth';
+import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { HttpError } from '../../shared/http/http.client';
 // Pulled at build time from client/package.json. semantic-release keeps
 // every workspace package.json in lockstep with the latest tag via
@@ -53,10 +55,12 @@ interface UserSettingsProps {
   // Required for the Identity section's authoritative read + rename.
   // The renderer-only test harness wires these via buildApp().
   directory: DirectoryService;
+  // Used by the Account section's recovery-code enroll/regenerate flow.
+  identity: IdentityService;
   auth: AuthService;
 }
 
-export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, auth }: UserSettingsProps) {
+export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth }: UserSettingsProps) {
   const [section, setSection] = useState<SectionId>('identity');
   const guest = loadGuestSession();
   const mode: 'guest' | 'account' = guest ? 'guest' : 'account';
@@ -97,6 +101,9 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               authedEmail={authedEmail}
               onSignOut={onSignOut}
               onClose={onClose}
+              directory={directory}
+              identity={identity}
+              open={open}
             />
           )}
           {section === 'about' && <AboutSection />}
@@ -297,11 +304,14 @@ function AppearanceSection() {
   );
 }
 
-function AccountSection({ mode, authedEmail, onSignOut, onClose }: {
+function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, identity, open }: {
   mode: 'guest' | 'account';
   authedEmail: string | null;
   onSignOut: () => void;
   onClose: () => void;
+  directory: DirectoryService;
+  identity: IdentityService;
+  open: boolean;
 }) {
   if (mode === 'guest') {
     return (
@@ -332,12 +342,90 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose }: {
       <Card>
         <div class="user-settings-card-body">
           <DetailRow label="Email" value={authedEmail ?? '—'} />
+          <Divider />
+          <RecoveryCodeSettings directory={directory} identity={identity} open={open} />
         </div>
       </Card>
       <div class="user-settings-actions">
         <Button variant="ghost" onClick={() => { onSignOut(); onClose(); }}>Sign out</Button>
       </div>
     </SectionFrame>
+  );
+}
+
+// Recovery-code enroll / regenerate for signed-in users. Reads /me on open to
+// learn whether a recovery wrap already exists (→ "Regenerate" vs "Set up").
+// Enrolling wraps the in-memory user_secret under a fresh code and persists
+// the wrap via PUT /me/secret-wraps; the one-time code is then shown once.
+function RecoveryCodeSettings({ directory, identity, open }: {
+  directory: DirectoryService;
+  identity: IdentityService;
+  open: boolean;
+}) {
+  const [hasRecovery, setHasRecovery] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [revealCode, setRevealCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void directory.getMe()
+      .then((me) => { if (!cancelled) setHasRecovery(Boolean(me?.encrypted_user_secret_recovery)); })
+      .catch(() => { if (!cancelled) setHasRecovery(null); });
+    return () => { cancelled = true; };
+  }, [open, directory]);
+
+  const enroll = async (): Promise<void> => {
+    setError(null);
+    if (!identity.isUnlocked()) {
+      setError('Your identity is locked. Sign in again, then set up a recovery code.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const { recoveryBlob, recoveryCode } = await identity.enrollRecoveryCode();
+      await directory.updateSecretWraps({ recoveryBlob });
+      setHasRecovery(true);
+      setRevealCode(recoveryCode);
+    } catch {
+      setError('Could not set up a recovery code — try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (revealCode) {
+    return (
+      <RecoveryCodeReveal
+        code={revealCode}
+        intro="This replaces any previous recovery code. It's the only way back into
+          your synced passwords if you forget your login password — save it now."
+        continueLabel="Done"
+        onContinue={() => setRevealCode(null)}
+      />
+    );
+  }
+
+  return (
+    <div class="user-settings-recovery">
+      <DetailRow
+        label="Recovery code"
+        customValue={
+          hasRecovery === null
+            ? <span class="user-settings-empty">—</span>
+            : hasRecovery
+              ? <Badge tone="verified">Enabled</Badge>
+              : <Badge tone="warn">Not set up</Badge>
+        }
+      />
+      {error && <div class="user-settings-error">{error}</div>}
+      <div class="user-settings-form-actions">
+        <Button type="button" variant={hasRecovery ? 'ghost' : 'primary'} disabled={busy} onClick={() => { void enroll(); }}>
+          {busy ? 'Working…' : hasRecovery ? 'Regenerate recovery code' : 'Set up recovery code'}
+        </Button>
+      </div>
+    </div>
   );
 }
 

@@ -535,6 +535,32 @@
   margin-bottom: var(--space-8);
 }
 
+/* One-time recovery-code reveal (signup + settings enroll). */
+.recovery-code-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  background: var(--surface-2, rgba(127, 127, 127, 0.12));
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-4);
+  margin: var(--space-4) 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: all;
+}
+.recovery-code-actions {
+  margin-bottom: var(--space-4);
+}
+.recovery-code-ack {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  font-size: 0.9rem;
+  color: var(--text-muted, inherit);
+}
+
 .directory-setup-header {
   margin-bottom: var(--space-5);
 }

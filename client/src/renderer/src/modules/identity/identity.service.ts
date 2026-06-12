@@ -6,11 +6,24 @@ import {
   base64Decode,
   base64Encode,
   decryptUserSecret,
+  decryptCreds,
   deriveSaslPassword,
   encryptUserSecret,
+  encryptCreds,
+  generateRecoveryCode,
   generateUserSecret,
+  unwrapUserSecret,
+  wrapUserSecret,
   zeroize,
+  type NickservCreds,
 } from './crypto';
+
+// One-time recovery material surfaced after signup: the wrap to persist
+// server-side plus the human-readable code to show the user exactly once.
+export interface PendingRecovery {
+  recoveryBlob: string; // base64, → users.encrypted_user_secret_recovery
+  recoveryCode: string; // shown once, never persisted by us
+}
 
 export type IdentityListener = (s: IdentityState) => void;
 
@@ -39,6 +52,10 @@ export class IdentityService {
   // Held in memory only on first signup, until the caller uses it for POST /me.
   // Cleared in `clearPendingEncrypted()` to avoid lingering ciphertext.
   private pendingEncryptedB64: string | null = null;
+  // Recovery wrap + one-time code generated alongside the password wrap at
+  // signup. Surfaced via getPendingRecovery() so the SetupPrompt can POST the
+  // wrap and show the code once. Cleared together with pendingEncryptedB64.
+  private pendingRecovery: PendingRecovery | null = null;
   private state: IdentityState = { status: 'locked' };
   private readonly listeners = new Set<IdentityListener>();
   private readonly secureStorage: SecureStorage;
@@ -72,15 +89,25 @@ export class IdentityService {
     this.disposeSecret();
     const secret = generateUserSecret();
     const blob = await encryptUserSecret(secret, password, this.argonOverride);
+    // Generate the recovery wrap alongside the password wrap so signup can
+    // store both and show the code once. Independent salt ⇒ independent KEK.
+    const recoveryCode = generateRecoveryCode();
+    const recoveryBlob = await wrapUserSecret(secret, recoveryCode, this.argonOverride);
     this.userSecret = secret;
     this.pendingEncryptedB64 = base64Encode(blob);
+    this.pendingRecovery = { recoveryBlob: base64Encode(recoveryBlob), recoveryCode };
     this.setState({ status: 'unlocked' });
     return this.pendingEncryptedB64;
   }
 
   /** Returns the most recently generated encrypted blob (base64), or null. */
   getPendingEncrypted(): string | null { return this.pendingEncryptedB64; }
-  clearPendingEncrypted(): void { this.pendingEncryptedB64 = null; }
+  /** Recovery wrap + one-time code generated at signup (or null). */
+  getPendingRecovery(): PendingRecovery | null { return this.pendingRecovery; }
+  clearPendingEncrypted(): void {
+    this.pendingEncryptedB64 = null;
+    this.pendingRecovery = null;
+  }
 
   /**
    * Existing-user signin path: try to decrypt the stored blob with KEK(password).
@@ -111,7 +138,58 @@ export class IdentityService {
   lock(): void {
     this.disposeSecret();
     this.pendingEncryptedB64 = null;
+    this.pendingRecovery = null;
     this.setState({ status: 'locked' });
+  }
+
+  /**
+   * Recovery path: decrypt the server-stored recovery wrap with the user's
+   * one-time recovery code. Used when they've forgotten their login password
+   * (a Supabase reset leaves the password wrap stale). On success the service
+   * is unlocked but the password wrap is now out of date — the caller should
+   * follow up with rewrapForNewPassword + persist the new wrap.
+   * Throws (and stays locked) on a wrong/garbled code.
+   */
+  async unlockWithRecoveryCode(recoveryCode: string, recoveryB64: string): Promise<void> {
+    try {
+      const blob = base64Decode(recoveryB64);
+      const secret = await unwrapUserSecret(blob, recoveryCode, this.argonOverride);
+      this.disposeSecret();
+      this.userSecret = secret;
+      this.setState({ status: 'unlocked' });
+    } catch (err) {
+      this.setState({ status: 'locked', error: err instanceof Error ? err.message : String(err) });
+      throw err;
+    }
+  }
+
+  /**
+   * Generate a fresh recovery code for an already-unlocked user and return the
+   * wrap to persist + the code to show once. Used to enroll a recovery code
+   * for existing accounts (created before recovery wraps existed) or to
+   * regenerate one. Throws if locked.
+   */
+  async enrollRecoveryCode(): Promise<PendingRecovery> {
+    if (!this.userSecret || this.state.status !== 'unlocked') {
+      throw new Error('identity: locked — cannot enroll a recovery code');
+    }
+    const recoveryCode = generateRecoveryCode();
+    const recoveryBlob = await wrapUserSecret(this.userSecret, recoveryCode, this.argonOverride);
+    return { recoveryBlob: base64Encode(recoveryBlob), recoveryCode };
+  }
+
+  /**
+   * Re-wrap the in-memory user_secret under a new password and return the new
+   * password-wrap (base64) to persist via PUT /me/secret-wraps. Used after a
+   * recovery-code unlock (password reset) so the password wrap matches the new
+   * login password. The recovery wrap is unaffected. Throws if locked.
+   */
+  async rewrapForNewPassword(newPassword: string): Promise<string> {
+    if (!this.userSecret || this.state.status !== 'unlocked') {
+      throw new Error('identity: locked — cannot re-wrap');
+    }
+    const blob = await encryptUserSecret(this.userSecret, newPassword, this.argonOverride);
+    return base64Encode(blob);
   }
 
   /**
@@ -184,6 +262,18 @@ export class IdentityService {
       throw new Error('identity: locked — cannot derive SASL password');
     }
     return deriveSaslPassword(this.userSecret, serverId);
+  }
+
+  // Encrypt/decrypt a server's NickServ creds for E2E sync. Kept here so the
+  // plaintext user_secret never leaves the service. Throws if locked.
+  async encryptCredsForServer(serverId: string, creds: NickservCreds): Promise<string> {
+    if (!this.userSecret) throw new Error('identity: locked — cannot encrypt creds');
+    return encryptCreds(this.userSecret, serverId, creds);
+  }
+
+  async decryptCredsForServer(serverId: string, blobB64: string): Promise<NickservCreds> {
+    if (!this.userSecret) throw new Error('identity: locked — cannot decrypt creds');
+    return decryptCreds(this.userSecret, serverId, blobB64);
   }
 
   private disposeSecret(): void {

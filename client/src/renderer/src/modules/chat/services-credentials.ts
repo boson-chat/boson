@@ -126,6 +126,13 @@ export interface ServiceCredentialsStore {
   // wait for the cache to warm before reading. `await store.whenHydrated?.()`
   // is a no-op on stores that don't provide it.
   whenHydrated?(): Promise<void>;
+  // Subscribe to ALL per-server mutations (not scoped to one serverId). Used
+  // by the backend sync layer to push changes up as they happen. Optional —
+  // only the secure store implements it.
+  subscribeAll?(fn: (serverId: string, creds: ServiceCredentials | null) => void): () => void;
+  // Snapshot of every server's current creds — used by the sync layer to push
+  // local-only entries up on hydrate. Optional.
+  entries?(): Array<[string, ServiceCredentials]>;
 }
 
 const STORAGE_PREFIX = 'boson.services-creds.';
@@ -241,6 +248,8 @@ function log(msg: string): void {
 export class SecureServiceCredentialsStore implements ServiceCredentialsStore {
   private readonly cache = new Map<string, ServiceCredentials>();
   private readonly listeners = new Map<string, Set<ServiceCredentialsListener>>();
+  // Global (all-server) listeners — fed every mutation with its serverId.
+  private readonly globalListeners = new Set<(serverId: string, creds: ServiceCredentials | null) => void>();
   private readonly hydrating: Promise<void>;
   // Serializes writes AND chains them after hydration so we never persist
   // a partial cache over the stored map before it has loaded.
@@ -318,11 +327,24 @@ export class SecureServiceCredentialsStore implements ServiceCredentialsStore {
     };
   }
 
+  subscribeAll(fn: (serverId: string, creds: ServiceCredentials | null) => void): () => void {
+    this.globalListeners.add(fn);
+    return () => { this.globalListeners.delete(fn); };
+  }
+
+  entries(): Array<[string, ServiceCredentials]> {
+    return [...this.cache.entries()];
+  }
+
   private emit(serverId: string, value: ServiceCredentials | null): void {
     const set = this.listeners.get(serverId);
-    if (!set) return;
-    for (const fn of set) {
-      try { fn(value); } catch { /* isolate */ }
+    if (set) {
+      for (const fn of set) {
+        try { fn(value); } catch { /* isolate */ }
+      }
+    }
+    for (const fn of this.globalListeners) {
+      try { fn(serverId, value); } catch { /* isolate */ }
     }
   }
 

@@ -19,7 +19,8 @@ export function LoginScreen({ directory, identity }: Props) {
   const [state, setState] = useState(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
 
-  const { mode, email, password, confirmPassword, error, unrecoverable, busy, awaitingConfirmation } = state;
+  const { mode, email, password, confirmPassword, error, unrecoverable, recoverable, busy, awaitingConfirmation } = state;
+  const [recoveryInput, setRecoveryInput] = useState('');
 
   // Guest-mode local state. The user clicks "Continue as guest" to reveal a
   // single nick field; submitting it writes a localStorage record and emits
@@ -151,6 +152,30 @@ export function LoginScreen({ directory, identity }: Props) {
                     </Button>
                   </div>
                 )}
+              </div>
+            )}
+
+            {recoverable && (
+              <div class="login-recovery">
+                <Field label="Recovery code" hint="The one-time code shown when you created your account.">
+                  <Input
+                    placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx"
+                    value={recoveryInput}
+                    onInput={(e) => setRecoveryInput((e.target as HTMLInputElement).value)}
+                    autoComplete="off"
+                    spellcheck={false}
+                  />
+                </Field>
+                <Button
+                  type="button"
+                  variant="primary"
+                  fullWidth
+                  disabled={busy || recoveryInput.trim().length === 0}
+                  loading={busy}
+                  onClick={() => { void bloc.recoverWithCode(recoveryInput); }}
+                >
+                  Recover with code
+                </Button>
               </div>
             )}
 

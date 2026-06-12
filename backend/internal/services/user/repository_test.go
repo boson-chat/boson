@@ -31,6 +31,42 @@ func TestUserRepository_CreateAndFindByID(t *testing.T) {
 	assert.Equal(t, []byte("ciphertext"), got.EncryptedUserSecret)
 }
 
+func TestUserRepository_UpdateUserSecretWraps(t *testing.T) {
+	db := testutil.SetupDB(t)
+	repo := user.NewUserRepository(db)
+
+	id := uuid.New()
+	require.NoError(t, repo.Create(testutil.Ctx(), &user.User{
+		ID:                  id,
+		Handle:              "alice",
+		EncryptedUserSecret: []byte("pw-wrap-v1"),
+		IsDiscoverable:      true,
+	}))
+
+	// Enroll a recovery wrap (password wrap left untouched via nil).
+	_, err := repo.UpdateUserSecretWraps(testutil.Ctx(), id, nil, []byte("recovery-wrap"))
+	require.NoError(t, err)
+	got, err := repo.FindByID(testutil.Ctx(), id)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("pw-wrap-v1"), got.EncryptedUserSecret, "password wrap untouched")
+	assert.Equal(t, []byte("recovery-wrap"), got.EncryptedUserSecretRecovery)
+
+	// Re-wrap the password (recovery left untouched).
+	_, err = repo.UpdateUserSecretWraps(testutil.Ctx(), id, []byte("pw-wrap-v2"), nil)
+	require.NoError(t, err)
+	got, err = repo.FindByID(testutil.Ctx(), id)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("pw-wrap-v2"), got.EncryptedUserSecret)
+	assert.Equal(t, []byte("recovery-wrap"), got.EncryptedUserSecretRecovery, "recovery wrap untouched")
+}
+
+func TestUserRepository_UpdateUserSecretWraps_NotFound(t *testing.T) {
+	db := testutil.SetupDB(t)
+	repo := user.NewUserRepository(db)
+	_, err := repo.UpdateUserSecretWraps(testutil.Ctx(), uuid.New(), []byte("x"), nil)
+	assert.ErrorIs(t, err, user.ErrNotFound)
+}
+
 func TestUserRepository_FindByID_NotFound(t *testing.T) {
 	db := testutil.SetupDB(t)
 	repo := user.NewUserRepository(db)

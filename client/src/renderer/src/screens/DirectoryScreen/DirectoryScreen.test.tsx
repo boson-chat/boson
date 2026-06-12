@@ -62,6 +62,7 @@ function buildFakeIdentity() {
     saslPasswordForServer: async () => 'pw',
     lock: () => {},
     getPendingEncrypted: () => 'pending-b64',
+    getPendingRecovery: () => ({ recoveryBlob: 'recovery-b64', recoveryCode: 'abcd-ef5h' }),
     clearPendingEncrypted: () => {},
     // Keychain persistence surface (added 2026-05). Defaults are no-ops so
     // tests that don't care about persistence don't need to opt in.
@@ -127,7 +128,9 @@ describe('DirectoryScreen', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
-      expect(setupMe).toHaveBeenCalledWith('alice', expect.any(String));
+      // handle, password-wrap, recovery-wrap — recovery is forwarded so a new
+      // account has a recovery path from creation.
+      expect(setupMe).toHaveBeenCalledWith('alice', expect.any(String), 'recovery-b64');
     });
   });
 

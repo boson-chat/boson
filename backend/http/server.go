@@ -13,6 +13,7 @@ import (
 	"github.com/boson-chat/boson/backend/internal/db"
 	"github.com/boson-chat/boson/backend/internal/logger"
 	"github.com/boson-chat/boson/backend/internal/services/nickclaim"
+	"github.com/boson-chat/boson/backend/internal/services/nickservsecret"
 	serversvc "github.com/boson-chat/boson/backend/internal/services/server"
 	serversvc_dns "github.com/boson-chat/boson/backend/internal/services/server/dns"
 	sessionsvc "github.com/boson-chat/boson/backend/internal/services/session"
@@ -28,6 +29,7 @@ func StartServerWithContext(ctx context.Context) error {
 	serverRepo := serversvc.NewServerRepository(database)
 	sessionRepo := sessionsvc.NewRepository(database)
 	nickClaimRepo := nickclaim.NewRepository(database)
+	nickservSecretRepo := nickservsecret.NewRepository(database)
 
 	// Services
 	userService := user.NewUserService(userRepo)
@@ -48,12 +50,14 @@ func StartServerWithContext(ctx context.Context) error {
 		EmailDomain:      cfg.AppConfig.NickClaimEmailDomain,
 		RateLimitPerHour: cfg.AppConfig.NickClaimRateLimitPerHour,
 	})
+	nickservSecretService := nickservsecret.NewService(nickservSecretRepo)
 
 	// Handlers
 	meHandler := handlers.NewMeHandler(userService)
 	serverHandler := handlers.NewServerHandler(serverService)
 	sessionHandler := handlers.NewSessionHandler(sessionService)
 	nickClaimsHandler := handlers.NewNickClaimsHandler(nickClaimService)
+	nickservSecretsHandler := handlers.NewNickServSecretsHandler(nickservSecretService)
 
 	// Public routes — health + read-only directory browsing. Guest users
 	// (no Supabase session) hit these without an Authorization header.
@@ -68,6 +72,7 @@ func StartServerWithContext(ctx context.Context) error {
 	serverHandler.RegisterProtected(protectedMux)
 	sessionHandler.Register(protectedMux)
 	nickClaimsHandler.Register(protectedMux)
+	nickservSecretsHandler.Register(protectedMux)
 
 	root := buildRouter(publicMux, protectedMux, middleware.RequireAuth(cfg.AuthConfig))
 

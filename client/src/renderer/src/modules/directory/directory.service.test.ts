@@ -40,6 +40,18 @@ describe('DirectoryService', () => {
         };
         return mockResponse({ servers: [s], count: 1 });
       }
+      if (url.endsWith('/me/secret-wraps') && init?.method === 'PUT') {
+        return mockResponse({ id: '1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' });
+      }
+      if (url.endsWith('/me/nickserv-secrets') && (!init || init.method === 'GET')) {
+        return mockResponse({ secrets: [{ server_id: 'srv-1', ciphertext: 'Y3Q=', updated_at: '2026-01-01T00:00:00Z' }] });
+      }
+      if (url.includes('/me/nickserv-secrets/') && init?.method === 'PUT') {
+        return mockResponse({ server_id: 'srv-1', ciphertext: 'Y3Q=', updated_at: '2026-01-01T00:00:00Z' });
+      }
+      if (url.includes('/me/nickserv-secrets/') && init?.method === 'DELETE') {
+        return new Response(null, { status: 204 });
+      }
       return new Response('not found', { status: 404 });
     }) as typeof fetch;
 
@@ -92,6 +104,45 @@ describe('DirectoryService', () => {
       handle: 'bob',
       encrypted_user_secret: 'YWJjZA==',
     });
+  });
+
+  it('setupMe includes the recovery wrap when provided', async () => {
+    await svc.setupMe('bob', 'YWJjZA==', 'cmVjb3Y=');
+    const [, init] = calls[0];
+    expect(JSON.parse(init!.body as string)).toEqual({
+      handle: 'bob',
+      encrypted_user_secret: 'YWJjZA==',
+      encrypted_user_secret_recovery: 'cmVjb3Y=',
+    });
+  });
+
+  it('updateSecretWraps PUTs only the provided wraps', async () => {
+    await svc.updateSecretWraps({ recoveryBlob: 'cmVjb3Y=' });
+    const [url, init] = calls[0];
+    expect(url).toBe('http://api/me/secret-wraps');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(init!.body as string)).toEqual({ encrypted_user_secret_recovery: 'cmVjb3Y=' });
+  });
+
+  it('listNickservSecrets unwraps the {secrets} envelope', async () => {
+    const secrets = await svc.listNickservSecrets();
+    expect(secrets).toHaveLength(1);
+    expect(secrets[0]!.server_id).toBe('srv-1');
+  });
+
+  it('putNickservSecret PUTs ciphertext to the per-server path', async () => {
+    await svc.putNickservSecret('srv-1', 'Y3Q=');
+    const [url, init] = calls[0];
+    expect(url).toBe('http://api/me/nickserv-secrets/srv-1');
+    expect(init?.method).toBe('PUT');
+    expect(JSON.parse(init!.body as string)).toEqual({ ciphertext: 'Y3Q=' });
+  });
+
+  it('deleteNickservSecret DELETEs the per-server path', async () => {
+    await svc.deleteNickservSecret('srv-1');
+    const [url, init] = calls[0];
+    expect(url).toBe('http://api/me/nickserv-secrets/srv-1');
+    expect(init?.method).toBe('DELETE');
   });
 
   it('deleteMe issues DELETE /me', async () => {

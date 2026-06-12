@@ -6,6 +6,7 @@ import { subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import type { EngineClient, EngineState } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
+import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
 import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
@@ -743,6 +744,11 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // After account creation we hold the created user + the one-time recovery
+  // code, and switch to the recovery-code view before finishing. onDone is
+  // gated behind the user acknowledging they've saved the code.
+  const [created, setCreated] = useState<User | null>(null);
+  const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
 
   const submit = async (e: Event) => {
     e.preventDefault();
@@ -753,15 +759,36 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
       if (!encrypted) {
         throw new Error('identity not initialized — please sign in again');
       }
-      const user = await directory.setupMe(handle, encrypted);
+      // Store the recovery wrap alongside the password wrap at account
+      // creation so the user has a recovery path from day one.
+      const recovery = identity.getPendingRecovery();
+      const user = await directory.setupMe(handle, encrypted, recovery?.recoveryBlob);
+      const code = recovery?.recoveryCode ?? null;
       identity.clearPendingEncrypted();
-      onDone(user);
+      if (code) {
+        // Show the code once, then finish.
+        setCreated(user);
+        setRecoveryCode(code);
+      } else {
+        onDone(user);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'setup failed');
     } finally {
       setBusy(false);
     }
   };
+
+  if (recoveryCode && created) {
+    return (
+      <RecoveryCodeReveal
+        code={recoveryCode}
+        intro="Save your recovery code. It's the only way back into your synced
+          passwords if you forget your login password — we can't recover it for you."
+        onContinue={() => onDone(created)}
+      />
+    );
+  }
 
   return (
     <form class="directory-setup-prompt" onSubmit={submit}>
@@ -785,3 +812,4 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
     </form>
   );
 }
+

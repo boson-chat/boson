@@ -101,8 +101,14 @@ describe('sign-up + setup prompt integration', () => {
     await user.type(screen.getByPlaceholderText('handle'), 'alice');
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
+    // After account creation the one-time recovery code is shown. Acknowledge
+    // it (check the box + continue) before the directory appears.
+    expect(await screen.findByText('Your recovery code')).toBeInTheDocument();
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: /I.ve saved it/i }));
+
     await waitFor(() => {
-      expect(screen.queryByText('Finish setting up your account')).toBeNull();
+      expect(screen.queryByText('Your recovery code')).toBeNull();
     });
     expect(screen.getByText('Server Directory')).toBeInTheDocument();
     expect(identity.getPendingEncrypted()).toBeNull();

@@ -23,6 +23,7 @@ func (h *MeHandler) Register(mux *stdhttp.ServeMux) {
 	mux.HandleFunc("POST /me", h.create)
 	mux.HandleFunc("PATCH /me", h.patch)
 	mux.HandleFunc("DELETE /me", h.delete)
+	mux.HandleFunc("PUT /me/secret-wraps", h.updateSecretWraps)
 }
 
 func (h *MeHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -40,9 +41,10 @@ func (h *MeHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 
 type createMeRequest struct {
-	Handle                 string  `json:"handle"`
-	DisplayName            *string `json:"display_name,omitempty"`
-	EncryptedUserSecretB64 string  `json:"encrypted_user_secret"`
+	Handle                         string  `json:"handle"`
+	DisplayName                    *string `json:"display_name,omitempty"`
+	EncryptedUserSecretB64         string  `json:"encrypted_user_secret"`
+	EncryptedUserSecretRecoveryB64 string  `json:"encrypted_user_secret_recovery,omitempty"`
 }
 
 func (h *MeHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -64,11 +66,24 @@ func (h *MeHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 
+	// Recovery wrap is optional on the wire so older clients keep working
+	// during rollout; new clients always send it (the signup recovery-code
+	// step). Empty string → nil → no recovery wrap stored yet.
+	var recovery []byte
+	if req.EncryptedUserSecretRecoveryB64 != "" {
+		recovery, err = base64.StdEncoding.DecodeString(req.EncryptedUserSecretRecoveryB64)
+		if err != nil {
+			writeError(w, stdhttp.StatusBadRequest, "encrypted_user_secret_recovery must be base64")
+			return
+		}
+	}
+
 	u, err := h.Users.Create(r.Context(), user.CreateUserInput{
-		ID:                  p.UserID,
-		Handle:              req.Handle,
-		DisplayName:         req.DisplayName,
-		EncryptedUserSecret: secret,
+		ID:                          p.UserID,
+		Handle:                      req.Handle,
+		DisplayName:                 req.DisplayName,
+		EncryptedUserSecret:         secret,
+		EncryptedUserSecretRecovery: recovery,
 	})
 	switch {
 	case errors.Is(err, user.ErrHandleInvalid):
@@ -142,4 +157,56 @@ func (h *MeHandler) delete(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	writeJSON(w, stdhttp.StatusNoContent, nil)
+}
+
+type updateSecretWrapsRequest struct {
+	EncryptedUserSecretB64         string `json:"encrypted_user_secret,omitempty"`
+	EncryptedUserSecretRecoveryB64 string `json:"encrypted_user_secret_recovery,omitempty"`
+}
+
+// updateSecretWraps replaces the password and/or recovery wrap of the caller's
+// user_secret. Either field may be omitted (left untouched), serving both
+// "enroll a recovery code later" (recovery only) and "re-wrap after a password
+// reset" (password only). The plaintext user_secret never changes — only its
+// server-stored ciphertext. At least one wrap must be present.
+func (h *MeHandler) updateSecretWraps(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	p := middleware.MustUser(r.Context())
+
+	var req updateSecretWrapsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid json")
+		return
+	}
+
+	var passwordWrap, recoveryWrap []byte
+	if req.EncryptedUserSecretB64 != "" {
+		b, err := base64.StdEncoding.DecodeString(req.EncryptedUserSecretB64)
+		if err != nil {
+			writeError(w, stdhttp.StatusBadRequest, "encrypted_user_secret must be base64")
+			return
+		}
+		passwordWrap = b
+	}
+	if req.EncryptedUserSecretRecoveryB64 != "" {
+		b, err := base64.StdEncoding.DecodeString(req.EncryptedUserSecretRecoveryB64)
+		if err != nil {
+			writeError(w, stdhttp.StatusBadRequest, "encrypted_user_secret_recovery must be base64")
+			return
+		}
+		recoveryWrap = b
+	}
+
+	u, err := h.Users.UpdateUserSecretWraps(r.Context(), p.UserID, passwordWrap, recoveryWrap)
+	switch {
+	case errors.Is(err, user.ErrInvalidWrap):
+		writeError(w, stdhttp.StatusBadRequest, "at least one wrap is required")
+		return
+	case errors.Is(err, user.ErrNotFound):
+		writeError(w, stdhttp.StatusNotFound, "user not found")
+		return
+	case err != nil:
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, u)
 }

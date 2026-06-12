@@ -52,6 +52,9 @@ config/config.dev.json
 backend/config/config.dev.json
 **/config.dev.json
 
+# Local scratch — e.g. a saved recovery code from manual testing. Never commit.
+boson_code.txt
+
 # Local data
 postgres-data/
 

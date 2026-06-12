@@ -956,6 +956,15 @@ function IdentitySection({
                 resendCooldownUntil={creds?.resendCooldownUntil}
               />
 
+              {/* Signed-in users get cross-device sync of this password,
+                  end-to-end encrypted (the server can't read it). */}
+              {signedIn && (
+                <p class="services-creds-status-msg services-creds-status-msg-info">
+                  🔒 Saved here syncs (end-to-end encrypted) to your Boson account, so your
+                  NickServ password follows you to other devices.
+                </p>
+              )}
+
               {/* Automated claim flow for signed-in users. We HIDE
                   Claim only when we positively know the nick is
                   registered-ish — a registered-but-unconfirmed nick

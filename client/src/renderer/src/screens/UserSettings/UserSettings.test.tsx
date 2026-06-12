@@ -6,6 +6,7 @@ import pkg from '../../../../../package.json';
 import { HttpError } from '../../shared/http/http.client';
 import type { DirectoryService } from '../../modules/directory';
 import type { AuthService } from '../../modules/auth';
+import type { IdentityService } from '../../modules/identity';
 import { clearGuestSession } from '../../modules/guest/guest';
 
 // UserSettings covers two distinct behaviours:
@@ -25,6 +26,10 @@ function stubDirectory(overrides: Partial<DirectoryService> = {}): DirectoryServ
       id: '1', handle: p.handle ?? 'alice', is_discoverable: true,
       encrypted_user_secret: '', created_at: '2026-01-01',
     })),
+    updateSecretWraps: vi.fn(async () => ({
+      id: '1', handle: 'alice', is_discoverable: true,
+      encrypted_user_secret: '', created_at: '2026-01-01',
+    })),
     ...overrides,
   } as unknown as DirectoryService;
 }
@@ -36,6 +41,14 @@ function stubAuth(overrides: Partial<AuthService> = {}): AuthService {
   } as unknown as AuthService;
 }
 
+function stubIdentity(overrides: Partial<IdentityService> = {}): IdentityService {
+  return {
+    isUnlocked: vi.fn(() => true),
+    enrollRecoveryCode: vi.fn(async () => ({ recoveryBlob: 'rec-b64', recoveryCode: 'abcd-ef5h' })),
+    ...overrides,
+  } as unknown as IdentityService;
+}
+
 function renderSettings(props: Partial<Parameters<typeof UserSettings>[0]> = {}) {
   return render(
     <UserSettings
@@ -45,6 +58,7 @@ function renderSettings(props: Partial<Parameters<typeof UserSettings>[0]> = {})
       authedEmail="alice@example.dev"
       onSignOut={() => {}}
       directory={stubDirectory()}
+      identity={stubIdentity()}
       auth={stubAuth()}
       {...props}
     />,
@@ -190,9 +204,58 @@ describe('UserSettings — Identity panel (account mode)', () => {
         authedEmail="alice@example.dev"
         onSignOut={() => {}}
         directory={directory}
+        identity={stubIdentity()}
         auth={stubAuth()}
       />,
     );
     expect(directory.getMe).not.toHaveBeenCalled();
+  });
+});
+
+describe('UserSettings — Account recovery code', () => {
+  it('offers "Set up recovery code" when none exists and reveals a code on enroll', async () => {
+    const directory = stubDirectory(); // getMe returns no recovery wrap
+    const identity = stubIdentity();
+    renderSettings({ directory, identity });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: /Account/ }));
+
+    const enrollBtn = await screen.findByRole('button', { name: /Set up recovery code/i });
+    await user.click(enrollBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Your recovery code')).toBeInTheDocument();
+    });
+    expect(screen.getByText('abcd-ef5h')).toBeInTheDocument();
+    expect(identity.enrollRecoveryCode).toHaveBeenCalled();
+    expect(directory.updateSecretWraps).toHaveBeenCalledWith({ recoveryBlob: 'rec-b64' });
+  });
+
+  it('shows "Regenerate" when a recovery wrap already exists', async () => {
+    const directory = stubDirectory({
+      getMe: vi.fn(async () => ({
+        id: '1', handle: 'alice', is_discoverable: true,
+        encrypted_user_secret: '', encrypted_user_secret_recovery: 'existing', created_at: '2026-01-01',
+      })),
+    } as Partial<DirectoryService>);
+    renderSettings({ directory });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: /Account/ }));
+
+    expect(await screen.findByRole('button', { name: /Regenerate recovery code/i })).toBeInTheDocument();
+  });
+
+  it('refuses to enroll when the identity is locked', async () => {
+    const identity = stubIdentity({ isUnlocked: vi.fn(() => false) } as Partial<IdentityService>);
+    renderSettings({ identity });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: /Account/ }));
+    await user.click(await screen.findByRole('button', { name: /Set up recovery code/i }));
+
+    expect(screen.getByText(/locked/i)).toBeInTheDocument();
+    expect(identity.enrollRecoveryCode).not.toHaveBeenCalled();
   });
 });

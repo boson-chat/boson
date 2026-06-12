@@ -15,6 +15,11 @@ export interface LoginState {
   // Non-null means the stored encrypted_user_secret is unrecoverable — the
   // view shows the destructive "Start fresh" button.
   unrecoverable: string | null;
+  // Non-null (the recovery wrap, base64) means a password unlock failed BUT
+  // the account has a recovery wrap — the view offers a "Use recovery code"
+  // input. Set after a wrong-password unlock when me.encrypted_user_secret_
+  // recovery is present (typically after a Supabase password reset).
+  recoverable: string | null;
   // Set to the email address after a successful signUp that needs
   // email confirmation. The view swaps the form for a "Check your
   // email" panel until the user either confirms (deep-link triggers
@@ -59,6 +64,7 @@ export class LoginBloc {
     busy: false,
     error: null,
     unrecoverable: null,
+    recoverable: null,
     awaitingConfirmation: null,
   };
 
@@ -103,7 +109,7 @@ export class LoginBloc {
 
   async signIn(): Promise<void> {
     const { email, password } = this.state;
-    this.setState({ ...this.state, error: null, unrecoverable: null, busy: true });
+    this.setState({ ...this.state, error: null, unrecoverable: null, recoverable: null, busy: true });
     try {
       await this.auth.signIn(email, password);
       let me;
@@ -129,6 +135,18 @@ export class LoginBloc {
               error:
                 'Your stored identity key is invalid (likely leftover test data). ' +
                 'Start fresh to recreate it — this wipes your current account row.',
+              busy: false,
+            });
+          } else if (me.encrypted_user_secret_recovery) {
+            // Wrong password, but the account has a recovery wrap — offer the
+            // recovery-code path (the usual case after a Supabase password
+            // reset, which leaves the password wrap stale).
+            this.setState({
+              ...this.state,
+              recoverable: me.encrypted_user_secret_recovery,
+              error:
+                "Couldn't decrypt your identity key with that password. " +
+                'If you reset your password, enter your recovery code below.',
               busy: false,
             });
           } else {
@@ -235,6 +253,44 @@ export class LoginBloc {
         error: err instanceof Error ? err.message : 'reset failed',
         unrecoverable, // keep the recovery button visible
         busy: false,
+      });
+    }
+  }
+
+  // Recovery path: the user signed in (with a possibly-reset password) but the
+  // password wrap wouldn't decrypt, and the account has a recovery wrap. Unlock
+  // user_secret with the recovery CODE, then re-wrap it under the current
+  // password and persist that wrap so future logins work normally again.
+  async recoverWithCode(recoveryCode: string): Promise<void> {
+    const recoveryBlob = this.state.recoverable;
+    if (!recoveryBlob) return;
+    const code = recoveryCode.trim();
+    if (!code) {
+      this.setState({ ...this.state, error: 'Enter your recovery code.' });
+      return;
+    }
+    this.setState({ ...this.state, busy: true, error: null });
+    try {
+      await this.identity.unlockWithRecoveryCode(code, recoveryBlob);
+      // Re-wrap under the password they just used so the normal password path
+      // works next time. Best-effort persist of the new wrap to the backend.
+      try {
+        const passwordBlob = await this.identity.rewrapForNewPassword(this.state.password);
+        await this.directory.updateSecretWraps({ passwordBlob });
+      } catch (rewrapErr) {
+        // Identity is already unlocked; a failed re-wrap just means they'll
+        // need the recovery code again next time. Don't block the session.
+        console.warn('[LoginBloc.recoverWithCode] re-wrap failed:', rewrapErr);
+      }
+      await this.persistIdentity();
+      // Identity is unlocked → Router routes to DirectoryScreen.
+      this.setState({ ...this.state, busy: false, recoverable: null, error: null });
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      this.setState({
+        ...this.state,
+        busy: false,
+        error: `Recovery code rejected. Check it and try again. (${detail})`,
       });
     }
   }
