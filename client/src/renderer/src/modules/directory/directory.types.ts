@@ -74,3 +74,18 @@ export interface User {
   encrypted_user_secret: string; // base64
   created_at: string;
 }
+
+// ---- NickClaim (automated NickServ email-confirmation flow) ---------
+
+export interface NickClaimCreateResponse {
+  id: string;
+  email: string;
+}
+
+export type NickClaimStatus = 'pending' | 'captured' | 'consumed' | 'expired';
+
+export interface NickClaimPollResponse {
+  status: NickClaimStatus;
+  // Only present when status is 'captured' or 'consumed'.
+  code?: string;
+}

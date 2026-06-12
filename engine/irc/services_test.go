@@ -40,10 +40,27 @@ func TestDetectServicesFramework(t *testing.T) {
 		// listings are multi-line) must classify Anope, not Atheme.
 		{"anope ChanServ HELP listing both FLAGS and CONFIRM", "    FLAGS          Manipulate channel access flags\n    CONFIRM        Confirm a passcode", FrameworkAnope},
 		// Ergo IRCd's built-in services brand themselves in HELP /
-		// server VERSION but verb-set overlaps with Atheme/Anope, so
-		// only brand match is used.
+		// server VERSION (`ergo` keyword), but most replies contain
+		// the `/NS|/CS|/HS|/OS` shorthand instead — Anope/Atheme
+		// both tell users to type the long `/msg NickServ HELP`
+		// form, so the shorthand is Ergo-distinctive on its own
+		// even when the network has renamed the brand string out
+		// of the banner.
 		{"ergo banner", "Ergo IRCd 2.13.0 — built-in services", FrameworkErgo},
 		{"ergo lowercase", "running ergo 2.12.0", FrameworkErgo},
+		// Captured live from `ghcr.io/ergochat/ergo:stable` (2.18.0):
+		// the unknown-command reply to a VERSION probe. This is the
+		// first NOTICE the client sees after the auto-probe fires
+		// — without it, framework stayed null and confirmAccount
+		// fell through to the Anope adapter, which sent CONFIRM
+		// (Ergo wants VERIFY) and timed out.
+		{"ergo unknown-command reply", "Unknown command. To see available commands, run: /NS HELP", FrameworkErgo},
+		{"ergo HELP listing shorthand reference", "To see in-depth help, run /NS HELP REGISTER", FrameworkErgo},
+		{"ergo ChanServ shorthand", "Use /CS OP #channel to regain ops", FrameworkErgo},
+		// `/msg NickServ HELP` is the long form Anope AND Atheme both
+		// emit — not a distinctive signature for either, so it must
+		// not match the Ergo shorthand regex.
+		{"long-form `/msg NickServ` is not Ergo shorthand", "    /msg NickServ HELP <command>", ServicesFramework("")},
 		// No match.
 		{"no match — plain welcome", "Welcome to the network!", ServicesFramework("")},
 		{"no match — generic notice", "This nickname is registered.", ServicesFramework("")},

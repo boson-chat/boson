@@ -49,6 +49,8 @@ go.work.sum
 .env.*
 !.env.example
 config/config.dev.json
+backend/config/config.dev.json
+**/config.dev.json
 
 # Local data
 postgres-data/

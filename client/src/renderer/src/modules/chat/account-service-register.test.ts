@@ -46,6 +46,11 @@ describe('classifyRegisterReply — package-agnostic reply table', () => {
     { body: 'Account created, pending verification; verification code has been sent to alice@example.com', label: 'ergo pending verification' },
     { body: 'Please verify your email address.', label: 'generic verify-email' },
     { body: 'Check your email for the activation code.', label: 'generic check-your-email' },
+    // UnrealIRCd-linked Anope (irc.boson.chat): the register reply does
+    // NOT echo the CONFIRM command — it splits across two NOTICEs and
+    // points the user at the email. Either phrasing must resolve pending.
+    { body: 'Your email address is not confirmed. To confirm it, follow the instructions that were emailed to you.', label: 'anope/unreal email-not-confirmed' },
+    { body: 'To confirm it, follow the instructions that were emailed to you.', label: 'anope/unreal follow-instructions-emailed' },
   ];
   for (const tc of pendingCases) {
     it(`${tc.label} → pending-confirmation (echoes email)`, () => {
@@ -101,6 +106,17 @@ describe('classifyRegisterReply — package-agnostic reply table', () => {
     expect(classifyRegisterReply('', email)).toBeNull();
     expect(classifyRegisterReply('You are now connected.', email)).toBeNull();
   });
+
+  it('"Nickname Nyan2 registered." stays non-terminal on the email-confirm build', () => {
+    // Regression for the irc.boson.chat hang: this line arrives FIRST,
+    // before the "email is not confirmed" NOTICE. It must NOT classify
+    // as `registered` (it lacks "has been registered"), otherwise
+    // runRegister resolves no-confirm and claimNick skips the
+    // poll-for-code + CONFIRM steps — exactly the bug that left Nyan2
+    // registered-but-unconfirmed. Staying null lets runRegister wait
+    // for the pending-confirmation line that follows.
+    expect(classifyRegisterReply('Nickname Nyan2 registered.', email)).toBeNull();
+  });
 });
 
 describe('AnopeAccountService.register', () => {
@@ -147,6 +163,26 @@ describe('AnopeAccountService.register', () => {
     pushEvent({ Message: 'Nickname Nyan is already registered.' });
 
     expect(await promise).toEqual({ kind: 'nick-taken' });
+  });
+
+  it('resolves pending-confirmation on the UnrealIRCd-linked multi-line reply', async () => {
+    // Real wire capture from irc.boson.chat (UnrealIRCd-6.2.5 + Anope):
+    // the "registered." line lands first and must be ignored, then the
+    // email-confirmation NOTICE resolves the promise. Previously every
+    // line classified null → 10s timeout → claimNick bailed before the
+    // poll loop ever ran (no GET /me/nick-claims in the network log).
+    const { session, pushEvent } = makeFakeSession();
+    const svc = new AnopeAccountService(session, { myNick: 'Nyan' });
+
+    const promise = svc.register('hunter2', 'reg-abc-tn45fdoa@boson.chat');
+    pushEvent({ Message: 'Nickname Nyan registered.' });
+    pushEvent({ Message: 'Your account will expire, if not confirmed, in 1 day.' });
+    pushEvent({ Message: 'Your email address is not confirmed. To confirm it, follow the instructions that were emailed to you.' });
+
+    expect(await promise).toEqual({
+      kind: 'pending-confirmation',
+      email: 'reg-abc-tn45fdoa@boson.chat',
+    });
   });
 });
 

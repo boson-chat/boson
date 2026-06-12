@@ -4,6 +4,24 @@ import userEvent from '@testing-library/user-event';
 import type { Server } from '../modules/directory';
 import { EngineClient } from '../modules/engine';
 import { FakeWebSocket, FakeWSCtor, jsonResponse, mockFetch, mountDirectory } from './helpers';
+import {
+  LocalStorageServiceCredentialsStore,
+  setServiceCredentialsStore,
+} from '../modules/chat/services-credentials';
+
+// Synchronous creds store so connectWith doesn't await the lazily-built
+// secure default's hydration poll (no preload bridge in jsdom).
+function memStorage(): Storage {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k) => m.get(k) ?? null,
+    setItem: (k, v) => { m.set(k, v); },
+    removeItem: (k) => { m.delete(k); },
+    clear: () => { m.clear(); },
+    key: (i) => Array.from(m.keys())[i] ?? null,
+    get length() { return m.size; },
+  };
+}
 
 // Directory browse + search + filter + connect-to-chat round-trip. Drives the
 // real DirectoryBloc through the view; only the network boundary is faked.
@@ -20,7 +38,10 @@ function srv(name: string, overrides: Partial<Server> = {}): Server {
 
 describe('directory integration', () => {
   let restoreFetch: (() => void) | null = null;
-  beforeEach(() => { FakeWebSocket.reset(); });
+  beforeEach(() => {
+    FakeWebSocket.reset();
+    setServiceCredentialsStore(new LocalStorageServiceCredentialsStore(memStorage()));
+  });
   afterEach(() => { restoreFetch?.(); restoreFetch = null; vi.useRealTimers(); });
 
   it('renders initial servers, debounces search, applies language filter', async () => {

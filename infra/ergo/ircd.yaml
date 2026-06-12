@@ -20,9 +20,34 @@ server:
 accounts:
   registration:
     enabled: true
-    enabled-callbacks:
-      - none
+    allow-before-connect: true
     bcrypt-cost: 4
+    verify-timeout: "32h"
+    # Ergo's modern schema: a single `email-verification` block
+    # under `registration` toggles the mailto callback. (The old
+    # `enabled-callbacks: [mailto]` + `callbacks.mailto.*` API
+    # was removed — leaving those keys here silently leaves
+    # email verification OFF, which is what bit us.)
+    #
+    # `mta.server: mailpit` reroutes outbound SMTP to the
+    # mailpit container so the backend POP3 worker can pull
+    # the confirmation code for the "Claim this nick" flow.
+    # Switch `enabled: false` to restore the no-confirm flow
+    # the existing e2e tests assume (their reply assertions
+    # will fail with verification on).
+    email-verification:
+      enabled: true
+      sender: "noreply@boson.chat"
+      require-tls: false
+      helo-domain: "boson.chat"
+      timeout: 60s
+      # Smarthost via the legacy inline-MTA form. Ergo also supports
+      # a nested `mta:` block, but in 2.18.0 the inline form is the
+      # one that actually wires up — `mta:` parses silently into a
+      # field that doesn't end up driving SendMail.
+      server: "mailpit"
+      port: 1025
+      implicit-tls: false
   authentication-enabled: true
   require-sasl:
     enabled: false
@@ -76,8 +101,8 @@ history:
 
 logging:
   - method: stderr
-    level: info
-    type: "* -userinput -useroutput"
+    level: debug
+    type: "*"
 
 datastore:
   path: /ircd/ircd.db

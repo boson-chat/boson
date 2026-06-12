@@ -8,6 +8,24 @@ import type {
 } from '../../modules/engine';
 import type { IdentityService } from '../../modules/identity';
 import { SessionStore } from '../../modules/session';
+import {
+  LocalStorageServiceCredentialsStore,
+  setServiceCredentialsStore,
+} from '../../modules/chat/services-credentials';
+
+// Use the synchronous (no-whenHydrated) creds store so connectWith doesn't
+// block on the lazily-constructed secure default's hydration poll.
+function memStorage(): Storage {
+  const m = new Map<string, string>();
+  return {
+    getItem: (k) => m.get(k) ?? null,
+    setItem: (k, v) => { m.set(k, v); },
+    removeItem: (k) => { m.delete(k); },
+    clear: () => { m.clear(); },
+    key: (i) => Array.from(m.keys())[i] ?? null,
+    get length() { return m.size; },
+  };
+}
 
 // --- Fakes ----------------------------------------------------------------
 
@@ -207,7 +225,10 @@ async function flushPromises(times = 2): Promise<void> {
 // --- Tests ----------------------------------------------------------------
 
 describe('DirectoryBloc', () => {
-  beforeEach(() => { vi.useRealTimers(); });
+  beforeEach(() => {
+    vi.useRealTimers();
+    setServiceCredentialsStore(new LocalStorageServiceCredentialsStore(memStorage()));
+  });
   afterEach(() => { vi.useRealTimers(); });
 
   it('initial state: me undefined, servers null, defaults', () => {

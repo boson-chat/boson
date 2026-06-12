@@ -1,5 +1,7 @@
 import { HttpClient, HttpError } from '../../shared/http/http.client';
 import type {
+  NickClaimCreateResponse,
+  NickClaimPollResponse,
   RegisterServerInput,
   Server,
   ServerWithToken,
@@ -60,6 +62,24 @@ export class DirectoryService {
   // when the stored encrypted_user_secret cannot be decrypted.
   async deleteMe(): Promise<void> {
     await this.http.delete('/me');
+  }
+
+  // ---- NickClaim (automated NickServ email confirmation) ----------
+  //
+  // The signed-in claim flow mints a record on the backend, gets back
+  // an `email` to use at REGISTER time, then polls for the captured
+  // confirmation code. ChatService.claimNick() wraps these two calls
+  // with the actual NickServ register + confirm wire dance.
+
+  async createNickClaim(input: { serverId: string; accountNick: string }): Promise<NickClaimCreateResponse> {
+    return this.http.post<NickClaimCreateResponse>('/me/nick-claims', {
+      server_id: input.serverId,
+      account_nick: input.accountNick,
+    });
+  }
+
+  async getNickClaim(id: string): Promise<NickClaimPollResponse> {
+    return this.http.get<NickClaimPollResponse>(`/me/nick-claims/${encodeURIComponent(id)}`);
   }
 
   // Server-synced saved session — the client's SessionStore record (servers

@@ -159,5 +159,4 @@ make hooks-install      # install the pre-commit hook (go vet + tests + typechec
 The `screens/` and `design-systems/` folders at the repo root hold the original visual mockups (HTML + tokens.css). They're the source of truth for the look — the client implementation should match them, not the other way around.
 
 
-
-resume: `claude --resume f0cd63a9-7de1-4cb8-b19e-bd70bf52173e`
+claude --resume 0bc9161b-c730-4cca-a78d-4e02b9989201

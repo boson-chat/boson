@@ -71,7 +71,7 @@ describe('LocalStorageServiceCredentialsStore', () => {
       email: 'alice@example.com',
       status: 'identified',
       generatedPassword: true,
-      pendingRegistration: { token: 't-1', email: 'reg+t-1@boson.chat' },
+      pendingRegistration: { id: 't-1', email: 'reg-uid-t1@boson.chat' },
     });
     expect(store.get('libera')).toEqual({
       nickservPassword: 'pw',
@@ -79,7 +79,7 @@ describe('LocalStorageServiceCredentialsStore', () => {
       email: 'alice@example.com',
       status: 'identified',
       generatedPassword: true,
-      pendingRegistration: { token: 't-1', email: 'reg+t-1@boson.chat' },
+      pendingRegistration: { id: 't-1', email: 'reg-uid-t1@boson.chat' },
     });
   });
 

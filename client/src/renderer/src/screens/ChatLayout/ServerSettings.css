@@ -344,6 +344,20 @@
   gap: var(--space-2);
   margin-top: var(--space-2);
 }
+
+/* Password input + Show/Copy buttons inline. The Input expands to
+   fill the row; the buttons sit at fixed width on the right so the
+   input doesn't shrink as the button labels swap between Show/Hide
+   and Copy/Copied. */
+.server-settings-password-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.server-settings-password-row > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .services-creds-drop-row-confirming {
   padding: var(--space-2);
   border-left: 3px solid var(--danger, #ef4444);
@@ -621,4 +635,32 @@
 @keyframes server-settings-saved-enter {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Automated "claim this nick" card. Sits above the manual register
+   form for signed-in users; nudges them toward the one-click path
+   while keeping the manual form as a fallback. */
+.services-claim-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+  background: var(--surface-2, color-mix(in srgb, var(--accent) 6%, transparent));
+  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 30%, transparent);
+  border-radius: var(--radius-2);
+}
+.services-claim-hint {
+  margin: 0;
+  font-size: var(--font-size-1);
+  color: var(--fg-2);
+}
+.services-claim-hint code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+.services-claim-actions {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
 }

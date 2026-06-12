@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/preact';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { ServerSettings } from './ServerSettings';
 import {
@@ -467,12 +467,17 @@ describe('ServerSettings — Identity (account UI)', () => {
 
   // ---- Drop account ----------------------------------------------------
 
-  it('hides the Drop account button when no password is saved', () => {
-    // Need both a password (to send) and an accountName (to target).
-    // Without either, we'd just bounce off NickServ.
+  it('shows the Drop account button whenever a nick is known, disabled without a drop handler', () => {
+    // The button is intentionally visible whenever an account name is
+    // known (here via myNick) — it used to be gated on a saved
+    // password, which hid it exactly when the user most needed it
+    // (e.g. after a failed claim that never persisted the password).
+    // With no onDropAccount wired it renders disabled rather than
+    // vanishing; the handler surfaces a clear "save your password"
+    // error on click when one is missing.
     render(<ServerSettings {...baseProps()} />);
     switchToIdentity();
-    expect(screen.queryByRole('button', { name: 'Drop account' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Drop account' })).toBeDisabled();
   });
 
   it('shows the Drop account button when a password is saved', () => {
@@ -579,5 +584,95 @@ describe('ServerSettings — Identity (account UI)', () => {
     render(<ServerSettings {...baseProps({ serverId: undefined })} />);
     switchToIdentity();
     expect(screen.getByText(/Saved account credentials need a stable server id/)).toBeInTheDocument();
+  });
+
+  // ---- Claim CTA gating (signed-in automated claim) --------------------
+
+  it('signed-in user sees the Claim CTA when the account state is unknown/inconclusive', async () => {
+    // Regression: requiring a positive 'no-account' hid Claim whenever
+    // the on-open probe came back indeterminate (undefined), leaving a
+    // signed-in user with only the manual Register copy. Claim should
+    // show for any not-registered-ish state.
+    const onDetectAccountState = vi.fn().mockResolvedValue(undefined);
+    render(<ServerSettings {...baseProps({
+      signedIn: true,
+      onClaimNick: vi.fn(),
+      onDetectAccountState,
+    })} />);
+    switchToIdentity();
+    // After the probe settles (still indeterminate), the Claim button
+    // is offered rather than suppressed.
+    expect(await screen.findByText(/Boson can register/i)).toBeInTheDocument();
+    expect(onDetectAccountState).toHaveBeenCalled();
+  });
+
+  it('hides the Claim CTA when the nick is registered-but-unconfirmed (Confirm form instead)', async () => {
+    getServiceCredentialsStore().set('libera', {
+      accountName: 'alice',
+      status: 'pending-confirmation',
+    });
+    render(<ServerSettings {...baseProps({
+      signedIn: true,
+      onClaimNick: vi.fn(),
+      onConfirmAccount: vi.fn(),
+      onDetectAccountState: vi.fn().mockResolvedValue('pending-confirmation'),
+    })} />);
+    switchToIdentity();
+    await waitFor(() => {
+      expect(screen.queryByText(/Boson can register/i)).toBeNull();
+    });
+  });
+
+  it('hides the Claim CTA when already identified', () => {
+    getServiceCredentialsStore().set('libera', {
+      accountName: 'alice',
+      nickservPassword: 'pw',
+      status: 'identified',
+    });
+    render(<ServerSettings {...baseProps({
+      signedIn: true,
+      onClaimNick: vi.fn(),
+      onDetectAccountState: vi.fn().mockResolvedValue('identified'),
+    })} />);
+    switchToIdentity();
+    expect(screen.queryByText(/Boson can register/i)).toBeNull();
+  });
+
+  it('shows Claim once status resolves to no-account even while a probe is still in flight', async () => {
+    // Regression: a never-clearing `probing` flag (the effect re-ran
+    // when detection wrote the status, and the old run's cleanup
+    // suppressed setProbing(false)) hid Claim forever for a signed-in
+    // user on an unregistered nick — observed live as
+    // signedIn=true claimAvailable=true status=no-account probing=true.
+    // The gate must let a resolved status win over an in-flight probe.
+    let resolveProbe: (() => void) | undefined;
+    const onDetectAccountState = vi.fn(
+      () => new Promise<undefined>((res) => { resolveProbe = () => res(undefined); }),
+    );
+    render(<ServerSettings {...baseProps({
+      signedIn: true,
+      onClaimNick: vi.fn(),
+      onDetectAccountState,
+    })} />);
+    switchToIdentity();
+    // Probe in flight, status still unknown → Claim suppressed.
+    expect(screen.queryByText(/Boson can register/i)).toBeNull();
+    // Detection resolves the state to no-account (writes the store)
+    // while the probe promise is still pending.
+    await act(async () => {
+      getServiceCredentialsStore().set('libera', { accountName: 'alice', status: 'no-account' });
+    });
+    expect(await screen.findByText(/Boson can register/i)).toBeInTheDocument();
+    resolveProbe?.();
+  });
+
+  it('hides the Claim CTA when not signed in', () => {
+    render(<ServerSettings {...baseProps({
+      signedIn: false,
+      onClaimNick: vi.fn(),
+      onDetectAccountState: vi.fn().mockResolvedValue('no-account'),
+    })} />);
+    switchToIdentity();
+    expect(screen.queryByText(/Boson can register/i)).toBeNull();
   });
 });

@@ -26,7 +26,7 @@ import type {
 } from './account-service';
 import type { AccountStatus } from './services-credentials';
 import { isNickServSender } from './services';
-import { REPLAY_PHRASES, extractInlineNickservCommand, stripFormat, runIdentify, runRegister, runConfirm, runResend, OperationGuard } from './account-service-helpers';
+import { REPLAY_PHRASES, extractInlineNickservCommand, stripFormat, runIdentify, runRegister, runConfirm, runResend, runInfo, classifyInfoReply, OperationGuard } from './account-service-helpers';
 
 // How long to wait for a terminal reply before giving up and
 // resolving to { kind: 'failed', reason: 'timeout' }. Network round
@@ -223,11 +223,17 @@ export class AnopeAccountService implements AccountService {
     );
   }
 
-  async info(_accountName: string): Promise<AccountInfo> {
-    // INFO returns a struct, not a kind — when called before its
-    // migration, throw rather than return a degenerate struct. The
-    // legacy path doesn't go through this method anyway.
-    throw new Error('AnopeAccountService.info not yet migrated (Step 8)');
+  // Silent state probe: fires `INFO <nick>` and parses the multi-line
+  // block into {registered, confirmed, email, …}. Used by the panel
+  // on open to pick the right CTA (Claim vs Confirm vs Identify)
+  // instead of optimistically firing REGISTER. Dedupes concurrent
+  // probes so a fast double-open doesn't race two INFO blocks.
+  async info(accountName: string): Promise<AccountInfo> {
+    return this.guard.dedupe('info', () =>
+      runInfo(this.session, this.opts.myNick, accountName, classifyInfoReply, {
+        timeoutMs: this.opts.timeoutMs,
+      }),
+    );
   }
 
   supportsResend(): boolean {

@@ -6,10 +6,12 @@ require (
 	github.com/MicahParks/jwkset v0.5.19
 	github.com/MicahParks/keyfunc/v3 v3.3.5
 	github.com/coder/websocket v1.8.14
+	github.com/emersion/go-message v0.18.2
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/google/uuid v1.6.0
-	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/jinzhu/configor v1.2.2
+	github.com/knadh/go-pop3 v1.0.2
 	github.com/lib/pq v1.10.9
 	github.com/lrstanley/girc v1.1.1
 	github.com/miekg/dns v1.1.72
@@ -21,6 +23,7 @@ require (
 )
 
 require (
+	github.com/BurntSushi/toml v1.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect

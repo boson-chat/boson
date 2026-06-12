@@ -58,7 +58,7 @@ func SetupDB(t *testing.T) *internaldb.DB {
 			t.Fatalf("reset failed: %s: %v", s, err)
 		}
 	}
-	require("TRUNCATE TABLE reports, handle_changes, user_server_links, servers, users CASCADE")
+	require("TRUNCATE TABLE reports, handle_changes, user_server_links, servers, nick_claims, users CASCADE")
 
 	return &internaldb.DB{DB: gdb}
 }
