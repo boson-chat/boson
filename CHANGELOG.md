@@ -1,3 +1,10 @@
+## [0.17.0](https://github.com/boson-chat/boson/compare/v0.16.0...v0.17.0) (2026-06-12)
+
+### Features
+
+* **client:** branded loading states in member list, memo fetch + app splashes ([1a6d9a0](https://github.com/boson-chat/boson/commit/1a6d9a034faae1ce704dcc8a657e3f63f3e788c9))
+* **client:** nick-colored avatars on chat message rows ([14faa87](https://github.com/boson-chat/boson/commit/14faa8741e84df092839d667bbaaaa70b34d711d))
+
 ## [0.16.0](https://github.com/boson-chat/boson/compare/v0.15.0...v0.16.0) (2026-06-12)
 
 ### Features
