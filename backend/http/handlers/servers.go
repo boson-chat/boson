@@ -3,11 +3,13 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	stdhttp "net/http"
 	"strconv"
 	"time"
 
 	"github.com/boson-chat/boson/backend/http/middleware"
+	"github.com/boson-chat/boson/backend/internal/services/avatar"
 	"github.com/boson-chat/boson/backend/internal/services/server"
 	"github.com/boson-chat/boson/backend/internal/services/server/dns"
 
@@ -20,12 +22,36 @@ import (
 // retries; short enough that an honest operator never notices.
 const verifyRateLimitWindow = 30 * time.Second
 
+// Listing image dimensions: a square icon + a wide banner (3:1).
+const (
+	serverIconSize = 256
+	serverBannerW  = 1200
+	serverBannerH  = 400
+)
+
 type ServerHandler struct {
 	Servers server.ServerServiceImpl
+	// Avatar may be nil (R2 not configured) — the icon/banner routes 503 and
+	// icon_url/banner_url are omitted.
+	Avatar avatar.ServiceImpl
 }
 
-func NewServerHandler(servers server.ServerServiceImpl) *ServerHandler {
-	return &ServerHandler{Servers: servers}
+func NewServerHandler(servers server.ServerServiceImpl, avatars avatar.ServiceImpl) *ServerHandler {
+	return &ServerHandler{Servers: servers, Avatar: avatars}
+}
+
+// enrich fills a server's computed CDN image URLs from its storage keys.
+func (h *ServerHandler) enrich(s *server.Server) *server.Server {
+	if s == nil || h.Avatar == nil {
+		return s
+	}
+	if s.IconStorageKey != nil {
+		s.IconURL = h.Avatar.URLFor(*s.IconStorageKey)
+	}
+	if s.BannerStorageKey != nil {
+		s.BannerURL = h.Avatar.URLFor(*s.BannerStorageKey)
+	}
+	return s
 }
 
 // RegisterPublic mounts the read-only directory routes that don't require auth.
@@ -49,6 +75,10 @@ func (h *ServerHandler) RegisterProtected(mux *stdhttp.ServeMux) {
 	mux.Handle("POST /servers/{id}/verify", verifyLimit(stdhttp.HandlerFunc(h.verify)))
 	mux.HandleFunc("POST /servers/{id}/regenerate-token", h.regenerateToken)
 	mux.HandleFunc("PATCH /servers/{id}", h.updateProfile)
+	mux.HandleFunc("POST /servers/{id}/icon", h.uploadIcon)
+	mux.HandleFunc("DELETE /servers/{id}/icon", h.deleteIcon)
+	mux.HandleFunc("POST /servers/{id}/banner", h.uploadBanner)
+	mux.HandleFunc("DELETE /servers/{id}/banner", h.deleteBanner)
 }
 
 // Register mounts every directory route on a single mux. Retained so unit
@@ -80,6 +110,9 @@ func (h *ServerHandler) list(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	if err != nil {
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
+	}
+	for _, s := range results {
+		h.enrich(s)
 	}
 
 	writeJSON(w, stdhttp.StatusOK, map[string]any{
@@ -134,7 +167,7 @@ func (h *ServerHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	// 201 response carries the freshly-minted verification_token so the
 	// client can show it to the operator exactly once. Subsequent reads
 	// via GET /servers/me hide it after the row reaches verified status.
-	writeJSON(w, stdhttp.StatusCreated, srv.ToOwnerView())
+	writeJSON(w, stdhttp.StatusCreated, h.enrich(srv).ToOwnerView())
 }
 
 func (h *ServerHandler) listMine(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -149,7 +182,7 @@ func (h *ServerHandler) listMine(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	// genuinely needs to copy it again).
 	views := make([]any, len(results))
 	for i, s := range results {
-		views[i] = s.ToOwnerView()
+		views[i] = h.enrich(s).ToOwnerView()
 	}
 	writeJSON(w, stdhttp.StatusOK, map[string]any{
 		"servers": views,
@@ -194,7 +227,7 @@ func (h *ServerHandler) verify(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		status = stdhttp.StatusConflict
 	}
 	writeJSON(w, status, map[string]any{
-		"server":  srv.ToOwnerView(),
+		"server":  h.enrich(srv).ToOwnerView(),
 		"report":  report,
 		"success": report.Success,
 	})
@@ -247,7 +280,7 @@ func (h *ServerHandler) updateProfile(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusOK, srv.ToOwnerView())
+	writeJSON(w, stdhttp.StatusOK, h.enrich(srv).ToOwnerView())
 }
 
 func (h *ServerHandler) regenerateToken(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -269,7 +302,7 @@ func (h *ServerHandler) regenerateToken(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusOK, srv.ToOwnerView())
+	writeJSON(w, stdhttp.StatusOK, h.enrich(srv).ToOwnerView())
 }
 
 func (h *ServerHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -287,5 +320,139 @@ func (h *ServerHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusOK, s)
+	writeJSON(w, stdhttp.StatusOK, h.enrich(s))
+}
+
+// ---- Listing images (owner-only) -----------------------------------------
+
+func (h *ServerHandler) uploadIcon(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.uploadImage(w, r, "icon", "server-icons", serverIconSize, serverIconSize)
+}
+func (h *ServerHandler) uploadBanner(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.uploadImage(w, r, "banner", "server-banners", serverBannerW, serverBannerH)
+}
+func (h *ServerHandler) deleteIcon(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.deleteImage(w, r, "icon")
+}
+func (h *ServerHandler) deleteBanner(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	h.deleteImage(w, r, "banner")
+}
+
+// uploadImage handles the icon + banner upload: raw image bytes in the body
+// → validate + resize + store in R2 → point the listing's key at it (owner
+// only). `which` is "icon"|"banner", `namespace` the R2 prefix, w×h the
+// target dimensions.
+func (h *ServerHandler) uploadImage(w stdhttp.ResponseWriter, r *stdhttp.Request, which, namespace string, width, height int) {
+	p := middleware.MustUser(r.Context())
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid id")
+		return
+	}
+	if h.Avatar == nil || !h.Avatar.Configured() {
+		writeError(w, stdhttp.StatusServiceUnavailable, "image uploads are not available")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, avatar.MaxUploadBytes+1))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "failed to read body")
+		return
+	}
+	if len(body) > avatar.MaxUploadBytes {
+		writeError(w, stdhttp.StatusRequestEntityTooLarge, "image too large")
+		return
+	}
+
+	cur, err := h.Servers.GetByID(r.Context(), id)
+	if errors.Is(err, server.ErrNotFound) {
+		writeError(w, stdhttp.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	// Owner check up front so a non-owner can't even spend an R2 upload.
+	if cur.RegisteredBy == nil || *cur.RegisteredBy != p.UserID {
+		writeError(w, stdhttp.StatusForbidden, "not the owner")
+		return
+	}
+	prevKey := ""
+	if which == "icon" && cur.IconStorageKey != nil {
+		prevKey = *cur.IconStorageKey
+	} else if which == "banner" && cur.BannerStorageKey != nil {
+		prevKey = *cur.BannerStorageKey
+	}
+
+	key, err := h.Avatar.ProcessImage(r.Context(), namespace, id.String(), body, prevKey, width, height)
+	switch {
+	case errors.Is(err, avatar.ErrTooLarge):
+		writeError(w, stdhttp.StatusRequestEntityTooLarge, "image too large")
+		return
+	case errors.Is(err, avatar.ErrUnsupportedImage):
+		writeError(w, stdhttp.StatusBadRequest, "unsupported or invalid image")
+		return
+	case errors.Is(err, avatar.ErrNotConfigured):
+		writeError(w, stdhttp.StatusServiceUnavailable, "image uploads are not available")
+		return
+	case err != nil:
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+
+	srv, err := h.Servers.SetImageKey(r.Context(), id, p.UserID, which, &key)
+	switch {
+	case errors.Is(err, server.ErrNotOwner):
+		_ = h.Avatar.Remove(r.Context(), key) // orphan cleanup
+		writeError(w, stdhttp.StatusForbidden, "not the owner")
+		return
+	case errors.Is(err, server.ErrNotFound):
+		writeError(w, stdhttp.StatusNotFound, "not found")
+		return
+	case err != nil:
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, h.enrich(srv).ToOwnerView())
+}
+
+func (h *ServerHandler) deleteImage(w stdhttp.ResponseWriter, r *stdhttp.Request, which string) {
+	p := middleware.MustUser(r.Context())
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		writeError(w, stdhttp.StatusBadRequest, "invalid id")
+		return
+	}
+	cur, err := h.Servers.GetByID(r.Context(), id)
+	if errors.Is(err, server.ErrNotFound) {
+		writeError(w, stdhttp.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	old := ""
+	if which == "icon" && cur.IconStorageKey != nil {
+		old = *cur.IconStorageKey
+	} else if which == "banner" && cur.BannerStorageKey != nil {
+		old = *cur.BannerStorageKey
+	}
+
+	srv, err := h.Servers.SetImageKey(r.Context(), id, p.UserID, which, nil)
+	switch {
+	case errors.Is(err, server.ErrNotOwner):
+		writeError(w, stdhttp.StatusForbidden, "not the owner")
+		return
+	case errors.Is(err, server.ErrNotFound):
+		writeError(w, stdhttp.StatusNotFound, "not found")
+		return
+	case err != nil:
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	if old != "" && h.Avatar != nil {
+		_ = h.Avatar.Remove(r.Context(), old)
+	}
+	writeJSON(w, stdhttp.StatusOK, h.enrich(srv).ToOwnerView())
 }

@@ -39,6 +39,14 @@ type Server struct {
 	UserCountUpdatedAt        *time.Time     `json:"user_count_updated_at,omitempty"`
 	RegisteredBy              *uuid.UUID     `gorm:"type:uuid" json:"registered_by,omitempty"`
 	RegisteredAt              time.Time      `gorm:"not null;default:now()" json:"registered_at"`
+	// Profile-image R2 object keys (icon = square, banner = wide). Kept out
+	// of JSON; the API derives the public CDN URLs into IconURL/BannerURL.
+	IconStorageKey   *string `gorm:"column:icon_storage_key" json:"-"`
+	BannerStorageKey *string `gorm:"column:banner_storage_key" json:"-"`
+	// Computed CDN URLs (not persisted) — populated by the handler from the
+	// storage keys + CDN base before marshalling.
+	IconURL   string `gorm:"-" json:"icon_url,omitempty"`
+	BannerURL string `gorm:"-" json:"banner_url,omitempty"`
 }
 
 func (Server) TableName() string { return "servers" }

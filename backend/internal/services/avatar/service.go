@@ -35,10 +35,13 @@ var (
 type ServiceImpl interface {
 	// Configured reports whether R2 is wired up; handlers 503 when false.
 	Configured() bool
-	// Process validates + normalizes raw image bytes (decode → square-crop →
-	// resize → re-encode PNG) and uploads to storage, returning the new
-	// content-addressed object key. Best-effort deletes prevKey when set.
+	// Process validates + normalizes a user avatar (square 256²) and uploads
+	// it. Thin wrapper over ProcessImage. Best-effort deletes prevKey.
 	Process(ctx context.Context, userID uuid.UUID, raw []byte, prevKey string) (key string, err error)
+	// ProcessImage is the general pipeline: decode → cover-crop to width×height
+	// → re-encode PNG → upload under `<namespace>/<id>-<hash>.png` (content-
+	// addressed, immutable). Used for server icons/banners as well as avatars.
+	ProcessImage(ctx context.Context, namespace, id string, raw []byte, prevKey string, width, height int) (key string, err error)
 	// Remove best-effort deletes the object at key.
 	Remove(ctx context.Context, key string) error
 	// URLFor builds the public CDN URL for a stored key (empty in → empty out).
@@ -64,6 +67,10 @@ func (s *Service) URLFor(key string) string {
 }
 
 func (s *Service) Process(ctx context.Context, userID uuid.UUID, raw []byte, prevKey string) (string, error) {
+	return s.ProcessImage(ctx, "avatars", userID.String(), raw, prevKey, avatarSize, avatarSize)
+}
+
+func (s *Service) ProcessImage(ctx context.Context, namespace, id string, raw []byte, prevKey string, width, height int) (string, error) {
 	if !s.Configured() {
 		return "", ErrNotConfigured
 	}
@@ -78,17 +85,17 @@ func (s *Service) Process(ctx context.Context, userID uuid.UUID, raw []byte, pre
 		return "", fmt.Errorf("%w: %v", ErrUnsupportedImage, err)
 	}
 
-	out := normalizeSquare(src, avatarSize)
+	out := normalizeCover(src, width, height)
 	var buf bytes.Buffer
 	if err := (&png.Encoder{CompressionLevel: png.BestCompression}).Encode(&buf, out); err != nil {
 		return "", err
 	}
 	data := buf.Bytes()
 
-	// Content-addressed key → each distinct avatar is a new, immutable URL,
+	// Content-addressed key → each distinct image is a new, immutable URL,
 	// so the CDN can cache forever and a change is picked up immediately.
 	sum := sha256.Sum256(data)
-	key := fmt.Sprintf("avatars/%s-%s.png", userID, hex.EncodeToString(sum[:6]))
+	key := fmt.Sprintf("%s/%s-%s.png", namespace, id, hex.EncodeToString(sum[:6]))
 
 	if err := s.storage.Put(ctx, key, data, "image/png"); err != nil {
 		return "", err
@@ -106,21 +113,38 @@ func (s *Service) Remove(ctx context.Context, key string) error {
 	return s.storage.Delete(ctx, key)
 }
 
-// normalizeSquare center-crops src to a square then high-quality scales it to
-// size×size, so every stored avatar is a uniform square regardless of the
-// source aspect ratio.
-func normalizeSquare(src image.Image, size int) image.Image {
+// normalizeCover center-crops src to the target aspect ratio then high-quality
+// scales it to width×height ("cover" fit), so every stored image is a uniform
+// size regardless of the source dimensions. width == height gives a square
+// (avatars, server icons); a wide target gives a banner.
+func normalizeCover(src image.Image, width, height int) image.Image {
 	b := src.Bounds()
-	w, h := b.Dx(), b.Dy()
-	edge := w
-	if h < w {
-		edge = h
+	sw, sh := b.Dx(), b.Dy()
+	if sw <= 0 || sh <= 0 {
+		return image.NewRGBA(image.Rect(0, 0, width, height))
 	}
-	ox := b.Min.X + (w-edge)/2
-	oy := b.Min.Y + (h-edge)/2
-	crop := image.Rect(ox, oy, ox+edge, oy+edge)
+	targetAR := float64(width) / float64(height)
+	srcAR := float64(sw) / float64(sh)
 
-	dst := image.NewRGBA(image.Rect(0, 0, size, size))
+	cw, ch := sw, sh
+	if srcAR > targetAR {
+		// Source is wider than target → crop the sides.
+		cw = int(float64(sh) * targetAR)
+	} else {
+		// Source is taller → crop top/bottom.
+		ch = int(float64(sw) / targetAR)
+	}
+	if cw < 1 {
+		cw = 1
+	}
+	if ch < 1 {
+		ch = 1
+	}
+	ox := b.Min.X + (sw-cw)/2
+	oy := b.Min.Y + (sh-ch)/2
+	crop := image.Rect(ox, oy, ox+cw, oy+ch)
+
+	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.CatmullRom.Scale(dst, dst.Bounds(), src, crop, draw.Over, nil)
 	return dst
 }

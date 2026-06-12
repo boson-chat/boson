@@ -79,6 +79,7 @@ type stubServerService struct {
 	regenerateToken func(ctx context.Context, serverID, principalID uuid.UUID) (*server.Server, error)
 	verify          func(ctx context.Context, serverID, principalID uuid.UUID, mode dns.Mode) (*server.Server, dns.Report, error)
 	updateProfile   func(ctx context.Context, serverID, principalID uuid.UUID, in server.UpdateProfileInput) (*server.Server, error)
+	setImageKey     func(ctx context.Context, serverID, principalID uuid.UUID, which string, key *string) (*server.Server, error)
 	createArgs      []server.CreateInput
 	listArgs        []server.ListFilter
 }
@@ -117,4 +118,10 @@ func (s *stubServerService) UpdateProfile(ctx context.Context, serverID, princip
 		return s.updateProfile(ctx, serverID, principalID, in)
 	}
 	return nil, nil
+}
+func (s *stubServerService) SetImageKey(ctx context.Context, serverID, principalID uuid.UUID, which string, key *string) (*server.Server, error) {
+	if s.setImageKey != nil {
+		return s.setImageKey(ctx, serverID, principalID, which, key)
+	}
+	return &server.Server{ID: serverID}, nil
 }

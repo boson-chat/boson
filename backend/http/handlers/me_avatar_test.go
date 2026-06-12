@@ -27,6 +27,9 @@ func (f *fakeAvatarService) Configured() bool { return f.configured }
 func (f *fakeAvatarService) Process(_ context.Context, _ uuid.UUID, _ []byte, _ string) (string, error) {
 	return f.processKey, f.processErr
 }
+func (f *fakeAvatarService) ProcessImage(_ context.Context, _, _ string, _ []byte, _ string, _, _ int) (string, error) {
+	return f.processKey, f.processErr
+}
 func (f *fakeAvatarService) Remove(_ context.Context, key string) error {
 	f.removed = append(f.removed, key)
 	return nil

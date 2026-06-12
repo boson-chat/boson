@@ -72,7 +72,7 @@ func StartServerWithContext(ctx context.Context) error {
 
 	// Handlers
 	meHandler := handlers.NewMeHandler(userService, avatarService)
-	serverHandler := handlers.NewServerHandler(serverService)
+	serverHandler := handlers.NewServerHandler(serverService, avatarService)
 	sessionHandler := handlers.NewSessionHandler(sessionService)
 	nickClaimsHandler := handlers.NewNickClaimsHandler(nickClaimService)
 	nickservSecretsHandler := handlers.NewNickServSecretsHandler(nickservSecretService)

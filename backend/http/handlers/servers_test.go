@@ -26,7 +26,7 @@ var _ = errors.Is
 func callServers(t *testing.T, svc server.ServerServiceImpl, principal middleware.Principal, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	mux := stdhttp.NewServeMux()
-	NewServerHandler(svc).Register(mux)
+	NewServerHandler(svc, nil).Register(mux)
 
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if body != "" {
@@ -193,7 +193,7 @@ func TestServerHandler_RegisterPublic_MountsReadOnlyRoutes(t *testing.T) {
 		},
 	}
 	mux := stdhttp.NewServeMux()
-	NewServerHandler(svc).RegisterPublic(mux)
+	NewServerHandler(svc, nil).RegisterPublic(mux)
 
 	// GET /servers and GET /servers/{id} are served without any auth context.
 	getReq := httptest.NewRequest("GET", "/servers", nil)
@@ -227,7 +227,7 @@ func TestServerHandler_RegisterProtected_MountsWriteRoutesOnly(t *testing.T) {
 		},
 	}
 	mux := stdhttp.NewServeMux()
-	NewServerHandler(svc).RegisterProtected(mux)
+	NewServerHandler(svc, nil).RegisterProtected(mux)
 
 	postReq := httptest.NewRequest("POST", "/servers",
 		strings.NewReader(`{"hostname":"irc","port":6697,"name":"Test"}`))

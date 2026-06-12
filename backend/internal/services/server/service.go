@@ -66,6 +66,9 @@ type ServerServiceImpl interface {
 	// "register a new row" + "delete the old one" if they really need
 	// to move host:port. Returns the updated server.
 	UpdateProfile(ctx context.Context, serverID, principalID uuid.UUID, in UpdateProfileInput) (*Server, error)
+	// SetImageKey sets (or clears, when key is nil) the server's icon or
+	// banner R2 storage key. `which` is "icon" or "banner". Owner-only.
+	SetImageKey(ctx context.Context, serverID, principalID uuid.UUID, which string, key *string) (*Server, error)
 }
 
 // UpdateProfileInput carries the optional fields the owner can change.
@@ -227,6 +230,28 @@ func (s *ServerService) UpdateProfile(ctx context.Context, serverID, principalID
 		srv.IsNSFW = *in.IsNSFW
 	}
 
+	if err := s.Repository.Update(ctx, srv); err != nil {
+		return nil, err
+	}
+	return srv, nil
+}
+
+func (s *ServerService) SetImageKey(ctx context.Context, serverID, principalID uuid.UUID, which string, key *string) (*Server, error) {
+	srv, err := s.Repository.FindByID(ctx, serverID)
+	if err != nil {
+		return nil, err
+	}
+	if srv.RegisteredBy == nil || *srv.RegisteredBy != principalID {
+		return nil, ErrNotOwner
+	}
+	switch which {
+	case "icon":
+		srv.IconStorageKey = key
+	case "banner":
+		srv.BannerStorageKey = key
+	default:
+		return nil, ErrInvalidInput
+	}
 	if err := s.Repository.Update(ctx, srv); err != nil {
 		return nil, err
 	}
