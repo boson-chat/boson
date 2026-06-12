@@ -49,6 +49,12 @@ export interface IrcEvent {
   Message: string;
   Args?: string[]; // populated by KICK (kicked nick) + MODE (modestring + args)
   Tags?: Record<string, string>; // IRCv3 message tags (e.g. "+typing": "active")
+  // Source hostname from the nick!user@host prefix, when present (NAMES with
+  // userhost-in-names, JOIN, messages, WHO 352, CHGHOST). Drives presence.
+  Host?: string;
+  // Source's services account when known (account-tag / extended-join /
+  // ACCOUNT); empty/absent = not identified.
+  Account?: string;
   Raw: string;
 }
 

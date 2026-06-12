@@ -94,6 +94,86 @@ func TestTranslate_Quit(t *testing.T) {
 	assert.Equal(t, "goodbye", got.Message)
 }
 
+func TestTranslate_ForwardsHostFromSource(t *testing.T) {
+	got := translate(girc.Event{
+		Command: girc.PRIVMSG,
+		Source:  &girc.Source{Name: "bob", Ident: "b", Host: "user/bob"},
+		Params:  []string{"#general", "hi"},
+	})
+	assert.Equal(t, "user/bob", got.Host)
+}
+
+func TestTranslate_AccountTag(t *testing.T) {
+	got := translate(girc.Event{
+		Command: girc.PRIVMSG,
+		Source:  &girc.Source{Name: "bob"},
+		Tags:    girc.Tags{"account": "bobaccount"},
+		Params:  []string{"#general", "hi"},
+	})
+	assert.Equal(t, "bobaccount", got.Account)
+}
+
+func TestTranslate_ExtendedJoinAccountAndHost(t *testing.T) {
+	// extended-join: JOIN <channel> <account> :<realname>
+	got := translate(girc.Event{
+		Command: girc.JOIN,
+		Source:  &girc.Source{Name: "alice", Host: "cloak/alice"},
+		Params:  []string{"#general", "aliceacct", "Alice Real"},
+	})
+	assert.Equal(t, "JOIN", got.Kind)
+	assert.Equal(t, "aliceacct", got.Account)
+	assert.Equal(t, "cloak/alice", got.Host)
+
+	// Not-identified joiner: "*" normalizes to empty.
+	loggedOut := translate(girc.Event{
+		Command: girc.JOIN,
+		Source:  &girc.Source{Name: "carol"},
+		Params:  []string{"#general", "*", "Carol"},
+	})
+	assert.Equal(t, "", loggedOut.Account)
+}
+
+func TestTranslate_WhoReplyHost(t *testing.T) {
+	// 352 mynick #chan ident host server nick flags :realname
+	got := translate(girc.Event{
+		Command: girc.RPL_WHOREPLY,
+		Params:  []string{"me", "#general", "b", "user/bob", "irc.x", "bob", "H", "0 Bob"},
+	})
+	assert.Equal(t, "#general", got.Target)
+	assert.Equal(t, "bob", got.From)
+	assert.Equal(t, "user/bob", got.Host)
+}
+
+func TestTranslate_AccountNotify(t *testing.T) {
+	loggedIn := translate(girc.Event{
+		Command: "ACCOUNT",
+		Source:  &girc.Source{Name: "bob"},
+		Params:  []string{"bobaccount"},
+	})
+	assert.Equal(t, "ACCOUNT", loggedIn.Kind)
+	assert.Equal(t, "bob", loggedIn.From)
+	assert.Equal(t, "bobaccount", loggedIn.Account)
+
+	loggedOut := translate(girc.Event{
+		Command: "ACCOUNT",
+		Source:  &girc.Source{Name: "bob"},
+		Params:  []string{"*"},
+	})
+	assert.Equal(t, "", loggedOut.Account)
+}
+
+func TestTranslate_ChgHost(t *testing.T) {
+	// :nick!user@host CHGHOST <newuser> <newhost>
+	got := translate(girc.Event{
+		Command: "CHGHOST",
+		Source:  &girc.Source{Name: "bob", Host: "old/host"},
+		Params:  []string{"newuser", "new/host"},
+	})
+	assert.Equal(t, "CHGHOST", got.Kind)
+	assert.Equal(t, "bob", got.From)
+	assert.Equal(t, "new/host", got.Host)
+}
+
 func TestTranslate_Welcome(t *testing.T) {
 	got := translate(girc.Event{
 		Command: girc.RPL_WELCOME,

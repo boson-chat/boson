@@ -1321,3 +1321,47 @@ describe('ChatService away/online tracking', () => {
     expect(state.channels.find((c) => c.name === '#a')!.members.find((m) => m.nick === 'alice')?.awayMessage).toBeFalsy();
   });
 });
+
+describe('ChatService identity (host + account) population', () => {
+  const member = (chat: ChatService, chan: string, nick: string) =>
+    chat.getState().channels.find((c) => c.name === chan)?.members.find((m) => m.nick === nick);
+
+  it('populates member hostname + account from an extended-join', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'alice', Target: '#a', Host: 'user/alice', Account: 'aliceacct' }));
+    expect(member(chat, '#a', 'alice')).toMatchObject({ hostname: 'user/alice', account: 'aliceacct' });
+  });
+
+  it('captures our OWN host + account from the self-join (extended-join echo)', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a', Host: 'cloak/me', Account: 'myacct' }));
+    expect(chat.selfIdentity()).toMatchObject({ nick: 'me', host: 'cloak/me', account: 'myacct' });
+  });
+
+  it('ACCOUNT updates a member account live; logout (empty) clears it', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'bob', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'ACCOUNT', From: 'bob', Account: 'bobacct' }));
+    expect(member(chat, '#a', 'bob')?.account).toBe('bobacct');
+    engine.emit(makeEvent({ Kind: 'ACCOUNT', From: 'bob', Account: '' }));
+    expect(member(chat, '#a', 'bob')?.account).toBeUndefined();
+  });
+
+  it('CHGHOST updates a member hostname live', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'bob', Target: '#a', Host: 'old/host' }));
+    engine.emit(makeEvent({ Kind: 'CHGHOST', From: 'bob', Host: 'new/host' }));
+    expect(member(chat, '#a', 'bob')?.hostname).toBe('new/host');
+  });
+
+  it('refreshes a member account from the account-tag on a channel message', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'bob', Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'bob', Target: '#a', Message: 'hi', Account: 'bobacct' }));
+    expect(member(chat, '#a', 'bob')?.account).toBe('bobacct');
+  });
+});

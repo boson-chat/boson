@@ -37,12 +37,18 @@ type SASLPlain struct {
 
 // Event mirrors the subset of girc message types we forward to Electron.
 type Event struct {
-	Kind    string            // "PRIVMSG" | "NOTICE" | "JOIN" | "PART" | "QUIT" | "001" (welcome) | "TAGMSG" | etc.
+	Kind    string            // "PRIVMSG" | "NOTICE" | "JOIN" | "PART" | "QUIT" | "001" (welcome) | "TAGMSG" | "ACCOUNT" | "CHGHOST" | etc.
 	From    string            // nick/source
 	Target  string            // channel or our nick (for DMs)
 	Message string            // trailing message (reason, body, etc.)
 	Args    []string          `json:"Args,omitempty"`  // additional positional params (KICK: kicked-nick; MODE: modestring + args)
 	Tags    map[string]string `json:"Tags,omitempty"`  // IRCv3 message tags (e.g. "+typing": "active")
+	// Host is the source's hostname (from the nick!user@host prefix), when
+	// the wire carried one. Powers Boson-member presence matching.
+	Host string `json:"Host,omitempty"`
+	// Account is the source's services account name when known (from the
+	// account-tag, extended-join, or an ACCOUNT event); empty = not logged in.
+	Account string `json:"Account,omitempty"`
 	Raw     string
 }
 
@@ -118,12 +124,27 @@ func New(cfg Config) (*Client, error) {
 		//                       so the renderer's "away" indicator updates
 		//                       in real time instead of only on the next
 		//                       WHO/WHOIS the user triggers manually.
-		// Servers that don't advertise these silently ignore the request.
+		//   userhost-in-names — NAMES (353) lists nicks as nick!user@host, so
+		//                       the renderer learns each member's hostname.
+		//   extended-join    — JOIN carries the joiner's account + (via the
+		//                       source) host; also gives us our OWN host +
+		//                       account on self-join.
+		//   account-notify   — server pushes ACCOUNT events when a user logs
+		//                       in / out, so the account field stays live.
+		//   chghost          — server pushes CHGHOST when a user's host
+		//                       changes (cloak grant, vhost), keeping the
+		//                       host current.
+		// These identity signals back the "is this a Boson member?" presence
+		// matching. Servers that don't advertise a cap silently ignore it.
 		SupportedCaps: map[string][]string{
-			"message-tags": nil,
-			"server-time":  nil,
-			"account-tag":  nil,
-			"away-notify":  nil,
+			"message-tags":      nil,
+			"server-time":       nil,
+			"account-tag":       nil,
+			"away-notify":       nil,
+			"userhost-in-names": nil,
+			"extended-join":     nil,
+			"account-notify":    nil,
+			"chghost":           nil,
 		},
 	})
 
@@ -461,11 +482,21 @@ func (c *Client) String() string {
 	return fmt.Sprintf("%s@%s:%d (tls=%t)", c.cfg.Nick, c.cfg.Hostname, c.cfg.Port, c.cfg.TLS)
 }
 
+// normalizeAccount maps the IRC "no account" sentinels ("*", "0", empty) to
+// an empty string so callers can treat "" uniformly as "not identified".
+func normalizeAccount(s string) string {
+	if s == "" || s == "*" || s == "0" {
+		return ""
+	}
+	return s
+}
+
 // translate converts a girc.Event into our wire-level Event.
 func translate(e girc.Event) Event {
 	out := Event{Kind: e.Command, Raw: e.String()}
 	if e.Source != nil {
 		out.From = e.Source.Name
+		out.Host = e.Source.Host
 	}
 	// Forward any IRCv3 tags girc parsed off the wire. We keep client tags
 	// (prefix `+`) and server-time / account so the renderer can act on
@@ -476,6 +507,9 @@ func translate(e girc.Event) Event {
 			out.Tags[k] = v
 		}
 	}
+	// account-tag carries the sender's services account on each message.
+	// Specific cases (JOIN extended-join, ACCOUNT) may override below.
+	out.Account = normalizeAccount(e.Tags["account"])
 	switch e.Command {
 	case girc.PRIVMSG, girc.NOTICE:
 		if len(e.Params) >= 1 {
@@ -485,6 +519,13 @@ func translate(e girc.Event) Event {
 	case girc.JOIN, girc.PART:
 		if len(e.Params) >= 1 {
 			out.Target = e.Params[0]
+		}
+		// extended-join: JOIN <channel> <account> :<realname>. Param[1] is
+		// the joiner's account ("*" when not identified). Authoritative over
+		// the tag for the join moment (also gives us our OWN account on
+		// self-join). Plain JOIN has only the channel param, so this no-ops.
+		if e.Command == girc.JOIN && len(e.Params) >= 2 {
+			out.Account = normalizeAccount(e.Params[1])
 		}
 	case girc.QUIT:
 		out.Message = e.Last()
@@ -515,6 +556,7 @@ func translate(e girc.Event) Event {
 		// 'H' here / 'G' gone (away), followed by optional sigils.
 		if len(e.Params) >= 7 {
 			out.Target = e.Params[1]         // channel
+			out.Host = e.Params[3]           // host — for presence matching
 			out.From = e.Params[5]           // nick
 			out.Args = []string{e.Params[6]} // status flags
 			slog.Info("irc: forwarding RPL_WHOREPLY",
@@ -523,6 +565,19 @@ func translate(e girc.Event) Event {
 			slog.Warn("irc: 352 too short", "params", e.Params)
 		}
 		out.Message = e.Last()
+	case "ACCOUNT":
+		// account-notify: :nick ACCOUNT <account>  ("*" = logged out). Lets
+		// the renderer keep a member's account live without a re-WHO.
+		if len(e.Params) >= 1 {
+			out.Account = normalizeAccount(e.Params[0])
+		}
+	case "CHGHOST":
+		// :nick!user@host CHGHOST <newuser> <newhost> — push the new host so
+		// presence matching tracks cloak/vhost changes.
+		if len(e.Params) >= 2 {
+			out.Host = e.Params[1]
+			out.Args = append([]string(nil), e.Params...)
+		}
 	case girc.RPL_WHOSPCRPL:
 		// 354 — WHOX reply. girc's auto-WHO uses WHOX format; the field
 		// order depends on the querytype. We don't request any flags

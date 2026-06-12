@@ -333,6 +333,46 @@ export class ChatService {
 
   setNick(nick: string): void { this.myNick = nick; }
 
+  // Our own host + services account on this server, learned from the
+  // extended-join self-join echo, CHGHOST, ACCOUNT, and the 900 numeric.
+  // The presence service reads this to publish our identity on the network.
+  private myHost: string | undefined;
+  private myAccount: string | undefined;
+
+  selfIdentity(): { nick: string; host?: string; account?: string } {
+    return { nick: this.myNick, host: this.myHost, account: this.myAccount };
+  }
+
+  private updateSelfIdentity(host?: string, account?: string): void {
+    let changed = false;
+    if (host && host !== this.myHost) { this.myHost = host; changed = true; }
+    // account === '' means "logged out" (explicit clear); undefined means
+    // "unknown, leave as-is".
+    if (account !== undefined) {
+      const next = account || undefined;
+      if (next !== this.myAccount) { this.myAccount = next; changed = true; }
+    }
+    // Re-emit so subscribers (the presence service) re-read selfIdentity().
+    if (changed) this.emit();
+  }
+
+  // Update a member's host/account across every channel they're in (from
+  // ACCOUNT / CHGHOST / account-tag). Emits only on a real change.
+  private updateMemberField(nick: string, patch: { hostname?: string; account?: string }): void {
+    let changed = false;
+    for (const ch of this.channels.values()) {
+      const idx = ch.members.findIndex((m) => m.nick === nick);
+      if (idx < 0) continue;
+      const cur = ch.members[idx]!;
+      const next = { ...cur, ...patch };
+      if (next.hostname !== cur.hostname || next.account !== cur.account) {
+        ch.members = ch.members.map((m, i) => (i === idx ? next : m));
+        changed = true;
+      }
+    }
+    if (changed) this.emit();
+  }
+
   // Adopt the server-confirmed nick from a welcome-band numeric (001/004),
   // whose Target is the nick the server actually assigned us. No-op when
   // it's empty or unchanged. Keeps the AccountService impls (which cache
@@ -1609,6 +1649,12 @@ export class ChatService {
         let text = e.Message;
         // Anyone sending a message is, by definition, active right now.
         this.touchMemberActivity(e.From, Date.now());
+        // account-tag keeps a talker's account fresh (and our own) for
+        // presence matching — covers members who were silent at our join.
+        if (e.Account) {
+          if (e.From === this.myNick) this.updateSelfIdentity(undefined, e.Account);
+          else if (isChannel) this.updateMemberField(e.From, { account: e.Account });
+        }
         // A real message implicitly cancels any pending `+typing=active` for
         // that nick in this channel.
         this.clearTyping(channel, e.From);
@@ -1653,6 +1699,9 @@ export class ChatService {
           // if the channel record already existed locally (idempotent).
           this.ensureChannel(e.Target, true);
           this.emitSelfMembership({ kind: 'join', channel: key });
+          // extended-join echoes our own host + account on self-join — the
+          // most reliable way to learn our cloak/account for presence.
+          this.updateSelfIdentity(e.Host, e.Account);
           this.appendSystem(e.Target, `You joined ${e.Target}`);
           if (!this.activeChannel) this.setActive(e.Target);
           // Safety net: if NAMREPLY/ENDOFNAMES never arrive (e.g. drop on
@@ -1660,9 +1709,15 @@ export class ChatService {
           setTimeout(() => this.maybeRefreshNames(key), 2500);
         } else {
           // Track the joiner in the channel's member list (no prefix sigil yet).
+          // extended-join + the source host populate account/hostname so the
+          // member can be matched to a Boson account.
           const ch = this.channels.get(key);
           if (ch && !ch.members.some((m) => m.nick === e.From)) {
-            ch.members = [...ch.members, { nick: e.From, prefix: '', joinedAt: Date.now() }];
+            ch.members = [...ch.members, {
+              nick: e.From, prefix: '', joinedAt: Date.now(),
+              ...(e.Host ? { hostname: e.Host } : {}),
+              ...(e.Account ? { account: e.Account } : {}),
+            }];
           }
           this.appendMessage(e.Target, {
             id: this.id(),
@@ -1672,6 +1727,19 @@ export class ChatService {
             timestamp: Date.now(),
           });
         }
+        break;
+      }
+      case 'ACCOUNT': {
+        // account-notify: a user logged in (Account set) or out (empty).
+        // Keep the account live for presence matching.
+        if (e.From === this.myNick) { this.updateSelfIdentity(undefined, e.Account ?? ''); break; }
+        this.updateMemberField(e.From, { account: e.Account || undefined });
+        break;
+      }
+      case 'CHGHOST': {
+        // Host changed (cloak grant / vhost). Track for self + the member.
+        if (e.From === this.myNick) { this.updateSelfIdentity(e.Host, undefined); break; }
+        if (e.Host) this.updateMemberField(e.From, { hostname: e.Host });
         break;
       }
       case 'PART': {
