@@ -1,3 +1,11 @@
+## [0.19.0](https://github.com/boson-chat/boson/compare/v0.18.0...v0.19.0) (2026-06-12)
+
+### Features
+
+* **backend:** member presence registry + hybrid lookup ([47d2b34](https://github.com/boson-chat/boson/commit/47d2b34c01d6e56b884dc6caecec31e4ea3840bb))
+* **client:** publish presence + show other Boson members' avatars ([a039988](https://github.com/boson-chat/boson/commit/a0399881207dfa5261febed84ee0406606e0f77e))
+* forward IRC host + account for Boson-member presence ([4401333](https://github.com/boson-chat/boson/commit/4401333b18b1df9657e5fa75bde8c44d8450915a))
+
 ## [0.18.0](https://github.com/boson-chat/boson/compare/v0.17.0...v0.18.0) (2026-06-12)
 
 ### Features
