@@ -1,3 +1,9 @@
+## [0.19.1](https://github.com/boson-chat/boson/compare/v0.19.0...v0.19.1) (2026-06-12)
+
+### Bug Fixes
+
+* **client:** refresh own avatar in chat immediately after upload ([4cfcf64](https://github.com/boson-chat/boson/commit/4cfcf642bdc47294af801839e30a81af8da0fd21))
+
 ## [0.19.0](https://github.com/boson-chat/boson/compare/v0.18.0...v0.19.0) (2026-06-12)
 
 ### Features
