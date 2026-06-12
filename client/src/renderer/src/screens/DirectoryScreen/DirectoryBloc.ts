@@ -1,6 +1,7 @@
 import type { AuthService } from '../../modules/auth';
 import { ChatService, type ChatState } from '../../modules/chat';
 import { PresenceService } from '../../modules/chat/presence.service';
+import { setAvatar } from '../../modules/chat/avatar-cache';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
 import type { DirectoryService, Server, User } from '../../modules/directory';
 import type { EngineClient, EngineState, ServerSession } from '../../modules/engine';
@@ -391,6 +392,18 @@ export class DirectoryBloc {
     if (!conn) return false;
     conn.chat.readMemo(memoIndex);
     return true;
+  }
+
+  // Refresh the signed-in user's avatar everywhere without a reconnect:
+  // update `me` (so presence re-publishes the right URL) and re-pin the
+  // avatar cache under the user's current nick on every open connection, so
+  // it updates live in the chat stream + member list.
+  setOwnAvatar(url: string | null): void {
+    if (this.me) this.me = { ...this.me, avatar_url: url ?? undefined };
+    for (const conn of this.connections.values()) {
+      setAvatar(conn.serverId, conn.chat.selfIdentity().nick, url);
+    }
+    this.emit();
   }
 
   // Flag each chat service with whether its server is the one currently being

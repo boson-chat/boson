@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getAvatar, setAvatar, setAvatars, subscribeAvatars, avatarVersion } from './avatar-cache';
+import { getAvatar, setAvatar, setAvatars, subscribeAvatars, avatarVersion, publishOwnAvatar, subscribeOwnAvatar } from './avatar-cache';
 
 describe('avatar-cache', () => {
   beforeEach(() => {
@@ -43,5 +43,17 @@ describe('avatar-cache', () => {
     setAvatars('s1', [{ nick: 'alice', url: 'https://cdn/a.png' }, { nick: 'bob', url: 'https://cdn/b.png' }]);
     expect(getAvatar('s1', 'alice')).toBe('https://cdn/a.png');
     expect(getAvatar('s1', 'bob')).toBe('https://cdn/b.png');
+  });
+
+  it('own-avatar bus notifies subscribers with the new URL / null', () => {
+    let got: string | null | undefined;
+    const off = subscribeOwnAvatar((url) => { got = url; });
+    publishOwnAvatar('https://cdn/me.png');
+    expect(got).toBe('https://cdn/me.png');
+    publishOwnAvatar(null);
+    expect(got).toBeNull();
+    off();
+    publishOwnAvatar('https://cdn/x.png');
+    expect(got).toBeNull(); // unsubscribed → unchanged
   });
 });

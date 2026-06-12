@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Divider, Field, Input, Modal, useTransientFlag } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
+import { publishOwnAvatar } from '../../modules/chat/avatar-cache';
 import {
   clearGuestSession,
   emitGuestChange,
@@ -238,6 +239,8 @@ function AvatarSettings({ handle, directory, auth, open }: {
       const updated = await directory.uploadAvatar(file);
       setUrl(updated.avatar_url ?? null);
       try { await auth.updateMetadata({ avatar_url: updated.avatar_url ?? null }); } catch { /* non-fatal */ }
+      // Refresh it live in chat / member list (no reconnect).
+      publishOwnAvatar(updated.avatar_url ?? null);
     } catch (err) {
       if (err instanceof HttpError && err.status === 503) setError('Profile images aren’t available right now.');
       else if (err instanceof HttpError && err.status === 413) setError('Image is too large (max 5 MB).');
@@ -255,6 +258,7 @@ function AvatarSettings({ handle, directory, auth, open }: {
       const updated = await directory.deleteAvatar();
       setUrl(updated.avatar_url ?? null);
       try { await auth.updateMetadata({ avatar_url: null }); } catch { /* non-fatal */ }
+      publishOwnAvatar(null);
     } catch {
       setError('Could not remove — try again.');
     } finally {

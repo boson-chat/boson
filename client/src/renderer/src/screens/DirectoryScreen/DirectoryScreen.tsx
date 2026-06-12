@@ -4,6 +4,7 @@ import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
 import { subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
+import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
 import type { EngineClient, EngineState } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
@@ -96,6 +97,12 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
     return subscribeReadMemo(({ serverId, memoIndex }) => {
       bloc.readMemo(serverId, memoIndex);
     });
+  }, [bloc]);
+
+  // Profile-image change (Settings upload/remove): refresh the signed-in
+  // user's avatar across open connections live, no reconnect.
+  useEffect(() => {
+    return subscribeOwnAvatar((url) => bloc.setOwnAvatar(url));
   }, [bloc]);
 
   const [state, setState] = useState<DirectoryState>(() => bloc.getState());
