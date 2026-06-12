@@ -71,6 +71,9 @@ export interface User {
   handle: string;
   display_name?: string;
   is_discoverable: boolean;
+  // Public CDN URL of the user's profile image, or absent if none set.
+  // Computed server-side from the stored avatar key.
+  avatar_url?: string;
   encrypted_user_secret: string; // base64
   // Second wrap of user_secret keyed by the recovery code; absent until the
   // user has enrolled one. base64.

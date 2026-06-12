@@ -1,0 +1,29 @@
+/* Shared nick avatar. Hue comes from --nick-color (set inline) when showing
+   the initial fallback; the image variant drops the tint. */
+.bds-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+  background: color-mix(in oklab, var(--nick-color, var(--fg-3)) 22%, var(--surface-raised));
+  color: var(--nick-color, var(--fg-2));
+  border: 1px solid color-mix(in oklab, var(--nick-color, var(--fg-3)) 32%, transparent);
+}
+
+.bds-avatar-has-image {
+  background: var(--surface-raised);
+  border-color: var(--border);
+}
+
+.bds-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

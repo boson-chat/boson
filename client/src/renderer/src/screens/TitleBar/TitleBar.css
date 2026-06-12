@@ -113,6 +113,10 @@
   color: var(--fg);
 }
 
+.title-bar-user-avatar {
+  margin-right: var(--space-1);
+}
+
 .title-bar-user-name {
   font-family: var(--font-mono);
   font-size: var(--text-xs);

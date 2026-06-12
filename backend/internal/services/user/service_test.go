@@ -19,6 +19,7 @@ type stubRepo struct {
 	deleteFn         func(ctx context.Context, id uuid.UUID) error
 	updateHandle     func(ctx context.Context, id uuid.UUID, newHandle string) (*User, error)
 	updateWraps      func(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error)
+	updateAvatarKey  func(ctx context.Context, id uuid.UUID, key *string) (*User, error)
 	createCalls      []*User
 	deleteCalls      []uuid.UUID
 	updateHandleCalls []stubRepoUpdateHandleCall
@@ -62,6 +63,12 @@ func (s *stubRepo) UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, pass
 		return s.updateWraps(ctx, id, passwordWrap, recoveryWrap)
 	}
 	return nil, nil
+}
+func (s *stubRepo) UpdateAvatarKey(ctx context.Context, id uuid.UUID, key *string) (*User, error) {
+	if s.updateAvatarKey != nil {
+		return s.updateAvatarKey(ctx, id, key)
+	}
+	return &User{ID: id, AvatarStorageKey: key}, nil
 }
 
 func newNotFoundRepo() *stubRepo {

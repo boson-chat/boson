@@ -493,25 +493,10 @@
   min-width: 0;
 }
 
-/* Per-nick avatar tile — initial colored by hashing the nick (see
-   modules/chat/nick-color.ts); hue passed inline as --nick-color. Matches
-   the member-list + Inbox avatars. */
+/* Message avatar is the shared <Avatar> (shared/Avatar); only the baseline
+   nudge is message-specific. */
 .message-avatar {
-  width: 1.9rem;
-  height: 1.9rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1;
-  user-select: none;
-  margin-top: 2px; /* nudge to sit level with the name baseline */
-  background: color-mix(in oklab, var(--nick-color, var(--fg-3)) 22%, var(--surface-raised));
-  color: var(--nick-color, var(--fg-2));
-  border: 1px solid color-mix(in oklab, var(--nick-color, var(--fg-3)) 32%, transparent);
+  margin-top: 2px; /* sit level with the name baseline */
 }
 
 /* Mention highlight: tint the row + accent the left edge so the user catches

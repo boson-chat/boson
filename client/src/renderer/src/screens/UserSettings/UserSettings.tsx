@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Divider, Field, Input, Modal, useTransientFlag } from '@boson/shared';
+import { Avatar } from '../../shared/Avatar/Avatar';
 import {
   clearGuestSession,
   emitGuestChange,
@@ -131,12 +132,21 @@ function IdentitySection({ mode, authedHandle, guestNick, directory, auth, open 
       <Card>
         <div class="user-settings-card-body">
           {mode === 'account' ? (
-            <AccountHandleForm
-              authedHandle={authedHandle}
-              directory={directory}
-              auth={auth}
-              open={open}
-            />
+            <>
+              <AvatarSettings
+                handle={authedHandle ?? ''}
+                directory={directory}
+                auth={auth}
+                open={open}
+              />
+              <Divider />
+              <AccountHandleForm
+                authedHandle={authedHandle}
+                directory={directory}
+                auth={auth}
+                open={open}
+              />
+            </>
           ) : (
             <GuestNickForm guestNick={guestNick} />
           )}
@@ -193,6 +203,92 @@ function GuestNickForm({ guestNick }: { guestNick: string }) {
 // On save: PATCH /me first, then mirror the new handle into Supabase
 // user_metadata so the TitleBar and the rest of the app pick it up
 // without a reload.
+// Profile-image control. Uploads to the backend (which resizes + stores in
+// R2) and mirrors the resulting avatar_url into Supabase user_metadata so
+// the TitleBar updates immediately. Falls back to the nick-colored initial.
+function AvatarSettings({ handle, directory, auth, open }: {
+  handle: string;
+  directory: DirectoryService;
+  auth: AuthService;
+  open: boolean;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void directory.getMe()
+      .then((me) => { if (!cancelled) setUrl(me?.avatar_url ?? null); })
+      .catch(() => { /* keep fallback */ });
+    return () => { cancelled = true; };
+  }, [open, directory]);
+
+  const onFile = async (e: Event): Promise<void> => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (fileRef.current) fileRef.current.value = '';
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setError('Please choose an image file.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setError('Image must be under 5 MB.'); return; }
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await directory.uploadAvatar(file);
+      setUrl(updated.avatar_url ?? null);
+      try { await auth.updateMetadata({ avatar_url: updated.avatar_url ?? null }); } catch { /* non-fatal */ }
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 503) setError('Profile images aren’t available right now.');
+      else if (err instanceof HttpError && err.status === 413) setError('Image is too large (max 5 MB).');
+      else if (err instanceof HttpError && err.status === 400) setError('That file isn’t a supported image.');
+      else setError('Upload failed — try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onRemove = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await directory.deleteAvatar();
+      setUrl(updated.avatar_url ?? null);
+      try { await auth.updateMetadata({ avatar_url: null }); } catch { /* non-fatal */ }
+    } catch {
+      setError('Could not remove — try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Field label="Profile image" hint="Shown to other Boson users wherever your nick appears.">
+      <div class="user-settings-avatar">
+        <Avatar nick={handle || '?'} url={url} size={64} />
+        <div class="user-settings-avatar-actions">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            style="display:none"
+            onChange={(e) => { void onFile(e); }}
+          />
+          <Button type="button" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+            {busy ? 'Working…' : (url ? 'Change' : 'Upload')}
+          </Button>
+          {url && (
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => { void onRemove(); }}>
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+      {error && <div class="user-settings-error">{error}</div>}
+    </Field>
+  );
+}
+
 function AccountHandleForm({ authedHandle, directory, auth, open }: {
   authedHandle: string | null;
   directory: DirectoryService;

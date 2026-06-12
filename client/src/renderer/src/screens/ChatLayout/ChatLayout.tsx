@@ -6,6 +6,7 @@ import { ServerRail, type ServerRailTile } from './ServerRail';
 import { ChannelSidebar } from './ChannelSidebar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
+import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import './ChatLayout.css';
 
@@ -78,6 +79,10 @@ export function ChatLayout({
     onSendMessage: (nick: string) => chat.openDM(nick),
   }), [chat]);
 
+  // Resolves a nick → profile-image URL for Boson members on this server
+  // (own avatar + presence matches), shared by the chat stream + member list.
+  const avatarFor = useAvatarFor(activeServerId ?? null);
+
   return (
     <div class="app-shell">
       <ServerRail
@@ -135,8 +140,9 @@ export function ChatLayout({
         serverLog={state.serverLog}
         serverInfo={state.serverInfo}
         nickActions={nickActions}
+        avatarFor={avatarFor}
       />
-      <UserPanel channel={active} nickActions={nickActions} />
+      <UserPanel channel={active} nickActions={nickActions} avatarFor={avatarFor} />
 
       <Modal
         open={helpCommands !== null}

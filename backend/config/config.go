@@ -60,6 +60,18 @@ type AppConfig struct {
 	PurelyMailPOP3User     string `env:"PURELYMAIL_POP3_USER" default:""`
 	PurelyMailPOP3Password string `env:"PURELYMAIL_POP3_PASSWORD" default:""`
 	PurelyMailPOP3TLS      bool   `env:"PURELYMAIL_POP3_TLS" default:"true"`
+
+	// Cloudflare R2 (S3-compatible) for user profile images. The avatar
+	// service uploads resized images here and they're served via the CDN
+	// at CloudflareCDNBaseURL (cdn.boson.chat). Avatar uploads no-op /
+	// return an error when R2AccessKey is empty, so local-dev runs that
+	// don't care about avatars don't need R2 configured. Real keys live in
+	// the gitignored config.dev.json / prod env — never commit them.
+	CloudflareR2AccessKey  string `env:"CLOUDFLARE_R2_ACCESS_KEY" default:""`
+	CloudflareR2SecretKey  string `env:"CLOUDFLARE_R2_SECRET_KEY" default:""`
+	CloudflareR2Endpoint   string `env:"CLOUDFLARE_R2_ENDPOINT" default:""`
+	CloudflareR2Bucket     string `env:"CLOUDFLARE_R2_BUCKET" default:"boson"`
+	CloudflareCDNBaseURL   string `env:"CLOUDFLARE_CDN_BASE_URL" default:"https://cdn.boson.chat"`
 }
 
 type DBConfig struct {

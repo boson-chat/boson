@@ -68,8 +68,9 @@ function renderSettings(props: Partial<Parameters<typeof UserSettings>[0]> = {})
 function handleInput(container: Element): HTMLInputElement {
   // Identity → account mode renders a single <input> (the Handle field).
   // Querying directly is simpler than fighting the Field component's
-  // sibling-label DOM shape with getByLabelText.
-  const el = container.querySelector('input');
+  // sibling-label DOM shape with getByLabelText. Exclude the avatar
+  // control's hidden file input, which precedes the Handle field.
+  const el = container.querySelector('input:not([type="file"])');
   if (!el) throw new Error('handle input not found');
   return el as HTMLInputElement;
 }

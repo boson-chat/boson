@@ -59,6 +59,9 @@ interface ChatAreaProps {
   // Action callbacks forwarded to MessageList → MessageRow. Wired into the
   // right-click nick context menu (Copy/Send/Mention/Ignore).
   nickActions?: NickActions;
+  // Resolve a nick → profile-image URL (Boson members), forwarded to
+  // MessageList → MessageRow for the per-message avatar.
+  avatarFor?: (nick: string) => string | undefined;
   // Stable id for the active connection. Used by the pending-
   // confirmation banner to subscribe to THIS server's credentials
   // entry. Omit when the host doesn't have a stable id (legacy tests).
@@ -89,6 +92,7 @@ export function ChatArea({
   nickActions,
   activeServerId,
   onOpenServerSettings,
+  avatarFor,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -264,6 +268,7 @@ export function ChatArea({
         scrollRef={scrollRef}
         nickActions={nickActions}
         channelName={channel.name}
+        avatarFor={avatarFor}
       />
 
       <TypingIndicator nicks={channel.typing} />

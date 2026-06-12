@@ -22,7 +22,7 @@ import (
 func callMe(t *testing.T, svc user.UserServiceImpl, principal middleware.Principal, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	mux := stdhttp.NewServeMux()
-	NewMeHandler(svc).Register(mux)
+	NewMeHandler(svc, nil).Register(mux)
 
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	if body != "" {

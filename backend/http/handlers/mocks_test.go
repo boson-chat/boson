@@ -17,6 +17,7 @@ type stubUserService struct {
 	deleteFn         func(ctx context.Context, id uuid.UUID) error
 	updateHandle     func(ctx context.Context, id uuid.UUID, newHandle string) (*user.User, error)
 	updateWraps      func(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*user.User, error)
+	setAvatarKey     func(ctx context.Context, id uuid.UUID, key *string) (*user.User, error)
 	createArgs       []user.CreateUserInput
 	deleteArgs       []uuid.UUID
 	updateHandleArgs []updateHandleCall
@@ -61,6 +62,12 @@ func (s *stubUserService) UpdateUserSecretWraps(ctx context.Context, id uuid.UUI
 		return s.updateWraps(ctx, id, passwordWrap, recoveryWrap)
 	}
 	return nil, nil
+}
+func (s *stubUserService) SetAvatarKey(ctx context.Context, id uuid.UUID, key *string) (*user.User, error) {
+	if s.setAvatarKey != nil {
+		return s.setAvatarKey(ctx, id, key)
+	}
+	return &user.User{ID: id, AvatarStorageKey: key}, nil
 }
 
 // stubServerService is a hand-written mock of server.ServerServiceImpl.

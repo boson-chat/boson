@@ -34,6 +34,9 @@ type UserServiceImpl interface {
 	// password reset" (password only). The plaintext user_secret is unchanged;
 	// only its server-stored ciphertext wraps are swapped.
 	UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error)
+	// SetAvatarKey stores (or clears, when key is nil) the user's avatar
+	// storage key — the R2 object key the avatar service uploaded to.
+	SetAvatarKey(ctx context.Context, id uuid.UUID, key *string) (*User, error)
 }
 
 type UserService struct {
@@ -87,6 +90,10 @@ func (s *UserService) UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, p
 		return nil, ErrInvalidWrap
 	}
 	return s.Repository.UpdateUserSecretWraps(ctx, id, passwordWrap, recoveryWrap)
+}
+
+func (s *UserService) SetAvatarKey(ctx context.Context, id uuid.UUID, key *string) (*User, error) {
+	return s.Repository.UpdateAvatarKey(ctx, id, key)
 }
 
 func (s *UserService) Delete(ctx context.Context, id uuid.UUID) error {

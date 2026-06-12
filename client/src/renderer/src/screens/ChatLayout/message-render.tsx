@@ -3,7 +3,7 @@ import type { Ref } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
-import { nickColor, nickInitial } from '../../modules/chat/nick-color';
+import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, type MdToken } from './markdown';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
@@ -36,13 +36,15 @@ interface MessageRowProps {
   /** True when this message has arrived in real-time *since* this view's
    *  freshness baseline. Drives the slide-in entrance animation. */
   fresh?: boolean;
+  /** Resolve a nick to its profile-image URL (Boson members). */
+  avatarFor?: (nick: string) => string | undefined;
 }
 
 // Match UserPanel's hover-card open-delay so dwelling on a nick in chat
 // and dwelling on one in the right rail feel identically responsive.
 const HOVER_OPEN_DELAY_MS = 150;
 
-export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false }: MessageRowProps) {
+export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
   // Debounce-on-enter timer for the hover card — see `UserPanel.tsx`.
@@ -112,13 +114,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
           grouped follow-ups keep the gutter empty so text stays aligned. */}
       <div class="message-row-gutter">
         {!grouped && (
-          <span
-            class="message-avatar"
-            style={`--nick-color:${nickColor(msg.from)}`}
-            aria-hidden="true"
-          >
-            {nickInitial(msg.from)}
-          </span>
+          <Avatar nick={msg.from} url={avatarFor?.(msg.from)} size={30} class="message-avatar" />
         )}
       </div>
       <div class="message-row-body">
@@ -240,6 +236,8 @@ interface MessageListProps {
    *  "freshness baseline" — messages whose timestamp predates the
    *  switch to this channel don't animate in. */
   channelName: string | null;
+  /** Resolve a nick to its profile-image URL (Boson members). */
+  avatarFor?: (nick: string) => string | undefined;
 }
 
 // Scroll container + message rows. Owns the grouped-rendering decision so
@@ -252,7 +250,7 @@ interface MessageListProps {
 // already-present and renders without the slide-fade. This means the
 // 500-message hydration of a long channel doesn't strobe — only genuine
 // real-time arrivals do.
-export function MessageList({ messages, members, myNick, scrollRef, nickActions, channelName }: MessageListProps) {
+export function MessageList({ messages, members, myNick, scrollRef, nickActions, channelName, avatarFor }: MessageListProps) {
   const freshnessBaseline = useRef<number>(Date.now());
   useEffect(() => {
     freshnessBaseline.current = Date.now();
@@ -284,6 +282,7 @@ export function MessageList({ messages, members, myNick, scrollRef, nickActions,
               grouped={grouped}
               nickActions={nickActions}
               fresh={isFresh}
+              avatarFor={avatarFor}
             />
           );
         })}

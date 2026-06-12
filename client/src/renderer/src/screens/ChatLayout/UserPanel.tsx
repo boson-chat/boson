@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { AtomLoader } from '@boson/shared';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
-import { nickColor, nickInitial } from '../../modules/chat/nick-color';
+import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
 import './UserPanel.css';
 
@@ -21,6 +21,9 @@ interface UserPanelProps {
    *  are absent the menu is suppressed (right-click falls back to native
    *  browser behaviour). */
   nickActions?: NickActions;
+  /** Resolve a nick to its profile-image URL (Boson members). Returns
+   *  undefined for non-members → the nick-colored initial fallback. */
+  avatarFor?: (nick: string) => string | undefined;
 }
 
 interface MemberGroup {
@@ -47,7 +50,7 @@ interface HoverState {
 // passing through a row doesn't flash a card.
 const HOVER_OPEN_DELAY_MS = 150;
 
-export function UserPanel({ channel, nickActions }: UserPanelProps) {
+export function UserPanel({ channel, nickActions, avatarFor }: UserPanelProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   // Debounce the hover-card open: we capture the row's bounding box on
@@ -145,13 +148,7 @@ export function UserPanel({ channel, nickActions }: UserPanelProps) {
                     setMenu({ nick: m.nick, x: e.clientX, y: e.clientY });
                   }}
                 >
-                  <span
-                    class="user-panel-avatar"
-                    style={`--nick-color:${nickColor(m.nick)}`}
-                    aria-hidden="true"
-                  >
-                    {nickInitial(m.nick)}
-                  </span>
+                  <Avatar nick={m.nick} url={avatarFor?.(m.nick)} size={22} />
                   <span class="user-panel-name">{m.nick}</span>
                   <span
                     class={`user-panel-presence user-panel-presence-${presence}`}

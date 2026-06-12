@@ -57,6 +57,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   //   signed-in  → handle from metadata, fallback to email
   //   neither    → null (TitleBar falls back to "Settings")
   const authedHandle = (session?.user?.user_metadata?.handle as string | undefined) ?? null;
+  const authedAvatar = (session?.user?.user_metadata?.avatar_url as string | undefined) ?? null;
   const userLabel = guest ? guest.nick : (authedHandle ?? session?.user?.email ?? null);
   const userMode: 'guest' | 'account' | null = guest ? 'guest' : (session ? 'account' : null);
   return (
@@ -65,6 +66,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         onOpenSettings={() => setSettingsOpen(true)}
         userLabel={userLabel}
         userMode={userMode}
+        avatarUrl={userMode === 'account' ? authedAvatar : null}
         onOpenInbox={() => {
           // Mark every memo read the moment the inbox opens — this is
           // the canonical "I've seen them" signal. The store still

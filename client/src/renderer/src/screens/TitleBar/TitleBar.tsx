@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { BosonGlyph } from '@boson/shared';
+import { Avatar } from '../../shared/Avatar/Avatar';
 import { getWindowBridge, isDarwin } from '../../shared/window-controls';
 import './TitleBar.css';
 
@@ -12,6 +13,9 @@ interface TitleBarProps {
   userLabel?: string | null;
   // 'guest' or 'account' — drives the dim "guest" tag next to the name.
   userMode?: 'guest' | 'account' | null;
+  // Signed-in user's profile-image URL; shown as a small avatar before the
+  // name. Falls back to the nick-colored initial when absent.
+  avatarUrl?: string | null;
   // Inbox affordance — when wired, renders an envelope icon between the
   // user label and the gear with a small unread-count badge. Click
   // fires the parent's open-inbox handler.
@@ -30,7 +34,7 @@ interface TitleBarProps {
 // button overrides to `no-drag` so clicks register.
 
 export function TitleBar({
-  onOpenSettings, userLabel, userMode, onOpenInbox, inboxUnreadCount = 0,
+  onOpenSettings, userLabel, userMode, avatarUrl, onOpenInbox, inboxUnreadCount = 0,
 }: TitleBarProps = {}) {
   const darwin = isDarwin();
   const bridge = getWindowBridge();
@@ -80,6 +84,9 @@ export function TitleBar({
             >
               {userLabel ? (
                 <>
+                  {userMode === 'account' && (
+                    <Avatar nick={userLabel} url={avatarUrl} size={18} class="title-bar-user-avatar" />
+                  )}
                   <span class="title-bar-user-name">{userLabel}</span>
                   {userMode === 'guest' && (
                     <span class="title-bar-user-tag">guest</span>

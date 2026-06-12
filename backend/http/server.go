@@ -12,6 +12,7 @@ import (
 	"github.com/boson-chat/boson/backend/http/middleware"
 	"github.com/boson-chat/boson/backend/internal/db"
 	"github.com/boson-chat/boson/backend/internal/logger"
+	"github.com/boson-chat/boson/backend/internal/services/avatar"
 	"github.com/boson-chat/boson/backend/internal/services/nickclaim"
 	"github.com/boson-chat/boson/backend/internal/services/nickservsecret"
 	serversvc "github.com/boson-chat/boson/backend/internal/services/server"
@@ -52,8 +53,22 @@ func StartServerWithContext(ctx context.Context) error {
 	})
 	nickservSecretService := nickservsecret.NewService(nickservSecretRepo)
 
+	// Avatar service — only wired when R2 is configured (access key present);
+	// otherwise nil, and the avatar routes 503. Local dev without R2 still
+	// boots fine.
+	var avatarService avatar.ServiceImpl
+	if cfg.AppConfig.CloudflareR2AccessKey != "" {
+		r2 := avatar.NewR2Storage(
+			cfg.AppConfig.CloudflareR2AccessKey,
+			cfg.AppConfig.CloudflareR2SecretKey,
+			cfg.AppConfig.CloudflareR2Endpoint,
+			cfg.AppConfig.CloudflareR2Bucket,
+		)
+		avatarService = avatar.NewService(r2, cfg.AppConfig.CloudflareCDNBaseURL)
+	}
+
 	// Handlers
-	meHandler := handlers.NewMeHandler(userService)
+	meHandler := handlers.NewMeHandler(userService, avatarService)
 	serverHandler := handlers.NewServerHandler(serverService)
 	sessionHandler := handlers.NewSessionHandler(sessionService)
 	nickClaimsHandler := handlers.NewNickClaimsHandler(nickClaimService)

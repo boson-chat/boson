@@ -32,6 +32,9 @@ type UserRepositoryImpl interface {
 	// user_secret. A nil/empty slice leaves that column untouched. Returns the
 	// refreshed User, or ErrNotFound.
 	UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error)
+	// UpdateAvatarKey sets (or clears, when key is nil) the user's
+	// avatar_storage_key. Returns the refreshed User, or ErrNotFound.
+	UpdateAvatarKey(ctx context.Context, id uuid.UUID, key *string) (*User, error)
 }
 
 type UserRepository struct {
@@ -94,6 +97,26 @@ func (r *UserRepository) UpdateUserSecretWraps(ctx context.Context, id uuid.UUID
 		return nil, ErrNotFound
 	}
 	res := r.db.DB.WithContext(ctx).Model(&User{}).Where("id = ?", id).Updates(updates)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+	var refreshed User
+	if err := r.db.DB.WithContext(ctx).Where("id = ?", id).First(&refreshed).Error; err != nil {
+		return nil, err
+	}
+	return &refreshed, nil
+}
+
+func (r *UserRepository) UpdateAvatarKey(ctx context.Context, id uuid.UUID, key *string) (*User, error) {
+	// Select on the column name so a nil key writes NULL (clears the avatar)
+	// rather than being skipped as a zero value.
+	res := r.db.DB.WithContext(ctx).Model(&User{}).
+		Where("id = ?", id).
+		Select("avatar_storage_key").
+		Updates(map[string]any{"avatar_storage_key": key})
 	if res.Error != nil {
 		return nil, res.Error
 	}

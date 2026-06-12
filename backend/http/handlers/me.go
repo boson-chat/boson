@@ -4,18 +4,23 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	stdhttp "net/http"
 
 	"github.com/boson-chat/boson/backend/http/middleware"
+	"github.com/boson-chat/boson/backend/internal/services/avatar"
 	"github.com/boson-chat/boson/backend/internal/services/user"
 )
 
 type MeHandler struct {
 	Users user.UserServiceImpl
+	// Avatar may be nil when R2 isn't configured (local dev); the avatar
+	// routes 503 in that case and avatar_url is omitted from responses.
+	Avatar avatar.ServiceImpl
 }
 
-func NewMeHandler(users user.UserServiceImpl) *MeHandler {
-	return &MeHandler{Users: users}
+func NewMeHandler(users user.UserServiceImpl, avatars avatar.ServiceImpl) *MeHandler {
+	return &MeHandler{Users: users, Avatar: avatars}
 }
 
 func (h *MeHandler) Register(mux *stdhttp.ServeMux) {
@@ -24,6 +29,24 @@ func (h *MeHandler) Register(mux *stdhttp.ServeMux) {
 	mux.HandleFunc("PATCH /me", h.patch)
 	mux.HandleFunc("DELETE /me", h.delete)
 	mux.HandleFunc("PUT /me/secret-wraps", h.updateSecretWraps)
+	mux.HandleFunc("POST /me/avatar", h.uploadAvatar)
+	mux.HandleFunc("DELETE /me/avatar", h.deleteAvatar)
+}
+
+// meResponse is the wire shape for the caller's own user — the User row plus a
+// computed `avatar_url` (CDN URL derived from avatar_storage_key) so clients
+// don't need to know the CDN base.
+type meResponse struct {
+	*user.User
+	AvatarURL string `json:"avatar_url,omitempty"`
+}
+
+func (h *MeHandler) toResponse(u *user.User) meResponse {
+	url := ""
+	if u != nil && u.AvatarStorageKey != nil && h.Avatar != nil {
+		url = h.Avatar.URLFor(*u.AvatarStorageKey)
+	}
+	return meResponse{User: u, AvatarURL: url}
 }
 
 func (h *MeHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
@@ -37,7 +60,7 @@ func (h *MeHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusOK, u)
+	writeJSON(w, stdhttp.StatusOK, h.toResponse(u))
 }
 
 type createMeRequest struct {
@@ -99,7 +122,7 @@ func (h *MeHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusCreated, u)
+	writeJSON(w, stdhttp.StatusCreated, h.toResponse(u))
 }
 
 type patchMeRequest struct {
@@ -139,7 +162,7 @@ func (h *MeHandler) patch(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusOK, u)
+	writeJSON(w, stdhttp.StatusOK, h.toResponse(u))
 }
 
 // delete removes the caller's user row. Cascading FKs clean up dependents
@@ -208,5 +231,89 @@ func (h *MeHandler) updateSecretWraps(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeError(w, stdhttp.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, stdhttp.StatusOK, u)
+	writeJSON(w, stdhttp.StatusOK, h.toResponse(u))
+}
+
+// uploadAvatar accepts the raw image bytes in the request body (Content-Type
+// is the image type) and replaces the caller's profile image: validate +
+// normalize + upload to R2, then point avatar_storage_key at the new object
+// (deleting the previous one). Returns the refreshed user with avatar_url.
+func (h *MeHandler) uploadAvatar(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	p := middleware.MustUser(r.Context())
+	if h.Avatar == nil || !h.Avatar.Configured() {
+		writeError(w, stdhttp.StatusServiceUnavailable, "avatar uploads are not available")
+		return
+	}
+
+	// Read one byte past the cap so we can distinguish "exactly at limit" from
+	// "over limit" without trusting Content-Length.
+	body, err := io.ReadAll(io.LimitReader(r.Body, avatar.MaxUploadBytes+1))
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, "failed to read body")
+		return
+	}
+	if len(body) > avatar.MaxUploadBytes {
+		writeError(w, stdhttp.StatusRequestEntityTooLarge, "image too large")
+		return
+	}
+
+	cur, err := h.Users.GetByID(r.Context(), p.UserID)
+	if errors.Is(err, user.ErrNotFound) {
+		writeError(w, stdhttp.StatusNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	prevKey := ""
+	if cur.AvatarStorageKey != nil {
+		prevKey = *cur.AvatarStorageKey
+	}
+
+	key, err := h.Avatar.Process(r.Context(), p.UserID, body, prevKey)
+	switch {
+	case errors.Is(err, avatar.ErrTooLarge):
+		writeError(w, stdhttp.StatusRequestEntityTooLarge, "image too large")
+		return
+	case errors.Is(err, avatar.ErrUnsupportedImage):
+		writeError(w, stdhttp.StatusBadRequest, "unsupported or invalid image")
+		return
+	case errors.Is(err, avatar.ErrNotConfigured):
+		writeError(w, stdhttp.StatusServiceUnavailable, "avatar uploads are not available")
+		return
+	case err != nil:
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+
+	updated, err := h.Users.SetAvatarKey(r.Context(), p.UserID, &key)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, h.toResponse(updated))
+}
+
+// deleteAvatar clears the caller's profile image (best-effort R2 delete).
+func (h *MeHandler) deleteAvatar(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+	p := middleware.MustUser(r.Context())
+	cur, err := h.Users.GetByID(r.Context(), p.UserID)
+	if errors.Is(err, user.ErrNotFound) {
+		writeError(w, stdhttp.StatusNotFound, "user not found")
+		return
+	}
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	if cur.AvatarStorageKey != nil && h.Avatar != nil {
+		_ = h.Avatar.Remove(r.Context(), *cur.AvatarStorageKey)
+	}
+	updated, err := h.Users.SetAvatarKey(r.Context(), p.UserID, nil)
+	if err != nil {
+		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, stdhttp.StatusOK, h.toResponse(updated))
 }

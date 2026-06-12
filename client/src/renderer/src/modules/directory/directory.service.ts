@@ -76,6 +76,18 @@ export class DirectoryService {
     return this.http.patch<User>('/me', patch);
   }
 
+  // Upload a new profile image. The backend validates + resizes + stores it
+  // in R2 and returns the refreshed user (with the new avatar_url). Throws
+  // HttpError 503 if avatars aren't configured, 413 too large, 400 invalid.
+  async uploadAvatar(image: Blob): Promise<User> {
+    return this.http.postBlob<User>('/me/avatar', image, image.type || 'application/octet-stream');
+  }
+
+  // Remove the caller's profile image. Returns the refreshed user.
+  async deleteAvatar(): Promise<User> {
+    return this.http.delete<User>('/me/avatar');
+  }
+
   // Destructive: drops the caller's user row + cascades through user_server_links
   // and handle_changes. Used by the LoginScreen "Start fresh" recovery flow
   // when the stored encrypted_user_secret cannot be decrypted.
