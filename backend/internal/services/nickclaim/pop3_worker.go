@@ -51,7 +51,7 @@ const (
 
 // Worker connects to a POP3 server on an interval, downloads all
 // messages waiting in the mailbox, parses the recipient address
-// out of each one (`reg-<userid>-<short>@<domain>`), extracts the
+// out of each one (`reg+<userid>-<short>@<domain>`), extracts the
 // confirmation code from the body, writes it back to the matching
 // nick_claims row via the repository, and DELEs the message.
 //
@@ -215,7 +215,7 @@ func (w *Worker) drain(ctx context.Context) error {
 //     way to fill the mailbox.
 //
 // Recipient matching tries two routes:
-//  1. STRICT — `reg-<userid>-<short>@<domain>` carries the
+//  1. STRICT — `reg+<userid>-<short>@<domain>` carries the
 //     short_token in the local part. Fast O(1) lookup.
 //  2. FUZZY — when a catch-all has rewritten the recipient to
 //     something like `reg@<domain>` (PurelyMail does this), we

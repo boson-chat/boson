@@ -45,7 +45,7 @@ type ServiceImpl interface {
 	ConsumeIfCaptured(ctx context.Context, id, userID uuid.UUID) (*NickClaim, error)
 
 	// EmailFor returns the recipient address the IRC NickServ
-	// should email. Format: `reg-<userid>-<short_token>@<domain>`.
+	// should email. Format: `reg+<userid>-<short_token>@<domain>`.
 	EmailFor(c *NickClaim) string
 }
 
@@ -122,8 +122,8 @@ func (s *Service) EmailFor(c *NickClaim) string {
 	// Strip dashes from the UUID for a shorter recipient local
 	// part — keeps the total email under most IRC services'
 	// "max email" config caps. e.g.
-	//   reg-550e8400e29b41d4a716446655440000-abc12345@boson.chat
+	//   reg+550e8400e29b41d4a716446655440000-abc12345@boson.chat
 	// is 60 chars, well within typical 64-char limits.
 	uid := strings.ReplaceAll(c.UserID.String(), "-", "")
-	return fmt.Sprintf("reg-%s-%s@%s", uid, c.ShortToken, s.Config.EmailDomain)
+	return fmt.Sprintf("reg+%s-%s@%s", uid, c.ShortToken, s.Config.EmailDomain)
 }

@@ -6,15 +6,16 @@ import (
 	"strings"
 )
 
-// ParseRecipient extracts the short_token from a `reg-<userid>-<short>@<domain>`
-// recipient address. Returns the token + true on a successful match.
+// ParseRecipient extracts the short_token from a `reg+<userid>-<short>@<domain>`
+// recipient address (plus-addressing: base mailbox `reg`, subaddress tag
+// `<userid>-<short>`). Returns the token + true on a successful match.
 //
 // We don't validate the userid portion against the database (the
 // claim's user_id is already known via short_token lookup); we just
 // confirm the shape so a stray non-reg mail doesn't get parsed.
 //
 // Tolerates:
-//   - the bracket-wrapped form some headers use: "Recipient <reg-...>".
+//   - the bracket-wrapped form some headers use: "Recipient <reg+...>".
 //   - uppercase / mixed-case in the address (RFC 5321 local-part is
 //     case-sensitive but mail-server catch-all delivery typically
 //     case-folds; lowercase the input).
@@ -37,7 +38,7 @@ func ParseRecipient(header string) (string, bool) {
 // claim — the same one ParseRecipient round-trips. Used in tests
 // and as documentation.
 func EmailAddressFor(userIDHex, shortToken, domain string) string {
-	return fmt.Sprintf("reg-%s-%s@%s", userIDHex, shortToken, domain)
+	return fmt.Sprintf("reg+%s-%s@%s", userIDHex, shortToken, domain)
 }
 
 func extractAddress(s string) string {
@@ -56,4 +57,4 @@ func extractAddress(s string) string {
 // (32 chars after dashes are stripped), [2] is the short_token.
 // The userid capture is currently unused but kept for future
 // per-user validation / logging.
-var rxRecipient = regexp.MustCompile(`^reg-([a-f0-9]{32})-([a-z0-9]{8})@`)
+var rxRecipient = regexp.MustCompile(`^reg\+([a-f0-9]{32})-([a-z0-9]{8})@`)

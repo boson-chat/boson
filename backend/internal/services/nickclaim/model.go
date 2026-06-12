@@ -2,7 +2,7 @@
 // IRC network" operations for signed-in Boson users.
 //
 // The flow: client POSTs to mint a NickClaim row, gets back an email
-// address `reg-<userid>-<short_token>@<domain>`. Client passes that
+// address `reg+<userid>-<short_token>@<domain>`. Client passes that
 // email to the IRC network's NickServ REGISTER command. NickServ
 // emails the confirmation code; the IMAP worker captures it via the
 // catch-all mailbox and writes it back to the row. Client polls the

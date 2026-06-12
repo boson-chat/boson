@@ -109,7 +109,7 @@ func TestService_EmailFor_StripsUUIDdashes(t *testing.T) {
 	svc := nickclaim.NewService(&stubRepo{}, nickclaim.Config{EmailDomain: "boson.chat"})
 
 	got := svc.EmailFor(c)
-	assert.Equal(t, "reg-550e8400e29b41d4a716446655440000-abc12345@boson.chat", got)
+	assert.Equal(t, "reg+550e8400e29b41d4a716446655440000-abc12345@boson.chat", got)
 }
 
 func TestService_EmailFor_DefaultsToBoSonChat(t *testing.T) {
