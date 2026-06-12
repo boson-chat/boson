@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
+import { nickColor, nickInitial } from '../../modules/chat/nick-color';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
 import './UserPanel.css';
 
@@ -142,6 +143,13 @@ export function UserPanel({ channel, nickActions }: UserPanelProps) {
                     setMenu({ nick: m.nick, x: e.clientX, y: e.clientY });
                   }}
                 >
+                  <span
+                    class="user-panel-avatar"
+                    style={`--nick-color:${nickColor(m.nick)}`}
+                    aria-hidden="true"
+                  >
+                    {nickInitial(m.nick)}
+                  </span>
                   <span class="user-panel-name">{m.nick}</span>
                   <span
                     class={`user-panel-presence user-panel-presence-${presence}`}

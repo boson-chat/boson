@@ -105,6 +105,27 @@
 }
 .user-panel-item:hover { background: var(--surface-hover); color: var(--fg); }
 
+/* Per-nick avatar — initial in a tile auto-colored by hashing the nick
+   (see modules/chat/nick-color.ts). Mirrors the Inbox row avatars; the
+   hue is passed in as --nick-color inline. */
+.user-panel-avatar {
+  flex: 0 0 auto;
+  width: 1.4rem;
+  height: 1.4rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+  background: color-mix(in oklab, var(--nick-color, var(--fg-3)) 22%, var(--surface-raised));
+  color: var(--nick-color, var(--fg-2));
+  border: 1px solid color-mix(in oklab, var(--nick-color, var(--fg-3)) 32%, transparent);
+}
+
 .user-panel-name {
   flex: 1;
   min-width: 0;
