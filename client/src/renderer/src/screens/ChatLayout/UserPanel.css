@@ -48,6 +48,22 @@
   line-height: 1.5;
 }
 
+/* Shown while a joined channel's member list is still empty — the
+   NAMES self-heal is re-requesting in the background (chat.service.ts). */
+.user-panel-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  color: var(--accent);
+}
+.user-panel-loading span {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+
 .user-panel-group {
   display: flex;
   flex-direction: column;

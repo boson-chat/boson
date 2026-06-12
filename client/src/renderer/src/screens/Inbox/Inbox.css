@@ -230,6 +230,15 @@
   opacity: 0.85;
 }
 
+/* While the READ reply is in flight. */
+.inbox-row-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--accent);
+  font-style: italic;
+}
+
 /* Per-row dismiss (×) — fades in on row hover so it stays out of the way. */
 .inbox-row-dismiss {
   position: absolute;

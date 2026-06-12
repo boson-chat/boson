@@ -8,6 +8,7 @@ import { IdentityService } from './modules/identity';
 import { NickservSyncService } from './modules/chat/nickserv-sync.service';
 import { HttpClient } from './shared/http/http.client';
 import { windowSecureStorage } from './shared/secure-storage';
+import { AtomLoader } from '@boson/shared';
 import { LoginScreen } from './screens/LoginScreen';
 import { DirectoryScreen } from './screens/DirectoryScreen';
 import { TitleBar } from './screens/TitleBar/TitleBar';
@@ -136,7 +137,7 @@ function Router({ directory, engine, identity, history }: {
     content = <div class="loading" style="color: var(--danger)">Auth init failed: {error}</div>;
   } else if (loading) {
     key = 'loading';
-    content = <div class="loading">Loading…</div>;
+    content = <div class="loading"><AtomLoader size={40} label="Loading" /><span>Loading…</span></div>;
   } else if (guest) {
     // Guest mode short-circuits the auth + identity gates entirely. The
     // DirectoryScreen accepts an optional `guestNick` and proceeds without
@@ -148,7 +149,7 @@ function Router({ directory, engine, identity, history }: {
     // has the user_secret too, we'll have unlocked the identity above. If not,
     // fall through to LoginScreen — the user needs to type their password.
     key = 'restoring';
-    content = <div class="loading">Restoring session…</div>;
+    content = <div class="loading"><AtomLoader size={40} label="Restoring session" /><span>Restoring session…</span></div>;
   } else if (!session || !identityUnlocked) {
     key = 'login';
     content = <LoginScreen directory={directory} identity={identity} />;

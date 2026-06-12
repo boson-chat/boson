@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
+import { AtomLoader } from '@boson/shared';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { nickColor, nickInitial } from '../../modules/chat/nick-color';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
@@ -110,8 +111,9 @@ export function UserPanel({ channel, nickActions }: UserPanelProps) {
           <div class="user-panel-placeholder">No channel selected.</div>
         )}
         {channel && total === 0 && (
-          <div class="user-panel-placeholder">
-            No members yet. Waiting for the server's NAMES reply…
+          <div class="user-panel-loading">
+            <AtomLoader size={26} label="Loading members" />
+            <span>Loading members…</span>
           </div>
         )}
         {groups.map((g) => (

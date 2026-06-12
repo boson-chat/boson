@@ -1,4 +1,4 @@
-import { Button, Modal } from '@boson/shared';
+import { AtomLoader, Button, Modal } from '@boson/shared';
 import { useState } from 'preact/hooks';
 import { getMemoStore, type Memo } from '../../modules/memos';
 import './Inbox.css';
@@ -47,6 +47,19 @@ function initial(name: string): string {
 
 export function Inbox({ open, memos, onClose, onOpen, onReadMemo }: InboxProps) {
   const [tab, setTab] = useState<Tab>('messages');
+  // Ids of memos whose body we've requested and are waiting on. Cleared when
+  // the body arrives (bodyFetched flips → row stops being "unfetched") or
+  // after a timeout, so a lost READ reply doesn't spin forever.
+  const [loadingIds, setLoadingIds] = useState<ReadonlySet<string>>(new Set());
+  const beginRead = (m: Memo) => {
+    const id = m.id;
+    setLoadingIds((s) => new Set(s).add(id));
+    setTimeout(() => setLoadingIds((s) => {
+      if (!s.has(id)) return s;
+      const n = new Set(s); n.delete(id); return n;
+    }), 8000);
+    onReadMemo?.(m);
+  };
 
   const inTab = (m: Memo, t: Tab) => TAB_KINDS[t].includes(m.kind);
   // Newest first — the canonical mailbox order.
@@ -121,7 +134,7 @@ export function Inbox({ open, memos, onClose, onOpen, onReadMemo }: InboxProps) 
                   <button
                     type="button"
                     class="inbox-row-open"
-                    onClick={() => (unfetched ? onReadMemo?.(m) : onOpen?.(m))}
+                    onClick={() => (unfetched ? beginRead(m) : onOpen?.(m))}
                     title={title}
                   >
                     <span class={`inbox-avatar inbox-avatar-${m.kind}`} aria-hidden="true">
@@ -141,7 +154,9 @@ export function Inbox({ open, memos, onClose, onOpen, onReadMemo }: InboxProps) 
                       </span>
                       <span class="inbox-row-text">
                         {unfetched
-                          ? <span class="inbox-row-placeholder">Click to read →</span>
+                          ? (loadingIds.has(m.id)
+                              ? <span class="inbox-row-loading"><AtomLoader size={14} label="Fetching memo" /> Fetching…</span>
+                              : <span class="inbox-row-placeholder">Click to read →</span>)
                           : m.text}
                       </span>
                     </span>
