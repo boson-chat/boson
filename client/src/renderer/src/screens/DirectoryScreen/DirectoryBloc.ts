@@ -1008,7 +1008,13 @@ export class DirectoryBloc {
     // the engine can auto-identify after RPL_WELCOME. Plain-text in
     // localStorage today; same path that the Advanced settings panel
     // writes to. Empty / absent disables auto-identify.
-    const storedCreds = getServiceCredentialsStore().get(server.id);
+    // Wait for the credentials store to hydrate from its (async) secure
+    // backing before reading — otherwise a cold-start saved-server auto-
+    // connect could read an empty cache and silently skip auto-identify.
+    // No-op on the sync localStorage store (no whenHydrated).
+    const credStore = getServiceCredentialsStore();
+    await credStore.whenHydrated?.();
+    const storedCreds = credStore.get(server.id);
     const session = this.engine.connect({
       serverId: server.id,
       hostname: server.hostname,
@@ -1017,7 +1023,16 @@ export class DirectoryBloc {
       nick: ircNick,
       nickservPassword: storedCreds?.nickservPassword,
     });
-    const chat = new ChatService(session, ircNick, persistence);
+    // Pass the nick-claim API so signed-in users get the automated
+    // claim flow. The interface is the minimal subset of
+    // DirectoryService — anything that has a working backend HTTP
+    // channel satisfies it.
+    const chat = new ChatService(session, ircNick, persistence, {
+      nickClaimAPI: {
+        createNickClaim: (input) => this.directory.createNickClaim(input),
+        getNickClaim: (id) => this.directory.getNickClaim(id),
+      },
+    });
     chat.attach();
 
     const conn: Connection = {

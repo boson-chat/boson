@@ -158,6 +158,15 @@ var (
 	// FLAGS deliberately excluded — Anope's cs_flags.cpp ships the
 	// same verb. TAXONOMY + UNGROUP remain genuinely Atheme-only.
 	rxAthemeVerb = regexp.MustCompile(`(?i)\b(?:taxonomy|ungroup)\b`)
+	// Ergo-only signature: the `/NS`, `/CS`, `/HS`, `/OS` shorthand
+	// that Ergo's services use in HELP listings and unknown-command
+	// replies — every other ircd's services say "/msg NickServ ..."
+	// in long form. The first NOTICE most clients see from Ergo's
+	// NickServ is "Unknown command. To see available commands, run:
+	// /NS HELP", which is enough to settle the verdict before the
+	// renderer can fire CONFIRM/VERIFY with the wrong syntax.
+	// (irc/nickserv.go in ergochat/ergo emits this string verbatim.)
+	rxErgoVerb = regexp.MustCompile(`(?i)/(?:ns|cs|hs|os)\s+\w+`)
 )
 
 // DetectServicesFramework classifies a single service NOTICE/PRIVMSG body
@@ -181,9 +190,16 @@ func DetectServicesFramework(body string) ServicesFramework {
 		return FrameworkErgo
 	}
 	// Verb-fingerprint matches handle the un-branded deployments.
-	// Ergo isn't covered here — its verb set overlaps with Atheme/Anope
-	// enough that verb-based detection would false-positive. Its brand
-	// keyword is reliable when the deployment hasn't been rebranded.
+	// Ergo is matched via the /NS|/CS|/HS|/OS shorthand it embeds in
+	// its own HELP/error replies — Anope and Atheme both tell users
+	// to type the long "/msg NickServ HELP" form, so the short form
+	// is Ergo-distinctive even on a rebranded network. Checked before
+	// the verb fingerprints because Ergo's HELP listing also contains
+	// verbs like CONFIRM/RESEND in prose ("see also CONFIRM...") on
+	// some forks, which would false-positive as Anope.
+	if rxErgoVerb.MatchString(body) {
+		return FrameworkErgo
+	}
 	if rxAthemeVerb.MatchString(body) {
 		return FrameworkAtheme
 	}

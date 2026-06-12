@@ -83,6 +83,7 @@ describe('LoginBloc', () => {
         busy: false,
         error: null,
         unrecoverable: null,
+        recoverable: null,
         awaitingConfirmation: null,
       });
     });
@@ -380,5 +381,64 @@ describe('LoginBloc', () => {
       expect(bloc.getState().error).toBeNull();
       expect(bloc.getState().mode).toBe('signup');
     });
+  });
+});
+
+describe('LoginBloc — recovery code', () => {
+  const meWithRecovery = {
+    id: 'u', handle: 'alice', is_discoverable: true,
+    encrypted_user_secret: 'pw-wrap', encrypted_user_secret_recovery: 'rec-wrap', created_at: '',
+  };
+
+  it('signIn surfaces the recovery path when the password wrap won\'t decrypt but a recovery wrap exists', async () => {
+    const { bloc } = buildBloc({
+      directory: { getMe: vi.fn(async () => meWithRecovery) } as Partial<DirectoryService>,
+      identity: { unlock: vi.fn(async () => { throw new Error('wrong password'); }) } as Partial<IdentityService>,
+    });
+    bloc.setEmail('a@b.com');
+    bloc.setPassword('new-pw');
+    await bloc.signIn();
+    expect(bloc.getState().recoverable).toBe('rec-wrap');
+    expect(bloc.getState().error).toMatch(/recovery code/i);
+  });
+
+  it('recoverWithCode unlocks, re-wraps under the current password, and clears the recovery state', async () => {
+    const unlockWithRecoveryCode = vi.fn(async () => {});
+    const rewrapForNewPassword = vi.fn(async () => 'new-pw-wrap');
+    const updateSecretWraps = vi.fn(async () => meWithRecovery);
+    const { bloc } = buildBloc({
+      directory: {
+        getMe: vi.fn(async () => meWithRecovery),
+        updateSecretWraps,
+      } as Partial<DirectoryService>,
+      identity: {
+        unlock: vi.fn(async () => { throw new Error('wrong password'); }),
+        unlockWithRecoveryCode,
+        rewrapForNewPassword,
+      } as Partial<IdentityService>,
+    });
+    bloc.setPassword('new-pw');
+    await bloc.signIn();          // → recoverable set
+    await bloc.recoverWithCode('abcd-ef5h');
+
+    expect(unlockWithRecoveryCode).toHaveBeenCalledWith('abcd-ef5h', 'rec-wrap');
+    expect(rewrapForNewPassword).toHaveBeenCalledWith('new-pw');
+    expect(updateSecretWraps).toHaveBeenCalledWith({ passwordBlob: 'new-pw-wrap' });
+    expect(bloc.getState().recoverable).toBeNull();
+    expect(bloc.getState().error).toBeNull();
+  });
+
+  it('recoverWithCode surfaces an error and keeps the recovery prompt on a bad code', async () => {
+    const { bloc } = buildBloc({
+      directory: { getMe: vi.fn(async () => meWithRecovery) } as Partial<DirectoryService>,
+      identity: {
+        unlock: vi.fn(async () => { throw new Error('wrong password'); }),
+        unlockWithRecoveryCode: vi.fn(async () => { throw new Error('tag mismatch'); }),
+      } as Partial<IdentityService>,
+    });
+    await bloc.signIn();
+    await bloc.recoverWithCode('wrong-code');
+    expect(bloc.getState().error).toMatch(/rejected/i);
+    expect(bloc.getState().recoverable).toBe('rec-wrap'); // prompt stays
   });
 });

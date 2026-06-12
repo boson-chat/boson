@@ -4,6 +4,12 @@ import {
   encryptUserSecret,
   decryptUserSecret,
   deriveSaslPassword,
+  generateRecoveryCode,
+  normalizeRecoveryCode,
+  wrapUserSecret,
+  unwrapUserSecret,
+  encryptCreds,
+  decryptCreds,
   base64Encode,
   base64Decode,
   type ArgonFn,
@@ -90,6 +96,87 @@ describe('crypto.deriveSaslPassword', () => {
     const secret = generateUserSecret();
     const p = await deriveSaslPassword(secret, 'sid');
     expect(p).toMatch(/^[A-Za-z0-9_-]+$/);
+  });
+});
+
+describe('crypto.generateRecoveryCode / normalizeRecoveryCode', () => {
+  it('formats as 8 dash-separated groups of 4 from an unambiguous alphabet', () => {
+    const code = generateRecoveryCode();
+    expect(code).toMatch(/^[0-9a-z]{4}(-[0-9a-z]{4}){7}$/);
+    // Crockford-style: never emits i, l, o, or u.
+    expect(code.replace(/-/g, '')).not.toMatch(/[ilou]/);
+  });
+
+  it('is different each call', () => {
+    expect(generateRecoveryCode()).not.toBe(generateRecoveryCode());
+  });
+
+  it('normalizes dashes, spacing, case, and O/0 I/l/1 confusions', () => {
+    expect(normalizeRecoveryCode('AB3D-EF5H')).toBe('ab3def5h');
+    expect(normalizeRecoveryCode('  ab3d ef5h ')).toBe('ab3def5h');
+    expect(normalizeRecoveryCode('aboi-lLOO')).toBe('ab011100'); // o→0, i/l→1
+  });
+});
+
+describe('crypto.wrapUserSecret / unwrapUserSecret (recovery code)', () => {
+  it('round-trips the same 32-byte secret', async () => {
+    const secret = generateUserSecret();
+    const code = generateRecoveryCode();
+    const blob = await wrapUserSecret(secret, code, fastArgon);
+    const out = await unwrapUserSecret(blob, code, fastArgon);
+    expect(Array.from(out)).toEqual(Array.from(secret));
+  });
+
+  it('is forgiving about formatting on unlock (dashes/case stripped)', async () => {
+    const secret = generateUserSecret();
+    const code = generateRecoveryCode();
+    const blob = await wrapUserSecret(secret, code, fastArgon);
+    // Re-type without dashes and uppercased — should still unlock.
+    const typed = code.replace(/-/g, '').toUpperCase();
+    const out = await unwrapUserSecret(blob, typed, fastArgon);
+    expect(Array.from(out)).toEqual(Array.from(secret));
+  });
+
+  it('fails with the wrong code', async () => {
+    const secret = generateUserSecret();
+    const blob = await wrapUserSecret(secret, generateRecoveryCode(), fastArgon);
+    await expect(unwrapUserSecret(blob, generateRecoveryCode(), fastArgon)).rejects.toThrow();
+  });
+
+  it('password-wrap and recovery-wrap of the same secret both unlock it but differ', async () => {
+    const secret = generateUserSecret();
+    const code = generateRecoveryCode();
+    const passwordBlob = await encryptUserSecret(secret, 'login-pw', fastArgon);
+    const recoveryBlob = await wrapUserSecret(secret, code, fastArgon);
+    expect(Array.from(passwordBlob)).not.toEqual(Array.from(recoveryBlob));
+    expect(Array.from(await decryptUserSecret(passwordBlob, 'login-pw', fastArgon))).toEqual(Array.from(secret));
+    expect(Array.from(await unwrapUserSecret(recoveryBlob, code, fastArgon))).toEqual(Array.from(secret));
+  });
+});
+
+describe('crypto.encryptCreds / decryptCreds (NickServ sync envelope)', () => {
+  it('round-trips password + accountName', async () => {
+    const secret = generateUserSecret();
+    const blob = await encryptCreds(secret, 'srv-1', { nickservPassword: 'hunter2', accountName: 'Nyan' });
+    expect(await decryptCreds(secret, 'srv-1', blob)).toEqual({ nickservPassword: 'hunter2', accountName: 'Nyan' });
+  });
+
+  it('fails to decrypt under a different serverId (per-server key)', async () => {
+    const secret = generateUserSecret();
+    const blob = await encryptCreds(secret, 'srv-1', { nickservPassword: 'pw' });
+    await expect(decryptCreds(secret, 'srv-2', blob)).rejects.toThrow();
+  });
+
+  it('fails to decrypt under a different user_secret', async () => {
+    const blob = await encryptCreds(generateUserSecret(), 'srv-1', { nickservPassword: 'pw' });
+    await expect(decryptCreds(generateUserSecret(), 'srv-1', blob)).rejects.toThrow();
+  });
+
+  it('produces different ciphertext each encrypt (random IV)', async () => {
+    const secret = generateUserSecret();
+    const a = await encryptCreds(secret, 'srv-1', { nickservPassword: 'pw' });
+    const b = await encryptCreds(secret, 'srv-1', { nickservPassword: 'pw' });
+    expect(a).not.toBe(b);
   });
 });
 

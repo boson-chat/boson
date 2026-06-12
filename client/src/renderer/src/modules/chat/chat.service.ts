@@ -10,12 +10,62 @@ import {
   isServiceSender,
   nickServReplyToStatus,
 } from './services';
-import { getServiceCredentialsStore } from './services-credentials';
+import { getServiceCredentialsStore, type AccountStatus } from './services-credentials';
 import { getAdapter } from './adapters';
 import { AnopeAccountService } from './account-service-anope';
 import { AthemeAccountService } from './account-service-atheme';
 import { ErgoAccountService } from './account-service-ergo';
-import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from './account-service';
+import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult, AccountInfo } from './account-service';
+import type { NickClaimCreateResponse, NickClaimPollResponse } from '../directory/directory.types';
+
+// NickClaimAPI is the subset of DirectoryService methods ChatService
+// needs for the automated "claim this nick" flow. Injecting via an
+// interface keeps the wiring testable (no real fetch in unit tests)
+// and ChatService independent of the larger DirectoryService surface.
+export interface NickClaimAPI {
+  createNickClaim(input: { serverId: string; accountNick: string }): Promise<NickClaimCreateResponse>;
+  getNickClaim(id: string): Promise<NickClaimPollResponse>;
+}
+
+// ClaimResult is what claimNick() resolves to. Discrete kinds so the
+// caller can render precise UI without parsing strings.
+//
+//   claimed         — full happy path; nick is identified server-side.
+//   nick-taken      — REGISTER bounced because the nick is already
+//                     registered; user should pick a different one.
+//   expired         — backend's 30-min TTL elapsed before the code
+//                     arrived (or before our poll caught it). Caller
+//                     can retry from scratch.
+//   cancelled       — caller aborted via the supplied AbortSignal.
+//   unavailable     — backend rejected the create (rate-limit, no
+//                     auth, network unreachable). Caller should fall
+//                     back to the manual register+confirm form.
+//   failed          — anything else with a free-form reason string.
+export type ClaimResult =
+  | { kind: 'claimed' }
+  | { kind: 'nick-taken' }
+  | { kind: 'expired' }
+  | { kind: 'cancelled' }
+  | { kind: 'unavailable'; reason: string }
+  | { kind: 'failed'; reason: string };
+
+// Result of resumePendingConfirmation — finishing a CONFIRM for a
+// nick that's registered-but-unconfirmed and has a captured code
+// waiting in the backend claim.
+//   confirmed     — code found + CONFIRM accepted; account is live.
+//   still-pending — the backend hasn't captured a code yet (POP3
+//                   lag); the panel keeps the manual paste/resend UI.
+//   wrong-code    — the captured code was rejected (parser drift).
+//   expired       — the claim TTL'd out before a code was captured.
+//   unavailable   — nothing to resume (no backend, no pending claim).
+//   failed        — anything else, with a free-form reason.
+export type ResumeConfirmResult =
+  | { kind: 'confirmed' }
+  | { kind: 'still-pending' }
+  | { kind: 'wrong-code' }
+  | { kind: 'expired' }
+  | { kind: 'unavailable'; reason: string }
+  | { kind: 'failed'; reason: string };
 import { getMemoStore } from '../memos';
 import type {
   ChannelDirectory,
@@ -197,12 +247,22 @@ export class ChatService {
   private servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
   private unsubscribeServices: (() => void) | null = null;
 
+  // Optional backend API for the automated nick-claim flow. When
+  // present, claimNick() orchestrates the full mint-email →
+  // REGISTER → poll-for-code → CONFIRM dance. When absent (tests
+  // that don't exercise nick-claim; offline scenarios), claimNick()
+  // resolves to { kind: 'unavailable' } so the caller can fall back
+  // to the manual register+confirm form.
+  private readonly nickClaimAPI: NickClaimAPI | null;
+
   constructor(
     private readonly session: ServerSession,
     private myNick: string,
     persistence?: ChatPersistence,
+    deps?: { nickClaimAPI?: NickClaimAPI },
   ) {
     this.persistence = persistence ?? null;
+    this.nickClaimAPI = deps?.nickClaimAPI ?? null;
   }
 
   attach(): void {
@@ -372,6 +432,325 @@ export class ChatService {
     if (fw === 'atheme') return this.getAthemeAccountService().register(password, email);
     if (fw === 'ergo') return this.getErgoAccountService().register(password, email);
     return this.getAnopeAccountService().register(password, email);
+  }
+
+  // Silent INFO probe — learn a nick's server-side state without
+  // touching it. Dispatches to the package impl. Today only the Anope
+  // impl parses INFO; Atheme/Ergo throw "not migrated", so callers
+  // should go through detectAccountState() which swallows that.
+  private async infoAccount(accountName: string): Promise<AccountInfo> {
+    const fw = this.servicesFramework;
+    if (fw === 'atheme') return this.getAthemeAccountService().info(accountName);
+    if (fw === 'ergo') return this.getErgoAccountService().info(accountName);
+    return this.getAnopeAccountService().info(accountName);
+  }
+
+  // detectAccountState probes NickServ for the given nick (defaults to
+  // the saved account nick / current nick) and writes a precise status
+  // into the credentials store so the Identity panel can show the right
+  // CTA — Claim only when genuinely unregistered, the confirm-code form
+  // when registered-but-unconfirmed, the identify form when registered
+  // + confirmed. Returns the resolved status, or undefined when we
+  // couldn't determine it (no reply, or a package whose info() isn't
+  // implemented) — in which case the panel leaves the prior status be.
+  //
+  // info() resolves only after the multi-line INFO block settles, so
+  // this store.set lands AFTER the passive classifier (which also sees
+  // those NOTICEs) — detection is the last writer and wins.
+  async detectAccountState(accountName?: string): Promise<AccountStatus | undefined> {
+    const serverId = this.persistence?.scope.serverId;
+    if (!serverId) return undefined;
+
+    const store = getServiceCredentialsStore();
+    const existing = store.get(serverId) ?? {};
+    const nick = (accountName || existing.accountName || this.myNick || '').trim();
+    if (!nick) return undefined;
+
+    let info: AccountInfo;
+    try {
+      info = await this.infoAccount(nick);
+    } catch {
+      // info() not implemented for this package (Atheme/Ergo until
+      // their migration lands), or the probe threw — treat as
+      // indeterminate rather than clobbering the badge.
+      return undefined;
+    }
+
+    let status: AccountStatus;
+    if (info.registered === false) status = 'no-account';
+    else if (info.registered === true && info.confirmed === false) status = 'pending-confirmation';
+    else if (info.registered === true) status = 'registered';
+    else return undefined; // registered undefined → couldn't determine
+
+    store.set(serverId, {
+      ...existing,
+      accountName: existing.accountName || info.accountName || nick,
+      email: existing.email || info.email,
+      status,
+    });
+    return status;
+  }
+
+  // resumePendingConfirmation finishes a stranded confirmation: the
+  // nick is registered-but-unconfirmed and a backend claim is still
+  // pending, so the email code was likely already captured by the
+  // POP3 worker but never consumed (the original flow died after
+  // REGISTER). We poll the claim for the captured code and fire
+  // CONFIRM with it — no manual paste. Bounded to ~30s because for a
+  // resume the code is usually already sitting in the DB; if it
+  // isn't captured yet we return 'still-pending' and leave the manual
+  // confirm/resend UI in place rather than spinning for the full TTL.
+  async resumePendingConfirmation(
+    accountName?: string,
+    opts?: { signal?: AbortSignal },
+  ): Promise<ResumeConfirmResult> {
+    const serverId = this.persistence?.scope.serverId;
+    if (!serverId) return { kind: 'unavailable', reason: 'no-server-id' };
+    if (!this.nickClaimAPI) return { kind: 'unavailable', reason: 'no backend api' };
+
+    const store = getServiceCredentialsStore();
+    const existing = store.get(serverId) ?? {};
+    const pending = existing.pendingRegistration;
+    if (!pending) return { kind: 'unavailable', reason: 'no pending claim' };
+    const acct = (accountName || existing.accountName || this.myNick || '').trim();
+    if (!acct) return { kind: 'unavailable', reason: 'no-account-name' };
+
+    const signal = opts?.signal;
+    const deadline = Date.now() + 30_000;
+    let code: string | undefined;
+    while (true) {
+      if (signal?.aborted) return { kind: 'still-pending' };
+      let poll: NickClaimPollResponse;
+      try {
+        poll = await this.nickClaimAPI.getNickClaim(pending.id);
+      } catch {
+        if (Date.now() > deadline) return { kind: 'still-pending' };
+        await sleepWithAbort(2000, signal);
+        continue;
+      }
+      if (poll.status === 'captured' || poll.status === 'consumed') {
+        if (poll.code) { code = poll.code; break; }
+        return { kind: 'failed', reason: 'backend captured without code' };
+      }
+      if (poll.status === 'expired') return { kind: 'expired' };
+      if (Date.now() > deadline) return { kind: 'still-pending' };
+      await sleepWithAbort(2000, signal);
+    }
+
+    if (signal?.aborted) return { kind: 'still-pending' };
+
+    const confirm = await this.confirmAccount(acct, code);
+    switch (confirm.kind) {
+      case 'confirmed': {
+        // Account is confirmed. Clear the pending claim. If we still
+        // hold the generated password (claimNick persists it at the
+        // pending-confirmation step), kick auto-IDENTIFY so the badge
+        // settles to identified; otherwise leave it 'registered' (the
+        // user will need to identify manually / reset the password).
+        store.set(serverId, {
+          ...existing,
+          accountName: acct,
+          status: existing.nickservPassword ? 'identified' : 'registered',
+          pendingRegistration: undefined,
+        });
+        if (existing.nickservPassword) this.triggerAutoIdentify();
+        return { kind: 'confirmed' };
+      }
+      case 'wrong-code':
+        return { kind: 'wrong-code' };
+      case 'expired':
+        return { kind: 'expired' };
+      default:
+        return { kind: 'failed', reason: confirm.reason };
+    }
+  }
+
+  // claimNick orchestrates the full automated "claim this nick"
+  // flow for signed-in users:
+  //
+  //   1. Generate a cryptographically random password.
+  //   2. POST /me/nick-claims to mint a backend record and a
+  //      reg-<userid>-<short>@boson.chat recipient address.
+  //   3. Persist the {id, email} in the credentials store so a
+  //      reload mid-flow can resume the poll.
+  //   4. Call AccountService.register(pw, email) — fires the IRC
+  //      NickServ REGISTER and awaits the "please CONFIRM" reply.
+  //   5. Poll GET /me/nick-claims/{id} every 2s until status is
+  //      captured (backend IMAP worker received the email and
+  //      extracted the code) or expired / 30-min timeout.
+  //   6. Call AccountService.confirm(accountName, code) — fires
+  //      CONFIRM (or VERIFY REGISTER, per-package) and awaits
+  //      the "confirmed" reply.
+  //   7. Persist the generated password, clear pendingRegistration,
+  //      return { kind: 'claimed' }.
+  //
+  // Honours an AbortSignal at every await point — caller can pull
+  // the escape hatch and we'll dismantle cleanly. Bubbles up the
+  // discrete failure modes the underlying ops surface (nick-taken,
+  // expired, network down → unavailable, anything else → failed).
+  async claimNick(accountName: string, opts?: { signal?: AbortSignal }): Promise<ClaimResult> {
+    const signal = opts?.signal;
+    if (!this.nickClaimAPI) {
+      return { kind: 'unavailable', reason: 'no backend api wired' };
+    }
+    if (signal?.aborted) return { kind: 'cancelled' };
+
+    const serverId = this.persistence?.scope.serverId;
+    if (!serverId) {
+      return { kind: 'failed', reason: 'no-server-id' };
+    }
+
+    // Step 1 — generate password.
+    const password = generateClaimPassword();
+
+    // Step 2 — backend mints the record + recipient address.
+    let mint: NickClaimCreateResponse;
+    try {
+      mint = await this.nickClaimAPI.createNickClaim({ serverId, accountNick: accountName });
+    } catch (err) {
+      return { kind: 'unavailable', reason: claimErrReason(err) };
+    }
+    if (signal?.aborted) return { kind: 'cancelled' };
+
+    // Step 3 — persist in credentials store so a mid-flow reload
+    // can pick up where we left off. We don't write the password
+    // until the flow succeeds — saving it earlier means a failed
+    // claim would leave the auto-IDENTIFY-on-connect pointed at
+    // a non-existent account, which then surfaces as identify-
+    // failed on the next connect.
+    const store = getServiceCredentialsStore();
+    const existing = store.get(serverId) ?? {};
+    store.set(serverId, {
+      ...existing,
+      accountName,
+      email: mint.email,
+      status: 'registering',
+      pendingRegistration: { id: mint.id, email: mint.email },
+    });
+
+    // Step 4 — fire REGISTER on the IRC side.
+    const registerResult = await this.registerAccount(password, mint.email);
+    if (signal?.aborted) return { kind: 'cancelled' };
+    switch (registerResult.kind) {
+      case 'pending-confirmation':
+        // The account now exists server-side (unconfirmed). Persist the
+        // generated password + the pending claim NOW — not just on
+        // success — so an interrupted flow (reload, or the panel's
+        // auto-resume) can finish CONFIRM and later IDENTIFY without
+        // losing the credential. Safe to save here precisely because
+        // REGISTER landed: auto-identify will resolve to
+        // 'identified-unconfirmed' rather than failing against a
+        // non-existent account (the hazard the original deferral
+        // guarded against, back when we saved before REGISTER).
+        store.set(serverId, {
+          ...existing,
+          nickservPassword: password,
+          accountName,
+          email: mint.email,
+          generatedPassword: true,
+          status: 'pending-confirmation',
+          pendingRegistration: { id: mint.id, email: mint.email },
+        });
+        // Fall through to the poll loop below.
+        break;
+      case 'registered':
+        // Some servers skip email confirmation entirely. The auto-
+        // identify in chat.service's post-confirm path will kick
+        // in via the existing classifier; persist the password +
+        // clear pendingRegistration so the badge settles cleanly.
+        store.set(serverId, {
+          ...existing,
+          nickservPassword: password,
+          accountName,
+          email: mint.email,
+          generatedPassword: true,
+          status: 'registered',
+        });
+        return { kind: 'claimed' };
+      case 'nick-taken':
+        store.set(serverId, { ...existing, status: existing.status }); // clear pending
+        return { kind: 'nick-taken' };
+      case 'email-rejected':
+      case 'failed':
+        store.set(serverId, { ...existing, status: existing.status });
+        return { kind: 'failed', reason: registerResult.kind === 'email-rejected'
+          ? `server rejected email: ${registerResult.reason}`
+          : registerResult.reason };
+    }
+
+    // Step 5 — poll for the captured code. 2s cadence, 30-min hard
+    // cap (matches the backend TTL).
+    const pollDeadline = Date.now() + 30 * 60 * 1000;
+    let code: string | undefined;
+    while (true) {
+      if (signal?.aborted) {
+        store.set(serverId, { ...existing }); // clear pendingRegistration
+        return { kind: 'cancelled' };
+      }
+      if (Date.now() > pollDeadline) {
+        store.set(serverId, { ...existing });
+        return { kind: 'expired' };
+      }
+
+      let poll: NickClaimPollResponse;
+      try {
+        poll = await this.nickClaimAPI.getNickClaim(mint.id);
+      } catch (err) {
+        // A transient network blip shouldn't kill the whole flow;
+        // sleep + retry. Hard failures (auth gone) will keep
+        // bouncing and we'll fall out via the deadline.
+        await sleepWithAbort(2000, signal);
+        continue;
+      }
+
+      if (poll.status === 'captured' || poll.status === 'consumed') {
+        if (poll.code) {
+          code = poll.code;
+          break;
+        }
+        // Captured but no code — shouldn't happen given the
+        // backend contract. Treat as failed.
+        store.set(serverId, { ...existing });
+        return { kind: 'failed', reason: 'backend captured without code' };
+      }
+      if (poll.status === 'expired') {
+        store.set(serverId, { ...existing });
+        return { kind: 'expired' };
+      }
+      // Still pending — back off and try again.
+      await sleepWithAbort(2000, signal);
+    }
+
+    if (signal?.aborted) return { kind: 'cancelled' };
+
+    // Step 6 — fire CONFIRM (or VERIFY REGISTER) with the captured code.
+    const confirmResult = await this.confirmAccount(accountName, code);
+    if (signal?.aborted) return { kind: 'cancelled' };
+    switch (confirmResult.kind) {
+      case 'confirmed':
+        // Step 7 — persist the password (auto-IDENTIFY will run on
+        // next connect) + clear pendingRegistration.
+        store.set(serverId, {
+          ...existing,
+          nickservPassword: password,
+          accountName,
+          email: mint.email,
+          generatedPassword: true,
+          status: 'identified',
+        });
+        return { kind: 'claimed' };
+      case 'wrong-code':
+        // The IMAP worker captured the wrong thing (parser bug)
+        // or the user took a path we don't recognise.
+        store.set(serverId, { ...existing });
+        return { kind: 'failed', reason: 'server rejected the captured code' };
+      case 'expired':
+        store.set(serverId, { ...existing });
+        return { kind: 'expired' };
+      case 'failed':
+        store.set(serverId, { ...existing });
+        return { kind: 'failed', reason: confirmResult.reason };
+    }
   }
 
   // Identify against NickServ with the given password. Returns a
@@ -1771,3 +2150,55 @@ function prefixRank(p: MemberPrefix): number {
 
 // Kind is exported for tests.
 export type { ChatMessageKind };
+
+// ---- claimNick helpers ----------------------------------------------
+
+// generateClaimPassword mints a 24-byte cryptographically random
+// password, base64url-encoded. ~144 bits of entropy — well above
+// any NickServ policy floor. The user never sees this string;
+// it lives in the credentials store and drives auto-IDENTIFY on
+// future connects.
+function generateClaimPassword(): string {
+  const buf = new Uint8Array(24);
+  crypto.getRandomValues(buf);
+  // base64url (RFC 4648 §5) — strip '=' padding so the password
+  // is purely [A-Za-z0-9_-], avoiding NickServ command-parsing
+  // surprises with `+` or `/`.
+  let b64 = '';
+  if (typeof btoa === 'function') {
+    let bin = '';
+    for (const byte of buf) bin += String.fromCharCode(byte);
+    b64 = btoa(bin);
+  } else {
+    b64 = Buffer.from(buf).toString('base64');
+  }
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+// claimErrReason extracts a short message from a thrown HTTP error
+// or other exception, for the ClaimResult.reason field. Doesn't
+// throw.
+function claimErrReason(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+// sleepWithAbort waits ms milliseconds, but resolves early when
+// the AbortSignal fires. Used inside claimNick's poll loop.
+function sleepWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const t = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(t);
+      resolve();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}

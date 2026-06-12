@@ -5,6 +5,7 @@ import { DirectoryService } from './modules/directory';
 import { EngineClient } from './modules/engine';
 import { IDBChatHistoryStore, type ChatHistoryStore } from './modules/history';
 import { IdentityService } from './modules/identity';
+import { NickservSyncService } from './modules/chat/nickserv-sync.service';
 import { HttpClient } from './shared/http/http.client';
 import { windowSecureStorage } from './shared/secure-storage';
 import { LoginScreen } from './screens/LoginScreen';
@@ -81,6 +82,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         authedEmail={session?.user?.email ?? null}
         onSignOut={() => { void auth.signOut(); }}
         directory={directory}
+        identity={identity}
         auth={auth}
       />
       <Inbox open={inboxOpen} memos={memos} onClose={() => setInboxOpen(false)} />
@@ -206,5 +208,13 @@ export function buildApp(opts: BuildAppOptions): AppProps {
   // if the user never goes near chat. Keyed per (userId, serverId, channel)
   // inside the store so different accounts on the same device don't collide.
   const history: ChatHistoryStore = new IDBChatHistoryStore();
+
+  // Sync NickServ passwords (E2E-encrypted) to the backend so they follow the
+  // user across devices. Self-activating: it subscribes to identity unlock
+  // (pull/merge) and credential-store changes (debounced push), and no-ops
+  // while locked or when the keychain backing is unavailable. The identity
+  // subscription keeps it referenced for the app's lifetime.
+  new NickservSyncService(identity, directory).start();
+
   return { auth, directory, engine, identity, history };
 }

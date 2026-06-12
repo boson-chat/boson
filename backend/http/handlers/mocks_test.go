@@ -16,9 +16,17 @@ type stubUserService struct {
 	create           func(ctx context.Context, in user.CreateUserInput) (*user.User, error)
 	deleteFn         func(ctx context.Context, id uuid.UUID) error
 	updateHandle     func(ctx context.Context, id uuid.UUID, newHandle string) (*user.User, error)
+	updateWraps      func(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*user.User, error)
 	createArgs       []user.CreateUserInput
 	deleteArgs       []uuid.UUID
 	updateHandleArgs []updateHandleCall
+	updateWrapsArgs  []updateWrapsCall
+}
+
+type updateWrapsCall struct {
+	ID           uuid.UUID
+	PasswordWrap []byte
+	RecoveryWrap []byte
 }
 
 type updateHandleCall struct {
@@ -44,6 +52,13 @@ func (s *stubUserService) UpdateHandle(ctx context.Context, id uuid.UUID, newHan
 	s.updateHandleArgs = append(s.updateHandleArgs, updateHandleCall{ID: id, NewHandle: newHandle})
 	if s.updateHandle != nil {
 		return s.updateHandle(ctx, id, newHandle)
+	}
+	return nil, nil
+}
+func (s *stubUserService) UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*user.User, error) {
+	s.updateWrapsArgs = append(s.updateWrapsArgs, updateWrapsCall{ID: id, PasswordWrap: passwordWrap, RecoveryWrap: recoveryWrap})
+	if s.updateWraps != nil {
+		return s.updateWraps(ctx, id, passwordWrap, recoveryWrap)
 	}
 	return nil, nil
 }

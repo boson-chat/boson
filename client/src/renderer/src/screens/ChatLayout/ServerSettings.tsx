@@ -9,6 +9,7 @@ import {
 } from '../../modules/chat/services-credentials';
 import { getAdapter } from '../../modules/chat/adapters';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
+import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
 import './ServerSettings.css';
 
 // Server settings screen. Renders to the right of the persistent ServerRail
@@ -100,6 +101,27 @@ interface ServerSettingsProps {
   // True when this network's services package supports resend.
   // When false, the panel hides the Resend button entirely.
   supportsResend?: boolean;
+  // Automated "claim this nick" flow for signed-in users. Returns
+  // a discrete ClaimResult once the full mint-email → REGISTER →
+  // poll-for-code → CONFIRM dance settles (or the caller aborts
+  // via the AbortSignal). Threaded through to IdentitySection.
+  onClaimNick?: (accountName: string, opts?: { signal?: AbortSignal }) => Promise<ClaimResult>;
+  // Silent NickServ state probe. When present, the Identity panel
+  // probes the nick on open and shows the CTA that matches the actual
+  // server-side state (Claim only when unregistered, Confirm when
+  // registered-but-unconfirmed, Identify when registered + confirmed)
+  // instead of optimistically offering Register. Resolves to the
+  // detected status, or undefined when it couldn't be determined.
+  onDetectAccountState?: (accountName?: string) => Promise<AccountStatus | undefined>;
+  // Finish a stranded confirmation: when the nick is registered-but-
+  // unconfirmed and a backend claim is still pending, this polls for
+  // the captured email code and fires CONFIRM automatically. The
+  // Identity panel calls it on open for that state.
+  onResumeConfirmation?: (accountName?: string, opts?: { signal?: AbortSignal }) => Promise<ResumeConfirmResult>;
+  // True when the parent app has a Boson-authenticated session. The
+  // Identity panel uses this to decide whether to show the Claim
+  // button (signed in only) or the existing manual register form.
+  signedIn?: boolean;
   // Optional — when both are present, an "Edit" tab is added that
   // lets the row's owner update profile-shaped fields and submit
   // them through onSaveProfile (which hits PATCH /servers/{id}).
@@ -127,7 +149,7 @@ const MENU: readonly MenuItem[] = [
 
 export function ServerSettings({
   serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
-  serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend,
+  serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
   directoryEntry, onSaveProfile,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
@@ -188,6 +210,10 @@ export function ServerSettings({
               onConfirmAccount={onConfirmAccount}
               onResendConfirmation={onResendConfirmation}
               supportsResend={supportsResend}
+              onClaimNick={onClaimNick}
+              onDetectAccountState={onDetectAccountState}
+              onResumeConfirmation={onResumeConfirmation}
+              signedIn={signedIn}
             />
           )}
           {section === 'advanced' && (
@@ -267,6 +293,17 @@ interface IdentitySectionProps {
   // directly rather than spreading the parent props).
   onResendConfirmation?: (accountName: string) => Promise<ResendResult | UnsupportedResult>;
   supportsResend?: boolean;
+  // Automated "claim this nick" flow — present only for signed-in
+  // users. When set, the Identity panel shows a "Claim Nyan on this
+  // network" button on top of the manual register/identify form;
+  // clicking it kicks off the backend-mediated email-confirmation
+  // dance and returns a discrete ClaimResult.
+  onClaimNick?: (accountName: string, opts?: { signal?: AbortSignal }) => Promise<ClaimResult>;
+  // Silent NickServ state probe — see ServerSettingsProps.onDetectAccountState.
+  onDetectAccountState?: (accountName?: string) => Promise<AccountStatus | undefined>;
+  // Auto-resume confirm — see ServerSettingsProps.onResumeConfirmation.
+  onResumeConfirmation?: (accountName?: string, opts?: { signal?: AbortSignal }) => Promise<ResumeConfirmResult>;
+  signedIn?: boolean;
 }
 
 // Identity owns the full per-server account surface: current nick +
@@ -279,7 +316,7 @@ interface IdentitySectionProps {
 // for power-user use; everything a normal user wants is here.
 function IdentitySection({
   myNick, onChangeNick,
-  serverId, servicesFramework, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend,
+  serverId, servicesFramework, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
 }: IdentitySectionProps) {
   // --- Change-nick state ----------------------------------------------
   // Optimistic input: we update the local draft as the user types, and
@@ -307,6 +344,13 @@ function IdentitySection({
   const [confirmCode, setConfirmCode] = useState<string>('');
   const [savedFlash, triggerSavedFlash] = useTransientFlag();
   const [creds, setCreds] = useState<ServiceCredentials | null>(null);
+  // Password reveal + copy controls — the auto-claim flow generates a
+  // random password the user has never seen. They need to see it once
+  // (to copy into a password manager) before it gets masked behind a
+  // <input type="password">. `passwordCopied` is a transient flag the
+  // copy button toggles for ~2s to confirm clipboard write.
+  const [passwordShown, setPasswordShown] = useState<boolean>(false);
+  const [passwordCopied, setPasswordCopied] = useState<boolean>(false);
   // Two-state confirm for the destructive Drop action. First click on
   // "Drop account" flips this to true and reveals an inline confirm /
   // cancel pair in place of the original button. Resets to false
@@ -360,6 +404,125 @@ function IdentitySection({
   // Inline feedback for REGISTER outcomes (Step 6). Cleared when
   // the user retries.
   const [registerStatus, setRegisterStatus] = useState<{ kind: 'pending' | 'success' | 'error'; message: string } | null>(null);
+
+  // ---- Automated "claim this nick" flow (signed-in only) -----------
+  //
+  // claimState drives a small state machine in the UI:
+  //   null        — idle; show the Claim button.
+  //   'pending'   — spinner; show Cancel that aborts the in-flight
+  //                 promise via the AbortController.
+  //   'success'   — transient success message; auto-clears.
+  //   'error'     — sticky error message until next Claim attempt.
+  //
+  // claimAbortRef holds the AbortController for the current in-flight
+  // claim so the Cancel button can yank it from outside the async
+  // closure that created it.
+  const [claimState, setClaimState] = useState<{ kind: 'pending' | 'success' | 'error'; message: string } | null>(null);
+  const claimAbortRef = useRef<AbortController | null>(null);
+
+  // NickServ state-probe bookkeeping. `probing` shows a "checking…"
+  // line; `probedForRef` dedupes the probe per (serverId, nonce) so it
+  // runs once on open (and once per server — identity is network-local,
+  // so switching servers re-probes that server's nick). Bumping
+  // `redetectNonce` forces a fresh probe after an event that changes
+  // the server-side state (e.g. a DROP) — using a dep (not just a ref
+  // reset) so the effect is guaranteed to re-run regardless of whether
+  // the status-wipe or the trigger lands first. Declared up here so
+  // the drop handler can bump the nonce.
+  const [probing, setProbing] = useState(false);
+  const [redetectNonce, setRedetectNonce] = useState(0);
+  const probedForRef = useRef<string | null>(null);
+
+  // Copy the password field into the clipboard. Used for stashing
+  // an auto-generated password somewhere durable (password manager)
+  // before the field is masked again. Two-step UX:
+  //   1. clipboard.writeText (modern browsers + Electron)
+  //   2. flip passwordCopied for ~2s so the button label reads
+  //      "Copied" and the user knows the write succeeded.
+  const copyPasswordToClipboard = async (): Promise<void> => {
+    if (!password) return;
+    try {
+      await navigator.clipboard.writeText(password);
+      setPasswordCopied(true);
+      setTimeout(() => setPasswordCopied(false), 2000);
+    } catch {
+      // Some sandboxed/insecure contexts deny clipboard access. Fall
+      // back to selecting the password text inline so the user can
+      // copy with Cmd/Ctrl-C. We force-show the field first because
+      // a masked field can't be selected on most browsers.
+      setPasswordShown(true);
+    }
+  };
+
+  const handleClaimNick = async (): Promise<void> => {
+    if (!onClaimNick) return;
+    const acct = (accountName.trim() || creds?.accountName || myNick || '').trim();
+    if (!acct) {
+      setClaimState({ kind: 'error', message: 'Pick an account nick first.' });
+      return;
+    }
+    // Tear down any prior in-flight claim before starting a fresh
+    // one. Shouldn't normally happen because the button is disabled
+    // while pending, but defence in depth.
+    claimAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    claimAbortRef.current = ctrl;
+
+    setClaimState({ kind: 'pending', message: `Claiming ${acct} on this network…` });
+    const result = await onClaimNick(acct, { signal: ctrl.signal });
+    // If a newer claim has started since (somehow), don't overwrite
+    // its state with ours. Identity-check via the ref.
+    if (claimAbortRef.current !== ctrl) return;
+    claimAbortRef.current = null;
+
+    switch (result.kind) {
+      case 'claimed':
+        // The generated password just got persisted by ChatService.
+        // Reveal it immediately and surface a sticky reminder — we
+        // have no recovery path, so the user has to back it up now
+        // or be locked out on the next device. The reminder doesn't
+        // auto-clear (unlike the regular 5s flash); user dismisses
+        // by closing the panel or starting another action.
+        setPasswordShown(true);
+        setClaimState({
+          kind: 'success',
+          message: `Claimed ${acct}. Generated password is shown below — copy it into a password manager now. We can't recover it for you.`,
+        });
+        break;
+      case 'nick-taken':
+        setClaimState({ kind: 'error', message: `${acct} is already registered on this network. Pick a different nick or identify against the existing account.` });
+        break;
+      case 'expired':
+        setClaimState({ kind: 'error', message: 'Confirmation code never arrived. Try again or fall back to the manual form below.' });
+        break;
+      case 'cancelled':
+        setClaimState(null);
+        break;
+      case 'unavailable':
+        setClaimState({ kind: 'error', message: `Auto-claim unavailable: ${result.reason}. Use the manual register form below.` });
+        break;
+      case 'failed':
+        setClaimState({ kind: 'error', message: `Claim failed: ${result.reason}` });
+        break;
+    }
+  };
+
+  const cancelClaim = (): void => {
+    claimAbortRef.current?.abort();
+    // The await above sees the cancel and sets state to null; no
+    // need to set it here.
+  };
+
+  // Tear down the in-flight claim if the component unmounts (e.g.
+  // user navigates away mid-flow).
+  useEffect(() => {
+    return () => { claimAbortRef.current?.abort(); };
+  }, []);
+
+  // Whether to render the Claim affordance at all. Requires both
+  // a signed-in user AND the wiring being threaded — guests get
+  // the existing manual form unchanged.
+  const claimAvailable = Boolean(signedIn && onClaimNick);
 
   const onRegister = async (): Promise<void> => {
     if (!serverId) return;
@@ -506,9 +669,16 @@ function IdentitySection({
     // key and the server replies "Invalid key for DROP" — surfaces
     // as `failed: invalid-key` and confuses the user.
     if (dropPending) return;
-    const pw = (creds?.nickservPassword ?? '').trim();
+    const pw = (creds?.nickservPassword ?? password ?? '').trim();
     const acct = (accountName.trim() || creds?.accountName || myNick || '').trim();
-    if (!pw || !acct) return;
+    if (!acct) {
+      setDropError('Enter the account name first.');
+      return;
+    }
+    if (!pw) {
+      setDropError('Type your NickServ password in the field above first — Anope/Atheme require it for DROP. (Ergo doesn’t, but the wire shape is the same.)');
+      return;
+    }
     setDropError(null);
     if (!onDropAccount) {
       setDropError('Drop is unavailable on this connection.');
@@ -524,6 +694,12 @@ function IdentitySection({
           // NickServ reply — the panel will re-render via the store
           // subscription. We just dismiss the confirm UI here.
           setDropConfirming(false);
+          // The nick is now unregistered, so the cached probe result
+          // is stale. Bump the nonce to force a fresh probe once the
+          // store-wipe lands status back to undefined — it'll detect
+          // 'no-account' and the Claim CTA reappears, instead of the
+          // panel sitting on the pre-drop state.
+          setRedetectNonce((n) => n + 1);
           break;
         case 'wrong-password':
           setDropError('Password was rejected. Save the correct one and try again.');
@@ -595,6 +771,26 @@ function IdentitySection({
 
   const status = creds?.status;
 
+  // States where the nick is known to be registered (to us) — Claim is
+  // hidden because the Confirm form (pending/unconfirmed) or the
+  // Identify form (registered/identified) is the right next step.
+  // Everything else (no-account, undefined, unknown, identify-failed)
+  // lets a signed-in user attempt the automated claim.
+  const claimHiddenByState =
+    status === 'registering' ||
+    status === 'pending-confirmation' ||
+    status === 'identified' ||
+    status === 'identified-unconfirmed' ||
+    status === 'registered';
+
+  // The on-open probe should only suppress the Claim CTA while the
+  // state is genuinely unknown. Once status resolves to anything
+  // definite (e.g. 'no-account'), a stale/in-flight `probing` flag
+  // must not keep hiding Claim — that was the "signed-in but no Claim"
+  // bug. So we only treat it as "still detecting" when status is also
+  // unknown.
+  const stillDetecting = probing && (status === undefined || status === 'unknown');
+
   // Auto-probe NickServ when we're in an in-flight registration
   // state. Fires INFO 5s after entering 'registering' or
   // 'pending-confirmation' so the badge updates without a manual
@@ -618,6 +814,76 @@ function IdentitySection({
     }, 5000);
     return () => clearTimeout(t);
   }, [status, accountName, creds?.accountName, myNick, onRunCommand, servicesFramework]);
+
+  // Probe NickServ once on open to learn whether the nick is
+  // registered / confirmed, so we show the right CTA instead of
+  // optimistically offering Register and bouncing off `nick-taken`.
+  // Only fires when we don't already have a meaningful status; the
+  // ref dedupes so an indeterminate probe (status stays unknown)
+  // doesn't loop. detectAccountState writes the resolved status into
+  // the creds store, which flows back here via the subscription.
+  useEffect(() => {
+    if (!onDetectAccountState || !serverId) return;
+    if (status !== undefined && status !== 'unknown') return;
+    const key = `${serverId}:${redetectNonce}`;
+    if (probedForRef.current === key) return;
+    probedForRef.current = key;
+    setProbing(true);
+    // Always clear probing when the probe settles. (Earlier this was
+    // gated on a not-cancelled flag, but the effect re-runs the instant
+    // detectAccountState writes the resolved status — that cleanup set
+    // cancelled=true and the .finally then skipped setProbing(false),
+    // stranding probing=true and hiding the Claim CTA forever. The
+    // re-run returns early without starting a new probe, so there's no
+    // competing probe to protect against.)
+    void onDetectAccountState()
+      .catch(() => undefined)
+      .finally(() => setProbing(false));
+  }, [serverId, status, onDetectAccountState, redetectNonce]);
+
+  // Auto-resume a stranded confirmation: when the nick is registered-
+  // but-unconfirmed and a backend claim is still pending, the email
+  // code was likely already captured — finish CONFIRM automatically
+  // rather than making the user paste it. Deduped per claim id. On
+  // 'still-pending' (POP3 hasn't captured a code yet) we clear the
+  // spinner and leave the manual paste/resend form in place.
+  const resumedForRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!onResumeConfirmation) return;
+    if (status !== 'pending-confirmation') return;
+    const claimId = creds?.pendingRegistration?.id;
+    if (!claimId) return;
+    if (resumedForRef.current === claimId) return;
+    resumedForRef.current = claimId;
+
+    const ac = new AbortController();
+    setConfirmStatus({ kind: 'pending', message: 'Finishing confirmation…' });
+    void onResumeConfirmation(undefined, { signal: ac.signal })
+      .then((r) => {
+        switch (r.kind) {
+          case 'confirmed':
+            setConfirmStatus({ kind: 'success', message: 'Account confirmed.' });
+            setTimeout(() => setConfirmStatus(null), 4000);
+            break;
+          case 'wrong-code':
+            setConfirmStatus({ kind: 'error', message: 'The emailed code was rejected. Paste it manually or resend below.' });
+            break;
+          case 'expired':
+            setConfirmStatus({ kind: 'error', message: 'Confirmation expired before a code arrived. Register again to get a fresh code.' });
+            break;
+          case 'still-pending':
+          case 'unavailable':
+            // Nothing captured yet / nothing to resume — fall back to
+            // the manual confirm form without a sticky error.
+            setConfirmStatus(null);
+            break;
+          default:
+            setConfirmStatus({ kind: 'error', message: `Couldn't finish confirmation: ${r.reason}` });
+        }
+      })
+      .catch(() => setConfirmStatus(null));
+    return () => { ac.abort(); };
+  }, [status, creds?.pendingRegistration?.id, onResumeConfirmation]);
 
   return (
     <SectionFrame
@@ -690,6 +956,41 @@ function IdentitySection({
                 resendCooldownUntil={creds?.resendCooldownUntil}
               />
 
+              {/* Signed-in users get cross-device sync of this password,
+                  end-to-end encrypted (the server can't read it). */}
+              {signedIn && (
+                <p class="services-creds-status-msg services-creds-status-msg-info">
+                  🔒 Saved here syncs (end-to-end encrypted) to your Boson account, so your
+                  NickServ password follows you to other devices.
+                </p>
+              )}
+
+              {/* Automated claim flow for signed-in users. We HIDE
+                  Claim only when we positively know the nick is
+                  registered-ish — a registered-but-unconfirmed nick
+                  shows the Confirm form above, a confirmed one shows
+                  the Identify form below. For every other state
+                  (no-account, undefined, unknown, identify-failed) a
+                  signed-in user gets the Claim button: the original
+                  bug was offering Claim on an *already-registered* nick,
+                  not hiding it whenever detection was merely
+                  inconclusive. While the on-open probe is in flight we
+                  show a "checking…" line instead of flashing Claim. */}
+              {claimAvailable && stillDetecting && (
+                <p class="services-creds-status-msg services-creds-status-msg-info">
+                  Checking <code>{(accountName.trim() || creds?.accountName || myNick || '').trim()}</code>'s
+                  account status on this network…
+                </p>
+              )}
+              {claimAvailable && !stillDetecting && !claimHiddenByState && (
+                <ClaimNickCard
+                  state={claimState}
+                  accountName={(accountName.trim() || creds?.accountName || myNick || '').trim()}
+                  onClaim={() => { void handleClaimNick(); }}
+                  onCancel={cancelClaim}
+                />
+              )}
+
               <form onSubmit={onSaveCreds} class="user-settings-form">
                 <Field
                   label="Account nick"
@@ -705,15 +1006,37 @@ function IdentitySection({
                 </Field>
                 <Field
                   label="Password"
-                  hint="Stored locally in plain text. Auto-sent as IDENTIFY after the server welcomes us."
+                  hint={password
+                    ? 'Stored locally only — back it up in a password manager. We have no recovery path.'
+                    : 'Stored locally in plain text. Auto-sent as IDENTIFY after the server welcomes us.'}
                 >
-                  <Input
-                    type="password"
-                    value={password}
-                    onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
-                    autoComplete="off"
-                    spellcheck={false}
-                  />
+                  <div class="server-settings-password-row">
+                    <Input
+                      type={passwordShown ? 'text' : 'password'}
+                      value={password}
+                      onInput={(e) => setPassword((e.target as HTMLInputElement).value)}
+                      autoComplete="off"
+                      spellcheck={false}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setPasswordShown((v) => !v)}
+                      disabled={!password}
+                      title={passwordShown ? 'Hide password' : 'Show password'}
+                    >
+                      {passwordShown ? 'Hide' : 'Show'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => { void copyPasswordToClipboard(); }}
+                      disabled={!password}
+                      title="Copy password to clipboard"
+                    >
+                      {passwordCopied ? 'Copied' : 'Copy'}
+                    </Button>
+                  </div>
                 </Field>
                 <Field
                   label="Email"
@@ -778,9 +1101,15 @@ function IdentitySection({
                 {/* Destructive: irreversible network-side delete. Two-
                     state inline confirm — first click reveals the
                     confirm/cancel pair, so a misclick can't drop the
-                    account. Hidden entirely when there's no password
-                    to send (we'd just bounce off NickServ anyway).  */}
-                {creds?.nickservPassword && (accountName.trim() || creds?.accountName || myNick) && (
+                    account. Visible whenever an account name is known
+                    (typed, saved, or matching the current nick) — the
+                    handler surfaces a clear error if the password
+                    isn't saved yet, instead of silently hiding the
+                    button. (Previously gated on a saved password,
+                    which made the button vanish exactly when the
+                    user most needed it — e.g. after a failed claim
+                    where the password was never persisted.) */}
+                {(accountName.trim() || creds?.accountName || myNick) && (
                   <>
                     <DropAccountRow
                       confirming={dropConfirming}
@@ -1567,6 +1896,57 @@ function ResendButton({
     >
       {cooling ? `Resend (${remainingMin}m)` : 'Resend email'}
     </Button>
+  );
+}
+
+// ClaimNickCard is the signed-in-user affordance for the automated
+// "claim this nick" flow. Shown above the manual register form so
+// a signed-in user gets the one-click path by default while the
+// manual form remains as an escape hatch.
+//
+// Owns no business logic — just renders the right button + state
+// for whatever the parent's claim machine is doing. Parent owns
+// the AbortController.
+function ClaimNickCard({
+  state, accountName, onClaim, onCancel,
+}: {
+  state: { kind: 'pending' | 'success' | 'error'; message: string } | null;
+  accountName: string;
+  onClaim: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div class="services-claim-card">
+      <p class="services-claim-hint">
+        Boson can register <code>{accountName}</code> on this network for you
+        — we'll generate a password and handle the confirmation email behind
+        the scenes. Or fill in the form below to do it manually.
+      </p>
+      <div class="services-claim-actions">
+        {state?.kind === 'pending' ? (
+          <>
+            <Button type="button" variant="secondary" disabled>
+              {state.message}
+            </Button>
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button type="button" variant="primary" onClick={onClaim}>
+            Claim <code>{accountName}</code> on this network
+          </Button>
+        )}
+      </div>
+      {state && state.kind !== 'pending' && (
+        <p
+          class={`server-settings-identify-feedback server-settings-identify-${state.kind}`}
+          role={state.kind === 'error' ? 'alert' : 'status'}
+        >
+          {state.message}
+        </p>
+      )}
+    </div>
   );
 }
 

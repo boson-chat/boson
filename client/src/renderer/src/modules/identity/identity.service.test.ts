@@ -310,3 +310,78 @@ describe('IdentityService', () => {
     });
   });
 });
+
+describe('IdentityService — recovery code', () => {
+  const argon = fastArgon;
+
+  it('initializeForNewUser also exposes a pending recovery wrap + code', async () => {
+    const svc = new IdentityService(argon);
+    await svc.initializeForNewUser('hunter2');
+    const rec = svc.getPendingRecovery();
+    expect(rec).not.toBeNull();
+    expect(rec!.recoveryBlob).toMatch(/^[A-Za-z0-9+/=]+$/);
+    expect(rec!.recoveryCode).toMatch(/^[0-9a-z]{4}(-[0-9a-z]{4}){7}$/);
+  });
+
+  it('clearPendingEncrypted also clears the pending recovery', async () => {
+    const svc = new IdentityService(argon);
+    await svc.initializeForNewUser('hunter2');
+    svc.clearPendingEncrypted();
+    expect(svc.getPendingRecovery()).toBeNull();
+  });
+
+  it('a fresh service unlocks with the recovery code + recovery blob', async () => {
+    const setup = new IdentityService(argon);
+    await setup.initializeForNewUser('hunter2');
+    const rec = setup.getPendingRecovery()!;
+
+    const fresh = new IdentityService(argon);
+    await fresh.unlockWithRecoveryCode(rec.recoveryCode, rec.recoveryBlob);
+    expect(fresh.isUnlocked()).toBe(true);
+    // And derives the SAME user_secret as the password path (same SASL output).
+    const viaRecovery = await fresh.saslPasswordForServer('srv-1');
+    const viaPassword = await setup.saslPasswordForServer('srv-1');
+    expect(viaRecovery).toBe(viaPassword);
+  });
+
+  it('wrong recovery code keeps the service locked', async () => {
+    const setup = new IdentityService(argon);
+    await setup.initializeForNewUser('hunter2');
+    const rec = setup.getPendingRecovery()!;
+    const fresh = new IdentityService(argon);
+    await expect(fresh.unlockWithRecoveryCode('0000-0000-0000-0000-0000-0000-0000-0000', rec.recoveryBlob))
+      .rejects.toThrow();
+    expect(fresh.isUnlocked()).toBe(false);
+  });
+
+  it('enrollRecoveryCode (while unlocked) yields a wrap that round-trips to the same secret', async () => {
+    const svc = new IdentityService(argon);
+    await svc.initializeForNewUser('hunter2');
+    const enrolled = await svc.enrollRecoveryCode();
+
+    const fresh = new IdentityService(argon);
+    await fresh.unlockWithRecoveryCode(enrolled.recoveryCode, enrolled.recoveryBlob);
+    expect(await fresh.saslPasswordForServer('s')).toBe(await svc.saslPasswordForServer('s'));
+  });
+
+  it('enrollRecoveryCode throws when locked', async () => {
+    const svc = new IdentityService(argon);
+    await expect(svc.enrollRecoveryCode()).rejects.toThrow(/locked/);
+  });
+
+  it('rewrapForNewPassword produces a wrap the new password opens and the old does not', async () => {
+    const svc = new IdentityService(argon);
+    await svc.initializeForNewUser('old-pw');
+    const newBlob = await svc.rewrapForNewPassword('new-pw');
+
+    const a = new IdentityService(argon);
+    await expect(a.unlock('new-pw', newBlob)).resolves.toBeUndefined();
+    const b = new IdentityService(argon);
+    await expect(b.unlock('old-pw', newBlob)).rejects.toThrow();
+  });
+
+  it('rewrapForNewPassword throws when locked', async () => {
+    const svc = new IdentityService(argon);
+    await expect(svc.rewrapForNewPassword('x')).rejects.toThrow(/locked/);
+  });
+});

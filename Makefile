@@ -87,14 +87,28 @@ supabase-reset: supabase-check
 # ----- Combined dev flows -----
 
 # Full local dev stack: boson Postgres + Supabase Auth + local ergo IRCd
-# (the ergo container is required by chat + engine E2E specs).
-dev-up: tidy up supabase-up ergo-up
+# + mailpit (the inbound mailbox the nick-claim IMAP worker reads).
+# ergo and mailpit aren't strictly required for every dev session, but
+# the running cost is low and including them by default makes the
+# nick-claim flow + chat e2e tests "just work" without a separate
+# `docker compose --profile X up` step.
+dev-up: tidy up supabase-up ergo-up mailpit-up
 	@$(MAKE) migrate-up
 	@$(MAKE) seed-dev
 
-ergo-up:
+ergo-up: mailpit-up
 	docker compose --profile testing up -d ergo
-	@echo "ergo is up on localhost:6667"
+	@echo "ergo is up on localhost:6667 (mailto callback → mailpit:1025)"
+
+# Mailpit — local SMTP receive (port 1025) + POP3 read (1110) + a
+# web UI at http://localhost:8025. The backend's nickclaim worker
+# polls POP3 here in dev and against PurelyMail in production; same
+# code path either way (POP3 because mailpit doesn't speak IMAP).
+# Auth is `dev:dev` — matches the .env.example defaults so the
+# backend connects out of the box.
+mailpit-up:
+	docker compose --profile dev-mail up -d mailpit
+	@echo "mailpit is up — SMTP:1025  POP3:1110 (dev:dev)  UI: http://localhost:8025"
 
 # Inserts the local ergo IRCd into the directory so it shows up in Boson's
 # server browser. Idempotent (ON CONFLICT DO UPDATE). Dev-only — not part of

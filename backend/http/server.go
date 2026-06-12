@@ -12,6 +12,8 @@ import (
 	"github.com/boson-chat/boson/backend/http/middleware"
 	"github.com/boson-chat/boson/backend/internal/db"
 	"github.com/boson-chat/boson/backend/internal/logger"
+	"github.com/boson-chat/boson/backend/internal/services/nickclaim"
+	"github.com/boson-chat/boson/backend/internal/services/nickservsecret"
 	serversvc "github.com/boson-chat/boson/backend/internal/services/server"
 	serversvc_dns "github.com/boson-chat/boson/backend/internal/services/server/dns"
 	sessionsvc "github.com/boson-chat/boson/backend/internal/services/session"
@@ -26,6 +28,8 @@ func StartServerWithContext(ctx context.Context) error {
 	userRepo := user.NewUserRepository(database)
 	serverRepo := serversvc.NewServerRepository(database)
 	sessionRepo := sessionsvc.NewRepository(database)
+	nickClaimRepo := nickclaim.NewRepository(database)
+	nickservSecretRepo := nickservsecret.NewRepository(database)
 
 	// Services
 	userService := user.NewUserService(userRepo)
@@ -42,11 +46,18 @@ func StartServerWithContext(ctx context.Context) error {
 	}
 	serverService := serversvc.NewServerServiceWithVerifier(serverRepo, verifier)
 	sessionService := sessionsvc.NewService(sessionRepo)
+	nickClaimService := nickclaim.NewService(nickClaimRepo, nickclaim.Config{
+		EmailDomain:      cfg.AppConfig.NickClaimEmailDomain,
+		RateLimitPerHour: cfg.AppConfig.NickClaimRateLimitPerHour,
+	})
+	nickservSecretService := nickservsecret.NewService(nickservSecretRepo)
 
 	// Handlers
 	meHandler := handlers.NewMeHandler(userService)
 	serverHandler := handlers.NewServerHandler(serverService)
 	sessionHandler := handlers.NewSessionHandler(sessionService)
+	nickClaimsHandler := handlers.NewNickClaimsHandler(nickClaimService)
+	nickservSecretsHandler := handlers.NewNickServSecretsHandler(nickservSecretService)
 
 	// Public routes — health + read-only directory browsing. Guest users
 	// (no Supabase session) hit these without an Authorization header.
@@ -60,8 +71,24 @@ func StartServerWithContext(ctx context.Context) error {
 	meHandler.Register(protectedMux)
 	serverHandler.RegisterProtected(protectedMux)
 	sessionHandler.Register(protectedMux)
+	nickClaimsHandler.Register(protectedMux)
+	nickservSecretsHandler.Register(protectedMux)
 
 	root := buildRouter(publicMux, protectedMux, middleware.RequireAuth(cfg.AuthConfig))
+
+	// Co-resident POP3 worker for the automated NickServ-email-
+	// confirmation flow. Worker no-ops if the PURELYMAIL_POP3_HOST
+	// env var is empty, so local-dev runs that don't care about
+	// inbound mail don't have to set it up. Shares the parent
+	// ctx for SIGTERM-driven shutdown.
+	mailWorker := nickclaim.NewWorker(nickclaim.WorkerConfig{
+		Host:     cfg.AppConfig.PurelyMailPOP3Host,
+		Port:     cfg.AppConfig.PurelyMailPOP3Port,
+		User:     cfg.AppConfig.PurelyMailPOP3User,
+		Password: cfg.AppConfig.PurelyMailPOP3Password,
+		UseTLS:   cfg.AppConfig.PurelyMailPOP3TLS,
+	}, nickClaimRepo)
+	go mailWorker.Run(ctx)
 
 	addr := fmt.Sprintf(":%d", cfg.AppConfig.Port)
 	srv := &stdhttp.Server{

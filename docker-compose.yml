@@ -46,6 +46,12 @@ services:
     volumes:
       - ./infra/ergo/ircd.yaml:/ircd/ircd.yaml:ro
       - ergo_data:/ircd
+    # ergo's registration mailto callback delivers to mailpit. Soft
+    # dependency: ergo can start without mailpit (it just won't be
+    # able to deliver confirmation codes until mailpit is up), so
+    # we don't gate on a healthcheck — just start mailpit first.
+    depends_on:
+      - mailpit
     networks:
       - boson-network
     profiles:
@@ -98,9 +104,16 @@ services:
     volumes:
       - ./infra/anope/conf:/anope/conf:ro
       - anope_data:/anope/data
+      # Mount our netcat-based sendmail shim over the path Anope
+      # invokes for outbound mail (`sendmailpath` in services.conf).
+      # Reroutes confirmation emails to mailpit:1025 without
+      # installing extra packages in the image.
+      - ./infra/sendmail-shim.sh:/usr/sbin/sendmail:ro
     depends_on:
       unrealircd:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     networks:
       - boson-network
 
@@ -140,9 +153,49 @@ services:
     volumes:
       - ./infra/atheme/atheme.conf:/atheme/etc/atheme.conf:ro
       - atheme_data:/atheme/var
+      # Same shim as anope. Atheme's sendmail path is a compile-time
+      # default (/usr/sbin/sendmail); mounting our script there
+      # routes outbound mail to mailpit:1025.
+      - ./infra/sendmail-shim.sh:/usr/sbin/sendmail:ro
     depends_on:
       inspircd:
         condition: service_healthy
+      mailpit:
+        condition: service_started
+    networks:
+      - boson-network
+
+  # ---- Mailpit (local-dev mailbox for the nickclaim flow) -------------
+  #
+  # Mailpit accepts SMTP on 1025, serves POP3 on 1110, and a web UI
+  # on 8025. The backend's nickclaim POP3 worker talks the same
+  # protocol here as it does to PurelyMail in production — same code
+  # path, only the env vars differ. (POP3 not IMAP because mailpit
+  # doesn't speak IMAP; PurelyMail supports both.)
+  #
+  # Activated via:  docker compose --profile dev-mail up -d
+  # NickServ packages (Anope/Atheme) need to point their outbound
+  # mail at mailpit:1025 for the full local end-to-end claim flow.
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles:
+      - dev-mail
+      - testing
+      - e2e-atheme
+      - e2e-anope
+    ports:
+      - '1025:1025'  # SMTP — services packages deliver here
+      - '1110:1110'  # POP3 — backend worker reads from here
+      - '8025:8025'  # HTTP UI — open http://localhost:8025 to inspect
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+      # Enable POP3 + accept any-username/any-password. Mailpit's
+      # POP3 server only starts when MP_POP3_AUTH is set; the value
+      # is a space-separated list of user:pass pairs. `dev:dev`
+      # matches the .env.example defaults so the backend worker
+      # connects out of the box.
+      MP_POP3_AUTH: 'dev:dev'
     networks:
       - boson-network
 

@@ -18,6 +18,7 @@ type stubRepo struct {
 	create           func(ctx context.Context, u *User) error
 	deleteFn         func(ctx context.Context, id uuid.UUID) error
 	updateHandle     func(ctx context.Context, id uuid.UUID, newHandle string) (*User, error)
+	updateWraps      func(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error)
 	createCalls      []*User
 	deleteCalls      []uuid.UUID
 	updateHandleCalls []stubRepoUpdateHandleCall
@@ -52,6 +53,13 @@ func (s *stubRepo) UpdateHandle(ctx context.Context, id uuid.UUID, newHandle str
 	s.updateHandleCalls = append(s.updateHandleCalls, stubRepoUpdateHandleCall{ID: id, NewHandle: newHandle})
 	if s.updateHandle != nil {
 		return s.updateHandle(ctx, id, newHandle)
+	}
+	return nil, nil
+}
+
+func (s *stubRepo) UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error) {
+	if s.updateWraps != nil {
+		return s.updateWraps(ctx, id, passwordWrap, recoveryWrap)
 	}
 	return nil, nil
 }
@@ -211,6 +219,29 @@ func TestUserService_UpdateHandle_SameUserOwnsHandle(t *testing.T) {
 	svc := NewUserService(repo)
 
 	got, err := svc.UpdateHandle(context.Background(), id, "alice")
+	require.NoError(t, err)
+	assert.Equal(t, want, got)
+}
+
+func TestUserService_UpdateUserSecretWraps_RejectsEmpty(t *testing.T) {
+	svc := NewUserService(newNotFoundRepo())
+	_, err := svc.UpdateUserSecretWraps(context.Background(), uuid.New(), nil, nil)
+	assert.ErrorIs(t, err, ErrInvalidWrap)
+}
+
+func TestUserService_UpdateUserSecretWraps_Delegates(t *testing.T) {
+	id := uuid.New()
+	want := &User{ID: id, Handle: "alice"}
+	repo := newNotFoundRepo()
+	repo.updateWraps = func(_ context.Context, gotID uuid.UUID, pw, rec []byte) (*User, error) {
+		assert.Equal(t, id, gotID)
+		assert.Nil(t, pw)
+		assert.Equal(t, []byte("rec"), rec)
+		return want, nil
+	}
+	svc := NewUserService(repo)
+
+	got, err := svc.UpdateUserSecretWraps(context.Background(), id, nil, []byte("rec"))
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
 }

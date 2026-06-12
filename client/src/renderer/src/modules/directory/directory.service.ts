@@ -1,5 +1,9 @@
 import { HttpClient, HttpError } from '../../shared/http/http.client';
 import type {
+  NickClaimCreateResponse,
+  NickClaimPollResponse,
+  NickservSecretDTO,
+  NickservSecretsListResponse,
   RegisterServerInput,
   Server,
   ServerWithToken,
@@ -38,10 +42,27 @@ export class DirectoryService {
     }
   }
 
-  async setupMe(handle: string, encryptedUserSecretBase64: string): Promise<User> {
+  async setupMe(
+    handle: string,
+    encryptedUserSecretBase64: string,
+    encryptedUserSecretRecoveryBase64?: string,
+  ): Promise<User> {
     return this.http.post<User>('/me', {
       handle,
       encrypted_user_secret: encryptedUserSecretBase64,
+      ...(encryptedUserSecretRecoveryBase64
+        ? { encrypted_user_secret_recovery: encryptedUserSecretRecoveryBase64 }
+        : {}),
+    });
+  }
+
+  // Replace the password and/or recovery wrap of the caller's user_secret.
+  // Used to enroll a recovery code for an existing account (recovery only) or
+  // to re-wrap after a password reset (password only). At least one required.
+  async updateSecretWraps(input: { passwordBlob?: string; recoveryBlob?: string }): Promise<User> {
+    return this.http.put<User>('/me/secret-wraps', {
+      ...(input.passwordBlob ? { encrypted_user_secret: input.passwordBlob } : {}),
+      ...(input.recoveryBlob ? { encrypted_user_secret_recovery: input.recoveryBlob } : {}),
     });
   }
 
@@ -60,6 +81,24 @@ export class DirectoryService {
   // when the stored encrypted_user_secret cannot be decrypted.
   async deleteMe(): Promise<void> {
     await this.http.delete('/me');
+  }
+
+  // ---- NickClaim (automated NickServ email confirmation) ----------
+  //
+  // The signed-in claim flow mints a record on the backend, gets back
+  // an `email` to use at REGISTER time, then polls for the captured
+  // confirmation code. ChatService.claimNick() wraps these two calls
+  // with the actual NickServ register + confirm wire dance.
+
+  async createNickClaim(input: { serverId: string; accountNick: string }): Promise<NickClaimCreateResponse> {
+    return this.http.post<NickClaimCreateResponse>('/me/nick-claims', {
+      server_id: input.serverId,
+      account_nick: input.accountNick,
+    });
+  }
+
+  async getNickClaim(id: string): Promise<NickClaimPollResponse> {
+    return this.http.get<NickClaimPollResponse>(`/me/nick-claims/${encodeURIComponent(id)}`);
   }
 
   // Server-synced saved session — the client's SessionStore record (servers
@@ -139,5 +178,27 @@ export class DirectoryService {
       }
       throw err;
     }
+  }
+
+  // ---- NickServ secret sync (E2E-encrypted) -------------------------
+  //
+  // The client encrypts {nickservPassword, accountName} under a key derived
+  // from user_secret and ships only the opaque ciphertext. The server stores
+  // blobs it can't read, keyed by (user, server).
+
+  async listNickservSecrets(): Promise<NickservSecretDTO[]> {
+    const res = await this.http.get<NickservSecretsListResponse>('/me/nickserv-secrets');
+    return res.secrets ?? [];
+  }
+
+  async putNickservSecret(serverId: string, ciphertextBase64: string): Promise<void> {
+    await this.http.put<NickservSecretDTO>(
+      `/me/nickserv-secrets/${encodeURIComponent(serverId)}`,
+      { ciphertext: ciphertextBase64 },
+    );
+  }
+
+  async deleteNickservSecret(serverId: string): Promise<void> {
+    await this.http.delete(`/me/nickserv-secrets/${encodeURIComponent(serverId)}`);
   }
 }

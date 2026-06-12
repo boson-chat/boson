@@ -109,6 +109,10 @@ export interface AccountInfo {
   // The account name as the server has it (case + capitalisation
   // sometimes drift from the looked-up nick).
   accountName: string;
+  // True if the nick is registered at all. False when the server
+  // replied "Nick X isn't registered." Undefined when we couldn't
+  // determine it (e.g. the INFO probe got no reply before timing out).
+  registered?: boolean;
   // True if email confirmation has been completed. Undefined if the
   // package's reply didn't make the state visible (we won't assume).
   confirmed?: boolean;

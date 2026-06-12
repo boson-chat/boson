@@ -406,6 +406,15 @@ export function classifyRegisterReply(body: string, email: string): RegisterResu
   // ---- pending-confirmation (must come first) --------------------
   //
   //   Anope    "Please type \"/msg NickServ CONFIRM <code>\" to confirm"
+  //   Anope    (UnrealIRCd-linked build, irc.boson.chat) splits it across
+  //              two NOTICEs and does NOT echo the CONFIRM command:
+  //              "Nickname <nick> registered."
+  //              "Your email address is not confirmed. To confirm it,
+  //               follow the instructions that were emailed to you."
+  //              The bare "registered." line is deliberately NOT matched
+  //              as the no-confirm `registered` outcome below (it lacks
+  //              "has been registered"), so runRegister keeps waiting and
+  //              resolves on the email-confirmation line here instead.
   //   Atheme   (register.c:192) "An email containing nickname activation
   //              instructions has been sent to <addr>."
   //   Ergo     (nickserv.go:1031) "Account created, pending verification;
@@ -416,6 +425,8 @@ export function classifyRegisterReply(body: string, email: string): RegisterResu
   if (/\bactivation instructions\b[\s\S]*\bsent\b/i.test(s)) return { kind: 'pending-confirmation', email };
   if (/\bverification code\b[\s\S]*\bsent\b/i.test(s)) return { kind: 'pending-confirmation', email };
   if (/\bemail verification\b[\s\S]*\bsent\b/i.test(s)) return { kind: 'pending-confirmation', email };
+  if (/\bemail address\b[\s\S]*\bnot confirmed\b/i.test(s)) return { kind: 'pending-confirmation', email };
+  if (/\bfollow the instructions\b[\s\S]*\b(?:e-?mailed|sent)\b/i.test(s)) return { kind: 'pending-confirmation', email };
   if (/\bverify your email\b/i.test(s)) return { kind: 'pending-confirmation', email };
   if (/\bcheck your (?:e-?mail|inbox) for\b/i.test(s)) return { kind: 'pending-confirmation', email };
 
@@ -449,6 +460,137 @@ export function classifyRegisterReply(body: string, email: string): RegisterResu
   if (/\bemail .* not allowed\b/i.test(s)) return { kind: 'email-rejected', reason: s.trim() };
 
   return null;
+}
+
+// ---- INFO probe (state detection) --------------------------------
+//
+// `INFO <nick>` is how we learn a nick's server-side state WITHOUT
+// touching it — is it registered at all, and if so has the email
+// been confirmed. The panel uses this on open to pick the right CTA
+// (Claim vs Confirm vs Identify) instead of optimistically offering
+// REGISTER and learning the truth from a `nick-taken` bounce.
+//
+// Unlike the single-reply ops (identify/confirm/register), INFO has
+// NO terminal-line marker — Anope streams a multi-line block
+// ("Account:", "Registered:", "Email address:", "Options:", …) with
+// no sentinel. So runInfo accumulates NickServ NOTICEs and resolves
+// after a short quiet period (settleMs) with no new line, or early
+// on the unambiguous "isn't registered" single-line reply.
+//
+// classifyInfoReply is tuned for Anope's phrasing (the package this
+// helper's first caller, AnopeAccountService, talks to). Atheme/Ergo
+// INFO parsing, if/when their info() lands, can pass their own
+// classify fn — runInfo itself is package-agnostic.
+import type { AccountInfo } from './account-service';
+
+const INFO_SETTLE_DEFAULT_MS = 700;
+
+export function classifyInfoReply(rawBody: string, accountName: string): AccountInfo {
+  const s = stripFormat(rawBody);
+
+  // Nothing to classify — leave `registered` undefined ("couldn't
+  // determine") rather than asserting a state from an empty reply.
+  if (!s.trim()) return { accountName, rawBody: '' };
+
+  // Not registered — Anope's NICK_X_NOT_REGISTERED ("Nick X isn't
+  // registered.") / "is not a registered nickname". Single-line; no
+  // further block follows.
+  if (/\bisn'?t registered\b/i.test(s) || /\bis not a registered nickname\b/i.test(s)) {
+    return { accountName, registered: false, rawBody: s };
+  }
+
+  // From here on we have a real INFO block, so the nick IS registered.
+  // Prefer the server's own casing from the "Account: <name>" line.
+  const acctMatch = s.match(/\baccount:\s*(\S+)/i);
+  const resolvedName = acctMatch?.[1] ?? accountName;
+
+  // confirmed=false on any unconfirmed marker; otherwise a registered
+  // Anope nick with no such marker is confirmed (Anope always emits
+  // the nag for unconfirmed accounts, so its absence is reliable
+  // positive evidence here — see the services.ts account-unconfirmed
+  // table for the canonical phrasings).
+  const unconfirmed =
+    /\bis an unconfirmed nickname\b/i.test(s) ||
+    /\bemail address is not confirmed\b/i.test(s) ||
+    /\bwill expire, if not confirmed\b/i.test(s);
+
+  const emailMatch = s.match(/\bemail address:\s*(\S+@\S+)/i);
+  const registeredMatch = s.match(/\bregistered:\s*(.+?)(?:\s*\(|$)/im);
+  let registeredAt: number | undefined;
+  if (registeredMatch?.[1]) {
+    const parsed = Date.parse(registeredMatch[1].trim());
+    if (Number.isFinite(parsed)) registeredAt = parsed;
+  }
+
+  return {
+    accountName: resolvedName,
+    registered: true,
+    confirmed: !unconfirmed,
+    email: emailMatch?.[1],
+    registeredAt,
+    rawBody: s,
+  };
+}
+
+// runInfo fires `INFO <accountName>` and accumulates the reply block,
+// resolving to a parsed AccountInfo. Resolves early on "isn't
+// registered"; otherwise settles settleMs after the last line. On a
+// hard timeout with no lines at all, resolves with registered
+// undefined (we couldn't determine state — caller decides what to do).
+export function runInfo(
+  session: ServerSession,
+  myNick: string,
+  accountName: string,
+  classify: (rawBody: string, accountName: string) => AccountInfo = classifyInfoReply,
+  opts: { settleMs?: number; timeoutMs?: number } = {},
+): Promise<AccountInfo> {
+  const settleMs = opts.settleMs ?? INFO_SETTLE_DEFAULT_MS;
+  const timeoutMs = opts.timeoutMs ?? IDENTIFY_TIMEOUT_DEFAULT_MS;
+
+  return new Promise<AccountInfo>((resolve) => {
+    const lines: string[] = [];
+    let resolved = false;
+    let unsubscribe: () => void = () => {};
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    let hardTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const finish = (result: AccountInfo): void => {
+      if (resolved) return;
+      resolved = true;
+      unsubscribe();
+      if (settleTimer) clearTimeout(settleTimer);
+      if (hardTimer) clearTimeout(hardTimer);
+      resolve(result);
+    };
+
+    hardTimer = setTimeout(() => {
+      finish(lines.length ? classify(lines.join('\n'), accountName) : { accountName, rawBody: '' });
+    }, timeoutMs);
+
+    unsubscribe = session.onEvent((e: IrcEvent) => {
+      if (e.Kind !== 'NOTICE') return;
+      if (!isNickServSender(e.From)) return;
+      if (e.Target !== myNick) return;
+
+      const line = stripFormat(e.Message);
+      lines.push(line);
+
+      // "isn't registered" is a complete, single-line answer — no
+      // block follows, so resolve immediately rather than waiting out
+      // the settle window.
+      if (/\bisn'?t registered\b/i.test(line) || /\bis not a registered nickname\b/i.test(line)) {
+        finish(classify(lines.join('\n'), accountName));
+        return;
+      }
+
+      // Reset the quiet-period timer on every new line; resolve once
+      // the block stops arriving.
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => finish(classify(lines.join('\n'), accountName)), settleMs);
+    });
+
+    session.privmsg('NickServ', `INFO ${accountName}`);
+  });
 }
 
 // ---- IDENTIFY reply classification -------------------------------

@@ -28,6 +28,10 @@ type UserRepositoryImpl interface {
 	// User on success, or ErrNotFound / a unique-violation error if the
 	// new handle is taken.
 	UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error)
+	// UpdateUserSecretWraps updates the password and/or recovery wrap of the
+	// user_secret. A nil/empty slice leaves that column untouched. Returns the
+	// refreshed User, or ErrNotFound.
+	UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error)
 }
 
 type UserRepository struct {
@@ -76,6 +80,31 @@ func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func (r *UserRepository) UpdateUserSecretWraps(ctx context.Context, id uuid.UUID, passwordWrap, recoveryWrap []byte) (*User, error) {
+	updates := map[string]any{}
+	if len(passwordWrap) > 0 {
+		updates["encrypted_user_secret"] = passwordWrap
+	}
+	if len(recoveryWrap) > 0 {
+		updates["encrypted_user_secret_recovery"] = recoveryWrap
+	}
+	if len(updates) == 0 {
+		return nil, ErrNotFound
+	}
+	res := r.db.DB.WithContext(ctx).Model(&User{}).Where("id = ?", id).Updates(updates)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, ErrNotFound
+	}
+	var refreshed User
+	if err := r.db.DB.WithContext(ctx).Where("id = ?", id).First(&refreshed).Error; err != nil {
+		return nil, err
+	}
+	return &refreshed, nil
 }
 
 func (r *UserRepository) UpdateHandle(ctx context.Context, id uuid.UUID, newHandle string) (*User, error) {

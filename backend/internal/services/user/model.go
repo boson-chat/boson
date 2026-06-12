@@ -16,6 +16,10 @@ type User struct {
 	// Safe to expose to the authenticated user — only the holder of the
 	// platform password can decrypt it, and the JWT already proves identity.
 	EncryptedUserSecret []byte     `gorm:"not null" json:"encrypted_user_secret"`
+	// Second wrap of the same user_secret, keyed by a one-time recovery code.
+	// Nullable — present once the user enrolls a recovery code. Same
+	// owner-only / undecryptable-by-server trust model as EncryptedUserSecret.
+	EncryptedUserSecretRecovery []byte `json:"encrypted_user_secret_recovery,omitempty"`
 	HandleChangedAt     *time.Time `json:"handle_changed_at,omitempty"`
 	CreatedAt           time.Time  `gorm:"not null;default:now()" json:"created_at"`
 }

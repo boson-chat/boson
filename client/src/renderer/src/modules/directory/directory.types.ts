@@ -72,5 +72,38 @@ export interface User {
   display_name?: string;
   is_discoverable: boolean;
   encrypted_user_secret: string; // base64
+  // Second wrap of user_secret keyed by the recovery code; absent until the
+  // user has enrolled one. base64.
+  encrypted_user_secret_recovery?: string;
   created_at: string;
+}
+
+// ---- NickClaim (automated NickServ email-confirmation flow) ---------
+
+export interface NickClaimCreateResponse {
+  id: string;
+  email: string;
+}
+
+export type NickClaimStatus = 'pending' | 'captured' | 'consumed' | 'expired';
+
+export interface NickClaimPollResponse {
+  status: NickClaimStatus;
+  // Only present when status is 'captured' or 'consumed'.
+  code?: string;
+}
+
+// ---- NickServ secret sync (E2E-encrypted password storage) ----------
+
+// One per-(user, server) ciphertext blob as returned by the backend. The
+// ciphertext is opaque — produced by encryptCreds() on the client; only the
+// client (holding user_secret) can decrypt it.
+export interface NickservSecretDTO {
+  server_id: string;
+  ciphertext: string; // base64
+  updated_at: string; // RFC3339
+}
+
+export interface NickservSecretsListResponse {
+  secrets: NickservSecretDTO[];
 }
