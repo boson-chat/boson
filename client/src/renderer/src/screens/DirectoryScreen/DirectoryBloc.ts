@@ -1,5 +1,6 @@
 import type { AuthService } from '../../modules/auth';
 import { ChatService, type ChatState } from '../../modules/chat';
+import { PresenceService } from '../../modules/chat/presence.service';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
 import type { DirectoryService, Server, User } from '../../modules/directory';
 import type { EngineClient, EngineState, ServerSession } from '../../modules/engine';
@@ -48,6 +49,7 @@ interface Connection {
   error: string | null;
   unsubscribeState: () => void;
   unsubscribeChat: () => void;
+  unsubscribePresence: () => void;
 }
 
 interface AutoReconnectState {
@@ -1070,7 +1072,24 @@ export class DirectoryBloc {
       error: null,
       unsubscribeState: () => {},
       unsubscribeChat: () => {},
+      unsubscribePresence: () => {},
     };
+
+    // Presence: publish our IRC identity for this connection + resolve other
+    // members into profile images (avatar cache). No-ops while signed-out /
+    // before the network name is known. Falls back to the server hostname as
+    // the cross-client network key when the server sends no NETWORK= token.
+    conn.unsubscribePresence = new PresenceService(
+      chat,
+      {
+        publishPresence: (input) => this.directory.publishPresence(input),
+        lookupPresence: (network, members) => this.directory.lookupPresence(network, members),
+        ownAvatarUrl: () => this.me?.avatar_url,
+      },
+      server.id,
+      server.hostname,
+      () => !this.guestNick && this.getUserId() !== null,
+    ).start();
 
     // Per-server engine state subscription. The ServerSession's first
     // notification fires synchronously with the current state ('connecting'
@@ -1185,6 +1204,7 @@ export class DirectoryBloc {
   private teardownConnection(c: Connection, opts: { sendDisconnect: boolean }): void {
     c.unsubscribeState();
     c.unsubscribeChat();
+    c.unsubscribePresence();
     c.chat.detach();
     if (opts.sendDisconnect && !c.session.isDisposed()) {
       c.session.disconnect();

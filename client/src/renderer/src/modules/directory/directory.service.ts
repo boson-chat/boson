@@ -4,6 +4,7 @@ import type {
   NickClaimPollResponse,
   NickservSecretDTO,
   NickservSecretsListResponse,
+  PresenceMatch,
   RegisterServerInput,
   Server,
   ServerWithToken,
@@ -86,6 +87,21 @@ export class DirectoryService {
   // Remove the caller's profile image. Returns the refreshed user.
   async deleteAvatar(): Promise<User> {
     return this.http.delete<User>('/me/avatar');
+  }
+
+  // Publish our current IRC identity on a network so other Boson clients can
+  // detect us. Fire-and-forget (204).
+  async publishPresence(input: { network: string; nick: string; host?: string; account?: string }): Promise<void> {
+    await this.http.put<void>('/me/presence', input);
+  }
+
+  // Resolve which of the observed channel members are Boson members.
+  async lookupPresence(
+    network: string,
+    members: Array<{ nick: string; host?: string; account?: string }>,
+  ): Promise<PresenceMatch[]> {
+    const res = await this.http.post<{ matches: PresenceMatch[] }>('/presence/lookup', { network, members });
+    return res?.matches ?? [];
   }
 
   // Destructive: drops the caller's user row + cascades through user_server_links

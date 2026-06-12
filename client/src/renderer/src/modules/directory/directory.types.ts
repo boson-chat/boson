@@ -66,6 +66,15 @@ export interface ServersResponse {
   count: number;
 }
 
+// A Boson member resolved from a presence lookup — what the client needs to
+// render their identity on a nick it saw in a channel.
+export interface PresenceMatch {
+  nick: string;
+  handle: string;
+  display_name?: string;
+  avatar_url?: string;
+}
+
 export interface User {
   id: string;
   handle: string;
