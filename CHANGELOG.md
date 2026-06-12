@@ -1,3 +1,9 @@
+## [0.15.0](https://github.com/boson-chat/boson/compare/v0.14.0...v0.15.0) (2026-06-12)
+
+### Features
+
+* **client:** split Inbox into Messages/Mentions tabs; fix MemoServ READ body parsing ([13b9dc3](https://github.com/boson-chat/boson/commit/13b9dc3456326fba2112dfe25a1bbacdd809e286)), closes [#channel](https://github.com/boson-chat/boson/issues/channel)
+
 ## [0.14.0](https://github.com/boson-chat/boson/compare/v0.13.1...v0.14.0) (2026-06-12)
 
 ### Features
