@@ -1,3 +1,9 @@
+## [0.13.0](https://github.com/boson-chat/boson/compare/v0.12.0...v0.13.0) (2026-06-12)
+
+### Features
+
+* E2E-encrypted NickServ password sync + recovery code, secure creds store, IRC services fixes ([#1](https://github.com/boson-chat/boson/issues/1)) ([aa1d280](https://github.com/boson-chat/boson/commit/aa1d280c56121742c7bb5bf92d315fa31159cceb))
+
 ## [0.12.0](https://github.com/boson-chat/boson/compare/v0.11.0...v0.12.0) (2026-06-01)
 
 ### Features
