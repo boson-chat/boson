@@ -3,6 +3,7 @@ import { useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
 import { subscribeDeepLink } from '../../modules/deep-link/deep-link';
+import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import type { EngineClient, EngineState } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
@@ -79,6 +80,21 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
   useEffect(() => {
     return subscribeDeepLink((params) => {
       void bloc.joinFromDeepLink(params);
+    });
+  }, [bloc]);
+
+  // Inbox click-through: focus the entry's server + open the conversation.
+  useEffect(() => {
+    return subscribeOpenConversation(({ serverId, target }) => {
+      bloc.openConversation(serverId, target);
+    });
+  }, [bloc]);
+
+  // Inbox memo open: fetch the memo body on demand (issues READ <n> to
+  // the originating server) without leaving the inbox.
+  useEffect(() => {
+    return subscribeReadMemo(({ serverId, memoIndex }) => {
+      bloc.readMemo(serverId, memoIndex);
     });
   }, [bloc]);
 

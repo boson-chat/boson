@@ -718,7 +718,7 @@ describe('ChatService — NickServ reply → account status', () => {
     });
   });
 
-  it('NickServ NOTICE still flows to the ~server pseudo-channel for the audit trail', () => {
+  it('a recognized NickServ reply updates status and stays in ~server (transactional, NOT the Inbox)', () => {
     const { chat, session } = chatFor();
     session.emit(ev({
       Kind: 'NOTICE',
@@ -726,11 +726,12 @@ describe('ChatService — NickServ reply → account status', () => {
       Target: 'me',
       Message: 'You are now identified for alice.',
     }));
-    const channels = chat.getState().channels;
-    const serverCh = channels.find((c) => c.name === '~server');
-    expect(serverCh).toBeDefined();
-    const fromNickServ = serverCh!.messages.filter((m) => m.from.toLowerCase() === 'nickserv');
+    // Status classifier ran…
+    expect(store.get('srv-test')?.status).toBe('identified');
+    // …and because it's a *recognized* (transactional) reply, it's treated as
+    // connect/auth noise: kept in the ~server log, NOT routed to the Inbox.
+    const serverCh = chat.getState().channels.find((c) => c.name === '~server');
+    const fromNickServ = serverCh?.messages.filter((m) => m.from.toLowerCase() === 'nickserv') ?? [];
     expect(fromNickServ.length).toBe(1);
-    expect(fromNickServ[0]?.text).toContain('You are now identified');
   });
 });

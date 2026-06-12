@@ -15,6 +15,7 @@ import { UserSettings } from './screens/UserSettings/UserSettings';
 import { Inbox } from './screens/Inbox/Inbox';
 import { loadGuestSession, onGuestChange, type GuestSession } from './modules/guest/guest';
 import { getMemoStore, type Memo } from './modules/memos';
+import { publishOpenConversation, publishReadMemo } from './modules/inbox-nav/inbox-nav';
 
 interface AppProps {
   auth: AuthService;
@@ -85,7 +86,20 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         identity={identity}
         auth={auth}
       />
-      <Inbox open={inboxOpen} memos={memos} onClose={() => setInboxOpen(false)} />
+      <Inbox
+        open={inboxOpen}
+        memos={memos}
+        onClose={() => setInboxOpen(false)}
+        onOpen={(m) => {
+          setInboxOpen(false);
+          publishOpenConversation({ serverId: m.serverId, target: m.kind === 'dm' ? m.sender : null });
+        }}
+        onReadMemo={(m) => {
+          // Stay in the inbox; fetch the body in place. The store update
+          // re-renders this row with the fetched text.
+          if (m.memoIndex != null) publishReadMemo({ serverId: m.serverId, memoIndex: m.memoIndex });
+        }}
+      />
     </div>
   );
 }

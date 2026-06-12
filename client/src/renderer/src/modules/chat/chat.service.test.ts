@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChatService } from './chat.service';
+import { SERVICE_CHANNEL } from './services';
 import type { EventListener, IrcEvent, ServerSession } from '../engine';
 import { MemoryChatHistoryStore } from '../history';
 
@@ -368,16 +369,18 @@ describe('ChatService', () => {
     expect(dm!.messages.at(-1)!.text).toBe('psst');
   });
 
-  it('NOTICE from a service routes to the ~server pseudo-channel, tagged kind=notice', () => {
+  it('NOTICE from a service lands in the ~server log, not a DM-shaped channel', () => {
     const { chat, engine } = makeChat('me');
     engine.emit(makeEvent({ Kind: 'NOTICE', From: 'NickServ', Target: 'me', Message: 'identified' }));
 
-    // No DM-shaped 'NickServ' channel — service notices land in `~server`.
-    expect(chat.getState().channels.find((c) => c.name === 'NickServ')).toBeUndefined();
-    const ch = chat.getState().channels.find((c) => c.name === '~server')!;
-    expect(ch).toBeDefined();
-    expect(ch.messages.at(-1)!.kind).toBe('notice');
-    expect(ch.messages.at(-1)!.from).toBe('NickServ');
+    // Service chatter (other than MemoServ memos) is transactional: it goes to
+    // the quiet ~server pseudo-channel, NOT a per-service DM-shaped channel and
+    // NOT the global Inbox (the Inbox is MemoServ memos + real DMs only — see
+    // chat.service.memos.test.ts).
+    const chans = chat.getState().channels;
+    expect(chans.find((c) => c.name === 'NickServ')).toBeUndefined();
+    const serverCh = chans.find((c) => c.name === SERVICE_CHANNEL);
+    expect(serverCh?.messages.some((m) => m.from === 'NickServ' && m.text === 'identified')).toBe(true);
   });
 
   it('NOTICE with target="*" lands in ~server, NOT a real chat channel', () => {
@@ -406,7 +409,9 @@ describe('ChatService', () => {
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
     chat.setActive('#general');
     chat.setForeground(true);
-    engine.emit(makeEvent({ Kind: 'NOTICE', From: 'NickServ', Target: 'me', Message: 'hi me' }));
+    // A server-wildcard notice populates ~server (service messages addressed
+    // to us now route to the Inbox, so use the wildcard path here).
+    engine.emit(makeEvent({ Kind: 'NOTICE', From: 'server.example', Target: '*', Message: 'hi' }));
     const ch = chat.getState().channels.find((c) => c.name === '~server')!;
     expect(ch.unread).toBe(0);
     expect(ch.mentions).toBe(0);

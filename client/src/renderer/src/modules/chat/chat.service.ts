@@ -66,7 +66,15 @@ export type ResumeConfirmResult =
   | { kind: 'expired' }
   | { kind: 'unavailable'; reason: string }
   | { kind: 'failed'; reason: string };
-import { getMemoStore } from '../memos';
+import {
+  getMemoStore,
+  type MemoKind,
+  parseNewMemoCount,
+  isNoMemos,
+  parseListEntry,
+  parseReadHeader,
+  isReadChrome,
+} from '../memos';
 import type {
   ChannelDirectory,
   ChatChannel,
@@ -101,7 +109,9 @@ export type ChatListener = (state: ChatState) => void;
 // disabled — keeping the legacy two-arg constructor behaviour intact.
 export interface ChatPersistence {
   history: ChatHistoryStore;
-  scope: { userId: string; serverId: string };
+  // serverName is optional display sugar — used to attribute Inbox entries
+  // with a human name instead of the raw serverId. Falls back to serverId.
+  scope: { userId: string; serverId: string; serverName?: string };
 }
 
 // ChatFeedback is out-of-band UI signaling driven by slash commands.
@@ -318,6 +328,19 @@ export class ChatService {
   }
 
   setNick(nick: string): void { this.myNick = nick; }
+
+  // Adopt the server-confirmed nick from a welcome-band numeric (001/004),
+  // whose Target is the nick the server actually assigned us. No-op when
+  // it's empty or unchanged. Keeps the AccountService impls (which cache
+  // myNick for their NickServ-reply matching) in sync too.
+  private syncMyNickFromNumeric(target: string | undefined): void {
+    const nick = (target ?? '').trim();
+    if (!nick || nick === '*' || nick === this.myNick) return;
+    this.myNick = nick;
+    this.anopeAccountService?._setMyNick(nick);
+    this.athemeAccountService?._setMyNick(nick);
+    this.ergoAccountService?._setMyNick(nick);
+  }
 
   // Called by DirectoryBloc when the user switches into/out of viewing this
   // server. When flipping to foreground, the currently-active channel
@@ -859,20 +882,104 @@ export class ChatService {
   // We don't parse the body — Atheme + Anope wrap memo events in
   // different banner formats and they evolve across versions. Storing
   // verbatim keeps the surface forward-compatible.
-  private maybeStoreMemo(from: string, body: string): void {
+  private storeInboxEntry(from: string, body: string, kind: MemoKind): void {
     if (!body) return;
     const serverId = this.persistence?.scope.serverId ?? '';
     getMemoStore().append({
       serverId,
-      // Server name is intentionally not stored here — the Inbox UI
-      // looks it up from the bloc's connections list by serverId so
-      // a rename in the directory propagates without a memo rewrite.
-      // The `serverName` field on Memo is left as the fallback (the
-      // serverId itself) for cases where the lookup misses.
-      serverName: serverId,
-      text: from ? `<${from}> ${body}` : body,
+      // Prefer the human server name (passed in the persistence scope);
+      // fall back to the serverId so an entry is never unattributed.
+      serverName: this.persistence?.scope.serverName || serverId,
+      sender: from,
+      kind,
+      text: body,
       timestamp: Date.now(),
     });
+  }
+
+  // ---- MemoServ structured handling -------------------------------------
+  // MemoServ output is turned into structured Inbox entries (not raw text).
+  // The flow, built from real Anope + Atheme captures (see memo.parse.ts):
+  //   1. On login the service NOTICEs "You have N new memos." → we auto-
+  //      issue LIST. LIST is NON-destructive: it does NOT mark anything
+  //      read, so memos stay unread server-side until the user opens one.
+  //   2. LIST rows → one upserted Inbox entry per memo (sender, date,
+  //      index, unread), deduped so reconnect re-LISTs don't pile up.
+  //   3. readMemo() (user opens an unread entry) issues READ <n>; the
+  //      reply body is captured here and fills the entry — the ONLY point
+  //      a memo gets marked read server-side, by explicit user action.
+
+  // Cooldown so a burst of duplicate "you have N memos" notices (or a
+  // reconnect) doesn't fire LIST in a loop.
+  private memoListCooldownUntil = 0;
+  // In-progress READ body capture: header seen, collecting body lines.
+  private memoReading: { index: number; lines: string[] } | null = null;
+
+  // Strip Anope's trailing relative-time suffix ("(14 seconds ago)"),
+  // which drifts between LISTs and would break dedup. The absolute
+  // timestamp before it is stable; Atheme has no such suffix.
+  private static normalizeMemoDate(date: string): string {
+    return date.replace(/\s*\([^)]*ago\)\s*$/i, '').trim();
+  }
+
+  private handleMemoServ(body: string): void {
+    const serverId = this.persistence?.scope.serverId;
+    if (!serverId) return;
+    const store = getMemoStore();
+    const now = Date.now();
+
+    // (1) New-memo notice → auto-LIST (cooldown-guarded, non-destructive).
+    const newCount = parseNewMemoCount(body);
+    if (newCount !== null) {
+      if (newCount > 0 && now >= this.memoListCooldownUntil) {
+        this.memoListCooldownUntil = now + 10_000;
+        this.memoReading = null;
+        this.session.privmsg('MemoServ', 'LIST');
+      }
+      return;
+    }
+    if (isNoMemos(body)) { this.memoReading = null; return; }
+
+    // (2) READ output: a header starts body capture; subsequent non-chrome
+    // lines are the body. Reset points: a new header, a count notice, or a
+    // fresh readMemo() — so a stray later line can't bleed into a memo.
+    const header = parseReadHeader(body);
+    if (header) {
+      this.memoReading = { index: header.index, lines: [] };
+      return;
+    }
+    if (this.memoReading) {
+      if (!isReadChrome(body)) {
+        this.memoReading.lines.push(body);
+        store.fillMemoBody(serverId, this.memoReading.index, this.memoReading.lines.join('\n'));
+      }
+      return;
+    }
+
+    // (3) LIST rows → upsert structured entries (deduped by sender+date).
+    const row = parseListEntry(body);
+    if (row) {
+      store.upsertMemo({
+        serverId,
+        serverName: this.persistence?.scope.serverName || serverId,
+        sender: row.sender,
+        kind: 'memo',
+        text: '',
+        memoIndex: row.index,
+        memoDate: ChatService.normalizeMemoDate(row.date),
+        bodyFetched: false,
+        read: !row.unread,
+        timestamp: now,
+      });
+    }
+  }
+
+  // Fetch a memo's body on demand (Inbox open of an unread memo). Issues
+  // READ <n>; handleMemoServ captures the reply + fills the entry. This is
+  // the only place a memo is marked read server-side — by user action.
+  readMemo(memoIndex: number): void {
+    this.memoReading = null;
+    this.session.privmsg('MemoServ', `READ ${memoIndex}`);
   }
 
   // Pipe a NickServ NOTICE body through the classifier. On a hit,
@@ -885,11 +992,14 @@ export class ChatService {
   //
   // Silent no-op when persistence isn't configured (no stable
   // serverId to key by) or when the body doesn't match any pattern.
-  private maybeUpdateAccountStatus(body: string): void {
-    const serverId = this.persistence?.scope.serverId;
-    if (!serverId) return;
+  // Returns true if the body was a recognized NickServ reply (i.e. it
+  // classified). Callers use that to treat transactional NickServ chatter as
+  // connect-noise — keeping it out of the Inbox.
+  private maybeUpdateAccountStatus(body: string): boolean {
     const kind = classifyNickServReply(body);
-    if (!kind) return;
+    if (!kind) return false;
+    const serverId = this.persistence?.scope.serverId;
+    if (!serverId) return true;
 
     // Side-effect-only kinds run BEFORE we filter on "did we get a
     // persisted-status mapping?" — they want to fire a follow-up
@@ -928,7 +1038,7 @@ export class ChatService {
         ...existing,
         resendCooldownUntil: Date.now() + 5 * 60 * 1000,
       });
-      return;
+      return true;
     }
 
     // NOTE: 'service-confirm-replay' used to dispatch the inline
@@ -942,7 +1052,7 @@ export class ChatService {
     // respective AccountService impls in Steps 4 and 7.
 
     const rawNextStatus = nickServReplyToStatus(kind);
-    if (!rawNextStatus) return;
+    if (!rawNextStatus) return true;
     const store = getServiceCredentialsStore();
     const existing = store.get(serverId) ?? {};
 
@@ -956,7 +1066,7 @@ export class ChatService {
         accountName: existing.accountName,
         status: 'no-account',
       });
-      return;
+      return true;
     }
 
     // Context-aware promotion / preservation:
@@ -1035,6 +1145,7 @@ export class ChatService {
       const acct = existing.accountName || this.myNick;
       this.session.privmsg('NickServ', getAdapter(this.servicesFramework).buildInfo(acct).replace(/^\/msg NickServ\s+/i, ''));
     }
+    return true;
   }
 
   // input() is the single entrypoint for the chat input box. Plain text goes
@@ -1406,40 +1517,49 @@ export class ChatService {
         const isToMe = t === this.myNick;
         const isChannel = t.startsWith('#') || t.startsWith('&');
         const isWildcard = isServerWildcardTarget(t);
-        // Drop anything that isn't a channel, addressed to us, or a known
-        // pre-registration server target (*, AUTH). Those slip through to
-        // the dev-tools server log via appendServerLog above, which is
-        // the right home for genuine wire noise.
-        if (!isToMe && !isChannel && !isWildcard) return;
-        // MemoServ NOTICEs ("You have 2 new memos", individual memo
-        // bodies, etc.) get pulled out of the per-server chat stream
-        // and pushed into the global cross-server Inbox. The user has
-        // ONE inbox regardless of which network the memo came from.
-        // We deliberately don't try to parse Atheme vs Anope banner
-        // formats here — the inbox renders the verbatim text, with
-        // server attribution. Skip the appendServerLog routing too so
-        // the ~server channel stays focused on NickServ / ChanServ
-        // chatter.
-        if (isToMe && isMemoServSender(e.From)) {
-          this.maybeStoreMemo(e.From, e.Message);
-          return;
-        }
-        // NickServ NOTICEs feed into the Services panel's status
-        // indicator. We classify the body against a small phrase
-        // table (see `classifyNickServReply`) and persist the result
-        // to the credentials store, where the UI subscribes. The
-        // message itself still flows through to the ~server pseudo-
-        // channel via the normal routing below — we want the audit
-        // trail visible to the user, not hidden behind a status
-        // badge.
-        if (isToMe && isNickServSender(e.From)) {
+        // Drop anything that isn't a channel, addressed to us, a known
+        // pre-registration server target (*, AUTH), or from a service. Those
+        // slip through to the dev-tools server log via appendServerLog above,
+        // which is the right home for genuine wire noise.
+        //
+        // Service senders (NickServ/MemoServ/ChanServ/server-host) are kept
+        // even when the target doesn't equal myNick: a service only ever
+        // messages YOU directly (never a channel, never a third party), so a
+        // service NOTICE we received is by definition for us. This makes
+        // memo/status handling robust to a stale myNick (e.g. a collision
+        // rename Nyan→Nyan2 the welcome-numeric sync somehow missed) — without
+        // it, every MemoServ reply gets dropped right here.
+        if (!isToMe && !isChannel && !isWildcard && !isServiceSender(e.From)) return;
+        // Inbox routing uses an ALLOWLIST, not a denylist. The Inbox is for
+        // things you read asynchronously and addressed-to-you: MemoServ memos
+        // and real-user DMs (the DM mirror is further down). Everything else a
+        // service sends — NickServ identify/confirm replies, ChanServ chatter,
+        // the multi-line INFO/HELP dumps and CTCP "unknown command" rejections
+        // that flood in on connect — is transactional and belongs in the quiet
+        // ~server log, read in context. Trying to denylist every shape of that
+        // connect noise was leaky (HELP/INFO dumps slipped through), so we only
+        // ever promote MemoServ to the Inbox.
+        //
+        // NickServ replies still feed the account-status classifier (the
+        // Services panel badge subscribes to it) — they just don't land in the
+        // Inbox; they fall through to ~server below.
+        // Service handling is NOT gated on isToMe: a NickServ/MemoServ NOTICE
+        // we receive is always for us (see the drop guard above). Gating on
+        // myNick here is exactly what silently broke memos on a renamed
+        // connection.
+        if (isNickServSender(e.From)) {
           this.maybeUpdateAccountStatus(e.Message);
+        }
+        if (isMemoServSender(e.From)) {
+          this.handleMemoServ(e.Message);
+          // Fall through: the raw MemoServ line still lands in the quiet
+          // ~server log (operational/debug). The *structured* memo goes to
+          // the Inbox via handleMemoServ — that's what the user reads.
         }
         // Decide which UI channel this message belongs in:
         //   - real channel (#foo): keep the original target
-        //   - DM from a service (NickServ, server-source): pseudo `~server`
+        //   - service / server-host / wildcard: pseudo `~server` (quiet log)
         //   - DM from a real user: virtual channel keyed by the sender
-        //   - pre-reg server notice (target=*): pseudo `~server`
         const channel = isChannel
           ? t
           : (isServiceSender(e.From) || isWildcard ? SERVICE_CHANNEL : e.From);
@@ -1466,6 +1586,13 @@ export class ChatService {
           text,
           timestamp: Date.now(),
         });
+        // Mirror real-user DMs (1:1, addressed to us, not a channel, not the
+        // server-wildcard pseudo-channel, not our own echo) into the Inbox so
+        // it holds everything addressed to the user. Unlike services these
+        // STAY visible as a chat conversation too.
+        if (isToMe && !isChannel && !isWildcard && !isServiceSender(e.From) && e.From !== this.myNick) {
+          this.storeInboxEntry(e.From, text, 'dm');
+        }
         break;
       }
       case 'JOIN': {
@@ -1754,8 +1881,23 @@ export class ChatService {
         this.emit();
         break;
       }
+      case '001': {
+        // RPL_WELCOME — the first parameter (Target) is the nick the server
+        // actually registered us under, which can differ from the one we
+        // requested (collision → Nyan2, server case-folding, enforced
+        // length, …). Sync myNick so all `isToMe` routing — DM mirroring,
+        // mentions, and NickServ/MemoServ handling — keys off our REAL nick
+        // instead of the stale requested one. Without this, a renamed
+        // connection silently drops every service reply (memos never fill,
+        // DMs never mirror). See also the 004 sync below as a backstop.
+        this.syncMyNickFromNumeric(e.Target);
+        break;
+      }
       case '004': {
         // RPL_MYINFO — engine forwards Args = [serverName, version].
+        // Target is our nick; sync it here too as a backstop in case 001
+        // wasn't surfaced (some daemons/engines coalesce the welcome burst).
+        this.syncMyNickFromNumeric(e.Target);
         const args = e.Args ?? [];
         const next: ServerInfo = { ...this.serverInfo };
         if (args[0]) next.serverName = args[0];

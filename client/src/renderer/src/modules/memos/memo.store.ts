@@ -29,6 +29,19 @@ export interface MemoStore {
   // correlate later (e.g. a parser that lifts the sender out of the
   // body could update the entry, future feature).
   append(input: Omit<Memo, 'id' | 'read'>): string;
+  // Insert-or-update a structured MemoServ entry, deduped on
+  // (serverId, sender, memoDate). Called repeatedly from LIST output —
+  // reconnects re-LIST the same memos, so a plain append would pile up
+  // duplicates. On a match we refresh the (shifting) memoIndex and keep
+  // the existing read state + any already-fetched body. Returns the id.
+  upsertMemo(input: Omit<Memo, 'id'>): string;
+  // Fill a memo's body once it's been fetched via `READ <n>`, matched by
+  // (serverId, memoIndex). Sets `text` + `bodyFetched = true`. No-op if
+  // no matching entry exists.
+  fillMemoBody(serverId: string, memoIndex: number, body: string): void;
+  // Remove a single entry by id (the Inbox per-row dismiss). No-op if
+  // the id isn't present.
+  remove(id: string): void;
   // Mark every memo as read. Called from the Inbox UI on open. No-op
   // if nothing was unread.
   markAllRead(): void;
@@ -102,6 +115,56 @@ export class LocalStorageMemoStore implements MemoStore {
     return id;
   }
 
+  upsertMemo(input: Omit<Memo, 'id'>): string {
+    const existing = this.memos.find(
+      (m) => m.kind === 'memo'
+        && m.serverId === input.serverId
+        && m.sender === input.sender
+        && m.memoDate === input.memoDate,
+    );
+    if (existing) {
+      // Refresh the volatile index; preserve read state + fetched body.
+      this.memos = this.memos.map((m) =>
+        m.id === existing.id
+          ? {
+              ...m,
+              memoIndex: input.memoIndex,
+              serverName: input.serverName || m.serverName,
+              // Keep a body we already fetched; otherwise take the input's.
+              text: m.bodyFetched ? m.text : input.text,
+              bodyFetched: m.bodyFetched || Boolean(input.bodyFetched),
+            }
+          : m,
+      );
+      this.save();
+      this.emit();
+      return existing.id;
+    }
+    const id = `${input.serverId}:${input.timestamp}:${this.nextLocalSeq++}`;
+    const memo: Memo = { ...input, id };
+    this.memos = [...this.memos, memo];
+    if (this.memos.length > MAX_ENTRIES) {
+      this.memos = this.memos.slice(this.memos.length - MAX_ENTRIES);
+    }
+    this.save();
+    this.emit();
+    return id;
+  }
+
+  fillMemoBody(serverId: string, memoIndex: number, body: string): void {
+    let changed = false;
+    this.memos = this.memos.map((m) => {
+      if (m.kind === 'memo' && m.serverId === serverId && m.memoIndex === memoIndex && !m.bodyFetched) {
+        changed = true;
+        return { ...m, text: body, bodyFetched: true };
+      }
+      return m;
+    });
+    if (!changed) return;
+    this.save();
+    this.emit();
+  }
+
   markAllRead(): void {
     let changed = false;
     this.memos = this.memos.map((m) => {
@@ -110,6 +173,14 @@ export class LocalStorageMemoStore implements MemoStore {
       return { ...m, read: true };
     });
     if (!changed) return;
+    this.save();
+    this.emit();
+  }
+
+  remove(id: string): void {
+    const next = this.memos.filter((m) => m.id !== id);
+    if (next.length === this.memos.length) return; // not found — no-op
+    this.memos = next;
     this.save();
     this.emit();
   }

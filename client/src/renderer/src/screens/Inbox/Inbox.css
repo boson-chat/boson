@@ -62,9 +62,8 @@
 
 .inbox-row {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
+  flex-direction: row;
+  align-items: stretch;
   border-top: 1px solid var(--border-soft);
   border-left: 2px solid transparent;
 }
@@ -75,14 +74,63 @@
   background: color-mix(in oklab, var(--accent) 6%, var(--surface));
 }
 
+/* Clickable body of the row — jumps to the conversation. Button reset. */
+.inbox-row-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.inbox-row-open:hover { background: color-mix(in oklab, var(--accent) 9%, transparent); }
+
+/* Per-row dismiss (×). */
+.inbox-row-dismiss {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-right: var(--space-2);
+  width: 1.6rem;
+  height: 1.6rem;
+  border: none;
+  border-radius: var(--radius-xs, 3px);
+  background: none;
+  color: var(--fg-3);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.inbox-row-dismiss:hover { background: var(--surface-2, rgba(127,127,127,0.16)); color: var(--fg); }
+
 .inbox-row-meta {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
+.inbox-row-sender {
+  color: var(--fg);
+  font-weight: 600;
+}
+.inbox-row-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.7rem;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs, 3px);
+  background: var(--surface-2, rgba(127, 127, 127, 0.14));
+  color: var(--fg-3);
+}
+.inbox-row-kind-service { color: var(--warn, #c79); }
+.inbox-row-kind-dm { color: var(--accent, #6ae); }
 .inbox-row-server {
   color: var(--fg-2);
   font-weight: 600;
@@ -90,6 +138,7 @@
 }
 .inbox-row-time {
   color: var(--fg-3);
+  margin-left: auto;
 }
 
 .inbox-row-text {
@@ -99,4 +148,10 @@
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Deferred memo body — shown until the user opens it (which issues READ). */
+.inbox-row-placeholder {
+  font-style: italic;
+  color: var(--muted);
 }

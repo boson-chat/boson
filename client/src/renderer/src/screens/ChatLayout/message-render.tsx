@@ -241,13 +241,24 @@ export function MessageList({ messages, members, myNick, scrollRef, nickActions,
   useEffect(() => {
     freshnessBaseline.current = Date.now();
   }, [channelName]);
+  const items = buildRenderItems(messages);
+  // Track the previous *rendered chat message* for the grouping decision.
+  // Reset across a collapsed activity block so a message that follows a
+  // join/quit burst always starts a fresh group (the block is a visual
+  // separator).
+  let prevMsg: ChatMessage | null = null;
   return (
     <div class="chat-messages" ref={scrollRef}>
       <div class="messages-inner">
-        {messages.map((m, idx) => {
-          const prev = idx > 0 ? messages[idx - 1]! : null;
-          const grouped = shouldGroup(prev, m);
+        {items.map((item) => {
+          if (item.type === 'activity') {
+            prevMsg = null;
+            return <ActivityGroup key={item.id} items={item.items} />;
+          }
+          const m = item.msg;
+          const grouped = shouldGroup(prevMsg, m);
           const isFresh = m.timestamp > freshnessBaseline.current;
+          prevMsg = m;
           return (
             <MessageRow
               key={m.id}
@@ -261,6 +272,102 @@ export function MessageList({ messages, members, myNick, scrollRef, nickActions,
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// Membership churn (join/part/quit) and repeated self-join system lines are
+// noise that drowns real conversation — especially after reconnects or app
+// restarts, where history replay can stack dozens of identical "You joined #x"
+// lines. We fold consecutive runs of these into a single collapsible summary
+// once a run gets long enough; short bursts (a couple of joins) still render
+// inline so a quiet channel reads naturally.
+const ACTIVITY_KINDS: ReadonlySet<ChatMessage['kind']> = new Set(['join', 'part', 'quit', 'system']);
+// Runs shorter than this render inline (unchanged); this-or-longer collapse.
+export const ACTIVITY_COLLAPSE_MIN = 4;
+
+export type RenderItem =
+  | { type: 'msg'; msg: ChatMessage }
+  | { type: 'activity'; id: string; items: ChatMessage[] };
+
+// Walk the message list and fold long consecutive runs of activity-kind
+// messages into a single `activity` item. Everything else (and short runs)
+// passes through as individual `msg` items, preserving the existing
+// per-message rendering + grouping.
+export function buildRenderItems(
+  messages: readonly ChatMessage[],
+  collapseMin: number = ACTIVITY_COLLAPSE_MIN,
+): RenderItem[] {
+  const out: RenderItem[] = [];
+  let run: ChatMessage[] = [];
+  const flush = () => {
+    if (run.length === 0) return;
+    if (run.length >= collapseMin) {
+      out.push({ type: 'activity', id: `activity-${run[0]!.id}`, items: run });
+    } else {
+      for (const m of run) out.push({ type: 'msg', msg: m });
+    }
+    run = [];
+  };
+  for (const m of messages) {
+    if (ACTIVITY_KINDS.has(m.kind)) {
+      run.push(m);
+    } else {
+      flush();
+      out.push({ type: 'msg', msg: m });
+    }
+  }
+  flush();
+  return out;
+}
+
+// Coalesce identical adjacent activity texts into {text, count} so a wall of
+// "You joined ##frontend" renders as one line ×40 rather than forty rows.
+export function coalesceActivity(items: readonly ChatMessage[]): Array<{ text: string; count: number }> {
+  const out: Array<{ text: string; count: number }> = [];
+  for (const m of items) {
+    const last = out[out.length - 1];
+    if (last && last.text === m.text) last.count += 1;
+    else out.push({ text: m.text, count: 1 });
+  }
+  return out;
+}
+
+// Collapsed summary for an activity run: a one-line teaser ("<first> · and N
+// more") that expands on click into the full coalesced list.
+function ActivityGroup({ items }: { items: ChatMessage[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const lines = coalesceActivity(items);
+  const total = items.length;
+  const first = lines[0]!;
+  const firstLabel = first.count > 1 ? `${first.text} ×${first.count}` : first.text;
+  const remaining = total - first.count;
+  return (
+    <div class={`message-activity ${expanded ? 'message-activity-expanded' : ''}`}>
+      <button
+        type="button"
+        class="message-activity-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span class="message-activity-caret" aria-hidden="true">{expanded ? '▾' : '▸'}</span>
+        {expanded ? (
+          <span class="message-activity-summary">{total} channel events</span>
+        ) : (
+          <span class="message-activity-summary">
+            {firstLabel}{remaining > 0 ? ` · and ${remaining} more` : ''}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div class="message-activity-lines">
+          {lines.map((l, i) => (
+            <div key={i} class="message-system message-activity-line">
+              <span class="sys-text">{l.text}{l.count > 1 ? ` ×${l.count}` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

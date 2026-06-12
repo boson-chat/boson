@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldGroup } from './message-render';
+import { shouldGroup, buildRenderItems, coalesceActivity, ACTIVITY_COLLAPSE_MIN } from './message-render';
 import type { ChatMessage } from '../../modules/chat';
 
 function msg(overrides: Partial<ChatMessage>): ChatMessage {
@@ -48,5 +48,68 @@ describe('shouldGroup', () => {
     expect(shouldGroup(msg({}), msg({ kind: 'part' }))).toBe(false);
     expect(shouldGroup(msg({}), msg({ kind: 'quit' }))).toBe(false);
     expect(shouldGroup(msg({}), msg({ kind: 'action' }))).toBe(false);
+  });
+});
+
+describe('buildRenderItems — activity collapse', () => {
+  const join = (id: string, text = 'x joined') => msg({ id, kind: 'join', text });
+  const chat = (id: string, text = 'hi') => msg({ id, kind: 'message', text });
+
+  it('leaves plain messages untouched', () => {
+    const items = buildRenderItems([chat('1'), chat('2')]);
+    expect(items).toEqual([
+      { type: 'msg', msg: expect.objectContaining({ id: '1' }) },
+      { type: 'msg', msg: expect.objectContaining({ id: '2' }) },
+    ]);
+  });
+
+  it('renders a SHORT activity run inline (below threshold)', () => {
+    const run = Array.from({ length: ACTIVITY_COLLAPSE_MIN - 1 }, (_, i) => join(`j${i}`));
+    const items = buildRenderItems(run);
+    expect(items).toHaveLength(ACTIVITY_COLLAPSE_MIN - 1);
+    expect(items.every((it) => it.type === 'msg')).toBe(true);
+  });
+
+  it('collapses a LONG activity run into a single activity item', () => {
+    const run = Array.from({ length: ACTIVITY_COLLAPSE_MIN + 5 }, (_, i) => join(`j${i}`));
+    const items = buildRenderItems(run);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ type: 'activity' });
+    expect(items[0].type === 'activity' && items[0].items).toHaveLength(ACTIVITY_COLLAPSE_MIN + 5);
+  });
+
+  it('mixes join/part/quit/system into one collapsed run, split by real messages', () => {
+    const seq: ChatMessage[] = [
+      chat('m1'),
+      join('j1'), msg({ id: 'q1', kind: 'quit', text: 'a quit' }),
+      msg({ id: 's1', kind: 'system', text: 'You joined ##frontend' }),
+      msg({ id: 'p1', kind: 'part', text: 'b left' }), join('j2'),
+      chat('m2'),
+    ];
+    const items = buildRenderItems(seq);
+    expect(items.map((it) => it.type)).toEqual(['msg', 'activity', 'msg']);
+    expect(items[1].type === 'activity' && items[1].items).toHaveLength(5);
+  });
+});
+
+describe('coalesceActivity', () => {
+  it('counts identical adjacent lines (the replayed self-join case)', () => {
+    const items = Array.from({ length: 40 }, (_, i) =>
+      msg({ id: `s${i}`, kind: 'system', text: 'You joined ##frontend' }));
+    expect(coalesceActivity(items)).toEqual([{ text: 'You joined ##frontend', count: 40 }]);
+  });
+
+  it('keeps distinct lines separate but counts repeats within each', () => {
+    const items: ChatMessage[] = [
+      msg({ id: '1', kind: 'system', text: 'You joined ##frontend' }),
+      msg({ id: '2', kind: 'system', text: 'You joined ##frontend' }),
+      msg({ id: '3', kind: 'quit', text: 'skdoo quit' }),
+      msg({ id: '4', kind: 'join', text: 'skdoo joined' }),
+    ];
+    expect(coalesceActivity(items)).toEqual([
+      { text: 'You joined ##frontend', count: 2 },
+      { text: 'skdoo quit', count: 1 },
+      { text: 'skdoo joined', count: 1 },
+    ]);
   });
 });

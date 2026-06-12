@@ -365,6 +365,32 @@ export class DirectoryBloc {
     this.emit();
   }
 
+  // Open a conversation surfaced from the Inbox: focus its server (and show
+  // chat) and, for a DM, open + activate the sender's DM tab. No-op when the
+  // memo's server isn't a live connection (e.g. it arrived in a past session
+  // we haven't reconnected). Returns true if it navigated.
+  openConversation(serverId: string, target: string | null): boolean {
+    const conn = this.connections.get(serverId);
+    if (!conn) return false;
+    this.activeServerId = serverId;
+    this.sessionStore.setActiveServer(serverId);
+    if (target) conn.chat.openDM(target);
+    this.applyForegroundState();
+    this.emit();
+    return true;
+  }
+
+  // Fetch a memo's body on demand (Inbox open of an unread memo). Routes
+  // to the originating server's ChatService without switching the active
+  // server — the body fills into the Inbox in place. No-op if that
+  // connection isn't currently open.
+  readMemo(serverId: string, memoIndex: number): boolean {
+    const conn = this.connections.get(serverId);
+    if (!conn) return false;
+    conn.chat.readMemo(memoIndex);
+    return true;
+  }
+
   // Flag each chat service with whether its server is the one currently being
   // viewed. ChatService uses this to decide whether incoming messages count
   // as unread (they always do for non-foreground servers; for the foreground
@@ -987,7 +1013,7 @@ export class DirectoryBloc {
     // the message log dies with the page but otherwise everything still works.
     const userId = this.getUserId();
     const persistence = this.history && userId
-      ? { history: this.history, scope: { userId, serverId: server.id } }
+      ? { history: this.history, scope: { userId, serverId: server.id, serverName: server.name } }
       : undefined;
 
     if (this.disposed) return;

@@ -79,6 +79,15 @@ export function isNickServSender(from: string): boolean {
   return from.toLowerCase() === 'nickserv';
 }
 
+// A NAMED service pseudo-user (NickServ, ChanServ, MemoServ, Global, …) —
+// i.e. isServiceSender minus the server-host heuristic. Used to decide what's
+// eligible for the Inbox: messages from named services can be inbox-worthy,
+// but raw server-host NOTICEs (connection banners, MOTD-ish chatter) are not —
+// those stay in the ~server log.
+export function isNamedServiceSender(from: string): boolean {
+  return SERVICE_NICKS.has(from.toLowerCase());
+}
+
 // One of the small set of NickServ reply patterns we care about for
 // the Services panel's status indicator. Returning a tagged enum
 // (rather than the raw body) keeps the renderer decoupled from
