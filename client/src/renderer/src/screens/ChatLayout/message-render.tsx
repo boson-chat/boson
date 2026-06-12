@@ -3,6 +3,7 @@ import type { Ref } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
+import { nickColor, nickInitial } from '../../modules/chat/nick-color';
 import { tokenizeMarkdown, type MdToken } from './markdown';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
@@ -107,42 +108,57 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
 
   return (
     <div class={classes}>
-      {!grouped && (
-        <div class="message-row-header">
+      {/* Avatar gutter — the initial tile leads the first message of a group;
+          grouped follow-ups keep the gutter empty so text stays aligned. */}
+      <div class="message-row-gutter">
+        {!grouped && (
           <span
-            class="message-row-name"
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenu({ nick: msg.from, x: e.clientX, y: e.clientY });
-            }}
-            onMouseEnter={(e) => {
-              const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-              const snapshot = { nick: msg.from, top: r.top, left: r.left };
-              cancelPendingOpen();
-              openTimer.current = setTimeout(() => {
-                setHover(snapshot);
-                openTimer.current = null;
-              }, HOVER_OPEN_DELAY_MS);
-            }}
-            onMouseLeave={() => {
-              cancelPendingOpen();
-              setHover((prev) => (prev && prev.nick === msg.from ? null : prev));
-            }}
+            class="message-avatar"
+            style={`--nick-color:${nickColor(msg.from)}`}
+            aria-hidden="true"
           >
-            {msg.from}
+            {nickInitial(msg.from)}
           </span>
-          {badge && (
-            <span class={`message-row-role message-row-role-${badge.kind}`} aria-label={`role: ${badge.label.toLowerCase()}`}>
-              {badge.label}
+        )}
+      </div>
+      <div class="message-row-body">
+        {!grouped && (
+          <div class="message-row-header">
+            <span
+              class="message-row-name"
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setMenu({ nick: msg.from, x: e.clientX, y: e.clientY });
+              }}
+              onMouseEnter={(e) => {
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const snapshot = { nick: msg.from, top: r.top, left: r.left };
+                cancelPendingOpen();
+                openTimer.current = setTimeout(() => {
+                  setHover(snapshot);
+                  openTimer.current = null;
+                }, HOVER_OPEN_DELAY_MS);
+              }}
+              onMouseLeave={() => {
+                cancelPendingOpen();
+                setHover((prev) => (prev && prev.nick === msg.from ? null : prev));
+              }}
+            >
+              {msg.from}
             </span>
-          )}
-          <span class="message-row-handle">~{msg.from}</span>
-          <span class="message-row-time">{time}</span>
+            {badge && (
+              <span class={`message-row-role message-row-role-${badge.kind}`} aria-label={`role: ${badge.label.toLowerCase()}`}>
+                {badge.label}
+              </span>
+            )}
+            <span class="message-row-handle">~{msg.from}</span>
+            <span class="message-row-time">{time}</span>
+          </div>
+        )}
+        <div class="message-row-text">
+          <span class="message-row-text-body">{renderedText}</span>
+          {grouped && <span class="message-row-grouped-time" aria-hidden="true">{time}</span>}
         </div>
-      )}
-      <div class="message-row-text">
-        <span class="message-row-text-body">{renderedText}</span>
-        {grouped && <span class="message-row-grouped-time" aria-hidden="true">{time}</span>}
       </div>
       {menu && (
         <NickContextMenu

@@ -470,6 +470,9 @@
 .message-row-grouped:hover .message-row-grouped-time { opacity: 1; }
 
 .message-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
   width: 100%;
   padding: var(--space-2) var(--space-3);
   margin: 0 calc(var(--space-3) * -1);
@@ -478,6 +481,38 @@
 }
 
 .message-row:hover { background: var(--surface-hover); }
+
+/* Avatar gutter — fixed width so grouped follow-ups (empty gutter) keep
+   their text aligned under the leading avatar, Discord-style. */
+.message-row-gutter {
+  flex: 0 0 auto;
+  width: 1.9rem;
+}
+.message-row-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Per-nick avatar tile — initial colored by hashing the nick (see
+   modules/chat/nick-color.ts); hue passed inline as --nick-color. Matches
+   the member-list + Inbox avatars. */
+.message-avatar {
+  width: 1.9rem;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+  margin-top: 2px; /* nudge to sit level with the name baseline */
+  background: color-mix(in oklab, var(--nick-color, var(--fg-3)) 22%, var(--surface-raised));
+  color: var(--nick-color, var(--fg-2));
+  border: 1px solid color-mix(in oklab, var(--nick-color, var(--fg-3)) 32%, transparent);
+}
 
 /* Mention highlight: tint the row + accent the left edge so the user catches
    their own pings while scanning. The inline .mention-self pill is bolder. */
