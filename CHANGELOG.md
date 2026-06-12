@@ -1,3 +1,9 @@
+## [0.18.0](https://github.com/boson-chat/boson/compare/v0.17.0...v0.18.0) (2026-06-12)
+
+### Features
+
+* profile image upload + display via Cloudflare R2 ([48051ff](https://github.com/boson-chat/boson/commit/48051ffc306b1a3b68ad2bceb17f5004fb3819e1))
+
 ## [0.17.0](https://github.com/boson-chat/boson/compare/v0.16.0...v0.17.0) (2026-06-12)
 
 ### Features
