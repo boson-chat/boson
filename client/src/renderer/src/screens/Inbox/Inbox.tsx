@@ -1,6 +1,8 @@
 import { AtomLoader, Button, Modal } from '@boson/shared';
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { getMemoStore, type Memo } from '../../modules/memos';
+import { getAvatar, subscribeAvatars } from '../../modules/chat/avatar-cache';
+import { Avatar } from '../../shared/Avatar/Avatar';
 import './Inbox.css';
 
 interface InboxProps {
@@ -51,6 +53,10 @@ export function Inbox({ open, memos, onClose, onOpen, onReadMemo }: InboxProps) 
   // the body arrives (bodyFetched flips → row stops being "unfetched") or
   // after a timeout, so a lost READ reply doesn't spin forever.
   const [loadingIds, setLoadingIds] = useState<ReadonlySet<string>>(new Set());
+  // Re-render when the avatar cache changes so a sender's profile image
+  // appears once the presence lookup resolves them to a Boson member.
+  const [, bumpAvatars] = useState(0);
+  useEffect(() => subscribeAvatars(() => bumpAvatars((n) => n + 1)), []);
   const beginRead = (m: Memo) => {
     const id = m.id;
     setLoadingIds((s) => new Set(s).add(id));
@@ -137,9 +143,19 @@ export function Inbox({ open, memos, onClose, onOpen, onReadMemo }: InboxProps) 
                     onClick={() => (unfetched ? beginRead(m) : onOpen?.(m))}
                     title={title}
                   >
-                    <span class={`inbox-avatar inbox-avatar-${m.kind}`} aria-hidden="true">
-                      {initial(m.sender)}
-                    </span>
+                    {(() => {
+                      // Show the sender's profile image when presence has
+                      // resolved them to a Boson member on that server; else
+                      // the kind-tinted initial tile.
+                      const url = getAvatar(m.serverId, m.sender);
+                      return url
+                        ? <Avatar nick={m.sender} url={url} size={32} />
+                        : (
+                          <span class={`inbox-avatar inbox-avatar-${m.kind}`} aria-hidden="true">
+                            {initial(m.sender)}
+                          </span>
+                        );
+                    })()}
                     <span class="inbox-row-main">
                       <span class="inbox-row-meta">
                         <span class="inbox-row-sender">{m.sender || 'unknown'}</span>
