@@ -45,9 +45,10 @@ export interface MemoStore {
   // Mark every memo as read. Called from the Inbox UI on open. No-op
   // if nothing was unread.
   markAllRead(): void;
-  // Wipe the store. Called on sign-out from the user's account so
-  // memos don't leak across identity switches on the same device.
-  clear(): void;
+  // Wipe the store, or just the given kinds. Called on sign-out (no
+  // args → everything) and from the Inbox "Clear" button (the active
+  // tab's kinds). No-op if nothing matched.
+  clear(kinds?: ReadonlyArray<Memo['kind']>): void;
   // Subscribe to changes. Listener fires synchronously on every
   // mutation; called immediately with the current list so consumers
   // don't need a separate `list()` call after subscribing.
@@ -185,9 +186,16 @@ export class LocalStorageMemoStore implements MemoStore {
     this.emit();
   }
 
-  clear(): void {
+  clear(kinds?: ReadonlyArray<Memo['kind']>): void {
     if (this.memos.length === 0) return;
-    this.memos = [];
+    if (kinds && kinds.length > 0) {
+      const set = new Set(kinds);
+      const next = this.memos.filter((m) => !set.has(m.kind));
+      if (next.length === this.memos.length) return; // nothing matched
+      this.memos = next;
+    } else {
+      this.memos = [];
+    }
     this.save();
     this.emit();
   }

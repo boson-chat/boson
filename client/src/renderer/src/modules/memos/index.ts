@@ -11,4 +11,5 @@ export {
   parseListEntry,
   parseReadHeader,
   isReadChrome,
+  stripIrcFormatting,
 } from './memo.parse';

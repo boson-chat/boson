@@ -181,6 +181,20 @@ describe('LocalStorageMemoStore', () => {
     expect(store.list()[0]!.bodyFetched).toBe(false);
   });
 
+  it('clear(kinds) removes only the given kinds (per-tab clear)', () => {
+    store.append({ serverId: 's', serverName: 's', sender: 'a', kind: 'dm', text: 'x', timestamp: 1 });
+    store.append({ serverId: 's', serverName: 's', sender: 'b', kind: 'mention', channel: '#c', text: 'y', timestamp: 2 });
+    store.append({ serverId: 's', serverName: 's', sender: 'MemoServ', kind: 'memo', text: 'z', timestamp: 3 });
+    store.clear(['mention']);
+    expect(store.list().map((m) => m.kind).sort()).toEqual(['dm', 'memo']);
+    // No-op when nothing matches.
+    let emits = 0;
+    store.subscribe(() => { emits += 1; });
+    emits = 0;
+    store.clear(['mention']);
+    expect(emits).toBe(0);
+  });
+
   it('clear() wipes the inbox and emits', () => {
     store.append({ serverId: 's1', serverName: 's1', sender: 'MemoServ', kind: 'memo', text: 'a', timestamp: 1 });
     let listLen = -1;

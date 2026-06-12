@@ -234,4 +234,27 @@ describe('ChatService — MemoServ structured Inbox', () => {
     session.emit(ev({ Kind: 'PRIVMSG', From: 'me', Target: 'alice', Message: 'self echo' }));
     expect(store.list()).toEqual([]);
   });
+
+  it('mirrors a channel mention of our nick into the Inbox (kind=mention) with the source channel', () => {
+    const session = makeFakeSession();
+    makeChat(session); // myNick = 'me'
+    session.emit(ev({ Kind: 'PRIVMSG', From: 'alice', Target: '#test', Message: 'hey me, around?' }));
+    const mention = store.list().find((m) => m.kind === 'mention');
+    expect(mention).toMatchObject({ sender: 'alice', channel: '#test' });
+    expect(mention!.text).toContain('hey me');
+  });
+
+  it('does not mirror a channel message that does NOT name us', () => {
+    const session = makeFakeSession();
+    makeChat(session);
+    session.emit(ev({ Kind: 'PRIVMSG', From: 'alice', Target: '#test', Message: 'hello everyone' }));
+    expect(store.list().some((m) => m.kind === 'mention')).toBe(false);
+  });
+
+  it('does not mirror our own channel message as a mention', () => {
+    const session = makeFakeSession();
+    makeChat(session);
+    session.emit(ev({ Kind: 'PRIVMSG', From: 'me', Target: '#test', Message: 'me talking about me' }));
+    expect(store.list().some((m) => m.kind === 'mention')).toBe(false);
+  });
 });

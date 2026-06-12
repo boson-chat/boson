@@ -92,7 +92,10 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         onClose={() => setInboxOpen(false)}
         onOpen={(m) => {
           setInboxOpen(false);
-          publishOpenConversation({ serverId: m.serverId, target: m.kind === 'dm' ? m.sender : null });
+          // DMs open the 1:1 conversation; mentions jump to the source
+          // channel; memos just focus the server.
+          const target = m.kind === 'dm' ? m.sender : m.kind === 'mention' ? (m.channel ?? null) : null;
+          publishOpenConversation({ serverId: m.serverId, target });
         }}
         onReadMemo={(m) => {
           // Stay in the inbox; fetch the body in place. The store update

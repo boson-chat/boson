@@ -16,7 +16,10 @@
 //   dm      — a direct message from a real user. Also shown as a normal
 //             chat conversation; mirrored here so the Inbox is the one
 //             place to see everything addressed to you.
-export type MemoKind = 'memo' | 'service' | 'dm';
+//   mention — a channel message that named your nick. Mirrored here so
+//             pings across servers collect in one place; the source
+//             channel is carried in `channel` for click-through.
+export type MemoKind = 'memo' | 'service' | 'dm' | 'mention';
 
 export interface Memo {
   // Stable per-entry id. Synthesised from `${serverId}:${timestamp}:${counter}`
@@ -32,6 +35,9 @@ export interface Memo {
   sender: string;
   // Which kind of 1:1 entry this is — drives the Inbox label/grouping.
   kind: MemoKind;
+  // For kind === 'mention': the channel the mention happened in, so the
+  // Inbox can navigate there on click. Unset for other kinds.
+  channel?: string;
   // Verbatim text of the message/notice body. Sender lives in `sender`;
   // we don't normalise the body (Atheme + Anope memo banners differ).
   text: string;

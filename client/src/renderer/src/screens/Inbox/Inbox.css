@@ -7,48 +7,92 @@
   flex: 1;
 }
 
-.inbox-header {
+/* ---- Tabs (Messages / Mentions) ------------------------------------- */
+.inbox-tabs {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-1);
 }
+.inbox-tabs-spacer { flex: 1 1 auto; }
 
-.inbox-count {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+.inbox-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px; /* sit the underline on the tabs border */
   color: var(--fg-3);
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard),
+              border-color var(--motion-fast) var(--ease-standard);
+}
+.inbox-tab:hover { color: var(--fg-2); }
+.inbox-tab-active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+.inbox-tab-icon {
+  font-family: var(--font-mono);
+  color: var(--fg-3);
+  font-size: var(--text-sm);
+}
+.inbox-tab-active .inbox-tab-icon { color: var(--accent); }
+
+.inbox-tab-badge {
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-on);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
-/* Empty-state shown when zero memos. Quiet copy with a pointer to the
-   Advanced panel where the user can send/list/read memos directly. */
+/* ---- Empty state ---------------------------------------------------- */
 .inbox-empty {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-6) var(--space-4);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-10) var(--space-4);
   text-align: center;
   color: var(--fg-2);
 }
-.inbox-empty p { margin: 0; line-height: 1.5; }
-.inbox-empty code {
+.inbox-empty-glyph {
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 6px;
+  font-size: var(--text-3xl);
+  color: var(--muted);
+  line-height: 1;
+  margin-bottom: var(--space-1);
+}
+.inbox-empty-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--fg);
 }
 .inbox-empty-hint {
   font-size: var(--text-sm);
   color: var(--fg-3);
-  max-width: 48ch;
+  max-width: 44ch;
   margin: 0 auto;
+  line-height: 1.55;
 }
 
-/* Memo list — newest at the top, one row per arrival. Unread rows
-   get an accent stripe down the left edge; the title bar's badge is
-   the canonical "you have new things" indicator and stays in sync. */
+/* ---- List ----------------------------------------------------------- */
 .inbox-list {
   list-style: none;
   margin: 0;
@@ -61,6 +105,7 @@
 }
 
 .inbox-row {
+  position: relative;
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -71,16 +116,18 @@
 
 .inbox-row-unread {
   border-left-color: var(--accent);
-  background: color-mix(in oklab, var(--accent) 6%, var(--surface));
+  background: color-mix(in oklab, var(--accent) 6%, transparent);
 }
 
-/* Clickable body of the row — jumps to the conversation. Button reset. */
+/* Clickable body of the row — jumps to the conversation / channel, or
+   fetches an unread memo's body. Button reset. */
 .inbox-row-open {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   background: none;
   border: none;
@@ -88,25 +135,41 @@
   cursor: pointer;
   color: inherit;
   font: inherit;
+  transition: background var(--motion-fast) var(--ease-standard);
 }
-.inbox-row-open:hover { background: color-mix(in oklab, var(--accent) 9%, transparent); }
+.inbox-row-open:hover { background: var(--surface-hover); }
 
-/* Per-row dismiss (×). */
-.inbox-row-dismiss {
+/* Sender avatar — a rounded tile with the sender's initial, tinted by
+   entry kind so the list scans at a glance. */
+.inbox-avatar {
   flex: 0 0 auto;
-  align-self: center;
-  margin-right: var(--space-2);
-  width: 1.6rem;
-  height: 1.6rem;
-  border: none;
-  border-radius: var(--radius-xs, 3px);
-  background: none;
-  color: var(--fg-3);
-  font-size: 1.1rem;
-  line-height: 1;
-  cursor: pointer;
+  width: 2rem;
+  height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  user-select: none;
+  background: color-mix(in oklab, var(--inbox-hue) 18%, var(--surface-raised));
+  color: var(--inbox-hue);
+  border: 1px solid color-mix(in oklab, var(--inbox-hue) 30%, transparent);
+  --inbox-hue: var(--fg-3);
 }
-.inbox-row-dismiss:hover { background: var(--surface-2, rgba(127,127,127,0.16)); color: var(--fg); }
+.inbox-avatar-memo { --inbox-hue: var(--accent); }
+.inbox-avatar-dm { --inbox-hue: var(--success); }
+.inbox-avatar-mention { --inbox-hue: #8B5CF6; }
+.inbox-avatar-service { --inbox-hue: var(--warn); }
+
+.inbox-row-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
 
 .inbox-row-meta {
   display: flex;
@@ -117,23 +180,33 @@
   font-size: var(--text-xs);
 }
 .inbox-row-sender {
+  font-family: var(--font-body);
   color: var(--fg);
+  font-weight: 600;
+  font-size: var(--text-sm);
+}
+.inbox-row-channel {
+  color: #8B5CF6;
   font-weight: 600;
 }
 .inbox-row-kind {
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 0.7rem;
-  padding: 0 var(--space-1);
-  border-radius: var(--radius-xs, 3px);
-  background: var(--surface-2, rgba(127, 127, 127, 0.14));
-  color: var(--fg-3);
+  letter-spacing: 0.05em;
+  font-size: 0.65rem;
+  font-weight: 600;
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in oklab, var(--inbox-hue, var(--fg-3)) 16%, transparent);
+  color: var(--inbox-hue, var(--fg-3));
+  --inbox-hue: var(--fg-3);
 }
-.inbox-row-kind-service { color: var(--warn, #c79); }
-.inbox-row-kind-dm { color: var(--accent, #6ae); }
+.inbox-row-kind-memo { --inbox-hue: var(--accent); }
+.inbox-row-kind-dm { --inbox-hue: var(--success); }
+.inbox-row-kind-mention { --inbox-hue: #8B5CF6; }
+.inbox-row-kind-service { --inbox-hue: var(--warn); }
+
 .inbox-row-server {
   color: var(--fg-2);
-  font-weight: 600;
   letter-spacing: 0.02em;
 }
 .inbox-row-time {
@@ -153,5 +226,29 @@
 /* Deferred memo body — shown until the user opens it (which issues READ). */
 .inbox-row-placeholder {
   font-style: italic;
-  color: var(--muted);
+  color: var(--accent);
+  opacity: 0.85;
 }
+
+/* Per-row dismiss (×) — fades in on row hover so it stays out of the way. */
+.inbox-row-dismiss {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg-3);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard),
+              background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.inbox-row:hover .inbox-row-dismiss,
+.inbox-row-dismiss:focus-visible { opacity: 1; }
+.inbox-row-dismiss:hover { background: var(--surface-hover); color: var(--fg); }

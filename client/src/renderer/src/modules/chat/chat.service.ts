@@ -74,6 +74,7 @@ import {
   parseListEntry,
   parseReadHeader,
   isReadChrome,
+  stripIrcFormatting,
 } from '../memos';
 import type {
   ChannelDirectory,
@@ -882,7 +883,7 @@ export class ChatService {
   // We don't parse the body — Atheme + Anope wrap memo events in
   // different banner formats and they evolve across versions. Storing
   // verbatim keeps the surface forward-compatible.
-  private storeInboxEntry(from: string, body: string, kind: MemoKind): void {
+  private storeInboxEntry(from: string, body: string, kind: MemoKind, channel?: string): void {
     if (!body) return;
     const serverId = this.persistence?.scope.serverId ?? '';
     getMemoStore().append({
@@ -892,6 +893,7 @@ export class ChatService {
       serverName: this.persistence?.scope.serverName || serverId,
       sender: from,
       kind,
+      channel,
       text: body,
       timestamp: Date.now(),
     });
@@ -950,7 +952,9 @@ export class ChatService {
     }
     if (this.memoReading) {
       if (!isReadChrome(body)) {
-        this.memoReading.lines.push(body);
+        // Store the body with IRC formatting stripped — the inbox renders
+        // plain text, and raw \x02/\x03 bytes would show as garbage.
+        this.memoReading.lines.push(stripIrcFormatting(body));
         store.fillMemoBody(serverId, this.memoReading.index, this.memoReading.lines.join('\n'));
       }
       return;
@@ -1592,6 +1596,13 @@ export class ChatService {
         // STAY visible as a chat conversation too.
         if (isToMe && !isChannel && !isWildcard && !isServiceSender(e.From) && e.From !== this.myNick) {
           this.storeInboxEntry(e.From, text, 'dm');
+        }
+        // Mirror channel mentions of our nick into the Inbox (Mentions tab)
+        // so pings across servers collect in one place. Real channel messages
+        // from someone else that name us; the source channel is carried for
+        // click-through. (Our own lines never count as a mention.)
+        if (isChannel && e.From !== this.myNick && containsNickMention(text, this.myNick)) {
+          this.storeInboxEntry(e.From, text, 'mention', channel);
         }
         break;
       }

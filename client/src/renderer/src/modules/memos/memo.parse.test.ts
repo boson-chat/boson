@@ -81,6 +81,18 @@ describe('parseReadHeader', () => {
   it('returns null for a body line', () => {
     expect(parseReadHeader('Are you around this week? Need to sync on the release.')).toBeNull();
   });
+
+  it('parses a header wrapped in IRC bold (\\x02) — the live irc.myelinbots.com case', () => {
+    // Atheme bolds the READ header; without stripping, the line starts with
+    // \x02 not "Memo" and never matches → body never captured.
+    const h = parseReadHeader('\x02Memo 1 - Sent by TheLion, Jun 12 10:20:00 2026 +0000\x02');
+    expect(h).toMatchObject({ index: 1, sender: 'TheLion' });
+  });
+
+  it('parses a LIST row carrying color/bold formatting', () => {
+    const e = parseListEntry('\x02- 1 From: \x0303alice\x03 Sent: Jun 12 11:58:12 2026 +0000 [unread]\x02');
+    expect(e).toMatchObject({ index: 1, sender: 'alice', unread: true });
+  });
 });
 
 describe('isReadChrome', () => {

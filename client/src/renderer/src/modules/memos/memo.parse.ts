@@ -20,6 +20,16 @@
 // match a known shape returns null and the caller treats it as chrome
 // (column headers, separators, the "To delete…" hint) to ignore.
 
+// IRC inline formatting that services wrap around text — Atheme bolds the
+// memo READ header (\x02…\x02), and color codes (\x03 fg[,bg]) show up too.
+// These must be stripped before matching, or "\x02Memo 1 …" never matches a
+// header anchored at "Memo". Mirrors services.ts's FORMATTING_BYTES_RX, plus
+// mIRC color sequences. (Observed live on irc.myelinbots.com.)
+const IRC_FORMAT_RX = /\x03(?:\d{1,2}(?:,\d{1,2})?)?|[\x02\x0f\x11\x16\x1d\x1e\x1f]/g;
+export function stripIrcFormatting(s: string): string {
+  return s.replace(IRC_FORMAT_RX, '');
+}
+
 export interface MemoListEntry {
   // 1-based index MemoServ assigns; the argument to `READ <n>` / `DEL <n>`.
   // NOT stable across deletions, so callers key dedup on sender+date.
@@ -43,14 +53,14 @@ export interface MemoReadHeader {
 // Identical on Anope + Atheme. This is the trigger to auto-issue LIST.
 // Returns null for everything else.
 export function parseNewMemoCount(body: string): number | null {
-  const m = /\byou have (\d+) new memos?\b/i.exec(body);
+  const m = /\byou have (\d+) new memos?\b/i.exec(stripIrcFormatting(body));
   return m ? Number(m[1]) : null;
 }
 
 // "You have no memos." — both packages. Lets the caller clear any stale
 // inbox entries for this server.
 export function isNoMemos(body: string): boolean {
-  return /\byou have no memos\b/i.test(body);
+  return /\byou have no memos\b/i.test(stripIrcFormatting(body));
 }
 
 // Atheme LIST row:  "- 1 From: alice Sent: Jun 12 11:58:12 2026 +0000 [unread]"
@@ -61,7 +71,8 @@ const ANOPE_ROW = /^(\*?)\s*(\d+)\s+(\S+)\s+(.+?)\s*$/;
 
 // Parse a single LIST output line into a memo entry, or null if the line
 // is list chrome (header / column titles / blank) we should skip.
-export function parseListEntry(line: string): MemoListEntry | null {
+export function parseListEntry(rawLine: string): MemoListEntry | null {
+  const line = stripIrcFormatting(rawLine);
   // Atheme first — its shape is more specific ("From:"/"Sent:"), so it
   // can't be mistaken for an Anope row, but an Anope row (loose) could
   // swallow an Atheme one.
@@ -85,7 +96,8 @@ const ATHEME_READ_HEADER = /^Memo (\d+) - Sent by (\S+?),\s*(.+?)\s*$/;
 
 // Parse the first line of a READ <n> reply. Returns the memo coordinates
 // so the caller can attach the following body line(s) to the right entry.
-export function parseReadHeader(line: string): MemoReadHeader | null {
+export function parseReadHeader(rawLine: string): MemoReadHeader | null {
+  const line = stripIrcFormatting(rawLine);
   const a = ANOPE_READ_HEADER.exec(line);
   if (a) return { index: Number(a[1]), sender: a[2]!, date: a[3]! };
   const t = ATHEME_READ_HEADER.exec(line);
@@ -96,9 +108,10 @@ export function parseReadHeader(line: string): MemoReadHeader | null {
 // Lines inside a READ reply that are NOT body: Anope's "To delete, type:
 // /msg MemoServ DEL 1" hint and Atheme's "------" separator rule. Also
 // treats a blank/whitespace-only line as skippable chrome.
-export function isReadChrome(line: string): boolean {
-  if (line.trim() === '') return true;
-  if (/^to delete, type:/i.test(line.trim())) return true;
-  if (/^-{4,}\s*$/.test(line.trim())) return true;
+export function isReadChrome(rawLine: string): boolean {
+  const line = stripIrcFormatting(rawLine).trim();
+  if (line === '') return true;
+  if (/^to delete, type:/i.test(line)) return true;
+  if (/^-{4,}\s*$/.test(line)) return true;
   return false;
 }
