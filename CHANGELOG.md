@@ -1,3 +1,9 @@
+## [0.13.1](https://github.com/boson-chat/boson/compare/v0.13.0...v0.13.1) (2026-06-12)
+
+### Bug Fixes
+
+* use plus-addressing (reg+) for nick-claim recipient email ([3c988b2](https://github.com/boson-chat/boson/commit/3c988b222403e73f919ac44b92c1ce453ea0f21a))
+
 ## [0.13.0](https://github.com/boson-chat/boson/compare/v0.12.0...v0.13.0) (2026-06-12)
 
 ### Features
