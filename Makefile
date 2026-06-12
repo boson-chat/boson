@@ -92,7 +92,7 @@ supabase-reset: supabase-check
 # the running cost is low and including them by default makes the
 # nick-claim flow + chat e2e tests "just work" without a separate
 # `docker compose --profile X up` step.
-dev-up: tidy up supabase-up ergo-up mailpit-up
+dev-up: tidy up supabase-up ergo-up mailpit-up minio-up
 	@$(MAKE) migrate-up
 	@$(MAKE) seed-dev
 
@@ -109,6 +109,14 @@ ergo-up: mailpit-up
 mailpit-up:
 	docker compose --profile dev-mail up -d mailpit
 	@echo "mailpit is up — SMTP:1025  POP3:1110 (dev:dev)  UI: http://localhost:8025"
+
+# MinIO — local S3-compatible store for the avatar/profile-image feature.
+# The backend points its CLOUDFLARE_R2_* config here in dev (see
+# backend/config/config.dev.json). minio-setup creates the `boson` bucket
+# and makes it anonymously readable so avatar URLs load in the client.
+minio-up:
+	docker compose --profile dev-storage up -d minio minio-setup
+	@echo "minio is up — S3:9000  console:9001 (minioadmin/minioadmin)  bucket: boson"
 
 # Inserts the local ergo IRCd into the directory so it shows up in Boson's
 # server browser. Idempotent (ON CONFLICT DO UPDATE). Dev-only — not part of

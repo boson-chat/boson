@@ -199,6 +199,50 @@ services:
     networks:
       - boson-network
 
+  # ---- MinIO (local S3 for the profile-image / avatar feature) --------
+  #
+  # R2 is S3-compatible, so local dev points the backend's CLOUDFLARE_R2_*
+  # config at MinIO instead of real R2 (see backend/config/config.dev.json).
+  # The backend runs natively (`make run`) so it reaches MinIO at
+  # localhost:9000; the Electron client loads avatars from the same origin
+  # (CDN base = http://localhost:9000/boson), which is why the bucket is
+  # made anonymously readable below.
+  #
+  # Activated via:  make minio-up  (folded into `make dev-up`)
+  minio:
+    image: minio/minio:latest
+    profiles:
+      - dev-storage
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9000:9000'  # S3 API — backend PUTs, client GETs avatars
+      - '9001:9001'  # web console — http://localhost:9001 (minioadmin/minioadmin)
+    volumes:
+      - minio_data:/data
+    networks:
+      - boson-network
+
+  # One-shot: create the `boson` bucket + make it anonymously readable so
+  # avatar URLs load directly in the client. Exits 0 once done.
+  minio-setup:
+    image: minio/mc:latest
+    profiles:
+      - dev-storage
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do echo 'waiting for minio'; sleep 1; done;
+      mc mb --ignore-existing local/boson;
+      mc anonymous set download local/boson;
+      echo 'minio bucket ready';
+      "
+    networks:
+      - boson-network
+
 networks:
   boson-network:
 
@@ -207,3 +251,4 @@ volumes:
   ergo_data:
   anope_data:
   atheme_data:
+  minio_data:
