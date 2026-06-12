@@ -1,3 +1,9 @@
+## [0.20.0](https://github.com/boson-chat/boson/compare/v0.19.1...v0.20.0) (2026-06-12)
+
+### Features
+
+* **client:** show Boson members' profile images in the Inbox ([d0c5e60](https://github.com/boson-chat/boson/commit/d0c5e60bb1a19b11a552336ccb58dea828290c8a))
+
 ## [0.19.1](https://github.com/boson-chat/boson/compare/v0.19.0...v0.19.1) (2026-06-12)
 
 ### Bug Fixes
