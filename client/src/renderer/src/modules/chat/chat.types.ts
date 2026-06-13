@@ -141,6 +141,10 @@ export interface ChatState {
   // The settings UI binds its "Change nick" form to this so it reflects
   // the authoritative value after a rename round-trips.
   myNick: string;
+  // Whether we are an IRC operator on this connection (numeric 381 or a self
+  // MODE +o). Gates the owner-only operator-management UI. Latches true for
+  // the session.
+  myOper: boolean;
   // Detected services package (Atheme vs Anope vs unknown). Populated
   // passively by inspecting NOTICEs from NickServ et al. — null until
   // we've seen any service traffic, then 'atheme' / 'anope' once a

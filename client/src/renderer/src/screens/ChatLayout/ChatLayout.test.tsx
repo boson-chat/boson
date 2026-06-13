@@ -30,6 +30,7 @@ const emptyState: ChatState = {
   serverInfo: {},
   channelDirectory: { status: 'idle', entries: [], updatedAt: null },
   myNick: 'me',
+  myOper: false,
   servicesFramework: null,
 };
 
@@ -56,6 +57,7 @@ const populatedState: ChatState = {
   serverInfo: {},
   channelDirectory: { status: 'idle', entries: [], updatedAt: null },
   myNick: 'me',
+  myOper: false,
   servicesFramework: null,
 };
 

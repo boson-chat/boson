@@ -13,6 +13,9 @@ import './ChatLayout.css';
 interface Props {
   chat: ChatService;
   serverName: string;
+  // CDN URL of the active server's wide banner, when the owner set one.
+  // Rendered as the ChannelSidebar header strip; absent → plain text header.
+  bannerUrl?: string;
   myNick: string;
   // Multi-server tiles. When provided, ServerRail renders one tile per
   // connection and `onSelectServer` switches the active connection. When
@@ -51,7 +54,7 @@ interface Props {
 }
 
 export function ChatLayout({
-  chat, serverName, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
+  chat, serverName, bannerUrl, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer,
 }: Props) {
@@ -96,6 +99,7 @@ export function ChatLayout({
       />
       <ChannelSidebar
         serverName={serverName}
+        bannerUrl={bannerUrl}
         channels={state.channels}
         activeChannel={state.activeChannel}
         onSelect={(name) => chat.setActive(name)}

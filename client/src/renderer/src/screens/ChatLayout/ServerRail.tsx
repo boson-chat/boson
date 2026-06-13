@@ -11,6 +11,9 @@ export interface ServerRailTile {
   // legacy callers that don't compute them still render fine.
   unread?: number;
   mentions?: number;
+  // CDN URL of the server's directory icon, when the owner set one. Shown
+  // in place of the initials tile; absent → initials fallback.
+  iconUrl?: string;
 }
 
 interface ServerRailProps {
@@ -58,7 +61,12 @@ export function ServerRail({
     <nav class="server-rail" aria-label="Servers">
       {tiles.map((t) => {
         const isActive = (activeServerId ?? '__legacy') === t.serverId;
-        const initials = serverInitials(t.name);
+        // Icon when the owner set one; otherwise the initials tile. alt="" —
+        // the tile's title/aria already names the server, so the image is
+        // decorative and shouldn't be announced twice.
+        const face = t.iconUrl
+          ? <img class="server-item-icon" src={t.iconUrl} alt="" />
+          : serverInitials(t.name);
         const unread = t.unread ?? 0;
         const mentions = t.mentions ?? 0;
         // Notification badge sits in the tile's top-right corner. Active tile
@@ -71,6 +79,7 @@ export function ServerRail({
           `server-item-state-${t.engineState}`,
           showBadge ? 'server-item-unread' : '',
           hasMention ? 'server-item-mention' : '',
+          t.iconUrl ? 'server-item-has-icon' : '',
         ].filter(Boolean).join(' ');
         const titleSuffix = t.engineState === 'connected' ? '' : ` (${t.engineState})`;
         // Ambient unread = small neutral dot. Mention = amber counter badge
@@ -102,7 +111,7 @@ export function ServerRail({
               onClick={() => onSelectServer(t.serverId)}
               onContextMenu={(e) => handleContextMenu(e, t.serverId)}
             >
-              {initials}
+              {face}
               {badge}
             </button>
           );
@@ -115,7 +124,7 @@ export function ServerRail({
             aria-current={isActive ? 'true' : undefined}
             onContextMenu={(e) => handleContextMenu(e, t.serverId)}
           >
-            {initials}
+            {face}
             {badge}
           </div>
         );

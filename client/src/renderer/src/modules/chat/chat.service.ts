@@ -176,6 +176,7 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: 'time',    usage: '/time [server]',      description: "Server's local time" },
   { name: 'links',   usage: '/links',              description: 'Map of servers linked into this network' },
   { name: 'mode',    usage: '/mode <target> <+/-modes> [args]', description: 'Set user or channel modes' },
+  { name: 'oper',    usage: '/oper <name> <password>', description: 'Authenticate as a server operator (IRCd oper block)' },
   { name: 'raw',     usage: '/raw <IRC line>',     description: 'Send a raw IRC protocol line. Power-user escape hatch.' },
 ];
 
@@ -341,6 +342,19 @@ export class ChatService {
 
   selfIdentity(): { nick: string; host?: string; account?: string } {
     return { nick: this.myNick, host: this.myHost, account: this.myAccount };
+  }
+
+  // Whether we are an IRC operator on this connection. Set from numeric 381
+  // (RPL_YOUREOPER) or a self user-mode grant (MODE <ournick> +o), both
+  // forwarded by the engine as event.IsOper. Latches true for the session;
+  // it gates the owner-only operator-management UI. NOTE: this is IRCd-oper
+  // status, which on Anope is distinct from services-oper privilege — a
+  // services-oper can manage OperServ without holding +o, so the UI treats
+  // this as a guard rail and the captured OperServ reply is authoritative.
+  private myOper = false;
+
+  private setOper(): void {
+    if (!this.myOper) { this.myOper = true; this.emit(); }
   }
 
   private updateSelfIdentity(host?: string, account?: string): void {
@@ -1263,6 +1277,14 @@ export class ChatService {
       case 'mode':
         if (!args) return this.systemHere('Usage: /mode <target> <+/-modes> [args]');
         return this.session.raw(`MODE ${args}`);
+      case 'oper':
+        // Authenticate against the IRCd's oper block (pre-existing
+        // password-based operators). Success comes back as numeric 381,
+        // which the engine forwards as IsOper → the "Operator" badge lights.
+        // The password is sent on the wire (inherent to OPER) but never
+        // stored by us.
+        if (!args) return this.systemHere('Usage: /oper <name> <password>');
+        return this.session.raw(`OPER ${args}`);
       case 'raw':
         // Escape hatch: power-user can send any line. No validation —
         // the daemon will reject garbage with a 4xx numeric.
@@ -1531,6 +1553,7 @@ export class ChatService {
         updatedAt: this.channelDirectory.updatedAt,
       },
       myNick: this.myNick,
+      myOper: this.myOper,
       servicesFramework: this.servicesFramework,
     };
   }
@@ -1591,6 +1614,13 @@ export class ChatService {
       timestamp: Date.now(),
       args: e.Args,
     });
+    // Latch our own IRC-operator status. The engine sets IsOper for numeric
+    // 381 (no dedicated case below) and for a self user-mode grant (MODE
+    // <ournick> +o). Double-check the MODE target is us so a stray flag can't
+    // promote us off another user's event.
+    if (e.IsOper && (e.Kind === '381' || e.Target === this.myNick)) {
+      this.setOper();
+    }
     switch (e.Kind) {
       case 'PRIVMSG':
       case 'NOTICE': {

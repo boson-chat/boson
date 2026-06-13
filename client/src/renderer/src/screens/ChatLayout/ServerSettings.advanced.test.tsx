@@ -72,6 +72,26 @@ describe('ServerSettings — Advanced (raw commands)', () => {
     expect(screen.getByRole('tab', { name: /Advanced/ })).toBeInTheDocument();
   });
 
+  // ---- Server tab — OPER form ------------------------------------------
+
+  it('OPER form on the Server tab routes "/oper <name> <password>" through onRunCommand', async () => {
+    const onRunCommand = vi.fn();
+    const { container } = render(<ServerSettings {...baseProps({ onRunCommand })} />);
+    switchToAdvanced();
+    switchAdvancedTab('Server');
+    const operLabel = Array.from(container.querySelectorAll('.server-settings-cmd-label'))
+      .find((el) => el.textContent === 'OPER');
+    expect(operLabel).toBeDefined();
+    const row = operLabel!.closest('.server-settings-cmd-row') as HTMLElement;
+    const inputs = row.querySelectorAll('input');
+    // Second field is masked.
+    expect((inputs[1] as HTMLInputElement).type).toBe('password');
+    await userEvent.setup().type(inputs[0] as HTMLInputElement, 'bosonroot');
+    await userEvent.setup().type(inputs[1] as HTMLInputElement, 's3cret');
+    fireEvent.click(row.querySelector('button[type="submit"]') as HTMLButtonElement);
+    expect(onRunCommand).toHaveBeenCalledWith('/oper bosonroot s3cret');
+  });
+
   // ---- Lookups tab — WHOIS form ----------------------------------------
 
   it('WHOIS form on the Lookups tab routes "/whois <nick>" through onRunCommand', async () => {

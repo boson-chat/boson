@@ -8,6 +8,7 @@ import {
   type ServiceCredentials,
 } from '../../modules/chat/services-credentials';
 import { getAdapter } from '../../modules/chat/adapters';
+import type { ServicesAdapter } from '../../modules/chat/adapters';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { HttpError } from '../../shared/http/http.client';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
@@ -28,7 +29,7 @@ import './ServerSettings.css';
 // Deliberately not a chat-style log — see the Log section for the dev-tools
 // view of NickServ replies + CAP frames + numerics.
 
-type SectionId = 'info' | 'identity' | 'advanced' | 'edit' | 'actions' | 'log';
+type SectionId = 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'actions' | 'log';
 
 // Snapshot of the editable profile fields. When the parent passes
 // `directoryEntry`, an "Edit" tab is shown that lets the user mutate
@@ -136,6 +137,11 @@ interface ServerSettingsProps {
   onSaveProfile?: (patch: Partial<DirectoryEntryProfile>) => Promise<void>;
   // Upload (image != null) or remove (null) the listing's icon/banner.
   onSaveServerImage?: (kind: 'icon' | 'banner', image: Blob | null) => Promise<void>;
+  // Whether we're an IRC operator on this connection (numeric 381 / self
+  // +o). Drives the Operators tab's "Operator" badge and gates the live
+  // OperServ management controls. The Operators tab itself is owner-gated
+  // the same way as Edit (presence of directoryEntry + onSaveProfile).
+  isOper?: boolean;
 }
 
 interface MenuItem {
@@ -145,25 +151,26 @@ interface MenuItem {
 }
 
 const MENU: readonly MenuItem[] = [
-  { id: 'info',     label: 'Info',     description: 'Server software + IRCv3 capabilities' },
-  { id: 'identity', label: 'Identity', description: 'Your nick + NickServ login' },
-  { id: 'edit',     label: 'Edit',     description: 'Directory profile — owner only' },
-  { id: 'actions',  label: 'Actions',  description: 'Reconnect or disconnect' },
-  { id: 'log',      label: 'Log',      description: 'Raw engine event log' },
-  { id: 'advanced', label: 'Advanced', description: 'IRC + services command UI' },
+  { id: 'info',     label: 'Info',      description: 'Server software + IRCv3 capabilities' },
+  { id: 'identity', label: 'Identity',  description: 'Your nick + NickServ login' },
+  { id: 'edit',     label: 'Edit',      description: 'Directory profile — owner only' },
+  { id: 'opers',    label: 'Operators', description: 'Grant operator access — owner only' },
+  { id: 'actions',  label: 'Actions',   description: 'Reconnect or disconnect' },
+  { id: 'log',      label: 'Log',       description: 'Raw engine event log' },
+  { id: 'advanced', label: 'Advanced',  description: 'IRC + services command UI' },
 ];
 
 export function ServerSettings({
   serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
   serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
-  directoryEntry, onSaveProfile, onSaveServerImage,
+  directoryEntry, onSaveProfile, onSaveServerImage, isOper = false,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
-  // Hide the Edit tab when the parent didn't pass ownership context.
-  // Filtering at render time keeps the menu uncluttered for the 99%
-  // of viewers who don't own the row.
+  // Hide the owner-only tabs (Edit + Operators) when the parent didn't pass
+  // ownership context. Filtering at render time keeps the menu uncluttered
+  // for the 99% of viewers who don't own the row.
   const editable = !!(directoryEntry && onSaveProfile);
-  const visibleMenu = editable ? MENU : MENU.filter((m) => m.id !== 'edit');
+  const visibleMenu = editable ? MENU : MENU.filter((m) => m.id !== 'edit' && m.id !== 'opers');
 
   return (
     <main class="server-settings">
@@ -231,6 +238,14 @@ export function ServerSettings({
           )}
           {section === 'edit' && editable && directoryEntry && onSaveProfile && (
             <EditProfileSection entry={directoryEntry} onSave={onSaveProfile} onSaveImage={onSaveServerImage} />
+          )}
+          {section === 'opers' && editable && (
+            <OperatorsSection
+              servicesFramework={servicesFramework}
+              isOper={isOper}
+              onRunCommand={onRunCommand}
+              serverLog={serverLog}
+            />
           )}
           {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
           {section === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
@@ -1361,6 +1376,157 @@ function frameworkLabel(fw: 'atheme' | 'anope' | 'ergo' | 'unknown' | null): str
   if (fw === 'ergo') return 'Ergo (built-in)';
   if (fw === 'unknown') return 'Detected (unknown package)';
   return 'Not detected';
+}
+
+// "Operators" — owner-only operator management. The mechanism differs by
+// services package (getAdapter(...).operMode):
+//   * Anope ('live'): drive OperServ OPER ADD/DEL/LIST directly. Anope
+//     persists the list and auto-grants services-oper when the account
+//     identifies, so a Boson member opers with NO password. Management
+//     commands require the caller to already hold operator privilege, so
+//     the controls are gated on `isOper` (numeric 381 / self +o).
+//   * Atheme / Ergo ('config'): no runtime grant exists — we generate an
+//     operator{} / opers: config block for the owner to paste + rehash.
+//
+// NOTE: `isOper` is IRCd-oper status, which on Anope is distinct from the
+// services-oper privilege OperServ actually checks — a services-oper can
+// manage opers without holding +o. The gate is therefore a guard rail; the
+// captured OperServ reply ("Access denied" vs success) is authoritative.
+interface OperatorsSectionProps {
+  servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null;
+  isOper: boolean;
+  onRunCommand?: (line: string) => void;
+  serverLog: ReadonlyArray<ServerLogEntry>;
+}
+
+function OperatorsSection({ servicesFramework, isOper, onRunCommand, serverLog }: OperatorsSectionProps) {
+  const adapter = getAdapter(servicesFramework);
+
+  if (adapter.operMode === 'config') {
+    return (
+      <SectionFrame
+        title="Operators"
+        description={`${frameworkLabel(servicesFramework)} grants operators through config, not a runtime command. Generate a block below, paste it into your server config, and rehash.`}
+      >
+        <OperatorConfigCard adapter={adapter} framework={servicesFramework} />
+      </SectionFrame>
+    );
+  }
+
+  // Live (Anope). Gate the management controls on operator status: pass
+  // onRunCommand only when we're opered, so the Capturing* components'
+  // own disabled-when-no-handler logic blocks ADD/DEL/LIST otherwise.
+  const gatedRun = isOper ? onRunCommand : undefined;
+  return (
+    <SectionFrame
+      title="Operators"
+      description="Grant operator access to a member's services account. Once added, they're opered automatically when they identify — no password needed."
+    >
+      <Card>
+        <div class="server-settings-oper-status">
+          <Badge tone={isOper ? 'success' : 'warn'}>
+            {isOper ? 'Operator' : 'Not a network operator'}
+          </Badge>
+          {!isOper && (
+            <p class="server-settings-cmd-hint">
+              You need operator privilege to manage opers. Run <code>/oper &lt;name&gt; &lt;password&gt;</code>{' '}
+              or identify to your oper account, then reopen this tab.
+            </p>
+          )}
+        </div>
+        <Divider />
+        <CapturingTwoArgCommand
+          label="Add operator"
+          hint="Account name + oper type (must match a type your network defines, e.g. Services Operator)."
+          placeholders={['account', 'oper type']}
+          buttonLabel="Add"
+          buildCommand={(account, type) => adapter.buildOperAdd?.(account, type) ?? ''}
+          onRunCommand={gatedRun}
+          serverLog={serverLog}
+          search=""
+        />
+        <CapturingOneArgCommand
+          label="Remove operator"
+          hint="Revoke operator access for an account."
+          placeholder="account"
+          buttonLabel="Remove"
+          buildCommand={(account) => adapter.buildOperDel?.(account) ?? ''}
+          onRunCommand={gatedRun}
+          serverLog={serverLog}
+          search=""
+        />
+        <CapturingNullaryCommand
+          label="List operators"
+          hint="Show the current operator roster."
+          buttonLabel="List"
+          command={adapter.buildOperList?.() ?? ''}
+          onRunCommand={gatedRun}
+          serverLog={serverLog}
+          search=""
+        />
+      </Card>
+    </SectionFrame>
+  );
+}
+
+// Config-mode (Atheme/Ergo) operator block generator. Controlled account +
+// type inputs render a paste-ready block; a Copy button writes it to the
+// clipboard. Sends nothing on the wire.
+function OperatorConfigCard({
+  adapter, framework,
+}: {
+  adapter: ServicesAdapter;
+  framework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null;
+}) {
+  const [account, setAccount] = useState('');
+  const [type, setType] = useState('');
+  const [copied, setCopied] = useState(false);
+  const block = account.trim() && adapter.buildOperConfig
+    ? adapter.buildOperConfig(account.trim(), type.trim() || 'operator')
+    : '';
+  const target = framework === 'ergo' ? 'ircd.yaml' : 'atheme.conf';
+  const copy = async (): Promise<void> => {
+    if (!block) return;
+    try {
+      await navigator.clipboard.writeText(block);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Clipboard denied (sandboxed context) — the block is on-screen and
+      // selectable, so the user can still copy it manually.
+    }
+  };
+  return (
+    <Card>
+      <div class="server-settings-cmd-controls server-settings-cmd-controls-two">
+        <Input
+          value={account}
+          onInput={(e) => setAccount((e.target as HTMLInputElement).value)}
+          placeholder="account"
+          autoComplete="off"
+          spellcheck={false}
+        />
+        <Input
+          value={type}
+          onInput={(e) => setType((e.target as HTMLInputElement).value)}
+          placeholder="operclass / class"
+          autoComplete="off"
+          spellcheck={false}
+        />
+      </div>
+      {block && (
+        <>
+          <pre class="server-settings-cmd-output">{block}</pre>
+          <div class="server-settings-oper-config-actions">
+            <span class="server-settings-cmd-hint">Paste into <code>{target}</code> and rehash.</span>
+            <Button type="button" variant="secondary" size="sm" onClick={() => { void copy(); }}>
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+        </>
+      )}
+    </Card>
+  );
 }
 
 interface AdvancedSectionProps {
@@ -2591,8 +2757,32 @@ const SERVER_INFO_INDEX: Array<[string, string]> = [
   ['LINKS', 'Map of servers linked into this network (often gagged for privacy).'],
 ];
 
+const OPER_INDEX: Array<[string, string]> = [
+  ['OPER', 'Authenticate as a server operator using an existing IRCd oper block (name + password). On success the server replies 381 and the Operator badge lights.'],
+];
+
 function ServerInfoSubSection({ onRunCommand, serverLog, search }: SubSectionCommonProps) {
   return (
+    <>
+    <MaybeCard visible={anyMatch(search, OPER_INDEX)}>
+      <div class="server-settings-card-body">
+        <h3 class="server-settings-subhead">Operator</h3>
+        <p class="server-settings-subhint">
+          Already have operator credentials on this network? Authenticate against
+          the server's oper block. The password is sent to the daemon and never
+          stored by Boson.
+        </p>
+        <Divider />
+        <CapturingTwoArgCommand
+          label="OPER" hint={OPER_INDEX[0]![1]}
+          placeholders={['oper name', 'password']}
+          inputTypes={['text', 'password']}
+          buttonLabel="Authenticate"
+          buildCommand={(name, password) => `/oper ${name} ${password}`}
+          onRunCommand={onRunCommand} serverLog={serverLog} search={search}
+        />
+      </div>
+    </MaybeCard>
     <MaybeCard visible={anyMatch(search, SERVER_INFO_INDEX)}>
       <div class="server-settings-card-body">
         <h3 class="server-settings-subhead">Server info</h3>
@@ -2643,6 +2833,7 @@ function ServerInfoSubSection({ onRunCommand, serverLog, search }: SubSectionCom
         />
       </div>
     </MaybeCard>
+    </>
   );
 }
 

@@ -9,6 +9,10 @@ import './ChannelSidebar.css';
 
 interface ChannelSidebarProps {
   serverName: string;
+  // CDN URL of the server's wide (3:1) banner, when the owner set one. Shown
+  // as a header strip with the server name + gear overlaid; absent → the
+  // plain text header.
+  bannerUrl?: string;
   channels: ChatChannel[];
   activeChannel: string | null;
   onSelect: (name: string) => void;
@@ -26,6 +30,7 @@ interface ChannelSidebarProps {
 
 export function ChannelSidebar({
   serverName,
+  bannerUrl,
   channels,
   activeChannel,
   onSelect,
@@ -69,7 +74,10 @@ export function ChannelSidebar({
 
   return (
     <aside class="channel-sidebar" aria-label="Channels">
-      <div class="channel-sidebar-header">
+      <div
+        class={`channel-sidebar-header ${bannerUrl ? 'channel-sidebar-header-banner' : ''}`}
+        style={bannerUrl ? `background-image: url("${cssUrl(bannerUrl)}")` : undefined}
+      >
         <div class="channel-sidebar-title sidebar-server-name">{serverName}</div>
         {onOpenSettings && (
           <button
@@ -147,6 +155,14 @@ export function ChannelSidebar({
       </Modal>
     </aside>
   );
+}
+
+// Escape a URL for safe interpolation into a CSS url("...") value: neutralise
+// the closing quote, backslash, and parens so a crafted banner URL can't break
+// out of the declaration. The URL itself is backend-issued (our CDN), but we
+// don't trust it into a style string unescaped.
+export function cssUrl(url: string): string {
+  return url.replace(/[\\"()]/g, '\\$&');
 }
 
 function GearIcon() {

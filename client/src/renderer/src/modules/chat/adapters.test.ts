@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AnopeAdapter, AthemeAdapter, ErgoAdapter, getAdapter } from './adapters';
+import type { ServicesAdapter } from './adapters';
 
 // Post-migration the adapter surface has shrunk to a single
 // operation — INFO. All other commands (REGISTER / IDENTIFY /
@@ -35,6 +36,53 @@ describe('ErgoAdapter.buildInfo', () => {
 
   it('reports id = ergo', () => {
     expect(new ErgoAdapter().id).toBe('ergo');
+  });
+});
+
+describe('oper management — live (Anope)', () => {
+  const a: ServicesAdapter = new AnopeAdapter();
+
+  it('reports operMode = live', () => {
+    expect(a.operMode).toBe('live');
+  });
+
+  it('builds OPER ADD with account + type', () => {
+    expect(a.buildOperAdd!('Nyan', 'Services Operator')).toBe(
+      '/msg OperServ OPER ADD Nyan Services Operator',
+    );
+  });
+
+  it('builds OPER DEL with account', () => {
+    expect(a.buildOperDel!('Nyan')).toBe('/msg OperServ OPER DEL Nyan');
+  });
+
+  it('builds OPER LIST', () => {
+    expect(a.buildOperList!()).toBe('/msg OperServ OPER LIST');
+  });
+
+  it('does not expose a config builder', () => {
+    expect(a.buildOperConfig).toBeUndefined();
+  });
+});
+
+describe('oper management — config (Atheme / Ergo)', () => {
+  it('Atheme: operMode = config, emits an operator{} block', () => {
+    const a: ServicesAdapter = new AthemeAdapter();
+    expect(a.operMode).toBe('config');
+    expect(a.buildOperConfig!('alice', 'sra')).toBe(
+      'operator "alice" {\n\toperclass = "sra";\n};',
+    );
+    expect(a.buildOperAdd).toBeUndefined();
+  });
+
+  it('Ergo: operMode = config, emits an opers: YAML stanza', () => {
+    const e: ServicesAdapter = new ErgoAdapter();
+    expect(e.operMode).toBe('config');
+    const cfg = e.buildOperConfig!('alice', 'chanop');
+    expect(cfg).toContain('opers:');
+    expect(cfg).toContain('"alice":');
+    expect(cfg).toContain('class: "chanop"');
+    expect(e.buildOperAdd).toBeUndefined();
   });
 });
 

@@ -141,6 +141,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
                 engineState: c.engineState,
                 unread,
                 mentions,
+                iconUrl: resolveServerImages(c, state.servers).iconUrl,
               };
             })}
             activeServerId={activeServerId}
@@ -174,6 +175,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onChangeNick={(nick) => target.chat.changeNick(nick)}
             serverId={target.serverId}
             servicesFramework={chatState.servicesFramework}
+            isOper={chatState.myOper}
             onTriggerAutoIdentify={() => target.chat.triggerAutoIdentify()}
             onRunCommand={(line) => target.chat.input(line)}
             onDropAccount={(acct, pw) => target.chat.dropAccount(acct, pw)}
@@ -186,13 +188,14 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onDetectAccountState={(acct) => target.chat.detectAccountState(acct)}
             onResumeConfirmation={(acct, opts) => target.chat.resumePendingConfirmation(acct, opts)}
             signedIn={Boolean(me)}
-            // Ownership check: render the Edit tab only when (a) the
-            // current connection knows the full directory Server (not
-            // a cold-start SavedServer snapshot which lacks profile
-            // fields), and (b) the signed-in account owns that row.
-            // Both branches short-circuit to plain ServerSettings —
-            // the tab simply doesn't appear in the menu.
-            {...buildEditableProps(target.server, me, bloc)}
+            // Ownership check: render the Edit tab only when the signed-in
+            // account owns the row. The connection may hold a cold-start
+            // SavedServer snapshot (no profile fields); buildEditableProps
+            // resolves the full directory Server by id from state.servers
+            // so an owner reconnecting from a saved session still gets the
+            // Edit tab. Non-owners / unresolved rows short-circuit to plain
+            // ServerSettings — the tab simply doesn't appear in the menu.
+            {...buildEditableProps(target.server, me, bloc, state.servers)}
           />
         </div>
       );
@@ -220,9 +223,11 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
               engineState: c.engineState,
               unread,
               mentions,
+              iconUrl: resolveServerImages(c, state.servers).iconUrl,
             };
           })}
           activeServerId={activeServerId}
+          bannerUrl={resolveServerImages(active, state.servers).bannerUrl}
           onSelectServer={(id) => bloc.setActiveServer(id)}
           onBrowseServers={() => bloc.openServerBrowser()}
           engineState={active.engineState}
@@ -600,10 +605,11 @@ function ServerCard({
 // when the signed-in user isn't the row's owner. Extracted from the
 // JSX call site purely for readability — the inline ternary version
 // got long enough that the surrounding component was hard to scan.
-function buildEditableProps(
-  server: import('../../modules/directory').Server | import('../../modules/session').SavedServer,
+export function buildEditableProps(
+  connServer: import('../../modules/directory').Server | import('../../modules/session').SavedServer,
   me: import('../../modules/directory').User | null | undefined,
   bloc: DirectoryBloc,
+  directory: import('../../modules/directory').Server[] | null,
 ): {
   directoryEntry?: import('../ChatLayout/ServerSettings').DirectoryEntryProfile;
   onSaveProfile?: (
@@ -611,10 +617,18 @@ function buildEditableProps(
   ) => Promise<void>;
   onSaveServerImage?: (kind: 'icon' | 'banner', image: Blob | null) => Promise<void>;
 } {
-  // SavedServer doesn't carry the directory profile fields — only
-  // hostname/port/tls/name/id. Narrow via a property check so TS
-  // accepts the access pattern below without `any` casts.
-  if (!('tags' in server)) return {};
+  // The connection may hold either a full directory `Server` (when opened
+  // from the listing) or a `SavedServer` cold-start snapshot (restored on
+  // app start), which carries only hostname/port/tls/name/id — no profile
+  // fields, no `registered_by`. An owner reconnecting from a saved session
+  // would otherwise never see their Edit tab, so when the connection lacks
+  // the profile fields we resolve the full row from the loaded directory
+  // list by id. Narrow via the `tags` property check so TS accepts the
+  // access pattern below without `any` casts.
+  const server = 'tags' in connServer
+    ? connServer
+    : directory?.find((s) => s.id === connServer.id);
+  if (!server) return {};
   if (!me?.id || me.id === '__guest__') return {};
   if (server.registered_by !== me.id) return {};
   return {
@@ -631,6 +645,22 @@ function buildEditableProps(
     onSaveProfile: (patch) => bloc.updateServerProfile(server.id, patch),
     onSaveServerImage: (kind, image) => bloc.setServerImage(server.id, kind, image),
   };
+}
+
+// Resolve a connection's owner-set icon/banner CDN URLs. Like the Edit-tab
+// gate, the connection may hold a full directory `Server` (carries the URLs)
+// or a cold-start `SavedServer` snapshot (doesn't) — in the latter case we
+// look the full row up by id from the loaded directory list. Both URLs are
+// undefined when unresolved or unset, which the consumers fall back from
+// (initials tile / plain sidebar header).
+export function resolveServerImages(
+  conn: import('./DirectoryBloc').DirectoryConnection,
+  directory: import('../../modules/directory').Server[] | null,
+): { iconUrl?: string; bannerUrl?: string } {
+  const full = 'tags' in conn.server
+    ? conn.server
+    : directory?.find((s) => s.id === conn.serverId);
+  return { iconUrl: full?.icon_url, bannerUrl: full?.banner_url };
 }
 
 function computeInitials(name: string): string {

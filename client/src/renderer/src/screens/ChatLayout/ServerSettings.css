@@ -701,3 +701,22 @@
   gap: var(--space-2);
   align-items: center;
 }
+
+/* Operators tab — status row (badge + hint) and the config-mode block's
+   footer (paste instruction + Copy button). */
+.server-settings-oper-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.server-settings-oper-config-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--space-2);
+}
+.server-settings-oper-config-actions code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}

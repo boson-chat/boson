@@ -30,6 +30,35 @@
   cursor: pointer;
   transition: all var(--motion-fast) var(--ease-standard);
   position: relative;
+  overflow: hidden;
+}
+
+/* Owner-set server icon — covers the entire tile edge-to-edge, clipped by
+   the item's rounded corners (overflow: hidden above). object-fit: cover so
+   non-square uploads fill without distortion or letterboxing. Absolutely
+   positioned over the full border-box so it reaches the tile edges. */
+.server-item-icon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Icon tiles drop the 1px border so the image is truly edge-to-edge (the
+   border-box footprint stays 48×48 via the global box-sizing). Active /
+   hover state is shown with an inset ring drawn over the image instead, so
+   there's no 1px layout shift between states. */
+.server-item-has-icon {
+  border-color: transparent;
+}
+.server-item-has-icon:hover {
+  box-shadow: inset 0 0 0 2px var(--fg-3);
+}
+.server-item-has-icon.server-item-active {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 2px var(--accent);
 }
 
 .server-item:hover {

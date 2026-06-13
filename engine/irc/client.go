@@ -49,7 +49,11 @@ type Event struct {
 	// Account is the source's services account name when known (from the
 	// account-tag, extended-join, or an ACCOUNT event); empty = not logged in.
 	Account string `json:"Account,omitempty"`
-	Raw     string
+	// IsOper is set when this event tells us *we* became an IRC operator —
+	// numeric 381 (RPL_YOUREOPER) or a self user-mode grant (MODE <ournick>
+	// +o). It is never set for channel +o (ops) or for other users.
+	IsOper bool `json:"IsOper,omitempty"`
+	Raw    string
 }
 
 type EventHandler func(Event)
@@ -491,6 +495,41 @@ func normalizeAccount(s string) string {
 	return s
 }
 
+// isChannelName reports whether a MODE target is a channel rather than a
+// nick. Channels start with one of the standard prefixes; anything else is
+// a user (and a user-mode change is only ever about ourselves).
+func isChannelName(s string) bool {
+	if s == "" {
+		return false
+	}
+	switch s[0] {
+	case '#', '&', '+', '!':
+		return true
+	}
+	return false
+}
+
+// grantsOper reports whether a mode string adds the +o flag. It walks the
+// string tracking the current +/- sign so "-o+i" (removing o) is not a
+// grant but "+i-v+o" is. Only the IRC-operator flag 'o' on a user matters
+// here; callers gate on the target being a nick.
+func grantsOper(modes string) bool {
+	adding := true
+	for _, c := range modes {
+		switch c {
+		case '+':
+			adding = true
+		case '-':
+			adding = false
+		case 'o':
+			if adding {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // translate converts a girc.Event into our wire-level Event.
 func translate(e girc.Event) Event {
 	out := Event{Kind: e.Command, Raw: e.String()}
@@ -547,7 +586,19 @@ func translate(e girc.Event) Event {
 		if len(e.Params) >= 2 {
 			out.Target = e.Params[0]
 			out.Args = append([]string(nil), e.Params[1:]...)
+			// A *user* mode change (target is a nick, not a channel) that
+			// adds +o means we just became an IRC operator — the server only
+			// sends a user's mode changes to that user themselves. Channel
+			// +o (op) targets a channel and must NOT count. The renderer
+			// double-checks Target == our nick before trusting it.
+			if !isChannelName(out.Target) && grantsOper(e.Params[1]) {
+				out.IsOper = true
+			}
 		}
+	case girc.RPL_YOUREOPER:
+		// 381 :You are now an IRC operator. Authoritative self-oper signal.
+		out.IsOper = true
+		out.Message = e.Last()
 	case girc.RPL_WHOREPLY:
 		// 352 mynick #channel ident host server nick H|G[@%+...] :hopcount realname
 		// Used here to retroactively detect users who were already away

@@ -31,18 +31,54 @@ import type { ServicesFramework } from './services';
 export interface ServicesAdapter {
   readonly id: 'anope' | 'atheme' | 'ergo';
 
+  // How operator access is granted on this package:
+  //   'live'   — runtime services command (Anope OperServ OPER), so the
+  //              client can manage the oper list directly.
+  //   'config' — no runtime grant; opers come from a config block the
+  //              owner pastes + rehashes (Atheme operator{}, Ergo opers:).
+  readonly operMode: 'live' | 'config';
+
   // Probe the account state. `INFO <nick>` is portable across all
   // three packages and returns a multi-line block including
   // identification state + email-confirmation state.
   buildInfo(accountName: string): string;
+
+  // ---- Oper management ----------------------------------------------------
+  // Live adapters (Anope) implement the three OperServ OPER verbs; config
+  // adapters (Atheme/Ergo) implement buildOperConfig instead. The Operators
+  // UI branches on `operMode` and calls only the relevant set.
+
+  // Live: add/remove/list service operators by account. `type` is the
+  // deployment-defined oper type/operclass name.
+  buildOperAdd?(account: string, type: string): string;
+  buildOperDel?(account: string): string;
+  buildOperList?(): string;
+
+  // Config: a paste-ready operator block granting `account` the named
+  // type/operclass. Returned verbatim for the owner to copy into the
+  // services/ircd config and rehash.
+  buildOperConfig?(account: string, type: string): string;
 }
 
 // ---- Anope ----------------------------------------------------------------
 // Sources: anope/modules/commands/ns_info.cpp.
 export class AnopeAdapter implements ServicesAdapter {
   readonly id = 'anope';
+  readonly operMode = 'live' as const;
   buildInfo(accountName: string): string {
     return `/msg NickServ INFO ${accountName}`;
+  }
+  // OperServ OPER ADD/DEL/LIST — runtime, account-based, persisted by Anope.
+  // An added account is auto-granted services-oper when it identifies, so a
+  // Boson member opers with no password. Source: anope/modules/operserv/os_oper.cpp.
+  buildOperAdd(account: string, type: string): string {
+    return `/msg OperServ OPER ADD ${account} ${type}`;
+  }
+  buildOperDel(account: string): string {
+    return `/msg OperServ OPER DEL ${account}`;
+  }
+  buildOperList(): string {
+    return `/msg OperServ OPER LIST`;
   }
 }
 
@@ -50,8 +86,16 @@ export class AnopeAdapter implements ServicesAdapter {
 // Sources: atheme/modules/nickserv/info.c.
 export class AthemeAdapter implements ServicesAdapter {
   readonly id = 'atheme';
+  readonly operMode = 'config' as const;
   buildInfo(accountName: string): string {
     return `/msg NickServ INFO ${accountName}`;
+  }
+  // Atheme has no runtime oper-grant command — operators are defined by an
+  // operator{} block keyed on the account name, with privileges from a named
+  // operclass. The owner pastes this into atheme.conf and rehashes.
+  // Source: atheme doc/operator-classes, conf/atheme.conf.example.
+  buildOperConfig(account: string, type: string): string {
+    return `operator "${account}" {\n\toperclass = "${type}";\n};`;
   }
 }
 
@@ -59,8 +103,15 @@ export class AthemeAdapter implements ServicesAdapter {
 // Sources: ergo/irc/nickserv.go.
 export class ErgoAdapter implements ServicesAdapter {
   readonly id = 'ergo';
+  readonly operMode = 'config' as const;
   buildInfo(accountName: string): string {
     return `/msg NickServ INFO ${accountName}`;
+  }
+  // Ergo defines opers in the ircd.yaml `opers:` block. There is no runtime
+  // grant; the owner pastes this entry under `opers:` and rehashes. `type`
+  // names an entry from the `oper-classes:` block. Source: ergo default.yaml.
+  buildOperConfig(account: string, type: string): string {
+    return `opers:\n    "${account}":\n        class: "${type}"\n        # set a password hash with: ergo genpasswd\n        password: ""`;
   }
 }
 

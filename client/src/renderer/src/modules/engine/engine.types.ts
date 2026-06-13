@@ -55,6 +55,10 @@ export interface IrcEvent {
   // Source's services account when known (account-tag / extended-join /
   // ACCOUNT); empty/absent = not identified.
   Account?: string;
+  // Set when this event tells us *we* became an IRC operator — numeric 381
+  // (RPL_YOUREOPER) or a self user-mode grant (MODE <ournick> +o). Never set
+  // for channel +o (ops) or other users' modes.
+  IsOper?: boolean;
   Raw: string;
 }
 

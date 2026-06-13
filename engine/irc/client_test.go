@@ -174,6 +174,57 @@ func TestTranslate_ChgHost(t *testing.T) {
 	assert.Equal(t, "new/host", got.Host)
 }
 
+func TestTranslate_YoureOper(t *testing.T) {
+	got := translate(girc.Event{
+		Command: girc.RPL_YOUREOPER,
+		Source:  &girc.Source{Name: "irc.boson.chat"},
+		Params:  []string{"alice", "You are now an IRC operator"},
+	})
+	assert.Equal(t, "381", got.Kind)
+	assert.True(t, got.IsOper, "381 RPL_YOUREOPER must set IsOper")
+	assert.Equal(t, "You are now an IRC operator", got.Message)
+}
+
+func TestTranslate_SelfModeOper(t *testing.T) {
+	// :server MODE alice +o  — a user-mode grant on our own nick.
+	got := translate(girc.Event{
+		Command: girc.MODE,
+		Source:  &girc.Source{Name: "irc.boson.chat"},
+		Params:  []string{"alice", "+o"},
+	})
+	assert.Equal(t, "alice", got.Target)
+	assert.True(t, got.IsOper, "self MODE +o must set IsOper")
+}
+
+func TestTranslate_ChannelOpIsNotOper(t *testing.T) {
+	// :alice MODE #general +o bob — channel op, NOT an IRC operator.
+	got := translate(girc.Event{
+		Command: girc.MODE,
+		Source:  &girc.Source{Name: "alice"},
+		Params:  []string{"#general", "+o", "bob"},
+	})
+	assert.Equal(t, "#general", got.Target)
+	assert.False(t, got.IsOper, "channel +o must NOT set IsOper")
+}
+
+func TestTranslate_PlainModeNoOper(t *testing.T) {
+	// Self user-mode change that doesn't add +o.
+	got := translate(girc.Event{
+		Command: girc.MODE,
+		Source:  &girc.Source{Name: "irc.boson.chat"},
+		Params:  []string{"alice", "+i"},
+	})
+	assert.False(t, got.IsOper, "+i must not set IsOper")
+
+	// Removing +o is not a grant.
+	removed := translate(girc.Event{
+		Command: girc.MODE,
+		Source:  &girc.Source{Name: "irc.boson.chat"},
+		Params:  []string{"alice", "-o"},
+	})
+	assert.False(t, removed.IsOper, "-o must not set IsOper")
+}
+
 func TestTranslate_Welcome(t *testing.T) {
 	got := translate(girc.Event{
 		Command: girc.RPL_WELCOME,
