@@ -448,4 +448,103 @@ describe('ChatInputBloc', () => {
       expect(tokens[0]).toEqual({ type: 'command', value: '/join' });
     });
   });
+
+  describe('sent-message history (Up/Down recall)', () => {
+    const send = (bloc: ChatInputBloc, text: string): void => {
+      bloc.setInput(text);
+      bloc.send();
+    };
+
+    it('Up recalls the last sent message', () => {
+      const { bloc } = makeBloc();
+      send(bloc, 'hello world');
+      expect(bloc.getState().input).toBe('');
+      const key = makeKey('ArrowUp', 0);
+      bloc.handleKeyDown(key);
+      expect(bloc.getState().input).toBe('hello world');
+      expect(key.preventDefaultCount).toBe(1);
+    });
+
+    it('Up steps back through history and stops at the oldest', () => {
+      const { bloc } = makeBloc();
+      send(bloc, 'one');
+      send(bloc, 'two');
+      send(bloc, 'three');
+      bloc.handleKeyDown(makeKey('ArrowUp', 0));
+      expect(bloc.getState().input).toBe('three');
+      bloc.handleKeyDown(makeKey('ArrowUp', 0));
+      expect(bloc.getState().input).toBe('two');
+      bloc.handleKeyDown(makeKey('ArrowUp', 0));
+      expect(bloc.getState().input).toBe('one');
+      // Past the oldest — stays put (still consumes the key).
+      const key = makeKey('ArrowUp', 0);
+      bloc.handleKeyDown(key);
+      expect(bloc.getState().input).toBe('one');
+      expect(key.preventDefaultCount).toBe(1);
+    });
+
+    it('Down walks forward and restores the live draft past the newest', () => {
+      const { bloc } = makeBloc();
+      send(bloc, 'first');
+      send(bloc, 'second');
+      // Type a draft, then browse up into history.
+      bloc.setInput('half-typed');
+      bloc.handleKeyDown(makeKey('ArrowUp', 0)); // -> 'second'
+      bloc.handleKeyDown(makeKey('ArrowUp', 0)); // -> 'first'
+      expect(bloc.getState().input).toBe('first');
+      bloc.handleKeyDown(makeKey('ArrowDown', 0)); // -> 'second'
+      expect(bloc.getState().input).toBe('second');
+      bloc.handleKeyDown(makeKey('ArrowDown', 0)); // -> restores draft
+      expect(bloc.getState().input).toBe('half-typed');
+    });
+
+    it('Down with no active recall is left to the browser (no preventDefault)', () => {
+      const { bloc } = makeBloc();
+      send(bloc, 'x');
+      const key = makeKey('ArrowDown', 0);
+      bloc.handleKeyDown(key);
+      expect(key.preventDefaultCount).toBe(0);
+    });
+
+    it('does not recall when the caret is below the first line (multi-line edit)', () => {
+      const { bloc } = makeBloc();
+      send(bloc, 'history');
+      bloc.setInput('line1\nline2');
+      // Caret on the second line (index after the newline) — Up should move
+      // the caret, not recall.
+      const key = makeKey('ArrowUp', 9);
+      bloc.handleKeyDown(key);
+      expect(key.preventDefaultCount).toBe(0);
+      expect(bloc.getState().input).toBe('line1\nline2');
+    });
+
+    it('editing a recalled entry detaches it from history', () => {
+      const { bloc } = makeBloc();
+      send(bloc, 'alpha');
+      send(bloc, 'beta');
+      bloc.handleKeyDown(makeKey('ArrowUp', 0)); // 'beta'
+      bloc.setInput('beta!'); // edit detaches
+      // Up now starts fresh from newest against the edited buffer.
+      bloc.handleKeyDown(makeKey('ArrowUp', 0));
+      expect(bloc.getState().input).toBe('beta');
+    });
+
+    it('skips consecutive duplicate sends in the ring', () => {
+      const { bloc } = makeBloc();
+      send(bloc, 'dup');
+      send(bloc, 'dup');
+      bloc.handleKeyDown(makeKey('ArrowUp', 0));
+      expect(bloc.getState().input).toBe('dup');
+      // Only one 'dup' entry — a second Up stays put.
+      bloc.handleKeyDown(makeKey('ArrowUp', 0));
+      expect(bloc.getState().input).toBe('dup');
+    });
+
+    it('Up with empty history is left to the browser', () => {
+      const { bloc } = makeBloc();
+      const key = makeKey('ArrowUp', 0);
+      bloc.handleKeyDown(key);
+      expect(key.preventDefaultCount).toBe(0);
+    });
+  });
 });

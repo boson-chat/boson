@@ -101,6 +101,17 @@ export class ChatInputBloc {
   private channelCycle: ChannelCycle | null = null;
   private commandCycle: CommandCycle | null = null;
 
+  // Shell-style sent-message history. `history` is chronological (newest
+  // last). `historyIndex` is the entry currently recalled, or null when the
+  // user is on their live draft; `historyDraft` stashes that draft so Down
+  // past the newest entry restores what they were typing. Up/Down only
+  // recall when the caret is on the first/last line, so multi-line editing
+  // still moves the caret normally.
+  private history: string[] = [];
+  private historyIndex: number | null = null;
+  private historyDraft = '';
+  private static readonly HISTORY_MAX = 100;
+
   private readonly listeners = new Set<ChatInputListener>();
 
   constructor(private readonly deps: ChatInputBlocDeps) {}
@@ -164,6 +175,9 @@ export class ChatInputBloc {
     const isEmpty = value.length === 0;
     this.input = value;
     if (this.slashDismissed) this.slashDismissed = false;
+    // Editing detaches from history browsing — the next Up starts fresh from
+    // the newest entry against this edited buffer.
+    this.historyIndex = null;
     this.nickCycle = null;
     this.mentionCycle = null;
     this.channelCycle = null;
@@ -272,6 +286,15 @@ export class ChatInputBloc {
       this.handleChannelKey(e, channelCtx);
       return;
     }
+    // Sent-message history. Only recall when the caret is on the first line
+    // (Up) / last line (Down) so multi-line editing still moves the caret
+    // within the buffer. No popup is open here (handled above).
+    if (e.key === 'ArrowUp' && this.caretOnFirstLine(e.selectionStart)) {
+      if (this.recallPrevious()) { e.preventDefault(); return; }
+    }
+    if (e.key === 'ArrowDown' && this.caretOnLastLine(e.selectionStart)) {
+      if (this.recallNext()) { e.preventDefault(); return; }
+    }
     if (e.key === 'Tab') {
       // No popup open — but a previous popup may have left a cycle armed.
       // Try them in priority order, then fall back to bare-nick complete.
@@ -286,6 +309,71 @@ export class ChatInputBloc {
     }
   }
 
+  // --- Sent-message history --------------------------------------------
+
+  private caretOnFirstLine(sel: number | null): boolean {
+    const s = sel ?? 0;
+    // No newline anywhere before the caret ⇒ first line.
+    return this.input.lastIndexOf('\n', s - 1) === -1;
+  }
+
+  private caretOnLastLine(sel: number | null): boolean {
+    const s = sel ?? this.input.length;
+    // No newline at/after the caret ⇒ last line.
+    return this.input.indexOf('\n', s) === -1;
+  }
+
+  /** Up arrow: step to an older entry. Returns false when there's nothing
+   *  to recall (so the caller leaves the keypress to the browser). */
+  private recallPrevious(): boolean {
+    if (this.history.length === 0) return false;
+    if (this.historyIndex === null) {
+      // Entering history — stash the live draft so Down can restore it.
+      this.historyDraft = this.input;
+      this.historyIndex = this.history.length - 1;
+    } else if (this.historyIndex > 0) {
+      this.historyIndex -= 1;
+    } else {
+      // Already at the oldest entry — consume the key, stay put.
+      return true;
+    }
+    this.applyHistoryEntry(this.history[this.historyIndex]!);
+    return true;
+  }
+
+  /** Down arrow: step to a newer entry, or restore the live draft once we
+   *  move past the newest. Returns false when not browsing. */
+  private recallNext(): boolean {
+    if (this.historyIndex === null) return false;
+    if (this.historyIndex < this.history.length - 1) {
+      this.historyIndex += 1;
+      this.applyHistoryEntry(this.history[this.historyIndex]!);
+    } else {
+      this.historyIndex = null;
+      this.input = this.historyDraft;
+      this.historyDraft = '';
+      this.pendingCursor = this.input.length;
+      this.resetCompletionState();
+      this.emit();
+    }
+    return true;
+  }
+
+  private applyHistoryEntry(entry: string): void {
+    this.input = entry;
+    this.pendingCursor = entry.length; // caret to end
+    this.resetCompletionState();
+    this.emit();
+  }
+
+  private resetCompletionState(): void {
+    this.slashDismissed = false;
+    this.nickCycle = null;
+    this.mentionCycle = null;
+    this.channelCycle = null;
+    this.commandCycle = null;
+  }
+
   clearPendingCursor(): void {
     if (this.pendingCursor === null) return;
     this.pendingCursor = null;
@@ -296,6 +384,15 @@ export class ChatInputBloc {
   send(): void {
     const text = this.input.trim();
     if (!text) return;
+    // Record the exact buffer (multi-line preserved) for Up-arrow recall,
+    // skipping consecutive duplicates and capping the ring.
+    const submitted = this.input;
+    if (this.history[this.history.length - 1] !== submitted) {
+      this.history.push(submitted);
+      if (this.history.length > ChatInputBloc.HISTORY_MAX) this.history.shift();
+    }
+    this.historyIndex = null;
+    this.historyDraft = '';
     // IRC PRIVMSG is one line per command. Multi-line input becomes N
     // PRIVMSGs; receivers see them grouped (same sender, same window).
     const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
