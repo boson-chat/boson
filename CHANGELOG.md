@@ -1,3 +1,9 @@
+## [0.23.0](https://github.com/boson-chat/boson/compare/v0.22.0...v0.23.0) (2026-06-13)
+
+### Features
+
+* **website:** show server icon + banner on the discover page ([20d6289](https://github.com/boson-chat/boson/commit/20d6289c24658ace213435dc203ce66741116875))
+
 ## [0.22.0](https://github.com/boson-chat/boson/compare/v0.21.0...v0.22.0) (2026-06-13)
 
 ### Features
