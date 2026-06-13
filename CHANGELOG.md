@@ -1,3 +1,10 @@
+## [0.22.0](https://github.com/boson-chat/boson/compare/v0.21.0...v0.22.0) (2026-06-13)
+
+### Features
+
+* account-based operator management + server icon/banner display ([e9cbbfd](https://github.com/boson-chat/boson/commit/e9cbbfde7a9a92d4c4615b0c9d47556e225b25c0))
+* **client:** recall previous sent messages with Up/Down in the composer ([5deb63b](https://github.com/boson-chat/boson/commit/5deb63b3448a063757b588f3223b3d41ab1e483b))
+
 ## [0.21.0](https://github.com/boson-chat/boson/compare/v0.20.0...v0.21.0) (2026-06-12)
 
 ### Features
