@@ -120,6 +120,27 @@
   flex-shrink: 0;
 }
 
+/* Owner-set icon — same footprint as the initials tile, cover-cropped. */
+.discover-card-icon {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Owner-set banner — a wide (3:1) strip atop the card. Negative margins
+   pull it to the card edges over the article's 2px padding so it reads as
+   a header image. */
+.discover-card-banner {
+  margin: -2px -2px 2px;
+  height: 96px;
+  background-size: cover;
+  background-position: center;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
 .discover-card-titles { min-width: 0; flex: 1; }
 .discover-card-titles h3 {
   margin: 0;

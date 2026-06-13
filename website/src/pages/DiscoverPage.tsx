@@ -21,6 +21,18 @@ interface Server {
   health_status: 'up' | 'down' | 'unknown';
   verification_status: 'pending' | 'verified' | 'lapsed';
   user_count?: number;
+  // Owner-set listing imagery, served from the CDN. Absent when unset; the
+  // card falls back to the initials tile (icon) / no banner.
+  icon_url?: string;
+  banner_url?: string;
+}
+
+// Escape a URL for safe interpolation into a CSS url("…"): neutralise the
+// closing quote, backslash and parens so a crafted banner URL can't break
+// out of the declaration. The URL is backend-issued (our CDN) but we don't
+// trust it into a style string unescaped.
+function cssUrl(url: string): string {
+  return url.replace(/[\\"()]/g, '\\$&');
 }
 
 // In dev, vite.config.ts proxies `/servers` → VITE_BOSON_API_URL (defaults to
@@ -197,10 +209,21 @@ export function DiscoverPage() {
                 <li key={s.id}>
                   <Card variant="raised">
                     <article class="discover-card">
+                      {s.banner_url ? (
+                        <div
+                          class="discover-card-banner"
+                          style={`background-image: url("${cssUrl(s.banner_url)}")`}
+                          aria-hidden="true"
+                        />
+                      ) : null}
                       <header class="discover-card-head">
-                        <span class="discover-card-mono" aria-hidden="true">
-                          {(s.name || s.hostname).slice(0, 2).toUpperCase()}
-                        </span>
+                        {s.icon_url ? (
+                          <img class="discover-card-icon" src={s.icon_url} alt="" />
+                        ) : (
+                          <span class="discover-card-mono" aria-hidden="true">
+                            {(s.name || s.hostname).slice(0, 2).toUpperCase()}
+                          </span>
+                        )}
                         <div class="discover-card-titles">
                           <h3>
                             {s.name}
