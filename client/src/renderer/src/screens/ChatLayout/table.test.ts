@@ -93,4 +93,25 @@ describe('parseTables (multiple tables in one block)', () => {
   it('returns null when any line is not part of a table', () => {
     expect(parseTables('| a | b |\n|---|---|\n| 1 | 2 |\nplain text line')).toBeNull();
   });
+
+  it('tolerates empty/spacer rows (does not bail to a single merged block)', () => {
+    const text = [
+      '┌─────────────┬──────────────┐',
+      '│             │              │', // spacer row → skipped, not fatal
+      '│ Location    │ What it is   │',
+      '├─────────────┼──────────────┤',
+      '│ /home/kuma  │ Uptime Kuma  │',
+      '└─────────────┴──────────────┘',
+      '┌─────────────┬──────────────┐',
+      '│ Role        │ Count        │',
+      '├─────────────┼──────────────┤',
+      '│ op          │ 3            │',
+      '└─────────────┴──────────────┘',
+    ].join('\n');
+    const ts = parseTables(text)!;
+    expect(ts).toHaveLength(2);
+    expect(ts[0]!.headers).toEqual(['Location', 'What it is']);
+    expect(ts[0]!.rows).toEqual([['/home/kuma', 'Uptime Kuma']]);
+    expect(ts[1]!.headers).toEqual(['Role', 'Count']);
+  });
 });

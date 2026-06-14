@@ -69,7 +69,9 @@ export function parseTables(text: string): ParsedTable[] | null {
     prevBorder = false;
     if (!COL_SEP.test(line)) return null; // non-table content → whole block isn't tables
     const cells = splitRow(line);
-    if (cells.length < 2) return null;
+    // Spacer rows (│        │) or single-cell title/caption rows split to <2
+    // cells — skip them rather than abandoning the whole table.
+    if (cells.length < 2) continue;
     if (isDividerCells(cells)) {
       // A divider after a complete table means the row just before it is the
       // next table's header (markdown tables pasted with no blank line).
