@@ -1,3 +1,9 @@
+## [0.26.1](https://github.com/boson-chat/boson/compare/v0.26.0...v0.26.1) (2026-06-14)
+
+### Bug Fixes
+
+* **client:** serve packaged renderer over loopback http for YouTube embeds ([83b67fd](https://github.com/boson-chat/boson/commit/83b67fdc32711dc48768f8bb3256dffea26d4272))
+
 ## [0.26.0](https://github.com/boson-chat/boson/compare/v0.25.3...v0.26.0) (2026-06-14)
 
 ### Features
