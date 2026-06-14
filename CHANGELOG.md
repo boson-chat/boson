@@ -1,3 +1,9 @@
+## [0.26.0](https://github.com/boson-chat/boson/compare/v0.25.3...v0.26.0) (2026-06-14)
+
+### Features
+
+* **client:** serve packaged renderer from app:// for inline embeds ([b53beb4](https://github.com/boson-chat/boson/commit/b53beb495b75ebbc3751a13b820a1d514a55cfb2))
+
 ## [0.25.3](https://github.com/boson-chat/boson/compare/v0.25.2...v0.25.3) (2026-06-14)
 
 ### Bug Fixes
