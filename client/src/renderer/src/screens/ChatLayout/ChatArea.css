@@ -361,23 +361,6 @@
   white-space: nowrap;
 }
 
-.chat-status {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  text-transform: lowercase;
-}
-
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--success);
-}
-
 .chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -1113,20 +1096,6 @@
 /* Small "via solanum 1.0 · Libera.Chat" badge in the chat header — sits
    between the Log toggle and the "connected" pill. Becomes a button when a
    click handler is wired (opens the Server details modal). */
-.chat-server-info {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-  white-space: nowrap;
-  overflow: hidden;
-  max-width: 320px;
-}
-.chat-server-info-name { overflow: hidden; text-overflow: ellipsis; }
-.chat-server-bnc { flex-shrink: 0; color: var(--fg-3); }
-
 .chat-server-info-button {
   background: transparent;
   border: 1px solid transparent;

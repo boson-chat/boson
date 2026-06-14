@@ -58,18 +58,49 @@
   border-color: rgba(255, 255, 255, 0.4);
 }
 
+/* Server name + meta (version / bouncer / status) stacked in one column. */
+.channel-sidebar-heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
 .channel-sidebar-title {
   font-family: var(--font-display);
   font-size: var(--text-sm);
   font-weight: 700;
   color: var(--fg);
   letter-spacing: var(--tracking-display);
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.sidebar-server-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+.sidebar-server-version { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-bnc { flex-shrink: 0; }
+.sidebar-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--success);
+}
+.sidebar-status-dot[data-state='connecting'] { background: var(--warning, #e0a32a); }
+.sidebar-status-dot[data-state='disconnected'] { background: var(--danger, #e0533a); }
+/* Banner variant: lighten meta text + dot for legibility over the image scrim. */
+.channel-sidebar-header-banner .sidebar-server-meta { color: rgba(255, 255, 255, 0.82); }
 
 .channel-sidebar-settings {
   background: transparent;

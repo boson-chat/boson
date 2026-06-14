@@ -36,6 +36,37 @@ export function ChannelSettings({
   // Fetch fresh modes + ban list whenever the modal mounts for this channel.
   useEffect(() => { onRefresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [channel.name]);
 
+  // Optimistic mode state: a MODE command round-trips to the server before the
+  // flags update, so the switch would otherwise lag/flicker. Flip it locally on
+  // click, then drop the override once the server-confirmed flags catch up (or
+  // after a timeout, if the change was rejected).
+  const [optimistic, setOptimistic] = useState<Record<string, boolean>>({});
+  const flagsKey = flags.join(',');
+  useEffect(() => {
+    setOptimistic((prev) => {
+      const keys = Object.keys(prev);
+      if (keys.length === 0) return prev;
+      const next: Record<string, boolean> = {};
+      let changed = false;
+      for (const f of keys) {
+        if (flags.includes(f) === prev[f]) { changed = true; continue; } // confirmed → drop
+        next[f] = prev[f]!;
+      }
+      return changed ? next : prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [flagsKey]);
+  const isOn = (flag: string): boolean => optimistic[flag] ?? flags.includes(flag);
+  const toggleMode = (flag: string, next: boolean): void => {
+    setOptimistic((p) => ({ ...p, [flag]: next }));
+    onSetMode(`${next ? '+' : '-'}${flag}`);
+    // Safety: if the server never echoes (rejected), re-sync to its truth.
+    window.setTimeout(() => setOptimistic((p) => {
+      if (!(flag in p)) return p;
+      const n = { ...p }; delete n[flag]; return n;
+    }), 4000);
+  };
+
   // Local drafts for the parameterised / free-text inputs.
   const [keyDraft, setKeyDraft] = useState(channel.modes?.key ?? '');
   const [limitDraft, setLimitDraft] = useState(channel.modes?.limit != null ? String(channel.modes.limit) : '');
@@ -58,10 +89,10 @@ export function ChannelSettings({
           {BOOL_MODES.map((m) => (
             <li key={m.flag} class="chan-mode-row">
               <Toggle
-                checked={flags.includes(m.flag)}
+                checked={isOn(m.flag)}
                 disabled={!canEdit}
                 label={m.label}
-                onChange={(next) => onSetMode(`${next ? '+' : '-'}${m.flag}`)}
+                onChange={(next) => toggleMode(m.flag, next)}
               />
               {m.hint && <span class="chan-mode-hint">{m.hint}</span>}
             </li>

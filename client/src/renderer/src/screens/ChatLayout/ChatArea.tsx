@@ -271,11 +271,6 @@ export function ChatArea({
           )}
         </div>
         <div class="chat-header-right">
-          <ServerInfoBadge info={serverInfo} />
-          <div class="chat-status" title="Connected">
-            <span class="status-dot" />
-            <span>connected</span>
-          </div>
           {onOpenChannelSettings && (
             <button
               type="button"
@@ -325,40 +320,6 @@ export function ChatArea({
   );
 }
 
-// Small "via solanum 1.0-dev · Libera.Chat" badge in the chat header.
-// Renders nothing until we've seen 004 RPL_MYINFO at least once; many test
-// fixtures and the connecting splash don't have any info yet, so the badge
-// hides gracefully. The full hostname (e.g. "hub.example.org") is tucked into
-// a `title` tooltip rather than the visible label — that detail is rarely
-// useful but worth keeping reachable.
-interface ServerInfoBadgeProps {
-  info: ServerInfo | undefined;
-}
-
-function ServerInfoBadge({ info }: ServerInfoBadgeProps) {
-  if (!info) return null;
-  const { serverName, version, network, enabledCaps, bouncer } = info;
-  // The network name is redundant here (you picked the server), so it's shown
-  // only in the tooltip. Visible label is just the daemon version/name, plus a
-  // relay glyph when connected through a bouncer.
-  const label = version ?? serverName;
-  if (!label && !bouncer) return null;
-  const tooltipLines: string[] = [];
-  if (serverName) tooltipLines.push(serverName);
-  if (network) tooltipLines.push(`Network: ${network}`);
-  if (bouncer) tooltipLines.push('Connected through a bouncer (server-side history available)');
-  tooltipLines.push(enabledCaps && enabledCaps.length > 0
-    ? `IRCv3 caps: ${enabledCaps.join(', ')}`
-    : 'IRCv3 caps: (none ACKed yet)');
-  tooltipLines.push('Right-click a server tile for details');
-  return (
-    <span class="chat-server-info" title={tooltipLines.join('\n')}>
-      {label && <span class="chat-server-info-name">{label}</span>}
-      {bouncer && <BouncerIcon />}
-    </span>
-  );
-}
-
 // Gear (channel settings) — line icon so it matches the design system rather
 // than an emoji that varies by OS.
 function GearIcon() {
@@ -367,18 +328,6 @@ function GearIcon() {
       stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="8" cy="8" r="2.1" />
       <path d="M8 1.6v1.8 M8 12.6v1.8 M1.6 8h1.8 M12.6 8h1.8 M3.5 3.5l1.3 1.3 M11.2 11.2l1.3 1.3 M3.5 12.5l1.3-1.3 M11.2 4.8l1.3-1.3" />
-    </svg>
-  );
-}
-
-// Bouncer = a relay/passthrough; an exchange glyph reads better than the words
-// "via bouncer". Tooltip on the parent badge spells it out.
-function BouncerIcon() {
-  return (
-    <svg class="chat-server-bnc" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
-      stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-label="via bouncer" role="img">
-      <path d="M2.5 5.5h9 M9.5 3.5l2 2-2 2" />
-      <path d="M13.5 10.5h-9 M6.5 8.5l-2 2 2 2" />
     </svg>
   );
 }

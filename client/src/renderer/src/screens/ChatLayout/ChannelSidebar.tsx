@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { ChatChannel } from '../../modules/chat';
+import type { ChatChannel, ServerInfo } from '../../modules/chat';
+import type { EngineState } from '../../modules/engine';
 import { Button, Input, Modal } from '@boson/shared';
 import {
   ChannelSidebarBloc,
@@ -26,6 +27,10 @@ interface ChannelSidebarProps {
   // full-page ServerSettings view for the active server. Button is hidden
   // when not provided.
   onOpenSettings?: () => void;
+  // Daemon/version + bouncer info (from RPL_MYINFO) shown under the server name.
+  serverInfo?: ServerInfo;
+  // Connection state, drives the status dot under the server name.
+  engineState?: EngineState;
 }
 
 export function ChannelSidebar({
@@ -38,6 +43,8 @@ export function ChannelSidebar({
   onPart,
   channelDirectory,
   onOpenSettings,
+  serverInfo,
+  engineState = 'connected',
 }: ChannelSidebarProps) {
   // Ref-backed view of the channels prop so the bloc always reads the latest
   // list without us rebuilding it on every render. Same pattern as ChatArea
@@ -68,6 +75,17 @@ export function ChannelSidebar({
   useEffect(() => bloc.subscribe(setState), [bloc]);
 
   const { joinModalOpen, joinDraft, joinError, realChannels, dms } = state;
+  // Compact daemon label under the server name (e.g. "ngircd-27"); network +
+  // hostname stay in the title tooltip rather than crowding the sidebar.
+  const serverMeta = serverInfo?.version ?? serverInfo?.serverName ?? '';
+  const statusLabel = engineState === 'connected' ? 'Connected'
+    : engineState === 'connecting' ? 'Connecting…' : 'Disconnected';
+  const metaTooltip = [
+    serverInfo?.serverName,
+    serverInfo?.network ? `Network: ${serverInfo.network}` : '',
+    serverInfo?.bouncer ? 'Connected via bouncer' : '',
+    statusLabel,
+  ].filter(Boolean).join('\n');
   // The synthetic `~server` channel is intentionally not rendered here —
   // service / NickServ messages live behind the Server details modal,
   // surfaced via the version badge in the chat header.
@@ -78,7 +96,16 @@ export function ChannelSidebar({
         class={`channel-sidebar-header ${bannerUrl ? 'channel-sidebar-header-banner' : ''}`}
         style={bannerUrl ? `background-image: url("${cssUrl(bannerUrl)}")` : undefined}
       >
-        <div class="channel-sidebar-title sidebar-server-name">{serverName}</div>
+        <div class="channel-sidebar-heading">
+          <div class="channel-sidebar-title sidebar-server-name">{serverName}</div>
+          {(serverMeta || serverInfo?.bouncer) && (
+            <div class="sidebar-server-meta" title={metaTooltip}>
+              <span class="sidebar-status-dot" data-state={engineState} aria-label={statusLabel} />
+              {serverMeta && <span class="sidebar-server-version">{serverMeta}</span>}
+              {serverInfo?.bouncer && <BouncerIcon />}
+            </div>
+          )}
+        </div>
         {onOpenSettings && (
           <button
             type="button"
@@ -176,6 +203,18 @@ function GearIcon() {
         stroke-width="1"
         stroke-linecap="square"
       />
+    </svg>
+  );
+}
+
+// Relay/passthrough glyph marking a bouncer connection (tooltip on the parent
+// meta row spells it out).
+function BouncerIcon() {
+  return (
+    <svg class="sidebar-bnc" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
+      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-label="via bouncer" role="img">
+      <path d="M2.5 5.5h9 M9.5 3.5l2 2-2 2" />
+      <path d="M13.5 10.5h-9 M6.5 8.5l-2 2 2 2" />
     </svg>
   );
 }

@@ -105,6 +105,28 @@ const bosonSpotify = {
 };
 contextBridge.exposeInMainWorld('bosonSpotify', bosonSpotify);
 
+// API proxy: the renderer sends its api.boson.chat requests here so the main
+// process performs them (no CORS). Keeps the renderer usable on a loopback
+// origin without loosening the backend's CORS policy.
+export interface ApiProxyRequest {
+  method: string;
+  url: string;
+  headers?: Record<string, string>;
+  body?: string | ArrayBuffer | null;
+}
+export interface ApiProxyResponse {
+  status: number;
+  ok: boolean;
+  statusText: string;
+  text: string;
+}
+const bosonApi = {
+  fetch(req: ApiProxyRequest): Promise<ApiProxyResponse> {
+    return ipcRenderer.invoke('api:fetch', req);
+  },
+};
+contextBridge.exposeInMainWorld('bosonApi', bosonApi);
+
 // Deep-link bridge. The marketing site's /discover page renders Join
 // buttons as `boson://join?host=…&port=…&tls=1` links; clicking one
 // hands the URL to the installed app via the OS. The main process
@@ -164,5 +186,6 @@ export type BosonWindow = typeof bosonWindow;
 export type BosonEngine = typeof bosonEngine;
 export type BosonUnfurl = typeof bosonUnfurl;
 export type BosonSpotify = typeof bosonSpotify;
+export type BosonApi = typeof bosonApi;
 export type BosonDeepLink = typeof bosonDeepLink;
 export type BosonUpdater = typeof bosonUpdater;

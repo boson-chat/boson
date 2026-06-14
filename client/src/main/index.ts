@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import { createServer, type Server } from 'node:http';
-import { createReadStream } from 'node:fs';
+import { createReadStream, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { join, normalize, extname, sep } from 'node:path';
 import { SecureStore } from './secure-store';
@@ -8,6 +8,7 @@ import { engine } from './engine';
 import { applyDownloadedUpdate, checkNow, getUpdateState, startAutoUpdater } from './auto-update';
 import { unfurl } from './unfurl';
 import { fetchSpotifyInfo } from './spotify';
+import { proxyApiFetch } from './api-proxy';
 
 // boson:// is the custom URL scheme that the marketing site's directory
 // page (/discover) deep-links to. Format: boson://join?host=…&port=…&tls=1
@@ -15,11 +16,7 @@ import { fetchSpotifyInfo } from './spotify';
 // via setAsDefaultProtocolClient + electron-builder's `protocols` block.
 const DEEP_LINK_SCHEME = 'boson';
 
-// In production the renderer is served over a loopback HTTP server (bound to
-// 127.0.0.1) instead of file://, so the page has a real http origin. Embedded
-// players that validate origin/referrer (notably YouTube, which otherwise
-// shows "Error 153") accept http://127.0.0.1 but reject file:// and app://.
-// Minimal extension→MIME map for the static renderer assets we serve.
+// Extension→MIME map for the loopback static server (see startRendererServer).
 const MIME: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
   '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
@@ -112,12 +109,17 @@ class BosonApp {
     if (argvDeepLink) this.pendingDeepLink = { url: argvDeepLink };
 
     await app.whenReady();
-    // Production only: stand up the loopback renderer server (dev uses Vite).
+    // Production: serve the renderer over loopback http so it has a real origin
+    // (embeds need it; API calls go through the main-process proxy to dodge
+    // CORS). Dev uses the Vite server.
     if (!process.env['ELECTRON_RENDERER_URL']) {
       this.rendererBase = await startRendererServer().catch((err) => {
         console.error('[renderer-server] failed to start', err);
         return '';
       });
+      // Carry the old file:// localStorage (locally-added servers, session,
+      // memos, settings) over to the new loopback origin — once.
+      if (this.rendererBase) await migrateFileStorage(this.rendererBase);
     }
     this.secureStore = new SecureStore();
     // Surface the chosen encryption mode at startup so devs can see why their
@@ -201,6 +203,13 @@ class BosonApp {
     // shows a native card/list instead of Spotify's crash-prone iframe.
     ipcMain.handle('spotify:fetch', (_e, url: unknown) =>
       typeof url === 'string' ? fetchSpotifyInfo(url) : Promise.resolve(null),
+    );
+
+    // API proxy: the renderer runs on a loopback http origin (for embeds), so
+    // its api.boson.chat calls would be CORS-blocked. Perform them here in main
+    // (Node fetch, no CORS) and hand back status + body text.
+    ipcMain.handle('api:fetch', (_e, req: unknown) =>
+      proxyApiFetch(req as Parameters<typeof proxyApiFetch>[0]),
     );
 
     // Deep-link drain. Renderer calls this once on boot to pick up any
@@ -306,13 +315,81 @@ class BosonApp {
       this.mainWindow.loadURL(devUrl);
       this.mainWindow.webContents.openDevTools({ mode: 'right' });
     } else if (this.rendererBase) {
-      // Loopback HTTP origin so origin/referrer-sensitive embeds work.
+      // Loopback http origin so origin/referrer-sensitive embeds work.
       this.mainWindow.loadURL(`${this.rendererBase}/index.html`);
     } else {
-      // Fallback if the loopback server failed to start.
+      // Fallback if the loopback server didn't start (API still works; embeds
+      // fall back to opening externally on the file:// origin).
       this.mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
     }
   }
+}
+
+// The renderer's origin is http://127.0.0.1:<port>, and localStorage (Supabase
+// session, UI prefs) is keyed by origin — so the port must stay STABLE across
+// launches or the user is logged out every time. We persist the chosen port and
+// reuse it; if it's taken (rare — single-instance lock means no second Boson, so
+// only a foreign app could grab it), we fall back to a fresh free port (storage
+// resets that once). First launch just picks any free port.
+function portFile(): string {
+  return join(app.getPath('userData'), 'renderer-port');
+}
+function readSavedPort(): number {
+  try {
+    const n = parseInt(readFileSync(portFile(), 'utf8').trim(), 10);
+    return Number.isInteger(n) && n > 1024 && n < 65536 ? n : 0;
+  } catch { return 0; }
+}
+function savePort(p: number): void {
+  try { writeFileSync(portFile(), String(p)); } catch { /* best-effort */ }
+}
+
+// One-time migration of localStorage from the legacy file:// origin (used by
+// builds that loaded the renderer via loadFile) to the new loopback http origin.
+// Without this, upgrading users would silently lose their session, locally-added
+// servers, memos, and settings (localStorage is keyed by origin). Reads the old
+// data in a hidden file:// window, then writes it into the new origin via the
+// blank /__migrate page. Guarded by a flag file so it runs only once.
+async function migrateFileStorage(rendererBase: string): Promise<void> {
+  const flag = join(app.getPath('userData'), 'storage-migrated-v1');
+  if (existsSync(flag)) return;
+  try {
+    // 1. Read the legacy file:// localStorage via a blank file:// page (all
+    //    file:// pages share one localStorage bucket, so this sees the old data
+    //    without booting the app).
+    const probe = join(app.getPath('userData'), '_storage_probe.html');
+    writeFileSync(probe, '<!doctype html><meta charset="utf-8"><title>probe</title>');
+    const reader = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } });
+    let data: Record<string, string> = {};
+    try {
+      await reader.loadFile(probe);
+      const json = await reader.webContents.executeJavaScript('JSON.stringify(window.localStorage)');
+      data = JSON.parse(json) as Record<string, string>;
+    } finally {
+      reader.destroy();
+    }
+
+    // 2. Write it into the new origin (skip keys already set there).
+    const keys = Object.keys(data);
+    if (keys.length > 0) {
+      const writer = new BrowserWindow({ show: false, webPreferences: { nodeIntegration: false, contextIsolation: true } });
+      try {
+        await writer.loadURL(`${rendererBase}/__migrate`);
+        // Runs in the renderer (http origin): copy each key, never overwriting.
+        const script = `(function(d){for(var k in d){`
+          + `if(localStorage.getItem(k)===null)localStorage.setItem(k,d[k]);}})(${JSON.stringify(data)})`;
+        await writer.webContents.executeJavaScript(script);
+      } finally {
+        writer.destroy();
+      }
+      console.log(`[migrate] copied ${keys.length} localStorage key(s) from file:// to ${rendererBase}`);
+    }
+  } catch (err) {
+    console.error('[migrate] file:// storage migration failed', err);
+  }
+  // Best-effort: mark done regardless so we don't retry (and re-run hidden
+  // windows) on every launch.
+  try { writeFileSync(flag, '1'); } catch { /* ignore */ }
 }
 
 // Serve the built renderer (out/renderer) from a 127.0.0.1-only HTTP server so
@@ -325,6 +402,13 @@ function startRendererServer(): Promise<string> {
       void (async () => {
         try {
           let rel = decodeURIComponent((req.url ?? '/').split('?')[0]!);
+          // Blank page used only by the one-time file:// → http storage
+          // migration to write localStorage on the new origin (no app boot).
+          if (rel === '/__migrate') {
+            res.writeHead(200, { 'content-type': 'text/html' });
+            res.end('<!doctype html><meta charset="utf-8"><title>migrate</title>');
+            return;
+          }
           if (rel === '/' || rel === '') rel = '/index.html';
           let filePath = normalize(join(rendererDir, rel));
           if (filePath !== rendererDir && !filePath.startsWith(rendererDir + sep)) {
@@ -344,12 +428,22 @@ function startRendererServer(): Promise<string> {
         }
       })();
     });
-    server.on('error', reject);
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      if (addr && typeof addr === 'object') resolve(`http://127.0.0.1:${addr.port}`);
-      else reject(new Error('renderer server: no address'));
-    });
+
+    const listenOn = (port: number, retried: boolean): void => {
+      server.removeAllListeners('error');
+      server.once('error', (err: NodeJS.ErrnoException) => {
+        // Saved port taken → grab any free port (port 0). Only retry once.
+        if (err.code === 'EADDRINUSE' && !retried) listenOn(0, true);
+        else reject(err);
+      });
+      server.listen(port, '127.0.0.1', () => {
+        const addr = server.address();
+        const actual = addr && typeof addr === 'object' ? addr.port : port;
+        savePort(actual);
+        resolve(`http://127.0.0.1:${actual}`);
+      });
+    };
+    listenOn(readSavedPort(), false);
   });
 }
 

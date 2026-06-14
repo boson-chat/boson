@@ -1,3 +1,5 @@
+import { type ApiTransport, defaultApiTransport } from './transport';
+
 export interface TokenProvider {
   getToken(): Promise<string | null>;
 }
@@ -12,6 +14,9 @@ export class HttpClient {
   constructor(
     private readonly baseUrl: string,
     private readonly tokenProvider: TokenProvider,
+    // Network transport — defaults to the Electron main-process proxy when
+    // available, else a direct fetch. Injectable for tests.
+    private readonly transport: ApiTransport = defaultApiTransport(),
   ) {}
 
   async get<T>(path: string): Promise<T> {
@@ -42,16 +47,11 @@ export class HttpClient {
     const headers: Record<string, string> = { 'Content-Type': contentType };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${this.baseUrl}${path}`, { method: 'POST', headers, body: blob });
-    const text = await res.text();
-    const parsed = text ? safeJson(text) : null;
-    if (!res.ok) {
-      const msg = (parsed && typeof parsed === 'object' && 'error' in parsed)
-        ? String((parsed as { error: unknown }).error)
-        : text || res.statusText;
-      throw new HttpError(res.status, msg, parsed);
-    }
-    return parsed as T;
+    // Send raw bytes; the transport (IPC proxy or fetch) carries the buffer.
+    const res = await this.transport({
+      method: 'POST', url: `${this.baseUrl}${path}`, headers, body: await blob.arrayBuffer(),
+    });
+    return this.parse<T>(res);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -59,18 +59,21 @@ export class HttpClient {
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;
 
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await this.transport({
       method,
+      url: `${this.baseUrl}${path}`,
       headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body !== undefined ? JSON.stringify(body) : null,
     });
+    return this.parse<T>(res);
+  }
 
-    const text = await res.text();
-    const parsed = text ? safeJson(text) : null;
+  private parse<T>(res: { ok: boolean; status: number; statusText: string; text: string }): T {
+    const parsed = res.text ? safeJson(res.text) : null;
     if (!res.ok) {
       const msg = (parsed && typeof parsed === 'object' && 'error' in parsed)
         ? String((parsed as { error: unknown }).error)
-        : text || res.statusText;
+        : res.text || res.statusText;
       throw new HttpError(res.status, msg, parsed);
     }
     return parsed as T;

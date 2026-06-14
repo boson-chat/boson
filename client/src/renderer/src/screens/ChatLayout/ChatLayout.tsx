@@ -142,6 +142,8 @@ export function ChatLayout({
             ? () => onOpenServerSettings(activeServerId)
             : undefined
         }
+        serverInfo={state.serverInfo}
+        engineState={engineState}
       />
       <ChatArea
         channel={active}
