@@ -1,3 +1,17 @@
+## [0.29.2](https://github.com/boson-chat/boson/compare/v0.29.1...v0.29.2) (2026-06-14)
+
+### Bug Fixes
+
+* **client:** order messages by timestamp (ZNC buffer replay) ([a4bbb5e](https://github.com/boson-chat/boson/commit/a4bbb5e63b5778a35234b85cc886dca61c29f6a7))
+
+### Build
+
+* **client:** ship ARM64 Linux (AppImage + deb) ([130286b](https://github.com/boson-chat/boson/commit/130286bf94b52a9b1b5fba57aed90aa41c0150b1))
+
+### Documentation
+
+* **website:** features page, fresh screenshots, accurate copy ([eb41603](https://github.com/boson-chat/boson/commit/eb4160314931dc6a0ab48c3182f8eb0f94bdde01))
+
 ## [0.29.1](https://github.com/boson-chat/boson/compare/v0.29.0...v0.29.1) (2026-06-14)
 
 ### Bug Fixes
