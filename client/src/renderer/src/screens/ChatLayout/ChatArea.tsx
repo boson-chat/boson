@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { ChatChannel, ServerInfo, ServerLogEntry } from '../../modules/chat';
+import { signal, type Signal } from '@preact/signals';
+import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
   getServiceCredentialsStore,
   type AccountStatus,
@@ -10,6 +11,10 @@ import { ChatInputBar } from './ChatInputBar';
 import { MessageList } from './message-render';
 import type { NickActions } from './UserPanel';
 import './ChatArea.css';
+
+// Re-exported from its own module so message-render.tsx can import the resolver
+// without a cycle, while existing tests keep importing it from './ChatArea'.
+export { resolveScrollTop } from './scroll-resolve';
 
 interface ChatAreaProps {
   channel: ChatChannel | null;
@@ -71,6 +76,14 @@ interface ChatAreaProps {
   // link fires this; if omitted, the banner falls back to a copy-only
   // hint without a click target.
   onOpenServerSettings?: () => void;
+  // Request older backlog (IRCv3 chathistory) for the named channel. Wired
+  // through ChatLayout → ChatService.loadOlderHistory. Omitted in legacy
+  // fixtures, in which case the scrollback affordance simply doesn't show.
+  onLoadOlder?: (channel: string) => void;
+  // The active channel's live message signal (fine-grained reactivity). When
+  // omitted (legacy fixtures/tests), ChatArea falls back to wrapping
+  // `channel.messages` in a throwaway signal.
+  messagesSignal?: Signal<ChatMessage[]> | null;
 }
 
 export function ChatArea({
@@ -92,7 +105,9 @@ export function ChatArea({
   nickActions,
   activeServerId,
   onOpenServerSettings,
+  onLoadOlder,
   avatarFor,
+  messagesSignal,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -128,10 +143,15 @@ export function ChatArea({
   const [state, setState] = useState<ChatInputState>(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [channel?.messages.length, channel?.name]);
+  // Message list reactivity is fine-grained via a per-channel signal (so a new
+  // message re-renders only this list, not the whole layout). Prefer the live
+  // signal supplied by the host; fall back to wrapping the snapshot array for
+  // fixtures/tests that only pass `channel`. Scroll management lives in
+  // MessageList (it owns the scroll container + re-renders on message change).
+  const msgSignal = useMemo(
+    () => messagesSignal ?? signal<ChatMessage[]>(channel?.messages ?? []),
+    [messagesSignal, channel?.messages],
+  );
 
   // Connecting + disconnected splash. Three visual modes, all routed
   // through the same panel so a state flip (disconnected → connecting
@@ -262,13 +282,18 @@ export function ChatArea({
       />
 
       <MessageList
-        messages={channel.messages}
+        messages={msgSignal}
         members={channel.members}
         myNick={myNick}
         scrollRef={scrollRef}
         nickActions={nickActions}
         channelName={channel.name}
         avatarFor={avatarFor}
+        onLoadOlder={onLoadOlder ? () => onLoadOlder(channel.name) : undefined}
+        historySupported={!!onLoadOlder && !!serverInfo?.scrollbackAvailable}
+        historyLoading={channel.history?.loading}
+        historyExhausted={channel.history?.exhausted}
+        historyError={channel.history?.error}
       />
 
       <TypingIndicator nicks={channel.typing} />
@@ -296,14 +321,16 @@ interface ServerInfoBadgeProps {
 
 function ServerInfoBadge({ info }: ServerInfoBadgeProps) {
   if (!info) return null;
-  const { serverName, version, network, enabledCaps } = info;
-  if (!serverName && !version && !network && (!enabledCaps || enabledCaps.length === 0)) return null;
+  const { serverName, version, network, enabledCaps, bouncer } = info;
+  if (!serverName && !version && !network && !bouncer && (!enabledCaps || enabledCaps.length === 0)) return null;
   const left = version ?? serverName;
   const parts: string[] = [];
   if (left) parts.push(left);
   if (network) parts.push(network);
+  if (bouncer) parts.push('via bouncer');
   const tooltipLines: string[] = [];
   if (serverName) tooltipLines.push(serverName);
+  if (bouncer) tooltipLines.push('Connected through a bouncer (server-side history available)');
   if (enabledCaps && enabledCaps.length > 0) {
     tooltipLines.push(`IRCv3 caps: ${enabledCaps.join(', ')}`);
   } else {

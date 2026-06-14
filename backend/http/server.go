@@ -13,6 +13,7 @@ import (
 	"github.com/boson-chat/boson/backend/internal/db"
 	"github.com/boson-chat/boson/backend/internal/logger"
 	"github.com/boson-chat/boson/backend/internal/services/avatar"
+	"github.com/boson-chat/boson/backend/internal/services/bouncersecret"
 	"github.com/boson-chat/boson/backend/internal/services/nickclaim"
 	"github.com/boson-chat/boson/backend/internal/services/nickservsecret"
 	"github.com/boson-chat/boson/backend/internal/services/presence"
@@ -32,6 +33,7 @@ func StartServerWithContext(ctx context.Context) error {
 	sessionRepo := sessionsvc.NewRepository(database)
 	nickClaimRepo := nickclaim.NewRepository(database)
 	nickservSecretRepo := nickservsecret.NewRepository(database)
+	bouncerSecretRepo := bouncersecret.NewRepository(database)
 	presenceRepo := presence.NewRepository(database)
 
 	// Services
@@ -54,6 +56,7 @@ func StartServerWithContext(ctx context.Context) error {
 		RateLimitPerHour: cfg.AppConfig.NickClaimRateLimitPerHour,
 	})
 	nickservSecretService := nickservsecret.NewService(nickservSecretRepo)
+	bouncerSecretService := bouncersecret.NewService(bouncerSecretRepo)
 	presenceService := presence.NewService(presenceRepo)
 
 	// Avatar service — only wired when R2 is configured (access key present);
@@ -76,6 +79,7 @@ func StartServerWithContext(ctx context.Context) error {
 	sessionHandler := handlers.NewSessionHandler(sessionService)
 	nickClaimsHandler := handlers.NewNickClaimsHandler(nickClaimService)
 	nickservSecretsHandler := handlers.NewNickServSecretsHandler(nickservSecretService)
+	bouncerSecretHandler := handlers.NewBouncerSecretHandler(bouncerSecretService)
 	presenceHandler := handlers.NewPresenceHandler(presenceService, avatarService)
 
 	// Public routes — health + read-only directory browsing. Guest users
@@ -92,6 +96,7 @@ func StartServerWithContext(ctx context.Context) error {
 	sessionHandler.Register(protectedMux)
 	nickClaimsHandler.Register(protectedMux)
 	nickservSecretsHandler.Register(protectedMux)
+	bouncerSecretHandler.Register(protectedMux)
 	presenceHandler.Register(protectedMux)
 
 	root := buildRouter(publicMux, protectedMux, middleware.RequireAuth(cfg.AuthConfig))

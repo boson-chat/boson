@@ -5,7 +5,10 @@ export interface ChatMessage {
   kind: ChatMessageKind;
   from: string;     // empty for 'system'
   text: string;
-  timestamp: number; // epoch ms
+  timestamp: number; // epoch ms (from the IRCv3 server-time tag when present)
+  // IRCv3 msgid tag, when the server sent one. Used to de-duplicate messages
+  // that arrive both live and via chathistory/bouncer backlog.
+  msgid?: string;
 }
 
 // IRC channel-status prefix sigils. Common: `@` op, `+` voice, `%` halfop,
@@ -60,6 +63,10 @@ export interface ChatChannel {
   topic: string;
   topicSetBy?: string;
   topicSetAt?: number;
+  // Chathistory (IRCv3) scrollback state for this channel. `loading` while a
+  // CHATHISTORY BEFORE request is in flight; `exhausted` once the server has
+  // no older messages. Absent until the channel uses chathistory.
+  history?: { loading: boolean; exhausted: boolean; error?: string };
 }
 
 // One captured raw IRC event for the dev-tools-style server log. Every event
@@ -99,6 +106,19 @@ export interface ServerInfo {
   // it to confirm which features are actually live (e.g. `message-tags` is
   // required for +typing — without it the indicator silently no-ops).
   enabledCaps?: string[];
+  // Max messages the server returns per CHATHISTORY request, from the
+  // `CHATHISTORY=<n>` ISUPPORT (005) token. Undefined when not advertised;
+  // we fall back to a sensible default request size.
+  chathistoryMax?: number;
+  // Whether ANY scroll-back source is available on this server: the IRCv3
+  // `chathistory` cap, ZNC's `znc.in/playback` cap, or ZNC's `backlog` module
+  // (detected at runtime by its replay markers, since no cap advertises it).
+  // Drives whether the UI shows the load-older affordance. Set once, latched.
+  scrollbackAvailable?: boolean;
+  // Whether this connection goes through a bouncer (per-server config) or we
+  // detected ZNC at runtime. Shown in the server-info badge so the user can
+  // confirm they're attached via their bouncer rather than direct.
+  bouncer?: boolean;
 }
 
 // One channel as advertised by the server's LIST reply (RPL_LIST / 322).

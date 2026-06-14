@@ -321,6 +321,8 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 		TLS:              p.TLS,
 		Nick:             p.Nick,
 		NickservPassword: p.NickservPassword,
+		ServerPass:       p.ServerPass,
+		TLSInsecure:      p.TLSInsecure,
 	}
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}

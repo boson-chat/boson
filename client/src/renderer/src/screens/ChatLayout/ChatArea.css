@@ -1221,3 +1221,48 @@
   0%, 100% { opacity: 0.4; }
   50% { opacity: 1; }
 }
+/* Chathistory "load older" affordance at the top of the message list. */
+.chat-load-older {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-2) 0;
+}
+.chat-load-older-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-2);
+  font-size: var(--text-xs);
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+  transition: all var(--motion-fast) var(--ease-standard);
+}
+.chat-load-older-btn:hover { color: var(--fg); border-color: var(--fg-3); }
+.chat-load-older-loading {
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+}
+/* Transient "Loaded older messages" confirmation. */
+.chat-load-older-success {
+  font-size: var(--text-xs);
+  color: var(--success, #3fb950);
+  font-family: var(--font-mono);
+}
+/* "Beginning of history" — nothing older to fetch. */
+.chat-load-older-end {
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  font-family: var(--font-mono);
+  opacity: 0.8;
+}
+/* Failed scroll-back — retryable. */
+.chat-load-older-error {
+  color: var(--danger, #f85149);
+  border-color: var(--danger, #f85149);
+}
+.chat-load-older-error:hover {
+  color: var(--danger, #f85149);
+  border-color: var(--danger, #f85149);
+  opacity: 0.85;
+}

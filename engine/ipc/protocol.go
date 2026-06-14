@@ -29,6 +29,13 @@ type ConnectParams struct {
 	// reconnect. When non-empty the engine auto-sends NickServ IDENTIFY
 	// after RPL_WELCOME. Omit / empty to disable.
 	NickservPassword string `json:"nickservPassword,omitempty"`
+	// ServerPass is the IRC PASS line for bouncer auth (ZNC:
+	// "username[/network]:password"), sent before registration. Empty for
+	// direct connections. Sensitive — never logged.
+	ServerPass string `json:"serverPass,omitempty"`
+	// TLSInsecure skips TLS cert verification (self-signed bouncer certs).
+	// Only honoured when TLS is true.
+	TLSInsecure bool `json:"tlsInsecure,omitempty"`
 }
 
 type SASLPlain struct {

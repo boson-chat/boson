@@ -16,6 +16,12 @@ export interface SavedServer {
   hostname: string;
   port: number;
   tls: boolean;
+  // Per-server bouncer routing. When `route` is on AND the global bouncer
+  // profile is enabled, the connect path targets the bouncer instead of this
+  // server's host/port and authenticates as `username[/network]:password`.
+  // Non-secret (the network name is just a ZNC label) — synced via the
+  // session payload. Absent on servers never configured for a bouncer.
+  bouncer?: { route: boolean; network: string };
 }
 
 export interface SavedServerSession {
@@ -109,9 +115,25 @@ export class SessionStore {
     if (idx === -1) {
       current.servers.push({ server, channels: [], activeChannel: null });
     } else {
-      current.servers[idx]!.server = server;
+      // Preserve the existing per-server bouncer routing across a refresh that
+      // carries host/name updates but no `bouncer` field (e.g. a directory
+      // reconnect) — otherwise toggling routing would be wiped on reconnect.
+      const prev = current.servers[idx]!.server;
+      current.servers[idx]!.server = { ...server, bouncer: server.bouncer ?? prev.bouncer };
     }
     if (!current.activeServerId) current.activeServerId = server.id;
+    this.save(current);
+  }
+
+  // Set (or update) the per-server bouncer routing. Upserts a bare saved-server
+  // row if one doesn't exist yet, so the setting can be configured before the
+  // first connect. Fires onChange → backend session sync.
+  setServerBouncer(serverId: string, bouncer: { route: boolean; network: string }): void {
+    const current = this.load();
+    if (!current) return;
+    const target = current.servers.find((s) => s.server.id === serverId);
+    if (!target) return;
+    target.server = { ...target.server, bouncer };
     this.save(current);
   }
 
@@ -210,11 +232,19 @@ export class SessionStore {
 function isSavedServer(v: unknown): v is SavedServer {
   if (!v || typeof v !== 'object') return false;
   const s = v as Record<string, unknown>;
-  return typeof s.id === 'string' && s.id.length > 0
+  if (!(typeof s.id === 'string' && s.id.length > 0
     && typeof s.hostname === 'string' && s.hostname.length > 0
     && typeof s.port === 'number'
     && typeof s.tls === 'boolean'
-    && typeof s.name === 'string';
+    && typeof s.name === 'string')) return false;
+  // `bouncer` is optional + backward compatible: accept when absent, else
+  // require the {route, network} shape so a malformed payload is rejected.
+  if (s.bouncer !== undefined) {
+    const b = s.bouncer as Record<string, unknown> | null;
+    if (!b || typeof b !== 'object'
+      || typeof b.route !== 'boolean' || typeof b.network !== 'string') return false;
+  }
+  return true;
 }
 
 function isSavedServerSession(v: unknown): v is SavedServerSession {

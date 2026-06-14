@@ -6,6 +6,7 @@ import { EngineClient } from './modules/engine';
 import { IDBChatHistoryStore, type ChatHistoryStore } from './modules/history';
 import { IdentityService } from './modules/identity';
 import { NickservSyncService } from './modules/chat/nickserv-sync.service';
+import { BouncerSyncService } from './modules/chat/bouncer-sync.service';
 import { HttpClient } from './shared/http/http.client';
 import { windowSecureStorage } from './shared/secure-storage';
 import { AtomLoader } from '@boson/shared';
@@ -235,6 +236,10 @@ export function buildApp(opts: BuildAppOptions): AppProps {
   // while locked or when the keychain backing is unavailable. The identity
   // subscription keeps it referenced for the app's lifetime.
   new NickservSyncService(identity, directory).start();
+
+  // Sync the global bouncer (ZNC/BNC) profile (E2E-encrypted) the same way —
+  // pull on unlock, debounced push on change, no-op while locked.
+  new BouncerSyncService(identity, directory).start();
 
   return { auth, directory, engine, identity, history };
 }

@@ -46,6 +46,11 @@ const SERVICE_NICKS: ReadonlySet<string> = new Set([
 //      shape) — typical of raw server NOTICEs ("*** Looking up your hostname")
 export function isServiceSender(from: string): boolean {
   if (!from) return true; // anonymous notices are always server-side
+  // ZNC (and other bouncers) expose control bots as `*`-prefixed nicks
+  // (`*status`, `*controlpanel`, `*playback`, …). They're operational chrome,
+  // not conversations — route them to the ~server sink, never a DM/inbox.
+  // Real IRC nicks can't start with `*`, so this is unambiguous.
+  if (from.startsWith('*')) return true;
   const lower = from.toLowerCase();
   if (SERVICE_NICKS.has(lower)) return true;
   // Heuristic: a sender like "hub.example.org" is a server. Real nicks

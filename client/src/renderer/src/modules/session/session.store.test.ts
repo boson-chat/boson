@@ -131,4 +131,40 @@ describe('SessionStore (v2 multi-server)', () => {
     store.setActiveServer('srv-x');
     expect(store.load()).toBeNull();
   });
+
+  describe('per-server bouncer routing', () => {
+    it('setServerBouncer persists and survives reload', () => {
+      store.upsertServer(srvA);
+      store.setServerBouncer('srv-a', { route: true, network: 'libera' });
+      const reloaded = new SessionStore(storage).load();
+      const got = reloaded!.servers.find((s) => s.server.id === 'srv-a')!.server;
+      expect(got.bouncer).toEqual({ route: true, network: 'libera' });
+    });
+
+    it('upsertServer preserves bouncer across a host/name refresh', () => {
+      store.upsertServer(srvA);
+      store.setServerBouncer('srv-a', { route: true, network: 'libera' });
+      // A directory refresh re-upserts without the bouncer field.
+      store.upsertServer({ ...srvA, name: 'Renamed', hostname: 'irc.new.host' });
+      const got = store.load()!.servers.find((s) => s.server.id === 'srv-a')!.server;
+      expect(got.name).toBe('Renamed');
+      expect(got.bouncer).toEqual({ route: true, network: 'libera' });
+    });
+
+    it('accepts saved payloads with and without bouncer; rejects malformed', () => {
+      store.save({
+        servers: [{ server: { ...srvA, bouncer: { route: false, network: '' } }, channels: [], activeChannel: null }],
+        activeServerId: 'srv-a',
+      });
+      expect(store.load()!.servers[0]!.server.bouncer).toEqual({ route: false, network: '' });
+
+      // Malformed bouncer → whole payload rejected (load returns null).
+      const bad = makeStorage();
+      bad.setItem('boson:session:v2', JSON.stringify({
+        servers: [{ server: { ...srvA, bouncer: { route: 'yes' } }, channels: [], activeChannel: null }],
+        activeServerId: 'srv-a',
+      }));
+      expect(new SessionStore(bad).load()).toBeNull();
+    });
+  });
 });

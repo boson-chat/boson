@@ -373,3 +373,75 @@ func TestIs421ForListThrottle_IgnoresGenericListNotSupported(t *testing.T) {
 	})
 	assert.False(t, matched, "generic LIST-unsupported reply must not be auto-retried")
 }
+
+func TestTLSConfigFor(t *testing.T) {
+	// No TLS → nil regardless of insecure flag.
+	assert.Nil(t, tlsConfigFor(Config{TLS: false, TLSInsecure: true}))
+	// TLS but verifying → nil (girc uses its default verified config).
+	assert.Nil(t, tlsConfigFor(Config{TLS: true, TLSInsecure: false}))
+	// TLS + insecure → skip verify, SNI pinned to the host.
+	tc := tlsConfigFor(Config{TLS: true, TLSInsecure: true, Hostname: "znc.example.com"})
+	if assert.NotNil(t, tc) {
+		assert.True(t, tc.InsecureSkipVerify)
+		assert.Equal(t, "znc.example.com", tc.ServerName)
+	}
+}
+
+func TestNew_WiresServerPassAndTLSConfig(t *testing.T) {
+	c, err := New(Config{
+		Hostname: "znc.example.com", Port: 6697, TLS: true, TLSInsecure: true,
+		Nick: "me", ServerPass: "me/libera:hunter2",
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	assert.Equal(t, "me/libera:hunter2", c.girc.Config.ServerPass)
+	if assert.NotNil(t, c.girc.Config.TLSConfig) {
+		assert.True(t, c.girc.Config.TLSConfig.InsecureSkipVerify)
+	}
+}
+
+func TestNew_NoServerPassByDefault(t *testing.T) {
+	c, err := New(Config{Hostname: "irc.example.org", Port: 6667, Nick: "me"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	assert.Equal(t, "", c.girc.Config.ServerPass)
+	assert.Nil(t, c.girc.Config.TLSConfig)
+}
+
+func TestNew_NegotiatesChathistoryCaps(t *testing.T) {
+	c, err := New(Config{Hostname: "irc.example.org", Port: 6667, Nick: "me"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	caps := c.girc.Config.SupportedCaps
+	for _, want := range []string{"batch", "chathistory", "draft/chathistory", "server-time", "znc.in/playback"} {
+		if _, ok := caps[want]; !ok {
+			t.Errorf("SupportedCaps missing %q", want)
+		}
+	}
+}
+
+func TestTranslate_BatchForwardsParams(t *testing.T) {
+	start := translate(girc.Event{
+		Command: "BATCH",
+		Params:  []string{"+abc", "chathistory", "#general"},
+	})
+	assert.Equal(t, "BATCH", start.Kind)
+	assert.Equal(t, []string{"+abc", "chathistory", "#general"}, start.Args)
+
+	end := translate(girc.Event{Command: "BATCH", Params: []string{"-abc"}})
+	assert.Equal(t, []string{"-abc"}, end.Args)
+}
+
+func TestTranslate_ForwardsServerTimeAndMsgidTags(t *testing.T) {
+	got := translate(girc.Event{
+		Command: girc.PRIVMSG,
+		Source:  &girc.Source{Name: "bob"},
+		Params:  []string{"#general", "hi"},
+		Tags:    girc.Tags{"time": "2026-06-13T12:00:00.000Z", "msgid": "abc123"},
+	})
+	assert.Equal(t, "2026-06-13T12:00:00.000Z", got.Tags["time"])
+	assert.Equal(t, "abc123", got.Tags["msgid"])
+}

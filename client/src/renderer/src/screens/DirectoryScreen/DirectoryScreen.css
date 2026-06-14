@@ -752,3 +752,93 @@
   line-height: 1.55;
   color: var(--fg-2);
 }
+
+/* ---- Directory view tabs (Directory | Bouncer) ---------------------- */
+.directory-viewtabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+.directory-viewtab {
+  padding: var(--space-2) var(--space-4);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard);
+}
+.directory-viewtab:hover { color: var(--fg); }
+.directory-viewtab-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ---- Bouncer networks panel ----------------------------------------- */
+.directory-bouncer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.directory-bouncer-add {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+.directory-bouncer-add > .bds-input { flex: 1; min-width: 140px; }
+.directory-bouncer-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.directory-bouncer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.directory-bouncer-name {
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.directory-bouncer-net {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+.directory-bouncer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.directory-bouncer-discover {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.directory-bouncer-discovered {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+}
+.directory-bouncer-discovered-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}

@@ -484,7 +484,7 @@ describe('ChatService', () => {
     expect(general.members.some((m) => m.nick === 'alice')).toBe(false);
   });
 
-  it('setActive() updates the active channel and notifies subscribers', () => {
+  it('setActive() updates the active channel and notifies subscribers', async () => {
     const { chat, engine } = makeChat();
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#a' }));
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#b' }));
@@ -494,6 +494,8 @@ describe('ChatService', () => {
 
     chat.setActive('#b');
     expect(chat.getState().activeChannel).toBe('#b');
+    // Subscriber notifications are coalesced onto a macrotask (see emit()).
+    await new Promise((r) => setTimeout(r, 0));
     expect(observed).toContain('#b');
   });
 

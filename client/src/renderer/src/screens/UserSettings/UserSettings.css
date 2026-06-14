@@ -136,6 +136,18 @@
   font-size: var(--text-xs);
   margin: 0;
 }
+.user-settings-warning {
+  color: var(--warn, #f59e0b);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  margin: 0;
+}
+.user-settings-hint {
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  margin: 0;
+}
 .user-settings-saved {
   color: var(--success, #10b981);
   font-family: var(--font-mono);

@@ -51,6 +51,10 @@ export function ServerRail({
     setMenu({ serverId, x: e.clientX, y: e.clientY });
   };
   const closeMenu = (): void => setMenu(null);
+  // Hover name-flyout: the full server name shown beside the hovered tile.
+  // position:fixed (set from the tile's rect) so the narrow, overflow-clipped
+  // rail doesn't cut it off.
+  const [hovered, setHovered] = useState<{ name: string; top: number; left: number } | null>(null);
   const tiles: ServerRailTile[] = servers && servers.length > 0
     ? Array.from(servers)
     : activeServerName
@@ -58,6 +62,7 @@ export function ServerRail({
       : [];
 
   return (
+    <>
     <nav class="server-rail" aria-label="Servers">
       {tiles.map((t) => {
         const isActive = (activeServerId ?? '__legacy') === t.serverId;
@@ -97,6 +102,15 @@ export function ServerRail({
             aria-label={`${unread} unread message${unread === 1 ? '' : 's'} in ${t.name}`}
           />
         ) : null;
+        // Hover name-flyout. The rail clips horizontal overflow (overflow-y
+        // auto coerces overflow-x), so the tooltip can't be a normal child —
+        // we render ONE position:fixed bubble (below) positioned from the
+        // hovered tile's rect.
+        const showName = (e: MouseEvent): void => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+          setHovered({ name: t.name, top: r.top + r.height / 2, left: r.right + 8 });
+        };
+        const hideName = (): void => setHovered(null);
         // Single legacy tile is rendered as a div for backward compatibility
         // with existing tests that don't expect it to be a button. The
         // multi-tile case always uses a button so it's keyboard-clickable.
@@ -110,6 +124,8 @@ export function ServerRail({
               aria-current={isActive ? 'true' : undefined}
               onClick={() => onSelectServer(t.serverId)}
               onContextMenu={(e) => handleContextMenu(e, t.serverId)}
+              onMouseEnter={showName}
+              onMouseLeave={hideName}
             >
               {face}
               {badge}
@@ -123,6 +139,8 @@ export function ServerRail({
             title={t.name}
             aria-current={isActive ? 'true' : undefined}
             onContextMenu={(e) => handleContextMenu(e, t.serverId)}
+            onMouseEnter={showName}
+            onMouseLeave={hideName}
           >
             {face}
             {badge}
@@ -149,6 +167,16 @@ export function ServerRail({
         />
       )}
     </nav>
+    {hovered && (
+      <div
+        class="server-rail-tooltip"
+        role="tooltip"
+        style={`top: ${hovered.top}px; left: ${hovered.left}px;`}
+      >
+        {hovered.name}
+      </div>
+    )}
+    </>
   );
 }
 

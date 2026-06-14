@@ -4,6 +4,7 @@ package irc
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,6 +29,15 @@ type Config struct {
 	// Stored plain-text on the renderer side and passed down on each
 	// connect / reconnect.
 	NickservPassword string
+	// ServerPass, when non-empty, is sent as the IRC PASS line before
+	// registration (girc.Config.ServerPass). Used for bouncer auth — ZNC
+	// expects `username[/network]:password`. girc marks the PASS event
+	// Sensitive; never log this value.
+	ServerPass string
+	// TLSInsecure skips TLS certificate verification. Only honoured when
+	// TLS is true. For self-signed bouncer certs the user explicitly
+	// trusts — a footgun, off by default.
+	TLSInsecure bool
 }
 
 type SASLPlain struct {
@@ -117,6 +127,10 @@ func New(cfg Config) (*Client, error) {
 		User:       cfg.User,
 		Name:       cfg.RealName,
 		SSL:        cfg.TLS,
+		TLSConfig:  tlsConfigFor(cfg),
+		// Bouncer (ZNC) PASS line, e.g. "user/network:password". Empty for
+		// direct connections. girc sends it as PASS before registration.
+		ServerPass: cfg.ServerPass,
 		PingDelay:  30 * time.Second,
 		PingTimeout: 30 * time.Second,
 		SASL:       saslConfig(cfg.SASL),
@@ -149,6 +163,19 @@ func New(cfg Config) (*Client, error) {
 			"extended-join":     nil,
 			"account-notify":    nil,
 			"chghost":           nil,
+			// batch + chathistory power message backlog/scrollback. We
+			// request both the ratified `chathistory` and the older
+			// `draft/chathistory` so servers on either name negotiate it;
+			// `batch` frames the history reply. Servers that don't offer a
+			// cap silently ignore it.
+			"batch":             nil,
+			"chathistory":       nil,
+			"draft/chathistory": nil,
+			// znc.in/playback: ZNC's pre-chathistory controlled buffer replay.
+			// When negotiated, ZNC stops auto-dumping buffers on attach and the
+			// client drives replay via `*playback PLAY`. Lets older ZNC (1.7.x)
+			// deliver reliable backlog.
+			"znc.in/playback": nil,
 		},
 	})
 
@@ -185,6 +212,17 @@ func saslConfig(s *SASLPlain) girc.SASLMech {
 		return nil
 	}
 	return &girc.SASLPlain{User: s.User, Pass: s.Password}
+}
+
+// tlsConfigFor returns a custom TLS config only when the caller asked to skip
+// verification on a TLS connection (self-signed bouncer certs). Returning nil
+// preserves girc's default verified-TLS behaviour, so direct connections are
+// unchanged. ServerName is pinned so SNI is still sent correctly.
+func tlsConfigFor(cfg Config) *tls.Config {
+	if !cfg.TLS || !cfg.TLSInsecure {
+		return nil
+	}
+	return &tls.Config{InsecureSkipVerify: true, ServerName: cfg.Hostname}
 }
 
 // OnEvent sets the callback invoked for messages we expose. Must be called
@@ -367,8 +405,16 @@ func (c *Client) scheduleListRetry() {
 // connection ends. Returns nil on context cancellation (graceful shutdown)
 // and non-nil on transport errors.
 func (c *Client) Connect(ctx context.Context) error {
+	// Dial + TLS ourselves and hand girc a ready conn via MockConnect, with a
+	// blank-line filter spliced in above TLS (see conn.go). girc still runs the
+	// full registration flow over it; this just makes the read path tolerant of
+	// unparseable lines instead of dropping the whole connection on one.
+	conn, err := dial(ctx, c.cfg)
+	if err != nil {
+		return err
+	}
 	errCh := make(chan error, 1)
-	go func() { errCh <- c.girc.Connect() }()
+	go func() { errCh <- c.girc.MockConnect(conn) }()
 
 	select {
 	case <-ctx.Done():
@@ -629,6 +675,13 @@ func translate(e girc.Event) Event {
 			out.Host = e.Params[1]
 			out.Args = append([]string(nil), e.Params...)
 		}
+	case "BATCH":
+		// BATCH +<ref> <type> [params...]  /  BATCH -<ref>
+		// Frames grouped messages (chathistory replies, etc.). Forward the
+		// params so the renderer can correlate a chathistory batch to its
+		// target; individual messages inside carry the `batch` tag (already
+		// forwarded via Tags). The engine doesn't interpret the framing.
+		out.Args = append([]string(nil), e.Params...)
 	case girc.RPL_WHOSPCRPL:
 		// 354 — WHOX reply. girc's auto-WHO uses WHOX format; the field
 		// order depends on the querytype. We don't request any flags

@@ -1,13 +1,15 @@
 import type preact from 'preact';
 import type { Ref } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { createPortal } from 'preact/compat';
+import { createPortal, memo } from 'preact/compat';
+import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, type MdToken } from './markdown';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
 import type { NickActions } from './UserPanel';
+import { resolveScrollTop } from './scroll-resolve';
 
 // Map IRC channel-status prefix to a short display label + a class name.
 // Used both for the role pill rendered next to a nick in chat (MOD/OPS/V)
@@ -227,7 +229,10 @@ function MessageNickHoverCard({
 }
 
 interface MessageListProps {
-  messages: readonly ChatMessage[];
+  /** The active channel's message list, as a signal — reading `.value` in
+   *  render auto-subscribes ONLY to this channel's changes, so a metadata
+   *  emit (members/typing/unread for any channel) does not re-render the list. */
+  messages: Signal<ChatMessage[]>;
   members: ChatMember[];
   myNick: string;
   scrollRef: Ref<HTMLDivElement>;
@@ -238,6 +243,16 @@ interface MessageListProps {
   channelName: string | null;
   /** Resolve a nick to its profile-image URL (Boson members). */
   avatarFor?: (nick: string) => string | undefined;
+  /** Chathistory scrollback: pull older messages above the current top.
+   *  Triggered on scroll-to-top + a manual button. Absent / unsupported →
+   *  no affordance. */
+  onLoadOlder?: () => void;
+  historySupported?: boolean;
+  historyLoading?: boolean;
+  historyExhausted?: boolean;
+  /** Set when a scroll-back request failed (e.g. no server response). Shown
+   *  in the ribbon as a retryable error. */
+  historyError?: string;
 }
 
 // Scroll container + message rows. Owns the grouped-rendering decision so
@@ -250,20 +265,103 @@ interface MessageListProps {
 // already-present and renders without the slide-fade. This means the
 // 500-message hydration of a long channel doesn't strobe — only genuine
 // real-time arrivals do.
-export function MessageList({ messages, members, myNick, scrollRef, nickActions, channelName, avatarFor }: MessageListProps) {
+export const MessageList = memo(function MessageList({
+  messages, members, myNick, scrollRef, nickActions, channelName, avatarFor,
+  onLoadOlder, historySupported, historyLoading, historyExhausted, historyError,
+}: MessageListProps) {
+  // Reading `.value` subscribes THIS component to the channel's message signal.
+  // A metadata emit that re-renders the parent passes the same signal ref, so
+  // memo() bails — the list only re-renders when its messages actually change
+  // (or a non-signal prop like members/history flags does).
+  const msgs = messages.value;
   const freshnessBaseline = useRef<number>(Date.now());
   useEffect(() => {
     freshnessBaseline.current = Date.now();
   }, [channelName]);
-  const items = buildRenderItems(messages);
+  // Scroll management lives here (we own the scroll container) and re-runs
+  // exactly when the message list changes — sticking to bottom on live appends,
+  // preserving the viewport when older history is prepended, jumping to bottom
+  // on channel switch. Unrelated re-renders (members/typing/history flags)
+  // don't change `msgs`, so this effect doesn't run and won't yank the view.
+  const scrollTrack = useRef({ name: channelName ?? undefined, count: 0, firstId: '', scrollHeight: 0 });
+  useEffect(() => {
+    const el = (scrollRef as { current: HTMLDivElement | null }).current;
+    if (!el) return;
+    const firstId = msgs[0]?.id ?? '';
+    const prev = scrollTrack.current;
+    const target = resolveScrollTop(
+      prev,
+      { name: channelName ?? undefined, count: msgs.length, firstId },
+      { scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight },
+    );
+    if (target !== null) el.scrollTop = target;
+    scrollTrack.current = { name: channelName ?? undefined, count: msgs.length, firstId, scrollHeight: el.scrollHeight };
+  }, [msgs, channelName, scrollRef]);
+  // Briefly confirm a completed load: flash "Loaded older messages" when a
+  // request resolves (loading true→false with no error).
+  const [justLoaded, setJustLoaded] = useState(false);
+  const wasLoading = useRef(false);
+  useEffect(() => {
+    const was = wasLoading.current;
+    wasLoading.current = !!historyLoading;
+    if (was && !historyLoading && !historyError) {
+      setJustLoaded(true);
+      const t = setTimeout(() => setJustLoaded(false), 1800);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [historyLoading, historyError]);
+  // Fire load-older only when the user has actually reached the top, and
+  // debounce it: scroll events fire in bursts, so we wait for scrolling to
+  // settle (and re-confirm we're still at the top) before pulling. This stops
+  // a fling-to-top from queuing several pulls and keeps each scroll-to-top to
+  // a single request. The in-flight / exhausted / error guards prevent repeats.
+  const scrollDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (scrollDebounce.current) clearTimeout(scrollDebounce.current); }, []);
+  const onScroll = (e: Event): void => {
+    if (!onLoadOlder || !historySupported || historyLoading || historyExhausted || historyError) return;
+    const el = e.currentTarget as HTMLDivElement;
+    if (scrollDebounce.current) clearTimeout(scrollDebounce.current);
+    scrollDebounce.current = setTimeout(() => {
+      scrollDebounce.current = null;
+      // Re-check at fire time — state may have changed during the debounce, and
+      // we only pull when genuinely parked at the very top (≤ 4px).
+      if (historyLoading || historyExhausted || historyError) return;
+      if (el.scrollTop <= 4) onLoadOlder();
+    }, 250);
+  };
+  const items = buildRenderItems(msgs);
   // Track the previous *rendered chat message* for the grouping decision.
   // Reset across a collapsed activity block so a message that follows a
   // join/quit burst always starts a fresh group (the block is a visual
   // separator).
   let prevMsg: ChatMessage | null = null;
   return (
-    <div class="chat-messages" ref={scrollRef}>
+    <div class="chat-messages" ref={scrollRef} onScroll={onScroll}>
       <div class="messages-inner">
+        {historySupported && (
+          <div class="chat-load-older">
+            {historyError ? (
+              <button
+                type="button"
+                class="chat-load-older-btn chat-load-older-error"
+                onClick={() => onLoadOlder?.()}
+              >
+                {historyError} — retry
+              </button>
+            ) : historyLoading ? (
+              <span class="chat-load-older-loading">Loading older messages…</span>
+            ) : justLoaded ? (
+              <span class="chat-load-older-success">Loaded older messages</span>
+            ) : historyExhausted ? (
+              <span class="chat-load-older-end">Beginning of history</span>
+            ) : (
+              <button type="button" class="chat-load-older-btn" onClick={() => onLoadOlder?.()}>
+                Load older messages
+              </button>
+            )}
+          </div>
+        )}
         {items.map((item) => {
           if (item.type === 'activity') {
             prevMsg = null;
@@ -289,7 +387,7 @@ export function MessageList({ messages, members, myNick, scrollRef, nickActions,
       </div>
     </div>
   );
-}
+});
 
 // Membership churn (join/part/quit) and repeated self-join system lines are
 // noise that drowns real conversation — especially after reconnects or app

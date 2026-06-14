@@ -12,6 +12,17 @@ import {
   LocalStorageServiceCredentialsStore,
   setServiceCredentialsStore,
 } from '../../modules/chat/services-credentials';
+import { SecureBouncerStore, setBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
+import { InMemorySecureStorage } from '../../shared/secure-storage';
+
+// A bouncer store that hydrates instantly (tiny probe window) so connectWith's
+// `await whenHydrated()` doesn't stall on the default 3s keychain poll.
+async function fastBouncerStore(profile?: BouncerProfile): Promise<SecureBouncerStore> {
+  const s = new SecureBouncerStore(new InMemorySecureStorage(), { probeIntervalMs: 1, probeTimeoutMs: 5 });
+  await s.whenHydrated();
+  if (profile) s.set(profile);
+  return s;
+}
 
 // Use the synchronous (no-whenHydrated) creds store so connectWith doesn't
 // block on the lazily-constructed secure default's hydration poll.
@@ -228,9 +239,12 @@ async function flushPromises(times = 2): Promise<void> {
 // --- Tests ----------------------------------------------------------------
 
 describe('DirectoryBloc', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useRealTimers();
     setServiceCredentialsStore(new LocalStorageServiceCredentialsStore(memStorage()));
+    // Empty, instantly-hydrated bouncer store so connectWith doesn't poll the
+    // (unavailable) keychain for 3s and connects stay direct by default.
+    setBouncerStore(await fastBouncerStore());
   });
   afterEach(() => { vi.useRealTimers(); });
 
@@ -1317,6 +1331,158 @@ describe('DirectoryBloc', () => {
       // DirectoryScreen useEffect takes on first render, when guestNick is
       // already in sync with what the constructor used.
       expect((directory.getMe as ReturnType<typeof vi.fn>).mock.calls.length).toBe(getMeCallsBefore);
+      bloc.dispose();
+    });
+  });
+
+  describe('bouncer routing', () => {
+    const profile: BouncerProfile = {
+      enabled: true, host: 'znc.host', port: 7000, tls: true,
+      tlsInsecure: true, username: 'me', password: 'pw',
+    };
+
+    async function connectWithRoute(
+      route: { route: boolean; network: string } | null,
+      bouncer: BouncerProfile | null,
+    ) {
+      const storage = memoryStorage();
+      const sessionStore = new SessionStore(storage);
+      sessionStore.upsertServer({ id: 'libera', name: 'Libera', hostname: 'irc.libera.chat', port: 6697, tls: true });
+      if (route) sessionStore.setServerBouncer('libera', route);
+      if (bouncer) setBouncerStore(await fastBouncerStore(bouncer));
+
+      const engine = fakeEngine();
+      const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore,
+      });
+      await flushPromises(4);
+      await bloc.connect(server);
+      await flushPromises(2);
+      bloc.dispose();
+      return engine.connectCalls[0]!;
+    }
+
+    it('routes to the bouncer with PASS user/network:password when enabled + route on', async () => {
+      const call = await connectWithRoute({ route: true, network: 'libera' }, profile);
+      expect(call.hostname).toBe('znc.host');
+      expect(call.port).toBe(7000);
+      expect(call.tls).toBe(true);
+      expect(call.tlsInsecure).toBe(true);
+      expect(call.serverPass).toBe('me/libera:pw');
+    });
+
+    it('omits the /network when the network name is blank', async () => {
+      const call = await connectWithRoute({ route: true, network: '' }, profile);
+      expect(call.serverPass).toBe('me:pw');
+    });
+
+    it('connects directly when the per-server route is off', async () => {
+      const call = await connectWithRoute({ route: false, network: 'libera' }, profile);
+      expect(call.hostname).toBe('irc.libera.chat');
+      expect(call.serverPass).toBeUndefined();
+      expect(call.tlsInsecure).toBeUndefined();
+    });
+
+    it('connects directly when the global profile is disabled', async () => {
+      const call = await connectWithRoute({ route: true, network: 'libera' }, { ...profile, enabled: false });
+      expect(call.hostname).toBe('irc.libera.chat');
+      expect(call.serverPass).toBeUndefined();
+    });
+  });
+
+  describe('bouncer networks', () => {
+    const profile: BouncerProfile = {
+      enabled: true, host: 'znc.host', port: 7000, tls: true,
+      tlsInsecure: false, username: 'me', password: 'pw',
+    };
+
+    async function makeBloc() {
+      const storage = memoryStorage();
+      const sessionStore = new SessionStore(storage);
+      setBouncerStore(await fastBouncerStore(profile));
+      const engine = fakeEngine();
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore,
+      });
+      await flushPromises(4);
+      return { bloc, engine, sessionStore };
+    }
+
+    it('adds a bouncer network as a routed saved-session row', async () => {
+      const { bloc, sessionStore } = await makeBloc();
+      bloc.addBouncerNetwork({ name: 'Libera', network: 'libera' });
+
+      const nets = bloc.bouncerNetworks();
+      expect(nets).toHaveLength(1);
+      expect(nets[0]!.name).toBe('Libera');
+      expect(nets[0]!.bouncer).toEqual({ route: true, network: 'libera' });
+      // Host snapshotted from the bouncer profile.
+      expect(nets[0]!.hostname).toBe('znc.host');
+      // Persisted to the synced session store.
+      expect(sessionStore.load()!.servers.some((s) => s.server.bouncer?.network === 'libera')).toBe(true);
+      bloc.dispose();
+    });
+
+    it('connects a bouncer network through the bouncer', async () => {
+      const { bloc, engine } = await makeBloc();
+      bloc.addBouncerNetwork({ name: 'Libera', network: 'libera' });
+      const id = bloc.bouncerNetworks()[0]!.id;
+      bloc.connectBouncerNetwork(id);
+      await flushPromises(2);
+      const call = engine.connectCalls[0]!;
+      expect(call.hostname).toBe('znc.host');
+      expect(call.serverPass).toBe('me/libera:pw');
+      bloc.dispose();
+    });
+
+    it('removes a bouncer network from the saved session', async () => {
+      const { bloc } = await makeBloc();
+      bloc.addBouncerNetwork({ name: 'Libera', network: 'libera' });
+      const id = bloc.bouncerNetworks()[0]!.id;
+      bloc.removeBouncerNetwork(id);
+      expect(bloc.bouncerNetworks()).toHaveLength(0);
+      bloc.dispose();
+    });
+
+    it('discovers networks by probing *status ListNetworks', async () => {
+      const { bloc, engine } = await makeBloc();
+      vi.useFakeTimers();
+      try {
+        const p = bloc.discoverBouncerNetworks();
+        // The probe connection is opened synchronously inside the executor.
+        const call = engine.connectCalls.find((c) => c.serverId === '__bouncer-probe__')!;
+        expect(call).toBeDefined();
+        expect(call.serverPass).toBe('me:pw'); // user:password, NO /network
+        const probe = engine.sessionFor('__bouncer-probe__');
+
+        // Welcome → probe sends the query; ZNC replies with a table.
+        probe._emitEvent({ Kind: '001', From: 'znc', Target: 'me', Message: 'welcome', Raw: '' });
+        expect(probe.privmsgCalls).toContainEqual({ target: '*status', message: 'ListNetworks' });
+        for (const line of ['| Network | OnIRC |', '| libera | Yes |', '| oftc | No |']) {
+          probe._emitEvent({ Kind: 'PRIVMSG', From: '*status', Target: 'me', Message: line, Raw: '' });
+        }
+        await vi.advanceTimersByTimeAsync(4000); // capture window elapses → resolve
+        await expect(p).resolves.toEqual(['libera', 'oftc']);
+        expect(probe.disconnectCalls).toBeGreaterThanOrEqual(1); // probe torn down
+      } finally {
+        vi.useRealTimers();
+      }
+      bloc.dispose();
+    });
+
+    it('rejects discovery when the bouncer profile is disabled', async () => {
+      const storage = memoryStorage();
+      const sessionStore = new SessionStore(storage);
+      setBouncerStore(await fastBouncerStore({ ...profile, enabled: false }));
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory: fakeDirectory({ user: fakeUser('alice'), servers: [] }),
+        identity: fakeIdentity(), engine: fakeEngine().client, sessionStore,
+      });
+      await flushPromises(4);
+      await expect(bloc.discoverBouncerNetworks()).rejects.toThrow(/User Settings/);
       bloc.dispose();
     });
   });

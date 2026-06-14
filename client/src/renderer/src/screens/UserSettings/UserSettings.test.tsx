@@ -8,6 +8,8 @@ import type { DirectoryService } from '../../modules/directory';
 import type { AuthService } from '../../modules/auth';
 import type { IdentityService } from '../../modules/identity';
 import { clearGuestSession } from '../../modules/guest/guest';
+import { SecureBouncerStore, setBouncerStore } from '../../modules/chat/bouncer.store';
+import { InMemorySecureStorage } from '../../shared/secure-storage';
 
 // UserSettings covers two distinct behaviours:
 // 1. About panel surfaces the app version from package.json (regression
@@ -258,5 +260,41 @@ describe('UserSettings — Account recovery code', () => {
 
     expect(screen.getByText(/locked/i)).toBeInTheDocument();
     expect(identity.enrollRecoveryCode).not.toHaveBeenCalled();
+  });
+});
+
+describe('UserSettings — Bouncer panel', () => {
+  async function freshStore() {
+    const s = new SecureBouncerStore(new InMemorySecureStorage(), { probeIntervalMs: 1, probeTimeoutMs: 5 });
+    await s.whenHydrated();
+    setBouncerStore(s);
+    return s;
+  }
+
+  it('saves the global bouncer profile to the store', async () => {
+    const store = await freshStore();
+    renderSettings();
+    fireEvent.click(screen.getByRole('tab', { name: /Bouncer/ }));
+
+    fireEvent.click(screen.getByLabelText('Use a bouncer'));
+    await userEvent.setup().type(screen.getByPlaceholderText('znc.example.com'), 'znc.host');
+    await userEvent.setup().type(screen.getByPlaceholderText('me'), 'james');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      const p = store.get();
+      expect(p?.enabled).toBe(true);
+      expect(p?.host).toBe('znc.host');
+      expect(p?.username).toBe('james');
+    });
+  });
+
+  it('warns when self-signed certificates are allowed', async () => {
+    await freshStore();
+    renderSettings();
+    fireEvent.click(screen.getByRole('tab', { name: /Bouncer/ }));
+    expect(screen.queryByText(/Skips TLS certificate verification/)).toBeNull();
+    fireEvent.click(screen.getByLabelText('Allow self-signed certificate'));
+    expect(screen.getByText(/Skips TLS certificate verification/)).toBeInTheDocument();
   });
 });

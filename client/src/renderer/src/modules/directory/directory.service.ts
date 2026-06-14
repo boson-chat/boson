@@ -4,6 +4,8 @@ import type {
   NickClaimPollResponse,
   NickservSecretDTO,
   NickservSecretsListResponse,
+  BouncerSecretDTO,
+  BouncerGetResponse,
   PresenceMatch,
   RegisterServerInput,
   Server,
@@ -239,5 +241,20 @@ export class DirectoryService {
 
   async deleteNickservSecret(serverId: string): Promise<void> {
     await this.http.delete(`/me/nickserv-secrets/${encodeURIComponent(serverId)}`);
+  }
+
+  // ---- Global bouncer profile (E2E-encrypted, one per user) -------------
+
+  async getBouncer(): Promise<BouncerSecretDTO | null> {
+    const res = await this.http.get<BouncerGetResponse>('/me/bouncer');
+    return res.bouncer ?? null;
+  }
+
+  async putBouncer(ciphertextBase64: string): Promise<void> {
+    await this.http.put<BouncerSecretDTO>('/me/bouncer', { ciphertext: ciphertextBase64 });
+  }
+
+  async deleteBouncer(): Promise<void> {
+    await this.http.delete('/me/bouncer');
   }
 }

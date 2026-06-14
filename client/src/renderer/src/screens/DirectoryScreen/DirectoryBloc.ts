@@ -3,6 +3,8 @@ import { ChatService, type ChatState } from '../../modules/chat';
 import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
+import { getBouncerStore } from '../../modules/chat/bouncer.store';
+import { parseZncNetworks } from '../../modules/chat/znc.parse';
 import type { DirectoryService, Server, User } from '../../modules/directory';
 import type { EngineClient, EngineState, ServerSession } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
@@ -135,6 +137,13 @@ export interface DirectoryBlocDeps {
 
 const SEARCH_DEBOUNCE_MS = 200;
 
+// Bouncer network-discovery probe (DirectoryBloc.discoverBouncerNetworks).
+const BOUNCER_PROBE_ID = '__bouncer-probe__';
+// How long to wait for the bouncer's welcome (001) before giving up.
+const BOUNCER_PROBE_WELCOME_MS = 10000;
+// After 001, how long to collect *status reply lines before resolving.
+const BOUNCER_PROBE_CAPTURE_MS = 4000;
+
 export class DirectoryBloc {
   private readonly auth: AuthService;
   private readonly directory: DirectoryService;
@@ -147,6 +156,8 @@ export class DirectoryBloc {
   private me: User | null | undefined = undefined;
   private servers: Server[] | null = null;
   private query = '';
+  // One bouncer network-discovery probe at a time.
+  private bouncerProbeInFlight = false;
   private language = 'all';
   private showNsfw = false;
   private error: string | null = null;
@@ -366,6 +377,17 @@ export class DirectoryBloc {
     this.sessionStore.setActiveServer(serverId);
     this.applyForegroundState();
     this.emit();
+  }
+
+  // Per-server bouncer routing (read/write the saved-session row). Takes
+  // effect on the next (re)connect — connectWith reads it from the session
+  // store by serverId.
+  getServerBouncer(serverId: string): { route: boolean; network: string } | undefined {
+    return this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.server.bouncer;
+  }
+
+  setServerBouncer(serverId: string, route: { route: boolean; network: string }): void {
+    this.sessionStore.setServerBouncer(serverId, route);
   }
 
   // Open a conversation surfaced from the Inbox: focus its server (and show
@@ -893,6 +915,142 @@ export class DirectoryBloc {
     this.emit();
   }
 
+  // ---- Bouncer networks ------------------------------------------------
+  // A "bouncer network" is a saved-session server pre-configured to route
+  // through the global ZNC profile (bouncer.route = true + a network name).
+  // Living in the saved session (not device-local storage) means it syncs
+  // across devices via /me/session and is restored on launch — exactly what
+  // we want for a bouncer-hosted network. Its host/port/tls are snapshotted
+  // from the current bouncer profile; the connect path uses the LIVE profile
+  // when routing, so these are only a fallback if routing is ever turned off.
+
+  bouncerNetworks(): SavedServer[] {
+    return (this.sessionStore.load()?.servers ?? [])
+      .filter((s) => s.server.bouncer?.route)
+      .map((s) => s.server);
+  }
+
+  addBouncerNetwork(input: { name: string; network: string }): void {
+    const profile = getBouncerStore().get();
+    const network = input.network.trim();
+    const id = `bouncer-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
+    this.sessionStore.upsertServer({
+      id,
+      name: input.name.trim() || network || 'Bouncer network',
+      hostname: profile?.host || 'bouncer',
+      port: profile?.port ?? 6697,
+      tls: profile?.tls ?? true,
+      bouncer: { route: true, network },
+    });
+    this.emit();
+  }
+
+  // Connect a bouncer network (a saved-session row). Routes through the
+  // bouncer via connectWith's per-server lookup.
+  connectBouncerNetwork(serverId: string): void {
+    const row = this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.server;
+    if (row) void this.connect(row as unknown as Server);
+  }
+
+  // Remove a bouncer network: disconnect it if live (which also drops the
+  // saved row), otherwise just drop the saved row.
+  removeBouncerNetwork(serverId: string): void {
+    if (this.connections.has(serverId)) { this.disconnect(serverId); return; }
+    this.sessionStore.removeServer(serverId);
+    this.emit();
+  }
+
+  // Discover the networks configured on the user's ZNC bouncer. Opens a
+  // SHORT-LIVED probe connection authenticating with `PASS username:password`
+  // (no `/network` → ZNC's user session), sends `*status ListNetworks`, and
+  // parses the reply table. The probe is a bare ServerSession — no ChatService,
+  // no saved-session row, no UI artifacts — torn down in the finally. Rejects
+  // with a user-facing message on no/incomplete profile, no welcome, or a
+  // dropped connection (e.g. bad password). The serverPass is never logged.
+  async discoverBouncerNetworks(): Promise<string[]> {
+    if (!this.engine) throw new Error('Not connected to the engine yet.');
+    if (this.bouncerProbeInFlight) throw new Error('A discovery is already in progress.');
+    const profile = getBouncerStore().get();
+    if (!profile?.enabled || !profile.host || !profile.username) {
+      throw new Error('Enable your bouncer in User Settings → Bouncer first.');
+    }
+    this.bouncerProbeInFlight = true;
+    try {
+      return await new Promise<string[]>((resolve, reject) => {
+        const collected: string[] = [];
+        // Pre-welcome NOTICEs / error numerics from the bouncer — surfaced in
+        // the error message so a timeout/close isn't a blind failure (ZNC
+        // says things like "Access denied" or "You need to specify a network").
+        const diagnostics: string[] = [];
+        let gotWelcome = false;
+        let settled = false;
+        let captureTimer: ReturnType<typeof setTimeout> | null = null;
+        let unsubEvent: () => void = () => {};
+        let unsubState: () => void = () => {};
+        let session: ServerSession | null = null;
+        const cleanup = (): void => {
+          unsubEvent();
+          unsubState();
+          try { session?.disconnect(); } catch { /* best effort */ }
+        };
+        // Append the most recent bouncer diagnostic line to a base message.
+        const withDiag = (base: string): string => {
+          const last = diagnostics[diagnostics.length - 1];
+          return last ? `${base} Bouncer said: "${last}"` : base;
+        };
+        const finish = (err?: Error): void => {
+          if (settled) return;
+          settled = true;
+          if (captureTimer) clearTimeout(captureTimer);
+          clearTimeout(welcomeTimer);
+          cleanup();
+          if (err) reject(err);
+          else resolve(parseZncNetworks(collected));
+        };
+        // If we never see the welcome, give up rather than hang.
+        const welcomeTimer = setTimeout(
+          () => finish(new Error(withDiag('Bouncer did not respond — check the host, port, TLS and credentials. If it uses a self-signed certificate, enable that option in User Settings → Bouncer.'))),
+          BOUNCER_PROBE_WELCOME_MS,
+        );
+        session = this.engine!.connect({
+          serverId: BOUNCER_PROBE_ID,
+          hostname: profile.host,
+          port: profile.port,
+          tls: profile.tls,
+          nick: sanitizeIrcNick(this.me?.handle ?? 'boson'),
+          serverPass: `${profile.username}:${profile.password}`,
+          tlsInsecure: profile.tlsInsecure || undefined,
+        });
+        unsubState = session.onState((s) => {
+          if (s === 'disconnected') {
+            finish(new Error(withDiag(gotWelcome
+              ? 'Bouncer connection closed during discovery.'
+              : 'Bouncer closed the connection — check your credentials (and the self-signed-cert option if it applies).')));
+          }
+        });
+        unsubEvent = session.onEvent((e) => {
+          if (e.Kind === '001') {
+            gotWelcome = true;
+            session?.privmsg('*status', 'ListNetworks');
+            // Collect *status lines for a short window, then resolve.
+            captureTimer = setTimeout(() => finish(), BOUNCER_PROBE_CAPTURE_MS);
+            return;
+          }
+          // Capture diagnostics before welcome: any NOTICE, or an error
+          // numeric (4xx/5xx). These reveal why ZNC isn't completing login.
+          if (!gotWelcome && e.Message && (e.Kind === 'NOTICE' || /^[45]\d\d$/.test(e.Kind))) {
+            diagnostics.push(e.Message);
+          }
+          if (e.From === '*status' && (e.Kind === 'PRIVMSG' || e.Kind === 'NOTICE')) {
+            collected.push(e.Message);
+          }
+        });
+      });
+    } finally {
+      this.bouncerProbeInFlight = false;
+    }
+  }
+
   private async loadInitial(): Promise<void> {
     try {
       // Guest mode: synthesise a User from the local nick — no backend /me
@@ -1070,13 +1228,45 @@ export class DirectoryBloc {
     const credStore = getServiceCredentialsStore();
     await credStore.whenHydrated?.();
     const storedCreds = credStore.get(server.id);
+
+    // Bouncer routing: when this server is configured to route through the
+    // bouncer AND the global profile is enabled, connect to the bouncer
+    // instead of the network directly, authenticating with PASS
+    // `username[/network]:password` (girc.Config.ServerPass). The per-server
+    // route lives on the saved-session row (keyed by serverId) — a fresh
+    // directory `Server` doesn't carry it, so we look it up from the store.
+    // We only touch the (keychain-backed) bouncer profile store when a route
+    // is actually configured, so the common no-bouncer path never pays its
+    // hydration cost.
+    const route = (server as SavedServer).bouncer
+      ?? this.sessionStore.load()?.servers.find((s) => s.server.id === server.id)?.server.bouncer;
+    let host = server.hostname, port = server.port, tls = server.tls;
+    let serverPass: string | undefined;
+    let tlsInsecure: boolean | undefined;
+    if (route?.route) {
+      const bouncerStore = getBouncerStore();
+      await bouncerStore.whenHydrated?.();
+      const profile = bouncerStore.get();
+      if (profile?.enabled && profile.host) {
+        host = profile.host;
+        port = profile.port;
+        tls = profile.tls;
+        tlsInsecure = profile.tlsInsecure || undefined;
+        const net = (route.network ?? '').trim();
+        const userPart = net ? `${profile.username}/${net}` : profile.username;
+        serverPass = `${userPart}:${profile.password}`; // sensitive — never log
+      }
+    }
+
     const session = this.engine.connect({
       serverId: server.id,
-      hostname: server.hostname,
-      port: server.port,
-      tls: server.tls,
+      hostname: host,
+      port,
+      tls,
       nick: ircNick,
       nickservPassword: storedCreds?.nickservPassword,
+      serverPass,
+      tlsInsecure,
     });
     // Pass the nick-claim API so signed-in users get the automated
     // claim flow. The interface is the minimal subset of
@@ -1087,6 +1277,11 @@ export class DirectoryBloc {
         createNickClaim: (input) => this.directory.createNickClaim(input),
         getNickClaim: (id) => this.directory.getNickClaim(id),
       },
+      // Routed through the user's bouncer → server-side history exists; enables
+      // scroll-back immediately (independent of runtime ZNC detection). Keyed on
+      // serverPass, not the route toggle: if the route is on but the bouncer
+      // profile is disabled we connect directly, so it's not really a bouncer.
+      bouncer: !!serverPass,
     });
     chat.attach();
 

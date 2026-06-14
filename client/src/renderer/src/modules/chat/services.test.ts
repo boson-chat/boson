@@ -28,6 +28,12 @@ describe('isServiceSender', () => {
   it('treats an empty sender as server-side (anonymous notice)', () => {
     expect(isServiceSender('')).toBe(true);
   });
+
+  it('treats ZNC `*`-prefixed control bots as service senders', () => {
+    expect(isServiceSender('*status')).toBe(true);
+    expect(isServiceSender('*controlpanel')).toBe(true);
+    expect(isServiceSender('*playback')).toBe(true);
+  });
 });
 
 describe('detectServicesFramework', () => {

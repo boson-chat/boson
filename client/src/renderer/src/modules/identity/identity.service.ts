@@ -7,15 +7,18 @@ import {
   base64Encode,
   decryptUserSecret,
   decryptCreds,
+  decryptBouncer,
   deriveSaslPassword,
   encryptUserSecret,
   encryptCreds,
+  encryptBouncer,
   generateRecoveryCode,
   generateUserSecret,
   unwrapUserSecret,
   wrapUserSecret,
   zeroize,
   type NickservCreds,
+  type BouncerProfileSecret,
 } from './crypto';
 
 // One-time recovery material surfaced after signup: the wrap to persist
@@ -274,6 +277,18 @@ export class IdentityService {
   async decryptCredsForServer(serverId: string, blobB64: string): Promise<NickservCreds> {
     if (!this.userSecret) throw new Error('identity: locked — cannot decrypt creds');
     return decryptCreds(this.userSecret, serverId, blobB64);
+  }
+
+  // Encrypt/decrypt the GLOBAL bouncer profile for E2E sync. user_secret never
+  // leaves the service. Throws if locked.
+  async encryptBouncerProfile(profile: BouncerProfileSecret): Promise<string> {
+    if (!this.userSecret) throw new Error('identity: locked — cannot encrypt bouncer');
+    return encryptBouncer(this.userSecret, profile);
+  }
+
+  async decryptBouncerProfile(blobB64: string): Promise<BouncerProfileSecret> {
+    if (!this.userSecret) throw new Error('identity: locked — cannot decrypt bouncer');
+    return decryptBouncer(this.userSecret, blobB64);
   }
 
   private disposeSecret(): void {

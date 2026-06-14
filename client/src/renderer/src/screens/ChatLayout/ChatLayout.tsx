@@ -145,6 +145,13 @@ export function ChatLayout({
         serverInfo={state.serverInfo}
         nickActions={nickActions}
         avatarFor={avatarFor}
+        onLoadOlder={(name) => chat.loadOlderHistory(name)}
+        // Live per-channel message signal for fine-grained re-renders. Guard
+        // with typeof so hand-rolled test fakes (no messagesSignal) fall back
+        // to rendering channel.messages from the snapshot.
+        messagesSignal={
+          active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
+        }
       />
       <UserPanel channel={active} nickActions={nickActions} avatarFor={avatarFor} />
 

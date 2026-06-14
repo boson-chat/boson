@@ -123,3 +123,15 @@ export interface NickservSecretDTO {
 export interface NickservSecretsListResponse {
   secrets: NickservSecretDTO[];
 }
+
+// Global per-user bouncer (ZNC/BNC) profile blob. ciphertext is opaque —
+// produced by encryptBouncer() on the client. `bouncer` is null when the user
+// has no profile stored server-side yet.
+export interface BouncerSecretDTO {
+  ciphertext: string; // base64
+  updated_at: string; // RFC3339
+}
+
+export interface BouncerGetResponse {
+  bouncer: BouncerSecretDTO | null;
+}

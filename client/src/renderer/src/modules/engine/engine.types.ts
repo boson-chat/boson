@@ -17,6 +17,13 @@ export interface ConnectParams {
   // RPL_WELCOME. Plain-text in localStorage today, shipped on every
   // connect / reconnect.
   nickservPassword?: string;
+  // Bouncer (ZNC/BNC) auth: the IRC PASS line, "username[/network]:password",
+  // sent before registration (girc.Config.ServerPass). Omitted for direct
+  // connections. Sensitive — never log it.
+  serverPass?: string;
+  // Skip TLS certificate verification (self-signed bouncer certs only).
+  // Footgun; only honoured when tls is true.
+  tlsInsecure?: boolean;
 }
 
 export interface JoinParams { serverId: string; channel: string }

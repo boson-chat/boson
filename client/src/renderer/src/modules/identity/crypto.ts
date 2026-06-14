@@ -205,6 +205,72 @@ export async function decryptCreds(
   return parsed;
 }
 
+// ----- Bouncer profile envelope (global, E2E sync to server) -----------------
+//
+// The bouncer (ZNC/BNC) profile is GLOBAL (per-user, not per-server), so its
+// key is derived from user_secret with a fixed domain string and NO serverId.
+// Same AES-GCM-over-base64 envelope as the per-server creds. The whole profile
+// — including the bouncer password — is encrypted; the server stores only the
+// opaque blob.
+
+export interface BouncerProfileSecret {
+  enabled: boolean;
+  host: string;
+  port: number;
+  tls: boolean;
+  tlsInsecure: boolean;
+  username: string;
+  password: string;
+}
+
+// bouncerKey = HMAC-SHA256(user_secret, "bouncer-profile-v1"), imported as a
+// non-extractable AES-256-GCM key. Domain-separated + versioned, no serverId.
+async function deriveBouncerKey(userSecret: Uint8Array): Promise<CryptoKey> {
+  const hmacKey = await crypto.subtle.importKey(
+    'raw', asBuf(userSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'],
+  );
+  const info = new TextEncoder().encode('bouncer-profile-v1');
+  const raw = new Uint8Array(await crypto.subtle.sign('HMAC', hmacKey, asBuf(info)));
+  return crypto.subtle.importKey('raw', asBuf(raw), 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+export async function encryptBouncer(
+  userSecret: Uint8Array,
+  profile: BouncerProfileSecret,
+): Promise<string> {
+  const key = await deriveBouncerKey(userSecret);
+  const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
+  const plain = new TextEncoder().encode(JSON.stringify(profile));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt({ name: 'AES-GCM', iv: asBuf(iv) }, key, asBuf(plain)),
+  );
+  const out = new Uint8Array(IV_LEN + ct.byteLength);
+  out.set(iv, 0);
+  out.set(ct, IV_LEN);
+  return base64Encode(out);
+}
+
+// Decrypts a blob from encryptBouncer. Throws on tag mismatch (wrong key) or
+// malformed plaintext — callers treat that as "keep local profile".
+export async function decryptBouncer(
+  userSecret: Uint8Array,
+  blobB64: string,
+): Promise<BouncerProfileSecret> {
+  const blob = base64Decode(blobB64);
+  if (blob.byteLength < IV_LEN) throw new Error('bouncer profile: blob too short');
+  const iv = blob.slice(0, IV_LEN);
+  const ct = blob.slice(IV_LEN);
+  const key = await deriveBouncerKey(userSecret);
+  const plain = new Uint8Array(
+    await crypto.subtle.decrypt({ name: 'AES-GCM', iv: asBuf(iv) }, key, asBuf(ct)),
+  );
+  const parsed = JSON.parse(new TextDecoder().decode(plain)) as BouncerProfileSecret;
+  if (!parsed || typeof parsed.host !== 'string' || typeof parsed.username !== 'string') {
+    throw new Error('bouncer profile: malformed plaintext');
+  }
+  return parsed;
+}
+
 // ----- base64 helpers --------------------------------------------------------
 
 export function base64Encode(bytes: Uint8Array): string {

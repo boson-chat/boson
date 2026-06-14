@@ -1,3 +1,4 @@
+import { signal, type Signal } from '@preact/signals';
 import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
 import { containsNickMention } from './mention';
@@ -93,6 +94,25 @@ import type {
 // (NOTICE chatter + RPL_WELCOME + MOTD + ISUPPORT bursts) plus a chunk of
 // runtime traffic without ballooning memory.
 const SERVER_LOG_CAP = 200;
+// Default chathistory request size (messages per page), capped by the
+// server's CHATHISTORY=<max> ISUPPORT token when smaller.
+const CHATHISTORY_REQUEST_LIMIT = 50;
+// A message whose IRCv3 server-time is older than this (relative to now) is
+// treated as bouncer/buffer replay (backlog), not a live arrival — so it
+// doesn't mark channels unread / notify / hit the Inbox. Live messages are
+// stamped within network latency (sub-second), so the window is generous.
+const BACKLOG_AGE_MS = 30_000;
+
+// Hard ceiling on messages held in memory per channel. Bouncer reconnects
+// replay the whole buffer each time, so without a bound a long session with
+// churn balloons the heap (observed: 4 GB OOM). Generous enough to hold a full
+// scroll-back session; the oldest are evicted on the live-append path once
+// exceeded. Persistence keeps its own (separate, smaller) cap.
+const IN_MEMORY_MESSAGE_CAP = 1500;
+
+// How long a scroll-back request waits for the server before the ribbon shows
+// an error (covers a CHATHISTORY / *playback request that gets no reply).
+const LOAD_OLDER_TIMEOUT_MS = 8_000;
 
 // IRCv3 typing — auto-clear an active typer after this long without a refresh.
 // The spec recommends 6s; we set it slightly higher to absorb wire jitter.
@@ -184,8 +204,20 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
 // It listens to engine events and exposes actions (join, send, setActive).
 // Following our TS skill: single class, constructor DI, all state internal,
 // subscribers see immutable snapshots.
+
+// Internal channel record. Identical to the public ChatChannel except that
+// `messages` is a `@preact/signals` Signal rather than a plain array, so a
+// channel's message list is FINE-GRAINED reactive: appending to one channel
+// re-renders only that channel's MessageList (which reads the signal), and
+// getState() can expose the array by reference (peek) instead of deep-cloning
+// every channel's messages on every emit (the old GC-thrash / OOM source).
+// The PUBLIC ChatChannel keeps `messages: ChatMessage[]` — getState() peeks the
+// signal — so consumers and tests reading `state.channels[i].messages` are
+// unchanged.
+type InternalChannel = Omit<ChatChannel, 'messages'> & { messages: Signal<ChatMessage[]> };
+
 export class ChatService {
-  private channels = new Map<string, ChatChannel>();
+  private channels = new Map<string, InternalChannel>();
   private activeChannel: string | null = null;
   private readonly listeners = new Set<ChatListener>();
   private readonly feedbackListeners = new Set<ChatFeedbackListener>();
@@ -198,6 +230,21 @@ export class ChatService {
   // same numeric ids the persisted ones already had.
   private nextId = 1;
   private readonly idSalt = makeIdSalt();
+  // ---- Chathistory (IRCv3 backlog/scrollback) -------------------------
+  // Active BATCH refs → buffered history messages, keyed by the batch ref.
+  private readonly batches = new Map<string, { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] }>();
+  // Channels we've already auto-requested LATEST backlog for (once per open).
+  private readonly historyRequested = new Set<string>();
+  // Set once the server 421s a CHATHISTORY command (advertised the cap but
+  // doesn't implement it, e.g. ZNC < 1.8 relaying upstream). Disables further
+  // requests for this connection.
+  private chathistoryUnsupported = false;
+  // Per-channel kind of the in-flight request, read when its BATCH starts.
+  private readonly pendingHistoryKind = new Map<string, 'latest' | 'before'>();
+  // Per-channel watchdog for an in-flight scroll-back request. If the server
+  // never answers (no BATCH at all), this fires and surfaces an error in the
+  // ribbon instead of leaving the spinner stuck. Cleared when a flush resolves.
+  private readonly loadOlderTimers = new Map<string, ReturnType<typeof setTimeout>>();
   // NAMREPLY (353) lines may arrive in multiple parts for the same channel;
   // accumulate here and commit when ENDOFNAMES (366) arrives.
   private pendingMembers = new Map<string, ChatMember[]>();
@@ -267,14 +314,35 @@ export class ChatService {
   // to the manual register+confirm form.
   private readonly nickClaimAPI: NickClaimAPI | null;
 
+  // True when this connection routes through a bouncer (ZNC/soju). The bouncer
+  // is the source of truth for history: it replays its own buffer on every
+  // attach. So we must NOT also persist + re-hydrate a local copy — doing so
+  // double-counts on every reconnect (messages stack up, growing each restart)
+  // and can resurrect stale DM/service tabs. Inbox attribution still uses the
+  // persistence scope; only message store + hydrate are skipped.
+  private readonly bouncerConn: boolean;
+
   constructor(
     private readonly session: ServerSession,
     private myNick: string,
     persistence?: ChatPersistence,
-    deps?: { nickClaimAPI?: NickClaimAPI },
+    deps?: { nickClaimAPI?: NickClaimAPI; bouncer?: boolean },
   ) {
     this.persistence = persistence ?? null;
     this.nickClaimAPI = deps?.nickClaimAPI ?? null;
+    this.bouncerConn = deps?.bouncer ?? false;
+    // Per-server config flag: surface "via bouncer" in the server-info badge.
+    // (Scroll-back itself is gated on the chathistory / playback capability,
+    // not on this — a bouncer with neither offers no scroll-back.)
+    if (deps?.bouncer) {
+      this.serverInfo = { ...this.serverInfo, bouncer: true };
+    }
+  }
+
+  // Whether to persist + hydrate messages locally. Off for bouncer connections
+  // (the bouncer replays its buffer; a local copy would duplicate).
+  private get persistMessages(): boolean {
+    return this.persistence !== null && !this.bouncerConn;
   }
 
   attach(): void {
@@ -314,6 +382,8 @@ export class ChatService {
     for (const handle of this.namesRetryTimers.values()) clearTimeout(handle);
     this.namesRetryTimers.clear();
     this.namesRetryCount.clear();
+    for (const t of this.loadOlderTimers.values()) clearTimeout(t);
+    this.loadOlderTimers.clear();
     // Drop the engine's services-framework subscription so a fresh
     // service-framework event after detach can't fire emit() against
     // a torn-down chat service.
@@ -428,7 +498,7 @@ export class ChatService {
     if (!this.channels.has(key)) {
       // Store the channel keyed by its lowercase form so subsequent server
       // events (which may use different casing) land on the same record.
-      this.channels.set(key, { name: key, messages: [], joined: false, members: [], typing: [], unread: 0, mentions: 0, topic: '' });
+      this.channels.set(key, { name: key, messages: signal<ChatMessage[]>([]), joined: false, members: [], typing: [], unread: 0, mentions: 0, topic: '' });
     }
     // Auto-switch to the channel we just asked to join so the user sees it
     // immediately, even before the server's JOIN echo arrives.
@@ -1348,7 +1418,7 @@ export class ChatService {
     if (!this.channels.has(key)) {
       this.channels.set(key, {
         name: target,
-        messages: [],
+        messages: signal<ChatMessage[]>([]),
         joined: false,
         members: [],
         typing: [],
@@ -1380,7 +1450,7 @@ export class ChatService {
     if (!this.activeChannel) return;
     const ch = this.channels.get(this.activeChannel);
     if (ch) {
-      ch.messages = [];
+      ch.messages.value = [];
       this.emit();
     }
     // Persisted history goes with the in-memory log; otherwise a /clear would
@@ -1518,7 +1588,7 @@ export class ChatService {
   // Returns true if any member's awayMessage changed. Used both when a
   // 352 arrives after the member list is already committed, and when 366
   // commits the member list with 352s buffered ahead of it.
-  private applyAwayFlags(ch: ChatChannel, flags: Map<string, string>): boolean {
+  private applyAwayFlags(ch: InternalChannel, flags: Map<string, string>): boolean {
     let touched = false;
     for (const m of ch.members) {
       const f = flags.get(m.nick.toLowerCase());
@@ -1539,7 +1609,12 @@ export class ChatService {
     return {
       channels: Array.from(this.channels.values()).map((c) => ({
         ...c,
-        messages: [...c.messages],
+        // By reference (peek = no subscribe). NOT a clone: this is the hot path
+        // that used to allocate an array per channel on every emit and thrash
+        // the GC. Safe to share because every write reassigns the signal value
+        // immutably (appendMessage included), so a retained snapshot's array is
+        // never mutated underneath it.
+        messages: c.messages.peek(),
       })),
       activeChannel: this.activeChannel,
       // Hand back a fresh shallow copy so subscribers that retain old
@@ -1556,6 +1631,14 @@ export class ChatService {
       myOper: this.myOper,
       servicesFramework: this.servicesFramework,
     };
+  }
+
+  // The live message signal for a channel (or null if no such channel). The
+  // reference is STABLE across emits, so a memo'd MessageList can read its
+  // `.value` to subscribe to ONLY this channel's message changes — decoupling
+  // message rendering from the metadata-snapshot emit storm.
+  messagesSignal(channel: string): Signal<ChatMessage[]> | null {
+    return this.channels.get(this.channelKey(channel))?.messages ?? null;
   }
 
   // Empty the captured server-log buffer and notify subscribers. Used by the
@@ -1601,6 +1684,14 @@ export class ChatService {
   // Engine event dispatch ---------------------------------------------------
 
   private handleEvent(e: IrcEvent): void {
+    // Chathistory backlog: messages tagged with an active `batch` ref are
+    // buffered and inserted as a group on BATCH end — routed away from the
+    // live path (no serverLog flood, no unread bump, no inbox mirror).
+    const batchRef = e.Tags?.batch;
+    if (batchRef) {
+      const batch = this.batches.get(batchRef);
+      if (batch) { this.bufferHistoryMessage(batch, e); return; }
+    }
     // Capture EVERY event to the dev-tools log before kind-specific routing.
     // This is intentionally noisy — the panel exists so users / devs can see
     // exactly what the engine is forwarding during connect (NOTICE / 001 /
@@ -1621,6 +1712,9 @@ export class ChatService {
     if (e.IsOper && (e.Kind === '381' || e.Target === this.myNick)) {
       this.setOper();
     }
+    // Latch ZNC detection (vendor caps / control bots) for the "via bouncer"
+    // server-info badge.
+    this.noteZncIfApplicable(e);
     switch (e.Kind) {
       case 'PRIVMSG':
       case 'NOTICE': {
@@ -1693,29 +1787,37 @@ export class ChatService {
           text = text.slice('ACTION '.length, -1);
           kind = 'action';
         }
+        // Backlog heuristic: a message whose server-time is well in the past
+        // is bouncer/buffer replay (ZNC auto-playback on attach), not a live
+        // arrival. Don't mark it unread, don't notify, don't mirror to the
+        // Inbox — just show it in the channel with its original timestamp.
+        // Only triggers when the server actually stamped a `time` tag.
+        const ts = eventTimestamp(e);
+        const isBacklog = !!e.Tags?.time && ts < Date.now() - BACKLOG_AGE_MS;
         // Bump unread counters BEFORE appendMessage — appendMessage emits to
         // subscribers, and we want them to see the fresh counter state in
         // the same render cycle. Otherwise the badge lags by one message.
-        this.bumpUnread(channel, e.From, text);
+        if (!isBacklog) this.bumpUnread(channel, e.From, text);
         this.appendMessage(channel, {
           id: this.id(),
           kind,
           from: e.From,
           text,
-          timestamp: Date.now(),
+          timestamp: ts,
+          msgid: e.Tags?.msgid,
         });
         // Mirror real-user DMs (1:1, addressed to us, not a channel, not the
         // server-wildcard pseudo-channel, not our own echo) into the Inbox so
         // it holds everything addressed to the user. Unlike services these
         // STAY visible as a chat conversation too.
-        if (isToMe && !isChannel && !isWildcard && !isServiceSender(e.From) && e.From !== this.myNick) {
+        if (!isBacklog && isToMe && !isChannel && !isWildcard && !isServiceSender(e.From) && e.From !== this.myNick) {
           this.storeInboxEntry(e.From, text, 'dm');
         }
         // Mirror channel mentions of our nick into the Inbox (Mentions tab)
         // so pings across servers collect in one place. Real channel messages
         // from someone else that name us; the source channel is carried for
         // click-through. (Our own lines never count as a mention.)
-        if (isChannel && e.From !== this.myNick && containsNickMention(text, this.myNick)) {
+        if (!isBacklog && isChannel && e.From !== this.myNick && containsNickMention(text, this.myNick)) {
           this.storeInboxEntry(e.From, text, 'mention', channel);
         }
         break;
@@ -1737,6 +1839,10 @@ export class ChatService {
           // Safety net: if NAMREPLY/ENDOFNAMES never arrive (e.g. drop on
           // the WS), this re-issues NAMES after a short delay.
           setTimeout(() => this.maybeRefreshNames(key), 2500);
+          // Pull recent backlog once per channel open — via IRCv3 chathistory,
+          // or ZNC's znc.in/playback module. Delivered as a server-time-tagged
+          // BATCH and inserted as quiet backlog.
+          this.requestBacklog(e.Target);
         } else {
           // Track the joiner in the channel's member list (no prefix sigil yet).
           // extended-join + the source host populate account/hostname so the
@@ -1770,6 +1876,38 @@ export class ChatService {
         // Host changed (cloak grant / vhost). Track for self + the member.
         if (e.From === this.myNick) { this.updateSelfIdentity(e.Host, undefined); break; }
         if (e.Host) this.updateMemberField(e.From, { hostname: e.Host });
+        break;
+      }
+      case 'BATCH': {
+        // Backlog framing: `BATCH +<ref> <type> <target>` opens a group;
+        // `BATCH -<ref>` closes it → flush the buffer. We treat both IRCv3
+        // chathistory and ZNC's `znc.in/playback` batches as backlog.
+        const args = e.Args ?? [];
+        const ref = args[0] ?? '';
+        if (ref.startsWith('+')) {
+          const type = args[1] ?? '';
+          const target = args[2] ?? '';
+          if (type === 'chathistory' || type === 'draft/chathistory' || type === 'znc.in/playback') {
+            const kind = this.pendingHistoryKind.get(this.channelKey(target)) ?? 'latest';
+            this.batches.set(ref.slice(1), { target, kind, msgs: [] });
+          }
+        } else if (ref.startsWith('-')) {
+          const batch = this.batches.get(ref.slice(1));
+          if (batch) { this.batches.delete(ref.slice(1)); this.flushHistoryBatch(batch); }
+        }
+        break;
+      }
+      case '421': {
+        // ERR_UNKNOWNCOMMAND. If it's for CHATHISTORY, the server advertised
+        // the cap but doesn't implement the command (e.g. ZNC < 1.8 relaying
+        // it upstream) — stop trying, and settle any in-flight scroll-back.
+        if ((e.Args?.[0] ?? '').toUpperCase() === 'CHATHISTORY') {
+          this.chathistoryUnsupported = true;
+          for (const ch of this.channels.values()) {
+            if (ch.history?.loading) ch.history = { loading: false, exhausted: true };
+          }
+          this.emit();
+        }
         break;
       }
       case 'PART': {
@@ -1850,11 +1988,11 @@ export class ChatService {
             text: `${e.From} quit${e.Message ? ` (${e.Message})` : ''}`,
             timestamp: Date.now(),
           };
-          c.messages.push(quitMsg);
+          c.messages.value = [...c.messages.peek(), quitMsg];
           // Mirror QUIT into persistence too — historically the only kind of
           // message that bypassed appendMessage(). Keeps cross-channel quits
-          // intact across restart.
-          if (this.persistence) {
+          // intact across restart. Skipped on bouncer connections.
+          if (this.persistMessages && this.persistence) {
             const { history, scope } = this.persistence;
             void history
               .append({ userId: scope.userId, serverId: scope.serverId, channel: c.name }, quitMsg)
@@ -1922,8 +2060,8 @@ export class ChatService {
           const note = e.Message
             ? `${e.From} changed the topic to: ${e.Message}`
             : `${e.From} cleared the topic`;
-          ch.messages = [
-            ...ch.messages,
+          ch.messages.value = [
+            ...ch.messages.peek(),
             { id: crypto.randomUUID(), kind: 'system', from: '', text: note, timestamp: Date.now() },
           ];
         }
@@ -2024,8 +2162,8 @@ export class ChatService {
         const ch = this.channels.get(this.activeChannel);
         if (!ch) break;
         const text = e.Kind === '306' ? 'You are now marked as away.' : 'You are no longer marked as away.';
-        ch.messages = [
-          ...ch.messages,
+        ch.messages.value = [
+          ...ch.messages.peek(),
           { id: crypto.randomUUID(), kind: 'system', from: '', text, timestamp: Date.now() },
         ];
         this.emit();
@@ -2093,6 +2231,11 @@ export class ChatService {
           this.serverInfo = { ...this.serverInfo, enabledCaps: Array.from(existing).sort() };
           this.emit();
         }
+        // Scroll-back is live only when the server negotiated a real backlog
+        // capability: IRCv3 chathistory or ZNC's znc.in/playback module.
+        if (existing.has('chathistory') || existing.has('draft/chathistory') || existing.has('znc.in/playback')) {
+          this.markScrollbackAvailable();
+        }
         break;
       }
       case '005': {
@@ -2107,6 +2250,15 @@ export class ChatService {
           if (key === 'NETWORK' && value && this.serverInfo.network !== value) {
             this.serverInfo = { ...this.serverInfo, network: value };
             this.emit();
+          }
+          if (key === 'CHATHISTORY') {
+            // `CHATHISTORY=<max>` (0 = no fixed limit). The server's cap on
+            // how many messages it returns per request.
+            const max = Number(value);
+            if (Number.isFinite(max) && max > 0 && this.serverInfo.chathistoryMax !== max) {
+              this.serverInfo = { ...this.serverInfo, chathistoryMax: max };
+              this.emit();
+            }
           }
         }
         break;
@@ -2193,11 +2345,11 @@ export class ChatService {
 
   // Helpers -----------------------------------------------------------------
 
-  private ensureChannel(name: string, joined = false): ChatChannel {
+  private ensureChannel(name: string, joined = false): InternalChannel {
     const key = this.channelKey(name);
     let ch = this.channels.get(key);
     if (!ch) {
-      ch = { name: key, messages: [], joined, members: [], typing: [], unread: 0, mentions: 0, topic: '' };
+      ch = { name: key, messages: signal<ChatMessage[]>([]), joined, members: [], typing: [], unread: 0, mentions: 0, topic: '' };
       this.channels.set(key, ch);
     } else if (joined) {
       ch.joined = true;
@@ -2215,7 +2367,7 @@ export class ChatService {
   // once per channel per session; if persistence isn't configured this is a
   // no-op. Errors are swallowed — chat must keep working if storage hiccups.
   private hydrateFromHistory(key: string): void {
-    if (!this.persistence) return;
+    if (!this.persistMessages || !this.persistence) return;
     if (this.hydratedChannels.has(key)) return;
     this.hydratedChannels.add(key);
     const { history, scope } = this.persistence;
@@ -2231,14 +2383,17 @@ export class ChatService {
         // keys triggers "two or more children with the same key" warnings
         // and render glitches. We only need the original id for the dedup
         // pass against in-memory messages; after that it's safe to discard.
-        const seen = new Set(ch.messages.map((m) => m.id));
+        // Dedupe against what's already in memory by msgid/content (NOT just
+        // id): on a server that replays its buffer (a bouncer), the same line
+        // arrives live with a fresh id AND sits in persistence — id-only dedupe
+        // would stack a duplicate on every reconnect.
         const prepend = persisted
-          .filter((m) => !seen.has(m.id))
+          .filter((m) => !this.isDuplicateMessage(ch, m))
           .map((m, i) => ({ ...m, id: `${this.idSalt}-h${i}` }));
         if (prepend.length === 0) return;
         // Persisted messages predate anything that arrived during this session
         // for this channel, so they go first.
-        ch.messages = [...prepend, ...ch.messages];
+        ch.messages.value = [...prepend, ...ch.messages.peek()];
         this.emit();
       })
       .catch(() => {
@@ -2255,6 +2410,10 @@ export class ChatService {
       // pull fresh history from the store. Without this, leaving + rejoining
       // in the same session would skip persisted scrollback.
       this.hydratedChannels.delete(key);
+      // Same for chathistory: re-fetch backlog on rejoin.
+      this.historyRequested.delete(key);
+      this.pendingHistoryKind.delete(key);
+      this.clearLoadOlderTimeout(key);
       if (this.activeChannel === key) {
         this.activeChannel = this.channels.size > 0 ? this.channels.keys().next().value! : null;
       }
@@ -2262,13 +2421,214 @@ export class ChatService {
     }
   }
 
+  // ---- Chathistory (IRCv3 backlog / scrollback) -----------------------
+
+  // Whether the server negotiated chathistory (either cap name) AND hasn't
+  // rejected a CHATHISTORY command with 421.
+  chathistorySupported(): boolean {
+    if (this.chathistoryUnsupported) return false;
+    const caps = this.serverInfo.enabledCaps ?? [];
+    return caps.includes('chathistory') || caps.includes('draft/chathistory');
+  }
+
+  private chathistoryLimit(): number {
+    const max = this.serverInfo.chathistoryMax;
+    return max && max > 0 ? Math.min(CHATHISTORY_REQUEST_LIMIT, max) : CHATHISTORY_REQUEST_LIMIT;
+  }
+
+  // Whether ZNC's controlled buffer-replay (znc.in/playback) is negotiated.
+  // When it is, ZNC stops auto-dumping buffers and we drive replay ourselves.
+  private playbackSupported(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('znc.in/playback');
+  }
+
+  // Latch "this is a bouncer" for the server-info badge. Detected from ZNC's
+  // vendor `znc.in/*` caps (advertised in CAP LS even when girc doesn't request
+  // them), a CAP/message sourced from `irc.znc.in`, or a `*name` control-bot
+  // sender (`*status`, `*controlpanel`, …). Display-only — scroll-back is gated
+  // on the chathistory / playback capability, not on this. Idempotent.
+  private zncDetected = false;
+  private noteZncIfApplicable(e: IrcEvent): void {
+    if (this.zncDetected) return;
+    const from = e.From ?? '';
+    const isZncBot = /^\*[a-zA-Z]/.test(from); // *status, *controlpanel, …
+    const fromZncHost = from.includes('znc.in');
+    const capText = e.Kind === 'CAP' ? `${e.Message ?? ''} ${(e.Args ?? []).join(' ')}` : '';
+    const advertisesZnc = /(^|\s)znc\.in\//.test(capText);
+    if (isZncBot || fromZncHost || advertisesZnc) {
+      this.zncDetected = true;
+      if (!this.serverInfo.bouncer) {
+        this.serverInfo = { ...this.serverInfo, bouncer: true };
+        this.emit();
+      }
+    }
+  }
+
+  // Request the most recent backlog for a channel/target, once per open.
+  // Prefers IRCv3 chathistory; falls back to ZNC's znc.in/playback module
+  // (`*playback PLAY <target> 0` replays that buffer from the start). No-op
+  // when neither is available.
+  private requestBacklog(target: string): void {
+    const key = this.channelKey(target);
+    if (this.historyRequested.has(key)) return;
+    if (this.chathistorySupported()) {
+      this.historyRequested.add(key);
+      this.pendingHistoryKind.set(key, 'latest');
+      this.session.raw(`CHATHISTORY LATEST ${target} * ${this.chathistoryLimit()}`);
+    } else if (this.playbackSupported()) {
+      this.historyRequested.add(key);
+      this.pendingHistoryKind.set(key, 'latest');
+      this.session.privmsg('*playback', `PLAY ${target} 0`);
+    }
+  }
+
+  // Arm the scroll-back watchdog for a channel: if no flush resolves the
+  // request within LOAD_OLDER_TIMEOUT_MS, surface an error in the ribbon.
+  private armLoadOlderTimeout(key: string): void {
+    this.clearLoadOlderTimeout(key);
+    this.loadOlderTimers.set(key, setTimeout(() => {
+      this.loadOlderTimers.delete(key);
+      const ch = this.channels.get(key);
+      if (ch?.history?.loading) {
+        ch.history = { loading: false, exhausted: false, error: 'No response from server' };
+        this.emit();
+      }
+    }, LOAD_OLDER_TIMEOUT_MS));
+  }
+
+  private clearLoadOlderTimeout(key: string): void {
+    const t = this.loadOlderTimers.get(key);
+    if (t) { clearTimeout(t); this.loadOlderTimers.delete(key); }
+  }
+
+  // Public: pull older messages above the current top of a channel
+  // (scroll-back). Precedence — use whichever the server actually has:
+  //   1. IRCv3 chathistory  → CHATHISTORY BEFORE <pivot> (paged, the gold path)
+  //   2. ZNC znc.in/playback → ranged PLAY up to the oldest loaded line
+  loadOlderHistory(channel: string): void {
+    const key = this.channelKey(channel);
+    const ch = this.channels.get(key);
+    if (!ch || ch.history?.loading || ch.history?.exhausted) return;
+    const first = ch.messages.peek()[0];
+
+    if (this.chathistorySupported()) {
+      if (!first) return; // nothing to anchor before yet
+      const pivot = new Date(first.timestamp).toISOString();
+      ch.history = { loading: true, exhausted: false };
+      this.pendingHistoryKind.set(key, 'before');
+      this.armLoadOlderTimeout(key);
+      this.emit();
+      this.session.raw(`CHATHISTORY BEFORE ${ch.name} timestamp=${pivot} ${this.chathistoryLimit()}`);
+      return;
+    }
+
+    if (this.playbackSupported()) {
+      if (!first) return;
+      const toSec = Math.floor(first.timestamp / 1000);
+      ch.history = { loading: true, exhausted: false };
+      this.pendingHistoryKind.set(key, 'before');
+      this.armLoadOlderTimeout(key);
+      this.emit();
+      this.session.privmsg('*playback', `PLAY ${ch.name} 0 ${toSec}`);
+    }
+  }
+
+  // Buffer one message that arrived inside an active chathistory BATCH.
+  private bufferHistoryMessage(
+    batch: { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] },
+    e: IrcEvent,
+  ): void {
+    if (e.Kind !== 'PRIVMSG' && e.Kind !== 'NOTICE') return;
+    let text = e.Message ?? '';
+    let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
+    if (text.startsWith('ACTION ') && text.endsWith('')) {
+      text = text.slice('ACTION '.length, -1);
+      kind = 'action';
+    }
+    batch.msgs.push({
+      id: this.id(),
+      kind,
+      from: e.From,
+      text,
+      timestamp: eventTimestamp(e),
+      msgid: e.Tags?.msgid,
+    });
+  }
+
+  // Flush a completed chathistory batch: sort, dedupe by msgid, prepend to the
+  // channel (oldest history goes above existing messages), persist, and clear
+  // the loading flag (+ mark exhausted when the server returned a short page).
+  private flushHistoryBatch(batch: { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] }): void {
+    const ch = this.ensureChannel(batch.target);
+    const key = this.channelKey(batch.target);
+    const sorted = [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp);
+    // Dedupe by msgid AND content (from+text+timestamp): a server may replay
+    // the same buffer on every attach with no msgid, so msgid-only dedupe lets
+    // reconnect dups pile up. isDuplicateMessage covers both.
+    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m));
+    if (fresh.length > 0) {
+      ch.messages.value = [...fresh, ...ch.messages.peek()];
+    }
+    ch.history = { loading: false, exhausted: batch.msgs.length < this.chathistoryLimit() };
+    this.pendingHistoryKind.delete(key);
+    this.clearLoadOlderTimeout(key);
+    this.emit();
+    // Persist the backlog so it survives reconnects / offline. Skipped on
+    // bouncer connections (the bouncer is the archive; see persistMessages).
+    if (this.persistMessages && this.persistence && fresh.length > 0) {
+      const { history, scope } = this.persistence;
+      for (const m of fresh) {
+        void history.append({ userId: scope.userId, serverId: scope.serverId, channel: key }, m).catch(() => {});
+      }
+    }
+  }
+
+  // Flip the per-server "scroll-back available" flag once a backlog capability
+  // is confirmed (IRCv3 chathistory or ZNC's znc.in/playback). The UI shows the
+  // load-older affordance off this. Idempotent; emits only on the transition.
+  private markScrollbackAvailable(): void {
+    if (this.serverInfo.scrollbackAvailable) return;
+    this.serverInfo = { ...this.serverInfo, scrollbackAvailable: true };
+    this.emit();
+  }
+
+  // True when `msg` is already present in the channel. Prefers the exact IRCv3
+  // msgid; without one, falls back to a content key of from+text+timestamp.
+  // Bouncer reconnects replay the same buffer with IDENTICAL server-time stamps,
+  // so this collapses replay duplicates while leaving genuine repeats (which
+  // carry distinct timestamps) intact — critical for servers like ngircd that
+  // don't emit msgid. Walks back-to-front since dups cluster near the tail.
+  private isDuplicateMessage(ch: InternalChannel, msg: ChatMessage): boolean {
+    const arr = ch.messages.peek();
+    if (msg.msgid) return arr.some((m) => m.msgid === msg.msgid);
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const m = arr[i]!;
+      if (m.timestamp === msg.timestamp && m.from === msg.from && m.text === msg.text && !m.msgid) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private appendMessage(channel: string, msg: ChatMessage): void {
     const ch = this.ensureChannel(channel);
-    ch.messages.push(msg);
+    // De-dupe (msgid or content) so live + chathistory + bouncer-replay copies
+    // of the same message collapse instead of stacking up on every reconnect.
+    if (this.isDuplicateMessage(ch, msg)) return;
+    // Immutable reassignment (the signal must see a new array reference to
+    // notify). Fuse the in-memory cap into the same assignment so an append
+    // emits exactly one signal notification. The O(n) spread is intentional and
+    // bounded by IN_MEMORY_MESSAGE_CAP — far cheaper than the old per-emit
+    // clone of EVERY channel's messages.
+    let next = [...ch.messages.peek(), msg];
+    if (next.length > IN_MEMORY_MESSAGE_CAP) next = next.slice(next.length - IN_MEMORY_MESSAGE_CAP);
+    ch.messages.value = next;
     this.emit();
     // Mirror to persistence (fire-and-forget). The store enforces its own cap
-    // so callers don't need to think about eviction.
-    if (this.persistence) {
+    // so callers don't need to think about eviction. Skipped on bouncer
+    // connections — the bouncer replays its own buffer, so a local copy would
+    // duplicate on every reconnect.
+    if (this.persistMessages && this.persistence) {
       const { history, scope } = this.persistence;
       const key = this.channelKey(channel);
       void history
@@ -2370,9 +2730,36 @@ export class ChatService {
     this.emit();
   }
 
+  // Coalesce listener notifications. emit() is called on EVERY engine event
+  // (appendServerLog emits unconditionally, plus the per-kind branches), and
+  // each notification runs getState() — which deep-clones every channel's
+  // message array. A burst of events (a WHO/NAMES flood across several
+  // connections, a bouncer buffer replay) would otherwise clone + re-render
+  // once PER event, allocating faster than V8's GC can reclaim — Mark-Compact
+  // thrashes and the heap climbs to OOM. Batching to a single notify per
+  // microtask collapses any synchronous burst into one clone + render.
+  //
+  // We coalesce on a macrotask (setTimeout 0), NOT a microtask: each engine
+  // event arrives as its own task (one WebSocket 'message' → one handleEvent),
+  // and microtasks drain between tasks — so a microtask flush would still fire
+  // once per event. A macrotask flush queues behind the already-pending event
+  // tasks, so an entire burst drains into ONE clone + render.
+  //
+  // getState() stays synchronous and reads live state, so callers/tests that
+  // read it directly after mutating are unaffected — only the subscriber
+  // notification (the expensive clone + Preact re-render) is deferred.
+  private emitScheduled = false;
   private emit(): void {
-    const state = this.getState();
-    this.listeners.forEach((fn) => fn(state));
+    if (this.emitScheduled) return;
+    this.emitScheduled = true;
+    setTimeout(() => {
+      this.emitScheduled = false;
+      if (this.listeners.size === 0) return;
+      const state = this.getState();
+      this.listeners.forEach((fn) => {
+        try { fn(state); } catch { /* isolate a bad subscriber */ }
+      });
+    }, 0);
   }
 
   private id(): string {
@@ -2385,6 +2772,18 @@ export class ChatService {
 // ids from a previous session in the same channel.
 function makeIdSalt(): string {
   return Math.random().toString(36).slice(2, 8);
+}
+
+// Timestamp for a message, preferring the IRCv3 server-time tag (`@time=`,
+// RFC3339) so live messages are accurate and chathistory/backlog messages
+// render at their original time. Falls back to now() when absent/unparseable.
+export function eventTimestamp(e: IrcEvent): number {
+  const t = e.Tags?.time;
+  if (t) {
+    const ms = Date.parse(t);
+    if (!Number.isNaN(ms)) return ms;
+  }
+  return Date.now();
 }
 
 function normaliseChannel(name: string): string {

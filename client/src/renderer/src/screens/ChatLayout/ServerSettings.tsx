@@ -29,7 +29,7 @@ import './ServerSettings.css';
 // Deliberately not a chat-style log — see the Log section for the dev-tools
 // view of NickServ replies + CAP frames + numerics.
 
-type SectionId = 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'actions' | 'log';
+type SectionId = 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'bouncer' | 'actions' | 'log';
 
 // Snapshot of the editable profile fields. When the parent passes
 // `directoryEntry`, an "Edit" tab is shown that lets the user mutate
@@ -142,6 +142,15 @@ interface ServerSettingsProps {
   // OperServ management controls. The Operators tab itself is owner-gated
   // the same way as Edit (presence of directoryEntry + onSaveProfile).
   isOper?: boolean;
+  // ---- Bouncer (per-server routing) -----------------------------------
+  // Current per-server bouncer route for this connection (from the saved
+  // session), or undefined when none is configured.
+  bouncerRoute?: { route: boolean; network: string };
+  // Whether the user's GLOBAL bouncer profile is enabled — drives the
+  // "enable it in User Settings first" banner.
+  bouncerGloballyEnabled?: boolean;
+  // Persist the per-server route. Takes effect on the next (re)connect.
+  onSaveBouncerRoute?: (route: { route: boolean; network: string }) => void;
 }
 
 interface MenuItem {
@@ -155,6 +164,7 @@ const MENU: readonly MenuItem[] = [
   { id: 'identity', label: 'Identity',  description: 'Your nick + NickServ login' },
   { id: 'edit',     label: 'Edit',      description: 'Directory profile — owner only' },
   { id: 'opers',    label: 'Operators', description: 'Grant operator access — owner only' },
+  { id: 'bouncer',  label: 'Bouncer',   description: 'Route this server through your ZNC' },
   { id: 'actions',  label: 'Actions',   description: 'Reconnect or disconnect' },
   { id: 'log',      label: 'Log',       description: 'Raw engine event log' },
   { id: 'advanced', label: 'Advanced',  description: 'IRC + services command UI' },
@@ -164,6 +174,7 @@ export function ServerSettings({
   serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
   serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
   directoryEntry, onSaveProfile, onSaveServerImage, isOper = false,
+  bouncerRoute, bouncerGloballyEnabled = false, onSaveBouncerRoute,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
   // Hide the owner-only tabs (Edit + Operators) when the parent didn't pass
@@ -245,6 +256,13 @@ export function ServerSettings({
               isOper={isOper}
               onRunCommand={onRunCommand}
               serverLog={serverLog}
+            />
+          )}
+          {section === 'bouncer' && (
+            <BouncerServerSection
+              route={bouncerRoute}
+              globallyEnabled={bouncerGloballyEnabled}
+              onSave={onSaveBouncerRoute}
             />
           )}
           {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
@@ -1526,6 +1544,61 @@ function OperatorConfigCard({
         </>
       )}
     </Card>
+  );
+}
+
+// Per-server bouncer routing. Toggles whether THIS connection goes through the
+// user's global ZNC profile (configured in User Settings → Bouncer) and names
+// the ZNC network this server maps to. Takes effect on the next (re)connect.
+function BouncerServerSection({ route, globallyEnabled, onSave }: {
+  route?: { route: boolean; network: string };
+  globallyEnabled: boolean;
+  onSave?: (route: { route: boolean; network: string }) => void;
+}) {
+  const [on, setOn] = useState(route?.route ?? false);
+  const [network, setNetwork] = useState(route?.network ?? '');
+  const [saved, triggerSaved] = useTransientFlag();
+
+  const submit = (e: Event): void => {
+    e.preventDefault();
+    onSave?.({ route: on, network: network.trim() });
+    triggerSaved();
+  };
+
+  return (
+    <SectionFrame
+      title="Bouncer"
+      description="Route this server through your ZNC/BNC bouncer instead of connecting to it directly. Reconnect for changes to take effect."
+    >
+      <Card>
+        <form onSubmit={submit} class="server-settings-card-body">
+          {!globallyEnabled && (
+            <p class="server-settings-cmd-hint">
+              No bouncer is enabled yet. Configure one in <strong>User Settings → Bouncer</strong>{' '}
+              first — this toggle has no effect until then.
+            </p>
+          )}
+          <Toggle checked={on} onChange={setOn} label="Route this server through the bouncer" />
+          <Field
+            label="ZNC network name"
+            hint="The network configured in ZNC, e.g. libera. Leave blank to use your bouncer's default network."
+          >
+            <Input
+              value={network}
+              onInput={(e) => setNetwork((e.target as HTMLInputElement).value)}
+              placeholder="libera"
+              autoComplete="off"
+              spellcheck={false}
+              disabled={!onSave}
+            />
+          </Field>
+          <div class="server-settings-oper-config-actions">
+            {saved && <span class="user-settings-saved">Saved — reconnect to apply</span>}
+            <Button type="submit" variant="primary" disabled={!onSave}>Save</Button>
+          </div>
+        </form>
+      </Card>
+    </SectionFrame>
   );
 }
 

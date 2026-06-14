@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, Divider, Field, Input, Modal, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, Divider, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
+import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { publishOwnAvatar } from '../../modules/chat/avatar-cache';
 import {
@@ -35,12 +36,13 @@ const APP_VERSION = pkg.version;
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'account' | 'about';
+type SectionId = 'identity' | 'appearance' | 'account' | 'bouncer' | 'about';
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',   label: 'Identity',   description: 'Display nick + handle' },
   { id: 'appearance', label: 'Appearance', description: 'Theme + density' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
+  { id: 'bouncer',    label: 'Bouncer',    description: 'ZNC / BNC relay (advanced)' },
   { id: 'about',      label: 'About',      description: 'Version + project info' },
 ];
 
@@ -108,6 +110,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               open={open}
             />
           )}
+          {section === 'bouncer' && <BouncerSection mode={mode} open={open} />}
           {section === 'about' && <AboutSection />}
         </div>
       </div>
@@ -399,6 +402,108 @@ function AppearanceSection() {
           <Divider />
           <DetailRow label="Density" value="Comfortable" />
         </div>
+      </Card>
+    </SectionFrame>
+  );
+}
+
+// Global bouncer (ZNC/BNC) profile. One per user; E2E-encrypted + synced via
+// BouncerSyncService when signed in. The store persists locally regardless, so
+// editing works in guest mode too (it just won't sync until signed in).
+const EMPTY_BOUNCER: BouncerProfile = {
+  enabled: false, host: '', port: 6697, tls: true,
+  tlsInsecure: false, username: '', password: '',
+};
+
+function BouncerSection({ mode, open }: {
+  mode: 'guest' | 'account';
+  open: boolean;
+}) {
+  const [draft, setDraft] = useState<BouncerProfile>(EMPTY_BOUNCER);
+  const [saved, triggerSaved] = useTransientFlag();
+
+  // Load the stored profile when the section mounts / the modal re-opens.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const store = getBouncerStore();
+    void store.whenHydrated().then(() => {
+      if (cancelled) return;
+      // Only load when something is actually stored — otherwise we'd clobber
+      // an in-progress edit (the async resolve can land after the user has
+      // started toggling/typing on a fresh, empty profile).
+      const stored = store.get();
+      if (stored) setDraft(stored);
+    });
+    return () => { cancelled = true; };
+  }, [open]);
+
+  const set = <K extends keyof BouncerProfile>(k: K, v: BouncerProfile[K]): void =>
+    setDraft((d) => ({ ...d, [k]: v }));
+
+  const submit = (e: Event): void => {
+    e.preventDefault();
+    getBouncerStore().set({ ...draft, host: draft.host.trim(), username: draft.username.trim() });
+    triggerSaved();
+  };
+
+  const clear = (): void => {
+    getBouncerStore().clear();
+    setDraft(EMPTY_BOUNCER);
+    triggerSaved();
+  };
+
+  return (
+    <SectionFrame
+      title="Bouncer (ZNC / BNC)"
+      description="Route servers through an always-on IRC bouncer. Configure it once here, then enable it per-server in that server's settings. Advanced — most users don't need this."
+    >
+      <Card>
+        <form onSubmit={submit} class="user-settings-card-body user-settings-form">
+          <Toggle
+            checked={draft.enabled}
+            onChange={(v) => set('enabled', v)}
+            label="Use a bouncer"
+          />
+          <Field label="Host" hint="Your ZNC/BNC hostname, e.g. znc.example.com.">
+            <Input value={draft.host} onInput={(e) => set('host', (e.target as HTMLInputElement).value)}
+              placeholder="znc.example.com" autoComplete="off" spellcheck={false} />
+          </Field>
+          <Field label="Port">
+            <Input type="number" value={String(draft.port)}
+              onInput={(e) => set('port', Number((e.target as HTMLInputElement).value) || 0)} />
+          </Field>
+          <Toggle checked={draft.tls} onChange={(v) => set('tls', v)} label="Use TLS" />
+          <Toggle checked={draft.tlsInsecure} onChange={(v) => set('tlsInsecure', v)}
+            label="Allow self-signed certificate" />
+          {draft.tlsInsecure && (
+            <p class="user-settings-warning">
+              ⚠ Skips TLS certificate verification — only enable this for a bouncer with a
+              self-signed cert that you trust. It weakens protection against interception.
+            </p>
+          )}
+          <Field label="Username" hint="Your ZNC username. The per-server ZNC network name is appended automatically.">
+            <Input value={draft.username} onInput={(e) => set('username', (e.target as HTMLInputElement).value)}
+              placeholder="me" autoComplete="off" spellcheck={false} />
+          </Field>
+          <Field label="Password" hint="Your ZNC password. Stored encrypted; never sent to Boson's servers in the clear.">
+            <Input type="password" value={draft.password}
+              onInput={(e) => set('password', (e.target as HTMLInputElement).value)} autoComplete="off" />
+          </Field>
+          {mode === 'guest' && (
+            <p class="user-settings-hint">
+              Sign in to sync this bouncer across your devices. It's saved locally on this device for now.
+            </p>
+          )}
+          <div class="user-settings-form-actions">
+            {saved && <span class="user-settings-saved">Saved</span>}
+            <Button type="button" variant="ghost" onClick={clear}>Clear</Button>
+            <Button type="submit" variant="primary"
+              disabled={draft.enabled && (!draft.host.trim() || !draft.username.trim())}>
+              Save
+            </Button>
+          </div>
+        </form>
       </Card>
     </SectionFrame>
   );

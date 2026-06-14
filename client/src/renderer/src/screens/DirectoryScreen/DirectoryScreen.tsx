@@ -5,6 +5,7 @@ import type { Server, User } from '../../modules/directory';
 import { subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
+import { getBouncerStore } from '../../modules/chat/bouncer.store';
 import type { EngineClient, EngineState } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
@@ -12,7 +13,7 @@ import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
 import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
-import { AtomLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
+import { AtomLoader, Badge, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { HostServerModal } from './HostServerModal';
 import './DirectoryScreen.css';
@@ -176,6 +177,9 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             serverId={target.serverId}
             servicesFramework={chatState.servicesFramework}
             isOper={chatState.myOper}
+            bouncerRoute={bloc.getServerBouncer(target.serverId)}
+            bouncerGloballyEnabled={getBouncerStore().get()?.enabled ?? false}
+            onSaveBouncerRoute={(route) => bloc.setServerBouncer(target.serverId, route)}
             onTriggerAutoIdentify={() => target.chat.triggerAutoIdentify()}
             onRunCommand={(line) => target.chat.input(line)}
             onDropAccount={(acct, pw) => target.chat.dropAccount(acct, pw)}
@@ -346,12 +350,36 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
   const [advanced, setAdvanced] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [hostOpen, setHostOpen] = useState(false);
+  // Top-level view: the public directory, or the user's bouncer networks.
+  const [view, setView] = useState<'directory' | 'bouncer'>('directory');
   return (
     <>
       {error && (
         <WarningBanner tone="danger" title="Couldn't load directory">{error}</WarningBanner>
       )}
 
+      <div class="directory-viewtabs" role="tablist" aria-label="Directory view">
+        <button
+          type="button" role="tab" aria-selected={view === 'directory'}
+          class={`directory-viewtab ${view === 'directory' ? 'directory-viewtab-active' : ''}`}
+          onClick={() => setView('directory')}
+        >
+          Directory
+        </button>
+        <button
+          type="button" role="tab" aria-selected={view === 'bouncer'}
+          class={`directory-viewtab ${view === 'bouncer' ? 'directory-viewtab-active' : ''}`}
+          onClick={() => setView('bouncer')}
+        >
+          Bouncer
+        </button>
+      </div>
+
+      {view === 'bouncer' && (
+        <BouncerNetworksPanel bloc={bloc} connections={connections} />
+      )}
+
+      {view === 'directory' && (<>
       <div class="directory-header">
         <div class="directory-prompt">$ boson dir --list</div>
         <div class="directory-header-row">
@@ -482,7 +510,170 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
           })}
         </div>
       )}
+      </>)}
     </>
+  );
+}
+
+// The "Bouncer" view of the server browser: lists the user's bouncer networks
+// (saved-session servers routed through their global ZNC profile) with connect
+// / remove, plus a one-field add form. Networks added here sync across devices
+// via the session payload. When no global bouncer is configured it nudges the
+// user to User Settings → Bouncer.
+export function BouncerNetworksPanel({ bloc, connections }: {
+  bloc: DirectoryBloc;
+  connections: DirectoryState['connections'];
+}) {
+  const [profile, setProfile] = useState(() => getBouncerStore().get());
+  useEffect(() => getBouncerStore().subscribe(setProfile), []);
+  const [name, setName] = useState('');
+  const [network, setNetwork] = useState('');
+  // Discovery ("Pull from bouncer") state machine.
+  const [discovering, setDiscovering] = useState(false);
+  const [discovered, setDiscovered] = useState<string[] | null>(null);
+  const [discoverError, setDiscoverError] = useState<string | null>(null);
+
+  const networks = bloc.bouncerNetworks();
+  const connById = new Map(connections.map((c) => [c.serverId, c]));
+  const haveNetwork = (n: string): boolean =>
+    networks.some((s) => (s.bouncer?.network ?? '').toLowerCase() === n.toLowerCase());
+
+  const add = (e: Event): void => {
+    e.preventDefault();
+    if (!name.trim() && !network.trim()) return;
+    bloc.addBouncerNetwork({ name, network });
+    setName('');
+    setNetwork('');
+  };
+
+  const pull = async (): Promise<void> => {
+    setDiscovering(true);
+    setDiscoverError(null);
+    setDiscovered(null);
+    try {
+      setDiscovered(await bloc.discoverBouncerNetworks());
+    } catch (err) {
+      setDiscoverError(err instanceof Error ? err.message : 'Discovery failed.');
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  return (
+    <div class="directory-bouncer">
+      {profile?.enabled ? (
+        <p class="directory-desc">
+          Networks below connect through your bouncer at{' '}
+          <span class="num">{profile.host}:{profile.port}</span>. Add one per ZNC network.
+        </p>
+      ) : (
+        <WarningBanner tone="warn" title="No bouncer enabled">
+          Set up your ZNC/BNC bouncer in <strong>User Settings → Bouncer</strong> first. Networks
+          you add here connect through it.
+        </WarningBanner>
+      )}
+
+      <form onSubmit={add} class="directory-bouncer-add">
+        <Input
+          value={name}
+          onInput={(e) => setName((e.target as HTMLInputElement).value)}
+          placeholder="Display name"
+          autoComplete="off"
+          spellcheck={false}
+        />
+        <Input
+          value={network}
+          onInput={(e) => setNetwork((e.target as HTMLInputElement).value)}
+          placeholder="ZNC network, e.g. libera"
+          autoComplete="off"
+          spellcheck={false}
+        />
+        <Button type="submit" variant="secondary" disabled={!name.trim() && !network.trim()}>
+          Add network
+        </Button>
+      </form>
+
+      {profile?.enabled && (
+        <div class="directory-bouncer-discover">
+          <Button variant="ghost" onClick={() => { void pull(); }} disabled={discovering}>
+            {discovering ? 'Querying your bouncer…' : 'Pull from bouncer'}
+          </Button>
+          {discovering && <AtomLoader size={18} />}
+        </div>
+      )}
+
+      {discoverError && (
+        <WarningBanner tone="danger" title="Couldn't reach your bouncer">{discoverError}</WarningBanner>
+      )}
+
+      {discovered && (
+        discovered.length === 0 ? (
+          <div class="directory-empty">No networks found on your bouncer.</div>
+        ) : (
+          <div class="directory-bouncer-discovered">
+            <div class="directory-bouncer-discovered-head">
+              <span class="directory-list-tag" style="text-transform: none;">
+                Found on your bouncer:
+              </span>
+              {discovered.some((n) => !haveNetwork(n)) && (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    for (const n of discovered) if (!haveNetwork(n)) bloc.addBouncerNetwork({ name: n, network: n });
+                  }}
+                >
+                  Add all new
+                </Button>
+              )}
+            </div>
+            <div class="directory-bouncer-list" role="list">
+              {discovered.map((n) => (
+                <div key={n} class="directory-bouncer-row" role="listitem">
+                  <div class="directory-bouncer-name">{n}</div>
+                  {haveNetwork(n) ? (
+                    <Badge tone="info">Added</Badge>
+                  ) : (
+                    <Button variant="primary" onClick={() => bloc.addBouncerNetwork({ name: n, network: n })}>
+                      Add
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      )}
+
+      {networks.length === 0 ? (
+        <div class="directory-empty">No bouncer networks yet — add one above.</div>
+      ) : (
+        <div class="directory-bouncer-list" role="list">
+          {networks.map((s) => {
+            const conn = connById.get(s.id);
+            return (
+              <div key={s.id} class="directory-bouncer-row" role="listitem">
+                <div class="directory-bouncer-meta">
+                  <div class="directory-bouncer-name">{s.name}</div>
+                  <div class="directory-bouncer-net">
+                    network: {s.bouncer?.network ? s.bouncer.network : '(default)'}
+                  </div>
+                </div>
+                <div class="directory-bouncer-actions">
+                  {conn?.engineState === 'connected' ? (
+                    <Badge tone="success">Connected</Badge>
+                  ) : (
+                    <Button variant="primary" onClick={() => bloc.connectBouncerNetwork(s.id)}>
+                      Connect
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={() => bloc.removeBouncerNetwork(s.id)}>Remove</Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

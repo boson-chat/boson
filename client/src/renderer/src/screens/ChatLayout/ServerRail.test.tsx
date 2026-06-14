@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { render, screen, fireEvent } from '@testing-library/preact';
 import { ServerRail, type ServerRailTile } from './ServerRail';
 
 // ServerRail renders one tile per connected server. A tile shows the owner's
@@ -37,5 +37,25 @@ describe('ServerRail icon', () => {
     );
     expect(document.querySelector('img.server-item-icon')).toBeNull();
     expect(screen.getByText('BO')).toBeTruthy();
+  });
+});
+
+describe('ServerRail hover name flyout', () => {
+  it('shows the full server name on tile hover and hides on leave', () => {
+    render(
+      <ServerRail
+        servers={[tile({ name: 'Libera.Chat' })]}
+        activeServerId="s1"
+        onSelectServer={vi.fn()}
+        onBrowseServers={vi.fn()}
+      />,
+    );
+    expect(document.querySelector('.server-rail-tooltip')).toBeNull();
+    const btn = document.querySelector('.server-item:not(.server-item-add)') as HTMLElement;
+    fireEvent.mouseEnter(btn);
+    const tip = document.querySelector('.server-rail-tooltip');
+    expect(tip?.textContent).toBe('Libera.Chat');
+    fireEvent.mouseLeave(btn);
+    expect(document.querySelector('.server-rail-tooltip')).toBeNull();
   });
 });
