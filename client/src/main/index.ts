@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
-import { join } from 'node:path';
+import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
+import { readFile } from 'node:fs/promises';
+import { join, normalize, extname, sep } from 'node:path';
 import { SecureStore } from './secure-store';
 import { engine } from './engine';
 import { applyDownloadedUpdate, checkNow, getUpdateState, startAutoUpdater } from './auto-update';
@@ -11,6 +12,24 @@ import { fetchSpotifyInfo } from './spotify';
 // — see handleDeepLink() below for the parser. Registered with the OS
 // via setAsDefaultProtocolClient + electron-builder's `protocols` block.
 const DEEP_LINK_SCHEME = 'boson';
+
+// In production the renderer is served from this custom scheme instead of
+// file://, so the page has a real, secure web origin (app://bundle). Without
+// it, embedded players that validate origin/referrer (YouTube, Spotify) fail
+// — YouTube shows "Error 153". Registered as a privileged standard+secure
+// scheme below (must happen before app `ready`).
+const APP_SCHEME = 'app';
+const APP_ORIGIN = `${APP_SCHEME}://bundle`;
+
+// Minimal extension→MIME map for the static renderer assets we serve.
+const MIME: Record<string, string> = {
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+  '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif', '.webp': 'image/webp', '.ico': 'image/x-icon',
+  '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+  '.map': 'application/json', '.wasm': 'application/wasm',
+};
 
 interface PendingDeepLink {
   url: string;
@@ -37,6 +56,13 @@ class BosonApp {
     if (process.platform === 'linux' && !/[a-z]{2}[-_][A-Z]{2}/.test(process.env['LANG'] ?? '')) {
       process.env['LANG'] = 'en_US.UTF-8';
     }
+
+    // Give the production renderer a real secure origin (app://bundle) so
+    // origin/referrer-sensitive embeds work. Must run before app `ready`.
+    protocol.registerSchemesAsPrivileged([{
+      scheme: APP_SCHEME,
+      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true },
+    }]);
 
     // Single-instance lock: when a second invocation tries to start
     // (typical path: user clicks boson:// in a browser while the app is
@@ -92,6 +118,7 @@ class BosonApp {
     if (argvDeepLink) this.pendingDeepLink = { url: argvDeepLink };
 
     await app.whenReady();
+    registerAppProtocol();
     this.secureStore = new SecureStore();
     // Surface the chosen encryption mode at startup so devs can see why their
     // identity isn't persisting (typical cause: WSL2 / headless Linux without
@@ -279,9 +306,38 @@ class BosonApp {
       this.mainWindow.loadURL(devUrl);
       this.mainWindow.webContents.openDevTools({ mode: 'right' });
     } else {
-      this.mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
+      // Served via the app:// protocol handler (registerAppProtocol) rather
+      // than file://, so the renderer has a real secure origin.
+      this.mainWindow.loadURL(`${APP_ORIGIN}/index.html`);
     }
   }
+}
+
+// Serve the built renderer (out/renderer) over app://bundle/* with correct
+// MIME types and a path-traversal guard. Unknown paths fall back to index.html
+// so client-side routing still works.
+function registerAppProtocol(): void {
+  const rendererDir = join(__dirname, '../renderer');
+  protocol.handle(APP_SCHEME, async (request) => {
+    let rel = decodeURIComponent(new URL(request.url).pathname);
+    if (rel === '/' || rel === '') rel = '/index.html';
+    const filePath = normalize(join(rendererDir, rel));
+    if (filePath !== rendererDir && !filePath.startsWith(rendererDir + sep)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    try {
+      const data = await readFile(filePath);
+      const type = MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
+      return new Response(data, { headers: { 'content-type': type } });
+    } catch {
+      try {
+        const html = await readFile(join(rendererDir, 'index.html'));
+        return new Response(html, { headers: { 'content-type': 'text/html' } });
+      } catch {
+        return new Response('Not found', { status: 404 });
+      }
+    }
+  });
 }
 
 new BosonApp().start();
