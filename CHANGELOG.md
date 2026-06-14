@@ -1,3 +1,9 @@
+## [0.29.0](https://github.com/boson-chat/boson/compare/v0.28.0...v0.29.0) (2026-06-14)
+
+### Features
+
+* **client:** resizable panels, server-name notifications, fixes ([92365cc](https://github.com/boson-chat/boson/commit/92365ccf7464c6ee8c629df20dd1e17d0ffbfd75)), closes [#team](https://github.com/boson-chat/boson/issues/team) [#team](https://github.com/boson-chat/boson/issues/team)
+
 ## [0.28.0](https://github.com/boson-chat/boson/compare/v0.27.0...v0.28.0) (2026-06-14)
 
 ### Features
