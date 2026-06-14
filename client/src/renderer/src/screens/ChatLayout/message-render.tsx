@@ -5,10 +5,13 @@ import { createPortal, memo } from 'preact/compat';
 import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
-import { tokenizeMarkdown, type MdToken } from './markdown';
+import { tokenizeMarkdown, isPreformattedLine, type MdToken } from './markdown';
+import { parseTable } from './table';
+import { emojiFor } from './emoji-data';
+import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
-import { NickContextMenu, type NickContextAction } from './NickContextMenu';
-import type { NickActions } from './UserPanel';
+import { NickContextMenu } from './NickContextMenu';
+import { buildNickContextActions, type NickActions } from './nick-actions';
 import { resolveScrollTop } from './scroll-resolve';
 
 // Map IRC channel-status prefix to a short display label + a class name.
@@ -58,21 +61,6 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
     }
   };
 
-  function buildActions(nick: string): readonly NickContextAction[] {
-    const out: NickContextAction[] = [
-      { label: 'Copy nickname', onClick: () => { void navigator.clipboard?.writeText(nick); } },
-    ];
-    if (nickActions?.onSendMessage) {
-      out.push({ label: 'Send message', onClick: () => nickActions.onSendMessage!(nick) });
-    }
-    if (nickActions?.onMention) {
-      out.push({ label: 'Mention', onClick: () => nickActions.onMention!(nick) });
-    }
-    if (nickActions?.onIgnore) {
-      out.push({ label: 'Ignore', danger: true, onClick: () => nickActions.onIgnore!(nick) });
-    }
-    return out;
-  }
   if (msg.kind === 'system' || msg.kind === 'join' || msg.kind === 'part' || msg.kind === 'quit') {
     return (
       <div class={`message-system message-system-${msg.kind} ${fresh ? 'message-fresh' : ''}`}>
@@ -157,13 +145,14 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
           <span class="message-row-text-body">{renderedText}</span>
           {grouped && <span class="message-row-grouped-time" aria-hidden="true">{time}</span>}
         </div>
+        <MessageEmbeds text={msg.text} />
       </div>
       {menu && (
         <NickContextMenu
           x={menu.x}
           y={menu.y}
           title={menu.nick}
-          actions={buildActions(menu.nick)}
+          actions={buildNickContextActions(menu.nick, nickActions)}
           onClose={() => setMenu(null)}
         />
       )}
@@ -367,6 +356,10 @@ export const MessageList = memo(function MessageList({
             prevMsg = null;
             return <ActivityGroup key={item.id} items={item.items} />;
           }
+          if (item.type === 'preblock') {
+            prevMsg = null;
+            return <PreBlock key={item.id} items={item.items} avatarFor={avatarFor} />;
+          }
           const m = item.msg;
           const grouped = shouldGroup(prevMsg, m);
           const isFresh = m.timestamp > freshnessBaseline.current;
@@ -401,36 +394,59 @@ export const ACTIVITY_COLLAPSE_MIN = 4;
 
 export type RenderItem =
   | { type: 'msg'; msg: ChatMessage }
-  | { type: 'activity'; id: string; items: ChatMessage[] };
+  | { type: 'activity'; id: string; items: ChatMessage[] }
+  // Consecutive preformatted lines (box-drawing / pipe tables) from one sender,
+  // rendered as a single aligned monospace block (see PreBlock).
+  | { type: 'preblock'; id: string; from: string; items: ChatMessage[] };
 
-// Walk the message list and fold long consecutive runs of activity-kind
-// messages into a single `activity` item. Everything else (and short runs)
-// passes through as individual `msg` items, preserving the existing
-// per-message rendering + grouping.
+// Preformatted grouping is only meaningful for actual chat lines (a bot's
+// table is PRIVMSG/NOTICE), never system/join/quit.
+const PREFORMAT_KINDS: ReadonlySet<ChatMessage['kind']> = new Set(['message', 'notice']);
+
+// Walk the message list and fold runs into higher-level items:
+//   - long runs of activity-kind messages → one `activity` item
+//   - consecutive preformatted lines from the same sender → one `preblock`
+// Everything else passes through as individual `msg` items, preserving the
+// existing per-message rendering + grouping.
 export function buildRenderItems(
   messages: readonly ChatMessage[],
   collapseMin: number = ACTIVITY_COLLAPSE_MIN,
 ): RenderItem[] {
   const out: RenderItem[] = [];
-  let run: ChatMessage[] = [];
-  const flush = () => {
-    if (run.length === 0) return;
-    if (run.length >= collapseMin) {
-      out.push({ type: 'activity', id: `activity-${run[0]!.id}`, items: run });
+  let activityRun: ChatMessage[] = [];
+  let preRun: ChatMessage[] = [];
+  const flushActivity = () => {
+    if (activityRun.length === 0) return;
+    if (activityRun.length >= collapseMin) {
+      out.push({ type: 'activity', id: `activity-${activityRun[0]!.id}`, items: activityRun });
     } else {
-      for (const m of run) out.push({ type: 'msg', msg: m });
+      for (const m of activityRun) out.push({ type: 'msg', msg: m });
     }
-    run = [];
+    activityRun = [];
+  };
+  const flushPre = () => {
+    if (preRun.length === 0) return;
+    out.push({ type: 'preblock', id: `pre-${preRun[0]!.id}`, from: preRun[0]!.from, items: preRun });
+    preRun = [];
   };
   for (const m of messages) {
     if (ACTIVITY_KINDS.has(m.kind)) {
-      run.push(m);
+      flushPre();
+      activityRun.push(m);
+      continue;
+    }
+    flushActivity();
+    if (PREFORMAT_KINDS.has(m.kind) && isPreformattedLine(m.text)) {
+      // Break the run when the sender changes so two stacked tables don't merge.
+      if (preRun.length > 0 && preRun[preRun.length - 1]!.from !== m.from) flushPre();
+      preRun.push(m);
     } else {
-      flush();
+      flushPre();
       out.push({ type: 'msg', msg: m });
     }
   }
-  flush();
+  flushActivity();
+  flushPre();
   return out;
 }
 
@@ -535,6 +551,53 @@ export function renderWithMentions(text: string, myNick: string): preact.Compone
 // Render a chat message body with markdown formatting + inline token
 // highlighting (@nick / #channel / self-mention). Token scanning skips code
 // spans/blocks — text inside backticks is literal.
+// A run of consecutive preformatted lines (box-drawing / pipe table) from one
+// sender, rendered as a single aligned, horizontally-scrollable monospace block
+// under one header — so a pasted table isn't fragmented by per-line timestamps
+// or proportional-font misalignment.
+function PreBlock({
+  items, avatarFor,
+}: { items: ChatMessage[]; avatarFor?: (nick: string) => string | undefined }) {
+  const head = items[0]!;
+  const time = new Date(head.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const body = items.map((m) => m.text).join('\n');
+  // A pasted box-drawing / pipe / ascii table renders as a real <table>; any
+  // other monospace block (ascii art, logs, code) stays as aligned <pre>.
+  const table = parseTable(body);
+  return (
+    <div class="message-row message-preblock">
+      <div class="message-row-gutter">
+        <Avatar nick={head.from} url={avatarFor?.(head.from)} size={30} class="message-avatar" />
+      </div>
+      <div class="message-row-body">
+        <div class="message-row-header">
+          <span class="message-row-name">{head.from}</span>
+          <span class="message-row-handle">~{head.from}</span>
+          <span class="message-row-time">{time}</span>
+        </div>
+        {table ? <MessageTable table={table} /> : <pre class="message-preblock-pre">{body}</pre>}
+      </div>
+    </div>
+  );
+}
+
+function MessageTable({ table }: { table: ReturnType<typeof parseTable> & {} }) {
+  return (
+    <div class="message-table-wrap">
+      <table class="message-table">
+        <thead>
+          <tr>{table.headers.map((h, i) => <th key={i}>{h}</th>)}</tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row, ri) => (
+            <tr key={ri}>{row.map((cell, ci) => <td key={ci}>{cell}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function renderMessageBody(
   text: string,
   myNick: string,
@@ -569,7 +632,33 @@ export function renderMdToken(
           {t.value}
         </a>
       );
+    case 'spoiler':
+      return <Spoiler key={key} text={t.value} myNick={myNick} members={members} />;
+    case 'emoji': {
+      const char = emojiFor(t.value);
+      // Unknown shortcode → render it literally so nothing is lost.
+      return char
+        ? <span key={key} class="md-emoji" role="img" aria-label={t.value}>{char}</span>
+        : <span key={key}>{`:${t.value}:`}</span>;
+    }
   }
+}
+
+// Click-to-reveal spoiler. Blurred until clicked (or Enter/Space focused).
+function Spoiler({ text, myNick, members }: { text: string; myNick: string; members: { nick: string }[] }) {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <span
+      class={`md-spoiler ${revealed ? 'md-spoiler-revealed' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-label={revealed ? undefined : 'Spoiler, click to reveal'}
+      onClick={() => setRevealed(true)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setRevealed(true); } }}
+    >
+      {renderRichText(text, myNick, members)}
+    </span>
+  );
 }
 
 // Walk a plain-text fragment and emit colored spans for:

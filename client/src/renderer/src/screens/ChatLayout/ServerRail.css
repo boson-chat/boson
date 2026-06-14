@@ -213,20 +213,42 @@
   background: color-mix(in oklab, var(--danger), transparent 88%);
 }
 
-/* Hover name-flyout — position:fixed (coords set from the hovered tile's
-   rect in JS) so the narrow, overflow-clipped rail doesn't cut it off. */
+/* Hover name-flyout. Portaled to <body> (see ServerRail.tsx) so position:fixed
+   resolves against the viewport; coords come from the hovered tile's rect.
+   `top` = the tile's vertical centre, translateY(-50%) centres the bubble. */
 .server-rail-tooltip {
   position: fixed;
+  z-index: 1000;
   transform: translateY(-50%);
-  z-index: 80;
-  background: var(--bg);
+  background: var(--surface-raised);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   padding: var(--space-1) var(--space-3);
   font-family: var(--font-display);
   font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.01em;
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: var(--shadow-2, 0 4px 12px rgba(0, 0, 0, 0.3));
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  /* Fade in (opacity only — transform is reserved for the vertical centring). */
+  animation: server-rail-tooltip-enter var(--motion-fast) var(--ease-out) both;
+}
+/* Caret: a small rotated square straddling the left edge, pointing at the tile. */
+.server-rail-tooltip::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  background: var(--surface-raised);
+  border-left: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  transform: translateY(-50%) rotate(45deg);
+}
+@keyframes server-rail-tooltip-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }

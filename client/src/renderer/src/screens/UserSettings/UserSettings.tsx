@@ -2,6 +2,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Divider, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
 import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
+import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { publishOwnAvatar } from '../../modules/chat/avatar-cache';
 import {
@@ -36,11 +37,12 @@ const APP_VERSION = pkg.version;
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'account' | 'bouncer' | 'about';
+type SectionId = 'identity' | 'appearance' | 'content' | 'account' | 'bouncer' | 'about';
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',   label: 'Identity',   description: 'Display nick + handle' },
   { id: 'appearance', label: 'Appearance', description: 'Theme + density' },
+  { id: 'content',    label: 'Content',    description: 'Link previews / embeds' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
   { id: 'bouncer',    label: 'Bouncer',    description: 'ZNC / BNC relay (advanced)' },
   { id: 'about',      label: 'About',      description: 'Version + project info' },
@@ -99,6 +101,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
             />
           )}
           {section === 'appearance' && <AppearanceSection />}
+          {section === 'content' && <ContentSection />}
           {section === 'account' && (
             <AccountSection
               mode={mode}
@@ -401,6 +404,38 @@ function AppearanceSection() {
           <DetailRow label="Theme" customValue={<Badge tone="info">Dark (terminal-modern)</Badge>} />
           <Divider />
           <DetailRow label="Density" value="Comfortable" />
+        </div>
+      </Card>
+    </SectionFrame>
+  );
+}
+
+// Link-embed preferences (local-only). Privacy-first: nothing loads remote
+// content until clicked unless the user opts into auto-load.
+function ContentSection() {
+  const [s, setS] = useState<EmbedSettings>(() => getEmbedSettings());
+  const update = (patch: Partial<EmbedSettings>): void => { setEmbedSettings(patch); setS(getEmbedSettings()); };
+  return (
+    <SectionFrame
+      title="Content"
+      description="Rich previews for links (images, videos, YouTube, Spotify, website cards). Previews load automatically — switch to click-to-load below if you'd rather nothing fetch remote content (or reveal your IP) until you click."
+    >
+      <Card>
+        <div class="user-settings-card-body">
+          <Toggle checked={s.enabled} label="Show link embeds" onChange={(v) => update({ enabled: v })} />
+          <Divider />
+          <Toggle
+            checked={s.loadMode === 'auto'}
+            disabled={!s.enabled}
+            label="Auto-load previews (turn off to load on click — more private)"
+            onChange={(v) => update({ loadMode: v ? 'auto' : 'click' })}
+          />
+          <Divider />
+          <Toggle checked={s.images} disabled={!s.enabled} label="Images" onChange={(v) => update({ images: v })} />
+          <Toggle checked={s.videos} disabled={!s.enabled} label="Videos" onChange={(v) => update({ videos: v })} />
+          <Toggle checked={s.youtube} disabled={!s.enabled} label="YouTube" onChange={(v) => update({ youtube: v })} />
+          <Toggle checked={s.spotify} disabled={!s.enabled} label="Spotify" onChange={(v) => update({ spotify: v })} />
+          <Toggle checked={s.websites} disabled={!s.enabled} label="Website cards" onChange={(v) => update({ websites: v })} />
         </div>
       </Card>
     </SectionFrame>

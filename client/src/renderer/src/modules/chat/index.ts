@@ -19,4 +19,22 @@ export type {
   ChannelDirectory,
   ChannelDirectoryEntry,
   ChannelDirectoryStatus,
+  ChannelModes,
+  ChannelListEntry,
+  ChannelMemberMode,
 } from './chat.types';
+export {
+  prefixRank,
+  banMask,
+  OP,
+  HALFOP,
+  canKick,
+  canBan,
+  canOp,
+  canHalfop,
+  canVoice,
+  canInvite,
+  canSetChannelMode,
+  canSetTopic,
+  type OpGate,
+} from './channel-ops';

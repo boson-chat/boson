@@ -15,7 +15,12 @@ export type MdToken =
   | { type: 'strike'; value: string }
   | { type: 'code'; value: string }
   | { type: 'codeblock'; value: string }
-  | { type: 'link'; value: string };
+  | { type: 'link'; value: string }
+  // `||spoiler||` — hidden until clicked. value = the hidden text.
+  | { type: 'spoiler'; value: string }
+  // `:shortcode:` — value is the shortcode; the renderer resolves it to an
+  // emoji char (or renders it literally when unknown).
+  | { type: 'emoji'; value: string };
 
 export function tokenizeMarkdown(text: string): MdToken[] {
   const out: MdToken[] = [];
@@ -69,12 +74,31 @@ export function tokenizeMarkdown(text: string): MdToken[] {
       continue;
     }
 
-    // URL
+    // Spoiler: ||...||
+    const spoiler = /^\|\|([^\n]+?)\|\|/.exec(rest);
+    if (spoiler) {
+      pushText(out);
+      out.push({ type: 'spoiler', value: spoiler[1] ?? '' });
+      i += spoiler[0].length;
+      continue;
+    }
+
+    // URL (checked before emoji so `https:` isn't mis-split on the colon).
     const url = /^https?:\/\/[^\s<>"')]+/i.exec(rest);
     if (url) {
       pushText(out);
       out.push({ type: 'link', value: url[0] });
       i += url[0].length;
+      continue;
+    }
+
+    // Emoji shortcode: :smile: — require at least one letter so clock-style
+    // times like 09:52:54 don't get eaten.
+    const emoji = /^:([a-z0-9_+-]*[a-z][a-z0-9_+-]*):/i.exec(rest);
+    if (emoji) {
+      pushText(out);
+      out.push({ type: 'emoji', value: (emoji[1] ?? '').toLowerCase() });
+      i += emoji[0].length;
       continue;
     }
 
@@ -98,4 +122,21 @@ export function tokenizeMarkdown(text: string): MdToken[] {
       target.push({ type: 'text', value: ch });
     }
   }
+}
+
+// Whether a whole message line should render as preformatted (monospace, with
+// preserved whitespace) — box-drawing tables, markdown pipe-tables, and their
+// separator rows. message-render groups consecutive such lines from the same
+// sender into a single aligned block so a pasted table isn't broken up by
+// timestamps or proportional-font misalignment.
+const BOX_DRAWING_RE = /[─-╿]/; // ─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼ …
+export function isPreformattedLine(text: string): boolean {
+  if (BOX_DRAWING_RE.test(text)) return true;
+  const t = text.trim();
+  if (t.length < 3) return false;
+  // Markdown table separator: |---|:--:|  (dashes + optional colons + pipes).
+  if (/^\|?[\s:|-]*-{3,}[\s:|-]*\|?$/.test(t) && t.includes('-')) return true;
+  // Pipe-table row: starts and ends with a pipe and has at least one interior pipe.
+  if (/^\|.*\|.*\|$/.test(t)) return true;
+  return false;
 }

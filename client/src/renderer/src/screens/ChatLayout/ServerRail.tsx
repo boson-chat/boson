@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
+import { createPortal } from 'preact/compat';
 import type { EngineState } from '../../modules/engine';
 import './ServerRail.css';
 
@@ -108,7 +109,9 @@ export function ServerRail({
         // hovered tile's rect.
         const showName = (e: MouseEvent): void => {
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-          setHovered({ name: t.name, top: r.top + r.height / 2, left: r.right + 8 });
+          // Center the flyout on the tile's vertical midpoint; the CSS
+          // translateY(-50%) does the rest. left = just past the tile's right edge.
+          setHovered({ name: `${t.name}${titleSuffix}`, top: r.top + r.height / 2, left: r.right + 8 });
         };
         const hideName = (): void => setHovered(null);
         // Single legacy tile is rendered as a div for backward compatibility
@@ -120,7 +123,9 @@ export function ServerRail({
               type="button"
               key={t.serverId}
               class={cls}
-              title={`${t.name}${titleSuffix}\nRight-click for server details`}
+              // No native `title` — the custom hover flyout below is the
+              // tooltip. (A title here showed a SECOND, off-centre popup.)
+              aria-label={`${t.name}${titleSuffix}`}
               aria-current={isActive ? 'true' : undefined}
               onClick={() => onSelectServer(t.serverId)}
               onContextMenu={(e) => handleContextMenu(e, t.serverId)}
@@ -136,7 +141,7 @@ export function ServerRail({
           <div
             key={t.serverId}
             class={cls}
-            title={t.name}
+            aria-label={t.name}
             aria-current={isActive ? 'true' : undefined}
             onContextMenu={(e) => handleContextMenu(e, t.serverId)}
             onMouseEnter={showName}
@@ -167,14 +172,19 @@ export function ServerRail({
         />
       )}
     </nav>
-    {hovered && (
+    {hovered && createPortal(
       <div
         class="server-rail-tooltip"
         role="tooltip"
+        // `top` is the tile's vertical centre; CSS translateY(-50%) pulls the
+        // bubble up by half its own height so it sits centred beside the tile.
+        // Portaled to <body> so position:fixed resolves against the viewport —
+        // an ancestor with `transform` would otherwise offset it (verified).
         style={`top: ${hovered.top}px; left: ${hovered.left}px;`}
       >
         {hovered.name}
-      </div>
+      </div>,
+      document.body,
     )}
     </>
   );

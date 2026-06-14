@@ -84,6 +84,9 @@ interface ChatAreaProps {
   // omitted (legacy fixtures/tests), ChatArea falls back to wrapping
   // `channel.messages` in a throwaway signal.
   messagesSignal?: Signal<ChatMessage[]> | null;
+  // Opens the Channel Settings modal (modes / bans / topic). Present only for
+  // channel targets; absent for DMs / the ~server log.
+  onOpenChannelSettings?: () => void;
 }
 
 export function ChatArea({
@@ -108,6 +111,7 @@ export function ChatArea({
   onLoadOlder,
   avatarFor,
   messagesSignal,
+  onOpenChannelSettings,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -267,6 +271,17 @@ export function ChatArea({
           )}
         </div>
         <div class="chat-header-right">
+          {onOpenChannelSettings && (
+            <button
+              type="button"
+              class="chat-channel-gear"
+              onClick={onOpenChannelSettings}
+              title="Channel settings"
+              aria-label="Channel settings"
+            >
+              ⚙
+            </button>
+          )}
           <ServerInfoBadge info={serverInfo} />
           <div class="chat-status">
             <span class="status-dot" />
@@ -304,6 +319,7 @@ export function ChatArea({
         placeholder={`Message ${prefix}${display}`}
         bannerError={bannerError}
         onDismissBanner={onDismissBanner}
+        myNick={myNick}
       />
     </main>
   );

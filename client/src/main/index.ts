@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { SecureStore } from './secure-store';
 import { engine } from './engine';
 import { applyDownloadedUpdate, checkNow, getUpdateState, startAutoUpdater } from './auto-update';
+import { unfurl } from './unfurl';
+import { fetchSpotifyInfo } from './spotify';
 
 // boson:// is the custom URL scheme that the marketing site's directory
 // page (/discover) deep-links to. Format: boson://join?host=…&port=…&tls=1
@@ -25,6 +27,17 @@ class BosonApp {
   private pendingDeepLink: PendingDeepLink | null = null;
 
   async start(): Promise<void> {
+    // Guarantee a structurally valid locale before Chromium initializes. On some
+    // Linux/WSL setups the system locale is empty or "C", which leaves
+    // navigator.languages with an invalid entry — and any embedded content that
+    // does `new Intl.Locale(navigator.languages[i])` (e.g. Spotify's embed)
+    // throws "RangeError: Incorrect locale information provided". Forcing a sane
+    // default keeps locale-sensitive code (ours and third-party) from crashing.
+    app.commandLine.appendSwitch('lang', 'en-US');
+    if (process.platform === 'linux' && !/[a-z]{2}[-_][A-Z]{2}/.test(process.env['LANG'] ?? '')) {
+      process.env['LANG'] = 'en_US.UTF-8';
+    }
+
     // Single-instance lock: when a second invocation tries to start
     // (typical path: user clicks boson:// in a browser while the app is
     // already running on Windows/Linux), the OS hands its argv to us
@@ -148,6 +161,20 @@ class BosonApp {
     // dev (no sidecar binary on disk); renderer falls back to
     // VITE_ENGINE_URL / VITE_ENGINE_TOKEN in that case.
     ipcMain.handle('engine:discovery', () => engine.current());
+
+    // Link-unfurl: fetch + parse OG/title metadata for a website preview card.
+    // Renderer-driven (click-to-load) only; main can fetch arbitrary hosts
+    // without CORS. Loopback/private hosts are rejected inside unfurl().
+    ipcMain.handle('unfurl:fetch', (_e, url: unknown) =>
+      typeof url === 'string' ? unfurl(url) : Promise.resolve(null),
+    );
+
+    // Spotify: parse the embed page's __NEXT_DATA__ for title/cover and (for
+    // playlists/albums) the full track list + 30s preview URLs, so the renderer
+    // shows a native card/list instead of Spotify's crash-prone iframe.
+    ipcMain.handle('spotify:fetch', (_e, url: unknown) =>
+      typeof url === 'string' ? fetchSpotifyInfo(url) : Promise.resolve(null),
+    );
 
     // Deep-link drain. Renderer calls this once on boot to pick up any
     // boson:// URL the OS handed us before the window existed (cold

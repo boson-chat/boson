@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { tokenizeMarkdown } from './markdown';
+import { tokenizeMarkdown, isPreformattedLine } from './markdown';
 
 describe('tokenizeMarkdown', () => {
   it('returns a single text token for plain prose', () => {
@@ -70,5 +70,46 @@ describe('tokenizeMarkdown', () => {
       { type: 'text', value: ' plus ' },
       { type: 'code', value: 'code' },
     ]);
+  });
+
+  it('tokenizes ||spoiler||', () => {
+    expect(tokenizeMarkdown('the killer is ||the butler||')).toEqual([
+      { type: 'text', value: 'the killer is ' },
+      { type: 'spoiler', value: 'the butler' },
+    ]);
+  });
+
+  it('tokenizes :shortcode: emoji and lowercases it', () => {
+    expect(tokenizeMarkdown('nice :TADA:')).toEqual([
+      { type: 'text', value: 'nice ' },
+      { type: 'emoji', value: 'tada' },
+    ]);
+  });
+
+  it('does not treat clock times like 09:52:54 as emoji', () => {
+    expect(tokenizeMarkdown('at 09:52:54')).toEqual([{ type: 'text', value: 'at 09:52:54' }]);
+  });
+
+  it('keeps a colon in a URL intact (URL wins over emoji)', () => {
+    const t = tokenizeMarkdown('see https://x.com/a:b');
+    expect(t.find((x) => x.type === 'link')?.value).toBe('https://x.com/a:b');
+    expect(t.some((x) => x.type === 'emoji')).toBe(false);
+  });
+});
+
+describe('isPreformattedLine', () => {
+  it('detects box-drawing lines', () => {
+    expect(isPreformattedLine('┌─────┬─────┐')).toBe(true);
+    expect(isPreformattedLine('│ /home/x │ a bot │')).toBe(true);
+    expect(isPreformattedLine('├─────┼─────┤')).toBe(true);
+  });
+  it('detects markdown pipe-table rows + separators', () => {
+    expect(isPreformattedLine('| a | b | c |')).toBe(true);
+    expect(isPreformattedLine('|---|:--:|---|')).toBe(true);
+  });
+  it('does not flag ordinary prose or a single short pipe', () => {
+    expect(isPreformattedLine('just a normal message')).toBe(false);
+    expect(isPreformattedLine('a | b')).toBe(false);
+    expect(isPreformattedLine('hi')).toBe(false);
   });
 });

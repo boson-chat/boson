@@ -79,6 +79,9 @@ import {
 } from '../memos';
 import type {
   ChannelDirectory,
+  ChannelListEntry,
+  ChannelMemberMode,
+  ChannelModes,
   ChatChannel,
   ChatMember,
   ChatMessage,
@@ -88,6 +91,7 @@ import type {
   ServerInfo,
   ServerLogEntry,
 } from './chat.types';
+import { prefixRank, banMask } from './channel-ops';
 
 // Maximum raw IRC events retained for the dev-tools server log. Old entries
 // are evicted in FIFO order. 200 lines comfortably covers a full handshake
@@ -197,6 +201,18 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: 'links',   usage: '/links',              description: 'Map of servers linked into this network' },
   { name: 'mode',    usage: '/mode <target> <+/-modes> [args]', description: 'Set user or channel modes' },
   { name: 'oper',    usage: '/oper <name> <password>', description: 'Authenticate as a server operator (IRCd oper block)' },
+  // Channel-operator convenience verbs (the right-click menu + Channel
+  // Settings modal are the primary surface; these mirror them for typists).
+  { name: 'kick',    usage: '/kick <nick> [reason]', description: 'Kick a user from the current channel' },
+  { name: 'ban',     usage: '/ban <nick|mask>',     description: 'Ban a user or mask from the current channel (+b)' },
+  { name: 'unban',   usage: '/unban <mask>',        description: 'Remove a ban (-b)' },
+  { name: 'op',      usage: '/op <nick>',           description: 'Grant channel operator (+o)' },
+  { name: 'deop',    usage: '/deop <nick>',         description: 'Remove channel operator (-o)' },
+  { name: 'halfop',  usage: '/halfop <nick>',       description: 'Grant half-op (+h)' },
+  { name: 'voice',   usage: '/voice <nick>',        description: 'Grant voice (+v)' },
+  { name: 'devoice', usage: '/devoice <nick>',      description: 'Remove voice (-v)' },
+  { name: 'invite',  usage: '/invite <nick> [#channel]', description: 'Invite a user to a channel' },
+  { name: 'topic',   usage: '/topic [new topic]',   description: 'Set (or view) the current channel topic' },
   { name: 'raw',     usage: '/raw <IRC line>',     description: 'Send a raw IRC protocol line. Power-user escape hatch.' },
 ];
 
@@ -248,6 +264,9 @@ export class ChatService {
   // NAMREPLY (353) lines may arrive in multiple parts for the same channel;
   // accumulate here and commit when ENDOFNAMES (366) arrives.
   private pendingMembers = new Map<string, ChatMember[]>();
+  // RPL_BANLIST (367) lines accumulate here between a `MODE #chan +b` request
+  // and RPL_ENDOFBANLIST (368), keyed by channelKey — mirrors pendingMembers.
+  private pendingBans = new Map<string, ChannelListEntry[]>();
 
   // RPL_WHOREPLY (352) may arrive before NAMREPLY has committed the
   // member list to the channel record — depending on the server, /WHO
@@ -1355,6 +1374,49 @@ export class ChatService {
         // stored by us.
         if (!args) return this.systemHere('Usage: /oper <name> <password>');
         return this.session.raw(`OPER ${args}`);
+
+      // Channel-operator verbs. All act on the current channel; the server is
+      // authoritative on permission (we don't pre-reject client-side here —
+      // the menu/modal already hide what you can't do).
+      case 'kick': {
+        if (!this.activeChannel) return this.systemHere('Use /kick inside a channel.');
+        const sp = args.indexOf(' ');
+        const nick = (sp < 0 ? args : args.slice(0, sp)).trim();
+        const reason = sp < 0 ? undefined : (args.slice(sp + 1).trim() || undefined);
+        if (!nick) return this.systemHere('Usage: /kick <nick> [reason]');
+        return this.kick(this.activeChannel, nick, reason);
+      }
+      case 'ban': {
+        if (!this.activeChannel) return this.systemHere('Use /ban inside a channel.');
+        const arg = args.trim();
+        if (!arg) return this.systemHere('Usage: /ban <nick|mask>');
+        // A bare nick → nick!*@*; a value with mask chars passes through.
+        return this.ban(this.activeChannel, /[!@*]/.test(arg) ? arg : banMask(arg.split(/\s+/)[0]!));
+      }
+      case 'unban': {
+        if (!this.activeChannel) return this.systemHere('Use /unban inside a channel.');
+        const arg = args.trim();
+        if (!arg) return this.systemHere('Usage: /unban <mask>');
+        return this.unban(this.activeChannel, /[!@*]/.test(arg) ? arg : banMask(arg.split(/\s+/)[0]!));
+      }
+      case 'op':      return this.cmdMemberMode('+o', args, '/op <nick>');
+      case 'deop':    return this.cmdMemberMode('-o', args, '/deop <nick>');
+      case 'halfop':  return this.cmdMemberMode('+h', args, '/halfop <nick>');
+      case 'voice':   return this.cmdMemberMode('+v', args, '/voice <nick>');
+      case 'devoice': return this.cmdMemberMode('-v', args, '/devoice <nick>');
+      case 'invite': {
+        const [n, c] = args.trim().split(/\s+/);
+        if (!n) return this.systemHere('Usage: /invite <nick> [#channel]');
+        const chan = c ?? this.activeChannel;
+        if (!chan) return this.systemHere('Use /invite inside a channel, or give a #channel.');
+        return this.invite(n, chan);
+      }
+      case 'topic': {
+        if (!this.activeChannel) return this.systemHere('Use /topic inside a channel.');
+        // No text → ask the server for the current topic (332/331 reply).
+        if (!args) return this.session.raw(`TOPIC ${this.channelKey(this.activeChannel)}`);
+        return this.setTopic(this.activeChannel, args);
+      }
       case 'raw':
         // Escape hatch: power-user can send any line. No validation —
         // the daemon will reject garbage with a 4xx numeric.
@@ -1363,6 +1425,15 @@ export class ChatService {
 
       default:      return this.systemHere(`Unknown command: /${cmd}. Try /help.`);
     }
+  }
+
+  // Shared impl for /op /deop /halfop /voice /devoice — set one member mode on
+  // the active channel against the first arg nick.
+  private cmdMemberMode(mode: ChannelMemberMode, args: string, usage: string): void {
+    if (!this.activeChannel) return this.systemHere(`Use ${usage.split(' ')[0]} inside a channel.`);
+    const nick = args.trim().split(/\s+/)[0];
+    if (!nick) return this.systemHere(`Usage: ${usage}`);
+    this.setMemberMode(this.activeChannel, nick, mode);
   }
 
   private cmdNick(args: string): void {
@@ -1639,6 +1710,74 @@ export class ChatService {
   // message rendering from the metadata-snapshot emit storm.
   messagesSignal(channel: string): Signal<ChatMessage[]> | null {
     return this.channels.get(this.channelKey(channel))?.messages ?? null;
+  }
+
+  // The status sigil WE hold in `channel` ('' when not a member / no status).
+  // Read by the UI to gate channel-operator actions.
+  myPrefix(channel: string): MemberPrefix {
+    const ch = this.channels.get(this.channelKey(channel));
+    return ch?.members.find((m) => m.nick === this.myNick)?.prefix ?? '';
+  }
+
+  // Numeric rank of our status in `channel` (0=none … 5=founder). See prefixRank.
+  myRank(channel: string): number {
+    return prefixRank(this.myPrefix(channel));
+  }
+
+  // ---- Channel-operator actions ---------------------------------------
+  // Each builds a raw IRC line; the server is authoritative on permissions.
+  // The UI gates which of these it offers via myRank + the channel-ops helpers.
+
+  kick(channel: string, nick: string, reason?: string): void {
+    const ch = this.channelKey(channel);
+    this.session.raw(reason ? `KICK ${ch} ${nick} :${reason}` : `KICK ${ch} ${nick}`);
+  }
+
+  ban(channel: string, mask: string): void {
+    this.session.raw(`MODE ${this.channelKey(channel)} +b ${mask}`);
+  }
+
+  unban(channel: string, mask: string): void {
+    this.session.raw(`MODE ${this.channelKey(channel)} -b ${mask}`);
+  }
+
+  // Grant/revoke a member status mode, e.g. setMemberMode('#x','bob','+o').
+  setMemberMode(channel: string, nick: string, mode: ChannelMemberMode): void {
+    this.session.raw(`MODE ${this.channelKey(channel)} ${mode} ${nick}`);
+  }
+
+  // Ban (by best-known mask) then kick — the menu's "Kick + Ban".
+  kickBan(channel: string, nick: string, host?: string, reason?: string): void {
+    this.ban(channel, banMask(nick, host));
+    this.kick(channel, nick, reason);
+  }
+
+  invite(nick: string, channel: string): void {
+    this.session.raw(`INVITE ${nick} ${this.channelKey(channel)}`);
+  }
+
+  setTopic(channel: string, text: string): void {
+    this.session.raw(`TOPIC ${this.channelKey(channel)} :${text}`);
+  }
+
+  // Set a channel mode from a pre-composed fragment, e.g. '+m', '-i',
+  // '+k secret', '+l 50', '-k', '-l'. The Channel Settings modal composes these.
+  setChannelMode(channel: string, fragment: string): void {
+    this.session.raw(`MODE ${this.channelKey(channel)} ${fragment}`);
+  }
+
+  // Fetch the current channel modes (→ RPL_CHANNELMODEIS 324).
+  requestChannelModes(channel: string): void {
+    this.session.raw(`MODE ${this.channelKey(channel)}`);
+  }
+
+  // Fetch the ban list (→ RPL_BANLIST 367* / RPL_ENDOFBANLIST 368). Flags the
+  // channel as loading so the modal can show a spinner until 368 commits.
+  requestBanList(channel: string): void {
+    const key = this.channelKey(channel);
+    const ch = this.channels.get(key);
+    if (ch) { ch.banListLoading = true; this.emit(); }
+    this.session.raw(`MODE ${key} +b`);
   }
 
   // Empty the captured server-log buffer and notify subscribers. Used by the
@@ -1966,6 +2105,49 @@ export class ChatService {
         });
         break;
       }
+      case '324': {
+        // RPL_CHANNELMODEIS — channel mode snapshot. The engine's generic
+        // numeric passthrough does NOT set Target, so the channel is Args[0],
+        // the modestring Args[1], and any params Args[2:].
+        const args = e.Args ?? [];
+        const chan = args[0];
+        if (!chan) break;
+        const ch = this.ensureChannel(chan);
+        ch.modes = { flags: [] }; // authoritative reset, then re-apply
+        this.applyChannelMode(chan, args[1] ?? '', args.slice(2));
+        break;
+      }
+      case '367': {
+        // RPL_BANLIST — Args = [#chan, mask, setBy?, ts?]. Buffer until 368.
+        const args = e.Args ?? [];
+        const chan = args[0];
+        const mask = args[1];
+        if (!chan || !mask) break;
+        const k = this.channelKey(chan);
+        const entry: ChannelListEntry = { mask };
+        if (args[2]) entry.setBy = args[2];
+        const ts = Number.parseInt(args[3] ?? '', 10);
+        if (Number.isFinite(ts)) entry.setAt = ts * 1000;
+        const buf = this.pendingBans.get(k) ?? [];
+        buf.push(entry);
+        this.pendingBans.set(k, buf);
+        break;
+      }
+      case '368': {
+        // RPL_ENDOFBANLIST — commit the buffered list (possibly empty).
+        const args = e.Args ?? [];
+        const chan = args[0];
+        if (!chan) break;
+        const k = this.channelKey(chan);
+        const ch = this.channels.get(k);
+        if (ch) {
+          ch.bans = this.pendingBans.get(k) ?? [];
+          ch.banListLoading = false;
+          this.emit();
+        }
+        this.pendingBans.delete(k);
+        break;
+      }
       case 'QUIT':
         // IRC QUIT is a single global event but the per-channel display
         // must be scoped to channels the quitting nick was actually a
@@ -2259,6 +2441,22 @@ export class ChatService {
               this.serverInfo = { ...this.serverInfo, chathistoryMax: max };
               this.emit();
             }
+          }
+          if (key === 'PREFIX') {
+            // e.g. "(qaohv)~&@%+" — modes and sigils positionally aligned,
+            // highest-rank first. Used to decide whether to offer owner/admin
+            // (+q/+a) grants. Tolerate malformed values (just skip).
+            const m = /^\(([a-zA-Z]+)\)(\S+)$/.exec(value);
+            if (m && m[1]!.length === m[2]!.length) {
+              this.serverInfo = { ...this.serverInfo, prefix: { modes: m[1]!, sigils: m[2]! } };
+              this.emit();
+            }
+          }
+          if (key === 'CHANMODES') {
+            // "A,B,C,D" = list, always-param, param-on-set, boolean. Informational.
+            const [list = '', param = '', paramSet = '', bool = ''] = value.split(',');
+            this.serverInfo = { ...this.serverInfo, chanModes: { list, param, paramSet, bool } };
+            this.emit();
           }
         }
         break;
@@ -2639,10 +2837,11 @@ export class ChatService {
     }
   }
 
-  // Apply a MODE command to the channel: update member prefix sigils for
-  // user-status modes (~/&/@/%/+). Other modes (i, m, k, l, b, e, I…) are
-  // consumed for argument tracking but ignored otherwise. A definitive
-  // re-sync should still come from a periodic NAMES refresh.
+  // Apply a MODE change to a channel. Updates BOTH per-member status sigils
+  // (~/&/@/%/+ ↔ q/a/o/h/v) AND channel-wide mode state (ch.modes: boolean
+  // flags + key/limit). When the ban list has already been fetched (ch.bans
+  // set), live +b/-b are applied to it too. Param cursor: status + list (b/e/I)
+  // + key consume an arg on both signs; limit only on `+`; boolean flags none.
   private applyChannelMode(channel: string, modeStr: string, params: string[]): void {
     const key = this.channelKey(channel);
     const ch = this.channels.get(key);
@@ -2650,39 +2849,67 @@ export class ChatService {
     const PREFIX_OF: Record<string, MemberPrefix> = {
       q: '~', a: '&', o: '@', h: '%', v: '+',
     };
-    // Modes that take an argument when added (most also do on removal).
-    const TAKES_ARG = new Set(['o', 'v', 'h', 'q', 'a', 'k', 'b', 'e', 'I']);
+    const LIST = new Set(['b', 'e', 'I']);
+
     let adding = true;
     let argIdx = 0;
     let nextMembers = ch.members;
-    for (const ch_ of modeStr) {
-      if (ch_ === '+') { adding = true; continue; }
-      if (ch_ === '-') { adding = false; continue; }
-      const sigil = PREFIX_OF[ch_];
+    const modes: ChannelModes = ch.modes
+      ? { flags: [...ch.modes.flags], key: ch.modes.key, limit: ch.modes.limit }
+      : { flags: [] };
+    let bans = ch.bans;
+    let memberChanged = false;
+    let modeChanged = false;
+    let banChanged = false;
+
+    for (const c of modeStr) {
+      if (c === '+') { adding = true; continue; }
+      if (c === '-') { adding = false; continue; }
+      const sigil = PREFIX_OF[c];
       if (sigil) {
         const nick = params[argIdx++];
         if (!nick) continue;
         nextMembers = nextMembers.map((m) => {
           if (m.nick !== nick) return m;
           if (adding) {
-            // Promote if equal-or-higher rank than current.
+            // Promote only if the new sigil outranks the current one.
             if (prefixRank(sigil) <= prefixRank(m.prefix)) return m;
             return { ...m, prefix: sigil };
           }
-          // Removal: drop the prefix only if it's currently set to exactly this sigil.
-          if (m.prefix === sigil) return { ...m, prefix: '' };
-          return m;
+          // Removal: drop only if currently exactly this sigil.
+          return m.prefix === sigil ? { ...m, prefix: '' } : m;
         });
-      } else if (TAKES_ARG.has(ch_)) {
-        // +l takes arg, -l doesn't, but treating as "takes arg" only on `+`
-        // is a defensible heuristic; we just need to advance the cursor.
-        if (adding || ch_ !== 'l') argIdx++;
+      } else if (LIST.has(c)) {
+        const mask = params[argIdx++];
+        if (c === 'b' && mask && bans) {
+          if (adding) {
+            if (!bans.some((b) => b.mask === mask)) { bans = [...bans, { mask }]; banChanged = true; }
+          } else {
+            const next = bans.filter((b) => b.mask !== mask);
+            if (next.length !== bans.length) { bans = next; banChanged = true; }
+          }
+        }
+      } else if (c === 'k') {
+        const arg = params[argIdx++];
+        if (adding) { if (modes.key !== arg) { modes.key = arg; modeChanged = true; } }
+        else if (modes.key !== undefined) { modes.key = undefined; modeChanged = true; }
+      } else if (c === 'l') {
+        if (adding) {
+          const n = Number(params[argIdx++]);
+          if (Number.isFinite(n) && modes.limit !== n) { modes.limit = n; modeChanged = true; }
+        } else if (modes.limit !== undefined) { modes.limit = undefined; modeChanged = true; }
+      } else {
+        // Boolean flag (i m n t s p r …).
+        const has = modes.flags.includes(c);
+        if (adding && !has) { modes.flags = [...modes.flags, c].sort(); modeChanged = true; }
+        else if (!adding && has) { modes.flags = modes.flags.filter((x) => x !== c); modeChanged = true; }
       }
     }
-    if (nextMembers !== ch.members) {
-      ch.members = nextMembers;
-      this.emit();
-    }
+
+    if (nextMembers !== ch.members) { ch.members = nextMembers; memberChanged = true; }
+    if (modeChanged) ch.modes = modes;
+    if (banChanged && bans) ch.bans = bans;
+    if (memberChanged || modeChanged || banChanged) this.emit();
   }
 
   private appendSystem(channel: string, text: string): void {
@@ -2825,19 +3052,6 @@ function dedupeMembers(members: ChatMember[]): ChatMember[] {
   return Array.from(seen.values());
 }
 
-// Rank used by MODE handler to decide whether a new +mode actually promotes
-// a member (e.g. don't drop an op back to voice when +v fires while they're
-// still +o). Higher number = senior status.
-function prefixRank(p: MemberPrefix): number {
-  switch (p) {
-    case '~': return 5;
-    case '&': return 4;
-    case '@': return 3;
-    case '%': return 2;
-    case '+': return 1;
-    default:  return 0;
-  }
-}
 
 // Kind is exported for tests.
 export type { ChatMessageKind };

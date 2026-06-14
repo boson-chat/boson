@@ -1266,3 +1266,146 @@
   border-color: var(--danger, #f85149);
   opacity: 0.85;
 }
+
+/* Channel-settings gear in the chat header. */
+.chat-channel-gear {
+  background: none;
+  border: none;
+  color: var(--fg-3, #888);
+  cursor: pointer;
+  font-size: var(--text-md, 15px);
+  line-height: 1;
+  padding: var(--space-1, 4px);
+  border-radius: var(--radius-sm, 4px);
+  transition: color var(--motion-fast, 120ms) var(--ease-standard, ease);
+}
+.chat-channel-gear:hover { color: var(--fg, #fff); }
+
+/* Preformatted block: a run of box-drawing / pipe-table lines rendered as one
+   aligned, horizontally-scrollable monospace block (see PreBlock). */
+.message-preblock-pre {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  white-space: pre;
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  color: var(--fg);
+  max-width: 100%;
+  tab-size: 4;
+}
+
+/* Pasted box-drawing / pipe tables rendered as a real <table>. */
+.message-table-wrap {
+  margin: 2px 0 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.message-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--text-xs);
+}
+.message-table th,
+.message-table td {
+  padding: var(--space-1) var(--space-3);
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.message-table thead th {
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--surface-raised, var(--surface-hover, var(--surface)));
+  border-bottom: 1px solid var(--border-strong, var(--border));
+  position: sticky;
+  top: 0;
+}
+.message-table td { color: var(--fg-2); font-family: var(--font-mono); }
+.message-table tbody tr:last-child td { border-bottom: none; }
+.message-table tbody tr:hover td { background: var(--surface-hover, rgba(127, 127, 127, 0.06)); }
+
+/* Spoiler: blurred until clicked/Enter. */
+.md-spoiler {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.18));
+  border-radius: var(--radius-sm, 3px);
+  padding: 0 3px;
+  cursor: pointer;
+  filter: blur(5px);
+  user-select: none;
+  transition: filter var(--motion-fast) var(--ease-standard);
+}
+.md-spoiler-revealed { filter: none; cursor: text; user-select: text; }
+
+/* Emoji: keep upright even inside italic/strike runs. */
+.md-emoji { font-style: normal; }
+
+/* Nick chip in the composer's left action cluster. */
+.chat-nick-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* Emoji picker popover (anchored above the emoji button). */
+.emoji-picker-wrap { position: relative; display: inline-flex; }
+.emoji-picker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: 248px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.emoji-picker-search {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+}
+.emoji-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.emoji-picker-item {
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px;
+}
+.emoji-picker-item:hover { background: var(--surface-hover, rgba(127,127,127,0.18)); }
+.emoji-picker-empty { color: var(--fg-3); font-size: var(--text-xs); padding: var(--space-2); }

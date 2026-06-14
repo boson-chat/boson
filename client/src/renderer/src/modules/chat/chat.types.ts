@@ -67,7 +67,39 @@ export interface ChatChannel {
   // CHATHISTORY BEFORE request is in flight; `exhausted` once the server has
   // no older messages. Absent until the channel uses chathistory.
   history?: { loading: boolean; exhausted: boolean; error?: string };
+  // Channel-wide modes (NOT per-member status — that's ChatMember.prefix).
+  // Undefined until we observe a MODE event or fetch RPL_CHANNELMODEIS (324).
+  modes?: ChannelModes;
+  // Ban list (+b), accumulated from RPL_BANLIST (367) up to RPL_ENDOFBANLIST
+  // (368), mirroring the 353/366 NAMES buffering. Undefined until first fetched.
+  bans?: ChannelListEntry[];
+  // True between a `MODE #chan +b` request and its 368 — drives a spinner in
+  // the Channel Settings modal.
+  banListLoading?: boolean;
 }
+
+// One +b (ban) list entry. Same shape would serve +e/+I if ever tracked.
+export interface ChannelListEntry {
+  mask: string;     // e.g. "troll!*@*" or "*!*@1.2.3.4"
+  setBy?: string;   // setter from the 367 reply, when present
+  setAt?: number;   // epoch ms (367 carries unix-seconds; we *1000)
+}
+
+// Channel-wide modes. `flags` holds the boolean modes currently set (i m n t s
+// p r …); `key`/`limit` are the parameterised modes +k/+l.
+export interface ChannelModes {
+  flags: string[];
+  key?: string;
+  limit?: number;
+}
+
+// A per-member status grant/revoke passed to ChatService.setMemberMode.
+export type ChannelMemberMode =
+  | '+o' | '-o'   // operator
+  | '+h' | '-h'   // half-op
+  | '+v' | '-v'   // voice
+  | '+a' | '-a'   // admin / protected
+  | '+q' | '-q';  // founder / owner
 
 // One captured raw IRC event for the dev-tools-style server log. Every event
 // the engine forwards is appended here BEFORE the chat-layer's per-kind
@@ -119,6 +151,13 @@ export interface ServerInfo {
   // detected ZNC at runtime. Shown in the server-info badge so the user can
   // confirm they're attached via their bouncer rather than direct.
   bouncer?: boolean;
+  // Parsed from RPL_ISUPPORT PREFIX= e.g. "(qaohv)~&@%+". `modes`/`sigils` are
+  // positionally aligned, highest-rank first. Undefined → use the built-in
+  // default ladder. Used to decide whether to offer owner/admin (+q/+a) grants.
+  prefix?: { modes: string; sigils: string };
+  // Parsed from CHANMODES=A,B,C,D (list, always-param, param-on-set, boolean).
+  // Informational; the mode parser falls back to the standard sets when absent.
+  chanModes?: { list: string; param: string; paramSet: string; bool: string };
 }
 
 // One channel as advertised by the server's LIST reply (RPL_LIST / 322).

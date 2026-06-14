@@ -193,6 +193,15 @@ export class ChatInputBloc {
     this.emit();
   }
 
+  // Splice `text` into the buffer over the [start, end) selection (used by the
+  // emoji picker) and place the caret right after it via pendingCursor.
+  insertAtCursor(text: string, start: number, end: number): void {
+    const next = this.input.slice(0, start) + text + this.input.slice(end);
+    this.setInput(next);
+    this.pendingCursor = start + text.length;
+    this.emit();
+  }
+
   setSlashSelected(idx: number): void {
     this.slashSelected = idx;
     this.emit();

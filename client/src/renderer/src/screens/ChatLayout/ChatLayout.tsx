@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import type { ChatService, ChatState } from '../../modules/chat';
+import { banMask } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
 import { Modal } from '@boson/shared';
 import { ServerRail, type ServerRailTile } from './ServerRail';
 import { ChannelSidebar } from './ChannelSidebar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
+import { ChannelSettings } from './ChannelSettings';
+import type { ChannelOpActions } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import './ChatLayout.css';
@@ -74,13 +77,41 @@ export function ChatLayout({
   const active = state.channels.find((c) => c.name === state.activeChannel) ?? null;
   const { bannerError, helpCommands } = layoutState;
 
+  // Kick (and Kick+Ban) collect an optional reason via a small modal before
+  // firing. `ban` is whether to also ban (the "Kick + Ban" menu item).
+  const [kickTarget, setKickTarget] = useState<{ nick: string; ban: boolean } | null>(null);
+  const [kickReason, setKickReason] = useState('');
+  // Channel Settings modal open state (gear on the channel header).
+  const [channelSettingsOpen, setChannelSettingsOpen] = useState(false);
+
+  const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
+  const supportsOwnerAdmin = /[qa]/.test(state.serverInfo.prefix?.modes ?? 'qa');
+  // Our rank in the active channel. `typeof` guard keeps hand-rolled test fakes
+  // (no myRank method) working — they read as rank 0.
+  const myRankHere = active && typeof chat.myRank === 'function' ? chat.myRank(active.name) : 0;
+
   // Action callbacks bound to the right-click nick context menu. Wired
   // to ChatService so both the member panel and the message-row nicks
-  // share the same behaviour — "Send message" opens a DM tab without
-  // requiring an immediate message body.
-  const nickActions = useMemo(() => ({
-    onSendMessage: (nick: string) => chat.openDM(nick),
-  }), [chat]);
+  // share the same behaviour. `ops` is present only inside a channel and
+  // carries the channel-operator actions, gated in the menu by our rank.
+  const nickActions = useMemo(() => {
+    // `typeof` guard keeps hand-rolled test fakes (no op methods) working —
+    // they just get the base menu (copy / DM / mention).
+    const ops: ChannelOpActions | undefined = isChannel && active && typeof chat.myRank === 'function' ? {
+      myRank: myRankHere,
+      prefixOf: (n: string) => active.members.find((m) => m.nick === n)?.prefix ?? '',
+      supportsOwnerAdmin,
+      op: (n: string, on: boolean) => chat.setMemberMode(active.name, n, on ? '+o' : '-o'),
+      halfop: (n: string, on: boolean) => chat.setMemberMode(active.name, n, on ? '+h' : '-h'),
+      voice: (n: string, on: boolean) => chat.setMemberMode(active.name, n, on ? '+v' : '-v'),
+      admin: (n: string, on: boolean) => chat.setMemberMode(active.name, n, on ? '+a' : '-a'),
+      owner: (n: string, on: boolean) => chat.setMemberMode(active.name, n, on ? '+q' : '-q'),
+      ban: (n: string) => chat.ban(active.name, banMask(n, active.members.find((m) => m.nick === n)?.hostname)),
+      kick: (n: string) => { setKickReason(''); setKickTarget({ nick: n, ban: false }); },
+      kickBan: (n: string) => { setKickReason(''); setKickTarget({ nick: n, ban: true }); },
+    } : undefined;
+    return { onSendMessage: (nick: string) => chat.openDM(nick), ops };
+  }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere]);
 
   // Resolves a nick → profile-image URL for Boson members on this server
   // (own avatar + presence matches), shared by the chat stream + member list.
@@ -152,6 +183,7 @@ export function ChatLayout({
         messagesSignal={
           active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
         }
+        onOpenChannelSettings={isChannel ? () => setChannelSettingsOpen(true) : undefined}
       />
       <UserPanel channel={active} nickActions={nickActions} avatarFor={avatarFor} />
 
@@ -171,6 +203,64 @@ export function ChatLayout({
             Tip: prefix a literal slash with another, e.g. <code>//hi</code> to send "/hi" as a message.
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={!!kickTarget && isChannel}
+        onClose={() => setKickTarget(null)}
+        title={kickTarget ? `${kickTarget.ban ? 'Kick + Ban' : 'Kick'} ${kickTarget.nick}` : ''}
+      >
+        {kickTarget && active && (
+          <div class="kick-modal">
+            <label class="kick-modal-label">
+              Reason (optional)
+              <input
+                class="kick-modal-input"
+                value={kickReason}
+                onInput={(e) => setKickReason((e.target as HTMLInputElement).value)}
+                placeholder="e.g. spamming"
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autofocus
+              />
+            </label>
+            <div class="kick-modal-actions">
+              <button type="button" class="kick-modal-cancel" onClick={() => setKickTarget(null)}>Cancel</button>
+              <button
+                type="button"
+                class="kick-modal-confirm"
+                onClick={() => {
+                  const reason = kickReason.trim() || undefined;
+                  if (kickTarget.ban) {
+                    chat.kickBan(active.name, kickTarget.nick, active.members.find((m) => m.nick === kickTarget.nick)?.hostname, reason);
+                  } else {
+                    chat.kick(active.name, kickTarget.nick, reason);
+                  }
+                  setKickTarget(null);
+                }}
+              >
+                {kickTarget.ban ? 'Kick + Ban' : 'Kick'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={channelSettingsOpen && isChannel}
+        onClose={() => setChannelSettingsOpen(false)}
+        title={active ? `Channel settings — ${active.name}` : ''}
+      >
+        {active && isChannel && (
+          <ChannelSettings
+            channel={active}
+            myRank={myRankHere}
+            onSetMode={(fragment) => chat.setChannelMode(active.name, fragment)}
+            onSetTopic={(text) => chat.setTopic(active.name, text)}
+            onAddBan={(mask) => chat.ban(active.name, mask)}
+            onRemoveBan={(mask) => chat.unban(active.name, mask)}
+            onRefresh={() => { chat.requestChannelModes(active.name); chat.requestBanList(active.name); }}
+          />
+        )}
       </Modal>
     </div>
   );

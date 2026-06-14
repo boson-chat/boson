@@ -3,17 +3,11 @@ import { createPortal } from 'preact/compat';
 import { AtomLoader } from '@boson/shared';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
-import { NickContextMenu, type NickContextAction } from './NickContextMenu';
+import { NickContextMenu } from './NickContextMenu';
+import { buildNickContextActions, type NickActions } from './nick-actions';
 import './UserPanel.css';
 
-export interface NickActions {
-  /** Open a DM with this nick. Maps to `/msg <nick>` semantics. */
-  onSendMessage?: (nick: string) => void;
-  /** Insert `@nick ` at the chat input's caret. */
-  onMention?: (nick: string) => void;
-  /** Ignore / unignore — future use, render as danger when wired. */
-  onIgnore?: (nick: string) => void;
-}
+export type { NickActions };
 
 interface UserPanelProps {
   channel: ChatChannel | null;
@@ -65,25 +59,6 @@ export function UserPanel({ channel, nickActions, avatarFor }: UserPanelProps) {
       openTimer.current = null;
     }
   };
-
-  function buildActions(nick: string): readonly NickContextAction[] {
-    const out: NickContextAction[] = [
-      {
-        label: 'Copy nickname',
-        onClick: () => { void navigator.clipboard?.writeText(nick); },
-      },
-    ];
-    if (nickActions?.onSendMessage) {
-      out.push({ label: 'Send message', onClick: () => nickActions.onSendMessage!(nick) });
-    }
-    if (nickActions?.onMention) {
-      out.push({ label: 'Mention', onClick: () => nickActions.onMention!(nick) });
-    }
-    if (nickActions?.onIgnore) {
-      out.push({ label: 'Ignore', danger: true, onClick: () => nickActions.onIgnore!(nick) });
-    }
-    return out;
-  }
 
   const groups = useMemo<MemberGroup[]>(() => {
     if (!channel) return [];
@@ -173,7 +148,7 @@ export function UserPanel({ channel, nickActions, avatarFor }: UserPanelProps) {
           x={menu.x}
           y={menu.y}
           title={menu.nick}
-          actions={buildActions(menu.nick)}
+          actions={buildNickContextActions(menu.nick, nickActions)}
           onClose={() => setMenu(null)}
         />
       )}

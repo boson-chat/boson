@@ -1,0 +1,108 @@
+.chan-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4, 16px);
+  min-width: 360px;
+  max-width: 520px;
+}
+.chan-settings-note {
+  font-size: var(--text-xs, 12px);
+  color: var(--fg-3, #888);
+  margin: 0;
+}
+.chan-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2, 8px);
+}
+.chan-settings-section h4 {
+  margin: 0;
+  font-size: var(--text-sm, 13px);
+  color: var(--fg-2, #aaa);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.chan-modes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+}
+.chan-modes li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+  flex-wrap: wrap;
+}
+.chan-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  cursor: pointer;
+}
+.chan-mode-toggle input:disabled { cursor: not-allowed; }
+.chan-mode-hint {
+  font-size: var(--text-xs, 12px);
+  color: var(--fg-3, #888);
+}
+.chan-param-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+.chan-param-row label { min-width: 70px; font-size: var(--text-sm, 13px); color: var(--fg-2, #aaa); }
+.chan-param-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--fg, #eee);
+  padding: var(--space-1, 4px) var(--space-2, 8px);
+}
+.chan-settings-actions { display: flex; justify-content: flex-end; }
+.chan-topic {
+  width: 100%;
+  resize: vertical;
+  background: var(--surface, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--fg, #eee);
+  padding: var(--space-2, 8px);
+  font: inherit;
+}
+.chan-bans {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  max-height: 180px;
+  overflow-y: auto;
+}
+.chan-bans li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+}
+.chan-bans code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.chan-ban-meta { font-size: var(--text-xs, 12px); color: var(--fg-3, #888); }
+.chan-ban-remove,
+.chan-param-row button,
+.chan-settings-actions button {
+  background: var(--surface, #1a1a1a);
+  border: 1px solid var(--border, #333);
+  border-radius: var(--radius-sm, 4px);
+  color: var(--fg-2, #ccc);
+  padding: var(--space-1, 4px) var(--space-3, 12px);
+  cursor: pointer;
+}
+.chan-ban-remove:hover:not(:disabled),
+.chan-param-row button:hover:not(:disabled),
+.chan-settings-actions button:hover:not(:disabled) { color: var(--fg, #fff); border-color: var(--fg-3, #666); }
+.chan-ban-remove:disabled,
+.chan-param-row button:disabled,
+.chan-settings-actions button:disabled { opacity: 0.4; cursor: not-allowed; }

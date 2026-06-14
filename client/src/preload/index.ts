@@ -63,6 +63,48 @@ const bosonEngine = {
 };
 contextBridge.exposeInMainWorld('bosonEngine', bosonEngine);
 
+// Link-unfurl bridge. The renderer asks main to fetch + parse a URL's
+// OpenGraph/title metadata for a website preview card (renderer can't fetch
+// arbitrary hosts due to CORS; main can). Invoked only on click-to-load.
+export interface OgCard {
+  url: string;
+  title?: string;
+  description?: string;
+  image?: string;
+  siteName?: string;
+  author?: string;
+  date?: string;
+}
+const bosonUnfurl = {
+  async fetch(url: string): Promise<OgCard | null> {
+    return ipcRenderer.invoke('unfurl:fetch', url);
+  },
+};
+contextBridge.exposeInMainWorld('bosonUnfurl', bosonUnfurl);
+
+export interface SpotifyTrack {
+  title: string;
+  artist: string;
+  durationMs: number;
+  previewUrl?: string;
+}
+export interface SpotifyInfo {
+  url: string;
+  type: string;
+  title: string;
+  subtitle?: string;
+  cover?: string;
+  durationMs?: number;
+  previewUrl?: string;
+  tracks?: SpotifyTrack[];
+}
+const bosonSpotify = {
+  async fetch(url: string): Promise<SpotifyInfo | null> {
+    return ipcRenderer.invoke('spotify:fetch', url);
+  },
+};
+contextBridge.exposeInMainWorld('bosonSpotify', bosonSpotify);
+
 // Deep-link bridge. The marketing site's /discover page renders Join
 // buttons as `boson://join?host=…&port=…&tls=1` links; clicking one
 // hands the URL to the installed app via the OS. The main process
@@ -120,5 +162,7 @@ contextBridge.exposeInMainWorld('bosonUpdater', bosonUpdater);
 export type BosonSecure = typeof bosonSecure;
 export type BosonWindow = typeof bosonWindow;
 export type BosonEngine = typeof bosonEngine;
+export type BosonUnfurl = typeof bosonUnfurl;
+export type BosonSpotify = typeof bosonSpotify;
 export type BosonDeepLink = typeof bosonDeepLink;
 export type BosonUpdater = typeof bosonUpdater;

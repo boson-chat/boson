@@ -113,3 +113,35 @@ describe('coalesceActivity', () => {
     ]);
   });
 });
+
+describe('buildRenderItems — preformatted grouping', () => {
+  it('folds consecutive box-drawing lines from one sender into a preblock', () => {
+    const items = buildRenderItems([
+      msg({ id: '1', from: 'bot', text: 'hi there' }),
+      msg({ id: '2', from: 'bot', text: '┌─────┬─────┐' }),
+      msg({ id: '3', from: 'bot', text: '│ a   │ b   │' }),
+      msg({ id: '4', from: 'bot', text: '└─────┴─────┘' }),
+      msg({ id: '5', from: 'bot', text: 'done' }),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['msg', 'preblock', 'msg']);
+    const pre = items[1] as Extract<typeof items[number], { type: 'preblock' }>;
+    expect(pre.from).toBe('bot');
+    expect(pre.items).toHaveLength(3);
+  });
+
+  it('breaks the preblock when the sender changes', () => {
+    const items = buildRenderItems([
+      msg({ id: '1', from: 'bot', text: '| a | b |' }),
+      msg({ id: '2', from: 'other', text: '| c | d |' }),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['preblock', 'preblock']);
+  });
+
+  it('leaves ordinary messages as individual msg items', () => {
+    const items = buildRenderItems([
+      msg({ id: '1', text: 'normal one' }),
+      msg({ id: '2', text: 'normal two' }),
+    ]);
+    expect(items.every((i) => i.type === 'msg')).toBe(true);
+  });
+});

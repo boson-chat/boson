@@ -44,6 +44,23 @@ function makeKey(
 }
 
 describe('ChatInputBloc', () => {
+  describe('insertAtCursor (emoji picker)', () => {
+    it('splices text at the selection and places the caret after it', () => {
+      const { bloc } = makeBloc();
+      bloc.setInput('hi  there');
+      bloc.insertAtCursor('🎉', 3, 3); // between the two spaces
+      const s = bloc.getState();
+      expect(s.input).toBe('hi 🎉 there');
+      expect(s.pendingCursor).toBe(3 + '🎉'.length);
+    });
+    it('replaces a selection range', () => {
+      const { bloc } = makeBloc();
+      bloc.setInput('hello world');
+      bloc.insertAtCursor('👋', 0, 5); // replace "hello"
+      expect(bloc.getState().input).toBe('👋 world');
+    });
+  });
+
   describe('initial state', () => {
     it('starts with empty input and no popups open', () => {
       const { bloc } = makeBloc();
