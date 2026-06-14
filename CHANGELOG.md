@@ -1,3 +1,9 @@
+## [0.25.1](https://github.com/boson-chat/boson/compare/v0.25.0...v0.25.1) (2026-06-14)
+
+### Bug Fixes
+
+* **client:** split multiple pasted tables + cap rows with expand ([0717479](https://github.com/boson-chat/boson/commit/0717479c142d3bdeea0eda6e258fe3391a1df5da))
+
 ## [0.25.0](https://github.com/boson-chat/boson/compare/v0.24.0...v0.25.0) (2026-06-14)
 
 ### Features
