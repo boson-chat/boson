@@ -2838,11 +2838,22 @@ export class ChatService {
     // of the same message collapse instead of stacking up on every reconnect.
     if (this.isDuplicateMessage(ch, msg)) return;
     // Immutable reassignment (the signal must see a new array reference to
-    // notify). Fuse the in-memory cap into the same assignment so an append
-    // emits exactly one signal notification. The O(n) spread is intentional and
-    // bounded by IN_MEMORY_MESSAGE_CAP — far cheaper than the old per-emit
-    // clone of EVERY channel's messages.
-    let next = [...ch.messages.peek(), msg];
+    // notify). Insert by timestamp so out-of-order arrivals — chiefly ZNC/
+    // bouncer buffer replay, whose messages carry old server-time tags — land
+    // in chronological position instead of stacking at the bottom. The common
+    // case (a live message newer than the last) stays a cheap push; only a
+    // genuinely older arrival walks back to find its slot. Stable among equal
+    // timestamps (insert after equals → preserves arrival order within a tick).
+    const arr = ch.messages.peek();
+    let next: ChatMessage[];
+    if (arr.length === 0 || msg.timestamp >= arr[arr.length - 1]!.timestamp) {
+      next = [...arr, msg];
+    } else {
+      let i = arr.length;
+      while (i > 0 && arr[i - 1]!.timestamp > msg.timestamp) i--;
+      next = [...arr.slice(0, i), msg, ...arr.slice(i)];
+    }
+    // Bounded in-memory cap, trimmed from the front (oldest).
     if (next.length > IN_MEMORY_MESSAGE_CAP) next = next.slice(next.length - IN_MEMORY_MESSAGE_CAP);
     ch.messages.value = next;
     this.emit();
