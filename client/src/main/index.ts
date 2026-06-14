@@ -1,5 +1,7 @@
-import { app, BrowserWindow, ipcMain, protocol, shell } from 'electron';
-import { readFile } from 'node:fs/promises';
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { createServer, type Server } from 'node:http';
+import { createReadStream } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { join, normalize, extname, sep } from 'node:path';
 import { SecureStore } from './secure-store';
 import { engine } from './engine';
@@ -13,14 +15,10 @@ import { fetchSpotifyInfo } from './spotify';
 // via setAsDefaultProtocolClient + electron-builder's `protocols` block.
 const DEEP_LINK_SCHEME = 'boson';
 
-// In production the renderer is served from this custom scheme instead of
-// file://, so the page has a real, secure web origin (app://bundle). Without
-// it, embedded players that validate origin/referrer (YouTube, Spotify) fail
-// — YouTube shows "Error 153". Registered as a privileged standard+secure
-// scheme below (must happen before app `ready`).
-const APP_SCHEME = 'app';
-const APP_ORIGIN = `${APP_SCHEME}://bundle`;
-
+// In production the renderer is served over a loopback HTTP server (bound to
+// 127.0.0.1) instead of file://, so the page has a real http origin. Embedded
+// players that validate origin/referrer (notably YouTube, which otherwise
+// shows "Error 153") accept http://127.0.0.1 but reject file:// and app://.
 // Minimal extension→MIME map for the static renderer assets we serve.
 const MIME: Record<string, string> = {
   '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
@@ -37,6 +35,8 @@ interface PendingDeepLink {
 
 class BosonApp {
   private mainWindow: BrowserWindow | null = null;
+  // Base URL of the loopback renderer server in production (http://127.0.0.1:<port>).
+  private rendererBase = '';
   // Constructed lazily after `app.whenReady()` — `app.getPath('userData')`
   // is only valid after that point.
   private secureStore: SecureStore | null = null;
@@ -57,12 +57,6 @@ class BosonApp {
       process.env['LANG'] = 'en_US.UTF-8';
     }
 
-    // Give the production renderer a real secure origin (app://bundle) so
-    // origin/referrer-sensitive embeds work. Must run before app `ready`.
-    protocol.registerSchemesAsPrivileged([{
-      scheme: APP_SCHEME,
-      privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, codeCache: true },
-    }]);
 
     // Single-instance lock: when a second invocation tries to start
     // (typical path: user clicks boson:// in a browser while the app is
@@ -118,7 +112,13 @@ class BosonApp {
     if (argvDeepLink) this.pendingDeepLink = { url: argvDeepLink };
 
     await app.whenReady();
-    registerAppProtocol();
+    // Production only: stand up the loopback renderer server (dev uses Vite).
+    if (!process.env['ELECTRON_RENDERER_URL']) {
+      this.rendererBase = await startRendererServer().catch((err) => {
+        console.error('[renderer-server] failed to start', err);
+        return '';
+      });
+    }
     this.secureStore = new SecureStore();
     // Surface the chosen encryption mode at startup so devs can see why their
     // identity isn't persisting (typical cause: WSL2 / headless Linux without
@@ -305,38 +305,51 @@ class BosonApp {
     if (devUrl) {
       this.mainWindow.loadURL(devUrl);
       this.mainWindow.webContents.openDevTools({ mode: 'right' });
+    } else if (this.rendererBase) {
+      // Loopback HTTP origin so origin/referrer-sensitive embeds work.
+      this.mainWindow.loadURL(`${this.rendererBase}/index.html`);
     } else {
-      // Served via the app:// protocol handler (registerAppProtocol) rather
-      // than file://, so the renderer has a real secure origin.
-      this.mainWindow.loadURL(`${APP_ORIGIN}/index.html`);
+      // Fallback if the loopback server failed to start.
+      this.mainWindow.loadFile(join(__dirname, '../renderer/index.html'));
     }
   }
 }
 
-// Serve the built renderer (out/renderer) over app://bundle/* with correct
-// MIME types and a path-traversal guard. Unknown paths fall back to index.html
-// so client-side routing still works.
-function registerAppProtocol(): void {
+// Serve the built renderer (out/renderer) from a 127.0.0.1-only HTTP server so
+// the page has a real http origin. Returns the base URL (http://127.0.0.1:<port>).
+// MIME-typed, path-traversal guarded, with an index.html fallback for routes.
+function startRendererServer(): Promise<string> {
   const rendererDir = join(__dirname, '../renderer');
-  protocol.handle(APP_SCHEME, async (request) => {
-    let rel = decodeURIComponent(new URL(request.url).pathname);
-    if (rel === '/' || rel === '') rel = '/index.html';
-    const filePath = normalize(join(rendererDir, rel));
-    if (filePath !== rendererDir && !filePath.startsWith(rendererDir + sep)) {
-      return new Response('Forbidden', { status: 403 });
-    }
-    try {
-      const data = await readFile(filePath);
-      const type = MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream';
-      return new Response(data, { headers: { 'content-type': type } });
-    } catch {
-      try {
-        const html = await readFile(join(rendererDir, 'index.html'));
-        return new Response(html, { headers: { 'content-type': 'text/html' } });
-      } catch {
-        return new Response('Not found', { status: 404 });
-      }
-    }
+  return new Promise<string>((resolve, reject) => {
+    const server: Server = createServer((req, res) => {
+      void (async () => {
+        try {
+          let rel = decodeURIComponent((req.url ?? '/').split('?')[0]!);
+          if (rel === '/' || rel === '') rel = '/index.html';
+          let filePath = normalize(join(rendererDir, rel));
+          if (filePath !== rendererDir && !filePath.startsWith(rendererDir + sep)) {
+            res.writeHead(403).end('Forbidden');
+            return;
+          }
+          try {
+            const s = await stat(filePath);
+            if (s.isDirectory()) filePath = join(filePath, 'index.html');
+          } catch {
+            filePath = join(rendererDir, 'index.html'); // SPA fallback
+          }
+          res.writeHead(200, { 'content-type': MIME[extname(filePath).toLowerCase()] ?? 'application/octet-stream' });
+          createReadStream(filePath).on('error', () => res.end()).pipe(res);
+        } catch {
+          res.writeHead(500).end('error');
+        }
+      })();
+    });
+    server.on('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address();
+      if (addr && typeof addr === 'object') resolve(`http://127.0.0.1:${addr.port}`);
+      else reject(new Error('renderer server: no address'));
+    });
   });
 }
 
