@@ -1,3 +1,9 @@
+## [0.25.2](https://github.com/boson-chat/boson/compare/v0.25.1...v0.25.2) (2026-06-14)
+
+### Bug Fixes
+
+* **client:** tolerate empty/spacer rows when parsing pasted tables ([708f5c2](https://github.com/boson-chat/boson/commit/708f5c2ce6ccea7f1aa4d950ccaac9194024dc31))
+
 ## [0.25.1](https://github.com/boson-chat/boson/compare/v0.25.0...v0.25.1) (2026-06-14)
 
 ### Bug Fixes
