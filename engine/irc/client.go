@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/lrstanley/girc"
@@ -85,6 +86,11 @@ type Client struct {
 	girc                *girc.Client
 	onEvent             EventHandler
 	onChannelDirectory  ChannelDirectoryHandler
+	// girc dispatches handlers concurrently (AddBg), so this mutex guards the
+	// Client's own mutable handler state below. Without it, a burst of RPL_LIST
+	// (322) frames races on pendingDirectory's append/growslice → memory
+	// corruption / SIGSEGV.
+	mu                  sync.Mutex
 	// Accumulator for the in-flight LIST reply. Reset on RPL_LISTEND.
 	pendingDirectory    []ChannelDirectoryEntry
 	autoListScheduled   bool
@@ -326,16 +332,22 @@ func (c *Client) collectListEntry(e girc.Event) {
 	name := e.Params[1]
 	users := 0
 	fmt.Sscanf(e.Params[2], "%d", &users)
+	c.mu.Lock()
 	c.pendingDirectory = append(c.pendingDirectory, ChannelDirectoryEntry{
 		Name:      name,
 		UserCount: users,
 		Topic:     e.Last(),
 	})
+	c.mu.Unlock()
 }
 
 func (c *Client) flushListEntries() {
+	// Swap the accumulator out under the lock, then invoke the callback
+	// unlocked so it can't deadlock against a concurrent collectListEntry.
+	c.mu.Lock()
 	entries := c.pendingDirectory
 	c.pendingDirectory = nil
+	c.mu.Unlock()
 	if c.onChannelDirectory != nil {
 		c.onChannelDirectory(entries)
 	}
@@ -356,10 +368,13 @@ const initialAutoListDelay = 2500 * time.Millisecond
 const listRetryDelay = 65 * time.Second
 
 func (c *Client) scheduleAutoList() {
+	c.mu.Lock()
 	if c.autoListScheduled {
+		c.mu.Unlock()
 		return
 	}
 	c.autoListScheduled = true
+	c.mu.Unlock()
 	go func() {
 		time.Sleep(initialAutoListDelay)
 		_ = c.girc.Cmd.SendRaw("LIST")
@@ -391,10 +406,13 @@ func (c *Client) is421ForListThrottle(e girc.Event) bool {
 // as the throttled command. Guarded by `listRetryScheduled` so a
 // flapping server can't snowball into a queue of pending retries.
 func (c *Client) scheduleListRetry() {
+	c.mu.Lock()
 	if c.listRetryScheduled {
+		c.mu.Unlock()
 		return
 	}
 	c.listRetryScheduled = true
+	c.mu.Unlock()
 	go func() {
 		time.Sleep(listRetryDelay)
 		_ = c.girc.Cmd.SendRaw("LIST")

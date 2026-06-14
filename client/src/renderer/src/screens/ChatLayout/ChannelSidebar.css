@@ -18,12 +18,13 @@
   gap: var(--space-2);
 }
 
-/* Banner variant: the owner-set 3:1 image becomes the header background, with
-   the server name + gear overlaid at the bottom over a dark scrim for
-   legibility across any image. ~84px keeps the 3:1 ratio at sidebar width. */
+/* Banner variant: the owner-set image becomes the header background, with the
+   server name + gear overlaid at the bottom over a dark scrim for legibility
+   across any image. 128px gives the banner real presence at the 240px sidebar
+   width (background-size: cover crops as needed). */
 .channel-sidebar-header-banner {
   position: relative;
-  min-height: 84px;
+  min-height: 128px;
   align-items: flex-end;
   background-size: cover;
   background-position: center;

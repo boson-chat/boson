@@ -30,7 +30,9 @@
   cursor: pointer;
   transition: all var(--motion-fast) var(--ease-standard);
   position: relative;
-  overflow: hidden;
+  /* No overflow:hidden — the unread/mention badge and the active bar are pinned
+     just outside the tile and would otherwise be clipped. The edge-to-edge
+     icon rounds itself via border-radius:inherit instead. */
 }
 
 /* Owner-set server icon — covers the entire tile edge-to-edge, clipped by
@@ -44,6 +46,7 @@
   height: 100%;
   object-fit: cover;
   display: block;
+  border-radius: inherit; /* round the image itself (tile no longer clips) */
 }
 
 /* Icon tiles drop the 1px border so the image is truly edge-to-edge (the

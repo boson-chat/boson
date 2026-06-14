@@ -55,6 +55,13 @@ describe('Notifier.notify', () => {
     expect(ctor.mock.calls[0][0]).toBe('bob');
   });
 
+  it('appends the server name to the title when present', () => {
+    const n = new Notifier();
+    n.setFocusedForTest(false);
+    n.notify(ev({ kind: 'mention', serverName: 'IRCForever' }));
+    expect(ctor.mock.calls[0][0]).toBe('alice · #general · IRCForever');
+  });
+
   it('does not fire when focused or when disabled', () => {
     const n = new Notifier();
     n.setFocusedForTest(true);

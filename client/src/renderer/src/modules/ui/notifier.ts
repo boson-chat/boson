@@ -67,7 +67,8 @@ export class Notifier {
     if (typeof Notification === 'undefined') return;
     if (Notification.permission !== 'granted') return;
 
-    const title = ev.kind === 'dm' ? ev.from : `${ev.from} · ${ev.channel}`;
+    const where = ev.kind === 'dm' ? ev.from : `${ev.from} · ${ev.channel}`;
+    const title = ev.serverName ? `${where} · ${ev.serverName}` : where;
     try {
       const n = new Notification(title, {
         body: clean(ev.text, 180),

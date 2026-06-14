@@ -1,0 +1,33 @@
+/* Thin draggable divider between resizable side panels. The hit area is 6px
+   wide; a 1px accent line fades in on hover/drag so it's discoverable without
+   being noisy at rest. */
+.resize-handle {
+  flex: 0 0 6px;
+  width: 6px;
+  margin: 0 -3px; /* straddle the panel border so it doesn't add layout width */
+  z-index: 5;
+  cursor: col-resize;
+  position: relative;
+  align-self: stretch;
+}
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+.resize-handle:hover::after { opacity: 0.6; }
+
+/* While dragging, force the resize cursor everywhere + kill text selection. */
+body.resizing-x,
+body.resizing-x * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+body.resizing-x .resize-handle::after { opacity: 1; }

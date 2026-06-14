@@ -32,6 +32,8 @@ interface ChannelSidebarProps {
   serverInfo?: ServerInfo;
   // Connection state, drives the status dot under the server name.
   engineState?: EngineState;
+  // User-set width (px) from the drag handle; falls back to the CSS default.
+  width?: number;
 }
 
 export function ChannelSidebar({
@@ -46,6 +48,7 @@ export function ChannelSidebar({
   onOpenSettings,
   serverInfo,
   engineState = 'connected',
+  width,
 }: ChannelSidebarProps) {
   // Ref-backed view of the channels prop so the bloc always reads the latest
   // list without us rebuilding it on every render. Same pattern as ChatArea
@@ -92,7 +95,7 @@ export function ChannelSidebar({
   // surfaced via the version badge in the chat header.
 
   return (
-    <aside class="channel-sidebar" aria-label="Channels">
+    <aside class="channel-sidebar" aria-label="Channels" style={width ? { width: `${width}px` } : undefined}>
       <div
         class={`channel-sidebar-header ${bannerUrl ? 'channel-sidebar-header-banner' : ''}`}
         style={bannerUrl ? `background-image: url("${cssUrl(bannerUrl)}")` : undefined}
@@ -217,7 +220,7 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart }: ChannelRowPro
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(channel.name); }}
     >
       <span class="channel-hash">{prefix}</span>
-      <span class="channel-name">{channel.name.startsWith('#') ? channel.name : display}</span>
+      <span class="channel-name">{display}</span>
       {hasMention ? (
         <span
           class="channel-mention-count"

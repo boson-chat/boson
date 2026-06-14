@@ -18,6 +18,8 @@ interface UserPanelProps {
   /** Resolve a nick to its profile-image URL (Boson members). Returns
    *  undefined for non-members → the nick-colored initial fallback. */
   avatarFor?: (nick: string) => string | undefined;
+  /** User-set width (px) from the drag handle; falls back to the CSS default. */
+  width?: number;
 }
 
 interface MemberGroup {
@@ -44,7 +46,7 @@ interface HoverState {
 // passing through a row doesn't flash a card.
 const HOVER_OPEN_DELAY_MS = 150;
 
-export function UserPanel({ channel, nickActions, avatarFor }: UserPanelProps) {
+export function UserPanel({ channel, nickActions, avatarFor, width }: UserPanelProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   // Debounce the hover-card open: we capture the row's bounding box on
@@ -78,7 +80,7 @@ export function UserPanel({ channel, nickActions, avatarFor }: UserPanelProps) {
   const total = channel?.members.length ?? 0;
 
   return (
-    <aside class="user-panel" aria-label="Members">
+    <aside class="user-panel" aria-label="Members" style={width ? { width: `${width}px` } : undefined}>
       <div class="user-panel-header">
         <div class="user-panel-title">
           Members{total > 0 ? ` — ${total}` : ''}

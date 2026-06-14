@@ -8,6 +8,8 @@ import { ChannelSidebar } from './ChannelSidebar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
 import { ChannelSettings } from './ChannelSettings';
+import { ResizeHandle } from './ResizeHandle';
+import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/panel-sizes';
 import type { ChannelOpActions } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
@@ -84,6 +86,11 @@ export function ChatLayout({
   // Channel Settings modal open state (gear on the channel header).
   const [channelSettingsOpen, setChannelSettingsOpen] = useState(false);
 
+  // Resizable side panels — initial width from the persisted store (localStorage,
+  // which survives restarts + reinstalls), live-updated while dragging.
+  const [channelsW, setChannelsW] = useState(() => getPanelWidth('channels'));
+  const [membersW, setMembersW] = useState(() => getPanelWidth('members'));
+
   const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
   const supportsOwnerAdmin = /[qa]/.test(state.serverInfo.prefix?.modes ?? 'qa');
   // Our rank in the active channel. `typeof` guard keeps hand-rolled test fakes
@@ -144,6 +151,17 @@ export function ChatLayout({
         }
         serverInfo={state.serverInfo}
         engineState={engineState}
+        width={channelsW}
+      />
+      <ResizeHandle
+        side="left"
+        width={channelsW}
+        min={PANEL_BOUNDS.channels.min}
+        max={PANEL_BOUNDS.channels.max}
+        onChange={setChannelsW}
+        onCommit={(w) => setChannelsW(setPanelWidth('channels', w))}
+        onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
+        ariaLabel="Resize channel list"
       />
       <ChatArea
         channel={active}
@@ -187,7 +205,17 @@ export function ChatLayout({
         }
         onOpenChannelSettings={isChannel ? () => setChannelSettingsOpen(true) : undefined}
       />
-      <UserPanel channel={active} nickActions={nickActions} avatarFor={avatarFor} />
+      <ResizeHandle
+        side="right"
+        width={membersW}
+        min={PANEL_BOUNDS.members.min}
+        max={PANEL_BOUNDS.members.max}
+        onChange={setMembersW}
+        onCommit={(w) => setMembersW(setPanelWidth('members', w))}
+        onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
+        ariaLabel="Resize member list"
+      />
+      <UserPanel channel={active} nickActions={nickActions} avatarFor={avatarFor} width={membersW} />
 
       <Modal
         open={helpCommands !== null}
