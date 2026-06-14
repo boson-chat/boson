@@ -1,3 +1,9 @@
+## [0.28.0](https://github.com/boson-chat/boson/compare/v0.27.0...v0.28.0) (2026-06-14)
+
+### Features
+
+* **client:** desktop notifications + Lucide icons ([bf63ac9](https://github.com/boson-chat/boson/commit/bf63ac9d4979a1bae342cd561f70d4af2dfc1fa2))
+
 ## [0.27.0](https://github.com/boson-chat/boson/compare/v0.26.1...v0.27.0) (2026-06-14)
 
 ### Features
