@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { Smile } from 'lucide-preact';
 import type { ChatInputBloc, ChatInputState } from './ChatInputBloc';
 import {
   ChannelAutocomplete,
@@ -107,7 +108,7 @@ export function ChatInputBar({
               aria-expanded={emojiOpen}
               onClick={() => setEmojiOpen((v) => !v)}
             >
-              <EmojiIcon />
+              <Smile size={18} aria-hidden="true" />
             </button>
             {emojiOpen && (
               <div class="emoji-picker" role="dialog" aria-label="Emoji picker">
@@ -224,15 +225,3 @@ function autoResize(el: HTMLTextAreaElement | null) {
   el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 }
 
-// Smiley face — an SVG so it renders identically on every OS (unlike the 😀
-// glyph, which varies by platform emoji font).
-function EmojiIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.3" />
-      <circle cx="5.8" cy="6.6" r="0.95" fill="currentColor" />
-      <circle cx="10.2" cy="6.6" r="0.95" fill="currentColor" />
-      <path d="M5 9.6 C5.9 11.1 10.1 11.1 11 9.6" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
-    </svg>
-  );
-}

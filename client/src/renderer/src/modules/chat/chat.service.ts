@@ -2,6 +2,7 @@ import { signal, type Signal } from '@preact/signals';
 import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
 import { containsNickMention } from './mention';
+import type { NotifyEvent } from '../ui/notifier';
 import {
   SERVICE_CHANNEL,
   classifyNickServReply,
@@ -493,6 +494,11 @@ export class ChatService {
   // server. When flipping to foreground, the currently-active channel
   // becomes "read" — clear its counters. Future messages still bump unread
   // for any non-active channel, even while foreground.
+  // Desktop-notification sink. DirectoryBloc wires this to the global Notifier;
+  // bumpUnread calls it for every live notifiable message.
+  private notifier: ((ev: NotifyEvent) => void) | null = null;
+  setNotifier(fn: (ev: NotifyEvent) => void): void { this.notifier = fn; }
+
   setForeground(value: boolean): void {
     if (this.isForeground === value) return;
     this.isForeground = value;
@@ -1589,11 +1595,29 @@ export class ChatService {
       this.ensureChannel(channel);
       return;
     }
+    const isDM = !key.startsWith('#') && !key.startsWith('&');
+    const isMention = isDM || containsNickMention(text, this.myNick);
+
+    // Desktop notification — fired for every live message (not just the ones
+    // that bump unread below); the notifier decides based on settings + window
+    // focus, so a mention in the channel you're viewing still alerts you when
+    // the window is in the background.
+    if (this.notifier) {
+      const scope = this.persistence?.scope;
+      this.notifier({
+        serverId: scope?.serverId ?? '',
+        serverName: scope?.serverName,
+        channel: key,
+        from,
+        text,
+        kind: isDM ? 'dm' : isMention ? 'mention' : 'message',
+      });
+    }
+
     if (this.isForeground && this.activeChannel === key) return;
     const ch = this.ensureChannel(channel);
     ch.unread += 1;
-    const isDM = !key.startsWith('#') && !key.startsWith('&');
-    if (isDM || containsNickMention(text, this.myNick)) ch.mentions += 1;
+    if (isMention) ch.mentions += 1;
   }
 
   // Send NAMES <channel> if the channel has < 1 member and we haven't asked

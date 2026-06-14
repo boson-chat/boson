@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatChannel, ServerInfo } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
+import { ArrowLeftRight, Settings } from 'lucide-preact';
 import { Button, Input, Modal } from '@boson/shared';
 import {
   ChannelSidebarBloc,
@@ -102,7 +103,7 @@ export function ChannelSidebar({
             <div class="sidebar-server-meta" title={metaTooltip}>
               <span class="sidebar-status-dot" data-state={engineState} aria-label={statusLabel} />
               {serverMeta && <span class="sidebar-server-version">{serverMeta}</span>}
-              {serverInfo?.bouncer && <BouncerIcon />}
+              {serverInfo?.bouncer && <ArrowLeftRight class="sidebar-bnc" size={12} aria-label="via bouncer" />}
             </div>
           )}
         </div>
@@ -114,7 +115,7 @@ export function ChannelSidebar({
             title="Server details"
             onClick={onOpenSettings}
           >
-            <GearIcon />
+            <Settings size={14} aria-hidden="true" />
           </button>
         )}
       </div>
@@ -190,33 +191,6 @@ export function ChannelSidebar({
 // don't trust it into a style string unescaped.
 export function cssUrl(url: string): string {
   return url.replace(/[\\"()]/g, '\\$&');
-}
-
-function GearIcon() {
-  return (
-    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-      <circle cx="6" cy="6" r="1.4" fill="none" stroke="currentColor" stroke-width="1" />
-      <path
-        d="M6 1 L6 2.5 M6 9.5 L6 11 M1 6 L2.5 6 M9.5 6 L11 6 M2.5 2.5 L3.5 3.5 M8.5 8.5 L9.5 9.5 M2.5 9.5 L3.5 8.5 M8.5 3.5 L9.5 2.5"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1"
-        stroke-linecap="square"
-      />
-    </svg>
-  );
-}
-
-// Relay/passthrough glyph marking a bouncer connection (tooltip on the parent
-// meta row spells it out).
-function BouncerIcon() {
-  return (
-    <svg class="sidebar-bnc" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor"
-      stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-label="via bouncer" role="img">
-      <path d="M2.5 5.5h9 M9.5 3.5l2 2-2 2" />
-      <path d="M13.5 10.5h-9 M6.5 8.5l-2 2 2 2" />
-    </svg>
-  );
 }
 
 interface ChannelRowProps {

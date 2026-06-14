@@ -4,6 +4,8 @@ import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
 import { getBouncerStore } from '../../modules/chat/bouncer.store';
+import { getNotifier } from '../../modules/ui/notifier';
+import { getWindowBridge } from '../../shared/window-controls';
 import { parseZncNetworks } from '../../modules/chat/znc.parse';
 import type { DirectoryService, Server, User } from '../../modules/directory';
 import type { EngineClient, EngineState, ServerSession } from '../../modules/engine';
@@ -237,7 +239,22 @@ export class DirectoryBloc {
       if (this.guestNick || this.identity.isUnlocked()) this.restoring = true;
     }
 
+    // Desktop notifications: track window focus + route banner clicks back to
+    // the originating server + channel.
+    const notifier = getNotifier();
+    notifier.start();
+    notifier.setOnActivate((serverId, channel) => this.activateFromNotification(serverId, channel));
+
     void this.loadInitial();
+  }
+
+  // A notification banner was clicked: surface the window and jump to the
+  // server + channel the message came from.
+  private activateFromNotification(serverId: string, channel: string): void {
+    void getWindowBridge()?.show?.();
+    if (serverId && this.connections.has(serverId)) this.setActiveServer(serverId);
+    const conn = this.connections.get(serverId) ?? (this.activeServerId ? this.connections.get(this.activeServerId) : undefined);
+    if (channel) conn?.chat.setActive(channel);
   }
 
   // ---- Observation ----
@@ -1284,6 +1301,7 @@ export class DirectoryBloc {
       bouncer: !!serverPass,
     });
     chat.attach();
+    chat.setNotifier((ev) => getNotifier().notify(ev));
 
     const conn: Connection = {
       serverId: server.id,

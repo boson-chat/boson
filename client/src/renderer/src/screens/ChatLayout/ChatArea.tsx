@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
+import { Settings } from 'lucide-preact';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
   getServiceCredentialsStore,
@@ -279,7 +280,7 @@ export function ChatArea({
               title="Channel settings"
               aria-label="Channel settings"
             >
-              <GearIcon />
+              <Settings size={16} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -317,18 +318,6 @@ export function ChatArea({
         myNick={myNick}
       />
     </main>
-  );
-}
-
-// Gear (channel settings) — line icon so it matches the design system rather
-// than an emoji that varies by OS.
-function GearIcon() {
-  return (
-    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor"
-      stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-      <circle cx="8" cy="8" r="2.1" />
-      <path d="M8 1.6v1.8 M8 12.6v1.8 M1.6 8h1.8 M12.6 8h1.8 M3.5 3.5l1.3 1.3 M11.2 11.2l1.3 1.3 M3.5 12.5l1.3-1.3 M11.2 4.8l1.3-1.3" />
-    </svg>
   );
 }
 

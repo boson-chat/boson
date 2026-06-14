@@ -11,6 +11,7 @@ export interface BosonWindowBridge {
   minimize(): Promise<void>;
   toggleMaximize(): Promise<void>;
   close(): Promise<void>;
+  show?(): Promise<void>;
   isMaximized(): Promise<boolean>;
   onMaximizedChange(fn: (maximized: boolean) => void): () => void;
 }

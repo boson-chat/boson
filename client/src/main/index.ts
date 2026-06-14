@@ -50,6 +50,9 @@ class BosonApp {
     // throws "RangeError: Incorrect locale information provided". Forcing a sane
     // default keeps locale-sensitive code (ours and third-party) from crashing.
     app.commandLine.appendSwitch('lang', 'en-US');
+    // Windows needs the AppUserModelID to match the installed app for native
+    // notifications to render with the right identity (and not silently drop).
+    if (process.platform === 'win32') app.setAppUserModelId('chat.boson.app');
     if (process.platform === 'linux' && !/[a-z]{2}[-_][A-Z]{2}/.test(process.env['LANG'] ?? '')) {
       process.env['LANG'] = 'en_US.UTF-8';
     }
@@ -184,6 +187,14 @@ class BosonApp {
     });
     ipcMain.handle('window:close', () => { this.mainWindow?.close(); });
     ipcMain.handle('window:is-maximized', () => this.mainWindow?.isMaximized() ?? false);
+    // Restore + focus the window (notification click).
+    ipcMain.handle('window:show', () => {
+      const w = this.mainWindow;
+      if (!w) return;
+      if (w.isMinimized()) w.restore();
+      w.show();
+      w.focus();
+    });
 
     // Engine discovery — renderer asks once at boot to learn the
     // loopback URL + token for the bundled IRC bridge. Returns null in

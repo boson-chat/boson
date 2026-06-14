@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Divider, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
 import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
+import {
+  getNotificationSettings, setNotificationSettings, type NotificationSettings,
+} from '../../modules/ui/notifications.store';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { publishOwnAvatar } from '../../modules/chat/avatar-cache';
 import {
@@ -37,12 +40,13 @@ const APP_VERSION = pkg.version;
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'content' | 'account' | 'bouncer' | 'about';
+type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'account' | 'bouncer' | 'about';
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
-  { id: 'identity',   label: 'Identity',   description: 'Display nick + handle' },
-  { id: 'appearance', label: 'Appearance', description: 'Theme + density' },
-  { id: 'content',    label: 'Content',    description: 'Link previews / embeds' },
+  { id: 'identity',      label: 'Identity',      description: 'Display nick + handle' },
+  { id: 'appearance',    label: 'Appearance',    description: 'Theme + density' },
+  { id: 'content',       label: 'Content',       description: 'Link previews / embeds' },
+  { id: 'notifications', label: 'Notifications', description: 'Desktop alerts' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
   { id: 'bouncer',    label: 'Bouncer',    description: 'ZNC / BNC relay (advanced)' },
   { id: 'about',      label: 'About',      description: 'Version + project info' },
@@ -102,6 +106,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
           )}
           {section === 'appearance' && <AppearanceSection />}
           {section === 'content' && <ContentSection />}
+          {section === 'notifications' && <NotificationsSection />}
           {section === 'account' && (
             <AccountSection
               mode={mode}
@@ -436,6 +441,32 @@ function ContentSection() {
           <Toggle checked={s.youtube} disabled={!s.enabled} label="YouTube" onChange={(v) => update({ youtube: v })} />
           <Toggle checked={s.spotify} disabled={!s.enabled} label="Spotify" onChange={(v) => update({ spotify: v })} />
           <Toggle checked={s.websites} disabled={!s.enabled} label="Website cards" onChange={(v) => update({ websites: v })} />
+        </div>
+      </Card>
+    </SectionFrame>
+  );
+}
+
+function NotificationsSection() {
+  const [s, setS] = useState<NotificationSettings>(() => getNotificationSettings());
+  const update = (patch: Partial<NotificationSettings>): void => {
+    setNotificationSettings(patch);
+    setS(getNotificationSettings());
+  };
+  return (
+    <SectionFrame
+      title="Notifications"
+      description="Desktop alerts for new messages. Banners only appear when Boson is in the background — while it's focused, the in-app unread badges keep things quiet."
+    >
+      <Card>
+        <div class="user-settings-card-body">
+          <Toggle checked={s.enabled} label="Enable desktop notifications" onChange={(v) => update({ enabled: v })} />
+          <Divider />
+          <Toggle checked={s.mentions} disabled={!s.enabled} label="When someone mentions me" onChange={(v) => update({ mentions: v })} />
+          <Toggle checked={s.directMessages} disabled={!s.enabled} label="Direct messages" onChange={(v) => update({ directMessages: v })} />
+          <Toggle checked={s.allMessages} disabled={!s.enabled} label="Every channel message (noisy)" onChange={(v) => update({ allMessages: v })} />
+          <Divider />
+          <Toggle checked={s.sound} disabled={!s.enabled} label="Play notification sound" onChange={(v) => update({ sound: v })} />
         </div>
       </Card>
     </SectionFrame>

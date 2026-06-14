@@ -34,6 +34,8 @@ const bosonWindow = {
   minimize(): Promise<void> { return ipcRenderer.invoke('window:minimize'); },
   toggleMaximize(): Promise<void> { return ipcRenderer.invoke('window:toggle-maximize'); },
   close(): Promise<void> { return ipcRenderer.invoke('window:close'); },
+  // Bring the window to the foreground (e.g. when a notification is clicked).
+  show(): Promise<void> { return ipcRenderer.invoke('window:show'); },
   isMaximized(): Promise<boolean> { return ipcRenderer.invoke('window:is-maximized'); },
   onMaximizedChange(fn: (maximized: boolean) => void): () => void {
     const listener = (_evt: unknown, maximized: boolean): void => fn(maximized);
