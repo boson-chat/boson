@@ -165,7 +165,10 @@ export function ChatLayout({
       />
       <ChatArea
         channel={active}
-        myNick={myNick}
+        // Prefer the live per-server IRC nick (collision-adjusted / NickServ /
+        // server-forced renames differ from the global account nick). Falls
+        // back to the passed-in nick before the server reports one.
+        myNick={state.myNick || myNick}
         // Channels available for `#name` autocomplete / `/join` Tab-complete:
         // joined channels first (most relevant), then anything the server
         // advertised via LIST. De-duped, lowercase comparison.
