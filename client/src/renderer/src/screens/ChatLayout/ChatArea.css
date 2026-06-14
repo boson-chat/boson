@@ -1114,14 +1114,18 @@
    between the Log toggle and the "connected" pill. Becomes a button when a
    click handler is wired (opens the Server details modal). */
 .chat-server-info {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--fg-3);
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 320px;
 }
+.chat-server-info-name { overflow: hidden; text-overflow: ellipsis; }
+.chat-server-bnc { flex-shrink: 0; color: var(--fg-3); }
 
 .chat-server-info-button {
   background: transparent;
@@ -1268,18 +1272,28 @@
 }
 
 /* Channel-settings gear in the chat header. */
-.chat-channel-gear {
+/* Shared header icon button (settings gear, future actions). */
+.chat-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   background: none;
-  border: none;
-  color: var(--fg-3, #888);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--fg-3);
   cursor: pointer;
-  font-size: var(--text-md, 15px);
-  line-height: 1;
-  padding: var(--space-1, 4px);
-  border-radius: var(--radius-sm, 4px);
-  transition: color var(--motion-fast, 120ms) var(--ease-standard, ease);
+  transition: color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard);
 }
-.chat-channel-gear:hover { color: var(--fg, #fff); }
+.chat-icon-btn:hover {
+  color: var(--fg);
+  background: var(--surface-hover);
+  border-color: var(--border-soft);
+}
+.chat-icon-btn svg { display: block; }
 
 /* Preformatted block: a run of box-drawing / pipe-table lines rendered as one
    aligned, horizontally-scrollable monospace block (see PreBlock). */

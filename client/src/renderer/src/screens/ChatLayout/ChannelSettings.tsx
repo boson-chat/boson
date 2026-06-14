@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
+import { Button, Input, Toggle } from '@boson/shared';
 import type { ChatChannel } from '../../modules/chat';
 import { canSetChannelMode, canSetTopic } from '../../modules/chat';
 import './ChannelSettings.css';
@@ -52,47 +53,44 @@ export function ChannelSettings({
       )}
 
       <section class="chan-settings-section">
-        <h4>Modes</h4>
+        <h4 class="chan-settings-heading">Modes</h4>
         <ul class="chan-modes">
           {BOOL_MODES.map((m) => (
-            <li key={m.flag}>
-              <label class="chan-mode-toggle">
-                <input
-                  type="checkbox"
-                  checked={flags.includes(m.flag)}
-                  disabled={!canEdit}
-                  onChange={(e) => onSetMode(`${(e.target as HTMLInputElement).checked ? '+' : '-'}${m.flag}`)}
-                />
-                <span>{m.label}</span>
-              </label>
+            <li key={m.flag} class="chan-mode-row">
+              <Toggle
+                checked={flags.includes(m.flag)}
+                disabled={!canEdit}
+                label={m.label}
+                onChange={(next) => onSetMode(`${next ? '+' : '-'}${m.flag}`)}
+              />
               {m.hint && <span class="chan-mode-hint">{m.hint}</span>}
             </li>
           ))}
         </ul>
 
         <div class="chan-param-row">
-          <label>Key (+k)</label>
-          <input
+          <label class="chan-param-label">Key (+k)</label>
+          <Input
             type="text" value={keyDraft} disabled={!canEdit} placeholder="(none)"
             onInput={(e) => setKeyDraft((e.target as HTMLInputElement).value)}
           />
-          <button type="button" disabled={!canEdit || !keyDraft.trim()} onClick={() => onSetMode(`+k ${keyDraft.trim()}`)}>Set</button>
-          <button type="button" disabled={!canEdit || channel.modes?.key == null} onClick={() => onSetMode('-k')}>Clear</button>
+          <Button variant="secondary" size="sm" disabled={!canEdit || !keyDraft.trim()} onClick={() => onSetMode(`+k ${keyDraft.trim()}`)}>Set</Button>
+          <Button variant="ghost" size="sm" disabled={!canEdit || channel.modes?.key == null} onClick={() => onSetMode('-k')}>Clear</Button>
         </div>
 
         <div class="chan-param-row">
-          <label>Limit (+l)</label>
-          <input
+          <label class="chan-param-label">Limit (+l)</label>
+          <Input
             type="number" min="0" value={limitDraft} disabled={!canEdit} placeholder="(none)"
             onInput={(e) => setLimitDraft((e.target as HTMLInputElement).value)}
           />
-          <button type="button" disabled={!canEdit || !/^\d+$/.test(limitDraft.trim())} onClick={() => onSetMode(`+l ${limitDraft.trim()}`)}>Set</button>
-          <button type="button" disabled={!canEdit || channel.modes?.limit == null} onClick={() => onSetMode('-l')}>Clear</button>
+          <Button variant="secondary" size="sm" disabled={!canEdit || !/^\d+$/.test(limitDraft.trim())} onClick={() => onSetMode(`+l ${limitDraft.trim()}`)}>Set</Button>
+          <Button variant="ghost" size="sm" disabled={!canEdit || channel.modes?.limit == null} onClick={() => onSetMode('-l')}>Clear</Button>
         </div>
       </section>
 
       <section class="chan-settings-section">
-        <h4>Topic</h4>
+        <h4 class="chan-settings-heading">Topic</h4>
         <textarea
           class="chan-topic"
           rows={3}
@@ -101,43 +99,45 @@ export function ChannelSettings({
           onInput={(e) => setTopicDraft((e.target as HTMLTextAreaElement).value)}
         />
         <div class="chan-settings-actions">
-          <button
-            type="button"
+          <Button
+            size="sm"
             disabled={!canSetTopic(myRank, topicLocked) || topicDraft === channel.topic}
             onClick={() => onSetTopic(topicDraft)}
           >
             Save topic
-          </button>
+          </Button>
         </div>
       </section>
 
       <section class="chan-settings-section">
-        <h4>Bans {channel.bans ? `(${channel.bans.length})` : ''}</h4>
+        <h4 class="chan-settings-heading">Bans {channel.bans ? `(${channel.bans.length})` : ''}</h4>
         {channel.banListLoading && <p class="chan-settings-note">Loading ban list…</p>}
         {!channel.banListLoading && channel.bans && channel.bans.length === 0 && (
           <p class="chan-settings-note">No bans set.</p>
         )}
-        <ul class="chan-bans">
-          {(channel.bans ?? []).map((b) => (
-            <li key={b.mask}>
-              <code>{b.mask}</code>
-              {b.setBy && <span class="chan-ban-meta">by {b.setBy}</span>}
-              <button type="button" class="chan-ban-remove" disabled={!canEdit} onClick={() => onRemoveBan(b.mask)}>Remove</button>
-            </li>
-          ))}
-        </ul>
+        {!!channel.bans?.length && (
+          <ul class="chan-bans">
+            {channel.bans.map((b) => (
+              <li key={b.mask} class="chan-ban-row">
+                <code class="chan-ban-mask">{b.mask}</code>
+                {b.setBy && <span class="chan-ban-meta">by {b.setBy}</span>}
+                <Button variant="ghost" size="sm" disabled={!canEdit} onClick={() => onRemoveBan(b.mask)}>Remove</Button>
+              </li>
+            ))}
+          </ul>
+        )}
         <div class="chan-param-row">
-          <input
+          <Input
             type="text" value={banDraft} disabled={!canEdit} placeholder="nick!user@host"
             onInput={(e) => setBanDraft((e.target as HTMLInputElement).value)}
           />
-          <button
-            type="button"
+          <Button
+            variant="secondary" size="sm"
             disabled={!canEdit || !banDraft.trim()}
             onClick={() => { onAddBan(banDraft.trim()); setBanDraft(''); }}
           >
             Add ban
-          </button>
+          </Button>
         </div>
       </section>
     </div>
