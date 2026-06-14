@@ -1,3 +1,9 @@
+## [0.29.1](https://github.com/boson-chat/boson/compare/v0.29.0...v0.29.1) (2026-06-14)
+
+### Bug Fixes
+
+* **client:** chat input shows the active server's nick, not the global one ([bebaa6e](https://github.com/boson-chat/boson/commit/bebaa6ef5a18d6d3a5733049224aacace2240522))
+
 ## [0.29.0](https://github.com/boson-chat/boson/compare/v0.28.0...v0.29.0) (2026-06-14)
 
 ### Features
