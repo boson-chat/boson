@@ -1,3 +1,9 @@
+## [0.25.0](https://github.com/boson-chat/boson/compare/v0.24.0...v0.25.0) (2026-06-14)
+
+### Features
+
+* **client:** channel ops, rich embeds, markdown/tables, Spotify ([3033e29](https://github.com/boson-chat/boson/commit/3033e295446c67fe5eac2a6af97e92add2fdbe0f))
+
 ## [0.24.0](https://github.com/boson-chat/boson/compare/v0.23.0...v0.24.0) (2026-06-14)
 
 ### Features
