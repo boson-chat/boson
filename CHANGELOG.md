@@ -1,3 +1,9 @@
+## [0.27.0](https://github.com/boson-chat/boson/compare/v0.26.1...v0.27.0) (2026-06-14)
+
+### Features
+
+* **client:** loopback renderer origin + API proxy for inline embeds ([bcd7ce4](https://github.com/boson-chat/boson/commit/bcd7ce4633bf7da04e39bf3af4d6cc6fc7a4a710))
+
 ## [0.26.1](https://github.com/boson-chat/boson/compare/v0.26.0...v0.26.1) (2026-06-14)
 
 ### Bug Fixes
