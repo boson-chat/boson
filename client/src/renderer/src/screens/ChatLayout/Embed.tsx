@@ -129,7 +129,13 @@ function YouTubeEmbed({
   const [card, setCard] = useState<OgCard | null>(null);
   const id = c.youtubeId!;
   const thumb = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
-  const src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1`;
+  // YouTube's player needs a real web origin/referrer or it errors ("Error 153
+  // / Video player configuration error"). A packaged Electron app loads from
+  // file://, which has none — so only play inline when the page has an http(s)
+  // origin (dev, or a custom-scheme build); otherwise open YouTube externally.
+  const origin = typeof location !== 'undefined' ? location.origin : '';
+  const canInline = origin.startsWith('http://') || origin.startsWith('https://');
+  const src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&origin=${encodeURIComponent(origin)}`;
 
   // Once past the inert chip, fetch the video title (OG) for the card header.
   useEffect(() => {
@@ -165,7 +171,12 @@ function YouTubeEmbed({
           </span>
         )}
         {stage === 'facade' ? (
-          <button type="button" class="embed-yt-thumb" onClick={() => setStage('play')} aria-label="Play video">
+          <button
+            type="button"
+            class="embed-yt-thumb"
+            onClick={() => (canInline ? setStage('play') : openExternal(c.url))}
+            aria-label={canInline ? 'Play video' : 'Watch on YouTube'}
+          >
             <img class="embed-img" src={card?.image ?? thumb} alt="" loading="lazy" />
             <span class="embed-yt-play" aria-hidden="true" />
           </button>
