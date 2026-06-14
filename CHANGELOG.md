@@ -1,3 +1,9 @@
+## [0.24.0](https://github.com/boson-chat/boson/compare/v0.23.0...v0.24.0) (2026-06-14)
+
+### Features
+
+* bouncer support, IRCv3 scrollback, and signals-based message store ([9372367](https://github.com/boson-chat/boson/commit/9372367b618918a85ab12705501f57e2ab6c1cc5))
+
 ## [0.23.0](https://github.com/boson-chat/boson/compare/v0.22.0...v0.23.0) (2026-06-13)
 
 ### Features
