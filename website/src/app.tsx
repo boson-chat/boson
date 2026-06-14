@@ -5,6 +5,7 @@ import { AuthConfirmedPage } from './pages/AuthConfirmedPage';
 import { DiscoverPage } from './pages/DiscoverPage';
 import { DocsPage } from './pages/DocsPage';
 import { DownloadPage } from './pages/DownloadPage';
+import { FeaturesPage } from './pages/FeaturesPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { SiteHeader } from './components/SiteHeader/SiteHeader';
 import { SiteFooter } from './components/SiteFooter/SiteFooter';
@@ -37,6 +38,7 @@ function AppShell() {
           <Route path="/about" component={AboutPage} />
           <Route path="/auth/confirmed" component={AuthConfirmedPage} />
           <Route path="/discover" component={DiscoverPage} />
+          <Route path="/features" component={FeaturesPage} />
           <Route path="/docs" component={DocsPage} />
           <Route path="/download" component={DownloadPage} />
           <Route default component={NotFoundPage} />

@@ -112,9 +112,10 @@ export function IndexPage() {
                 <li>You can switch any server to manual mode and walk away.</li>
               </ul>
               <p class="privacy-tradeoff">
-                The trade-off is honest: <strong>there is no recovery.</strong> Lose your password,
-                lose the secret. We provide a guided reclaim flow per-server via NickServ, but the
-                cryptographic side is one-way by design.
+                For the day you forget your password, enroll a <strong>one-time recovery code</strong> —
+                an independent second wrap of the same secret. The trade-off is honest: lose
+                <em> both</em> your password and your recovery code and the secret is gone — we can't
+                reconstruct it. Per-server identity can still be reclaimed via NickServ.
               </p>
             </div>
             <Terminal ariaLabel="Per-server password derivation formula">
@@ -211,7 +212,7 @@ export function IndexPage() {
                 <ul>
                   <li>Voice, video, threads, reactions, slash-commands — IRC doesn't carry these, and we're not building a parallel chat layer to pretend it does.</li>
                   <li>A hosted-server service. We index the open network; you bring your own daemon.</li>
-                  <li>An account-recovery system. If you lose your password, your secret is gone — by design.</li>
+                  <li>A server-side password reset. We can't see your secret — recovery rides on a one-time code you save, not a "forgot password" email.</li>
                   <li>Free forever as a promise. Free for now, as the truth.</li>
                 </ul>
               </div>

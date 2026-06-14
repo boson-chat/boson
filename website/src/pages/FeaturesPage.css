@@ -1,0 +1,44 @@
+.features-hero {
+  text-align: center;
+}
+.features-hero .hero-cta {
+  justify-content: center;
+}
+
+.features-section-head {
+  max-width: 640px;
+}
+.features-section-head h2 {
+  margin-top: 6px;
+}
+.features-section-head .lead {
+  margin-top: 12px;
+}
+
+/* Framed product screenshot inside a feature section. */
+.features-shot {
+  margin: 0;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface, #111);
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.6);
+  max-width: 1040px;
+}
+.features-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* CTA row reused from other pages' tone; kept local in case globals differ. */
+.cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: center;
+  justify-content: space-between;
+}
+.cta-row .hero-cta {
+  flex-wrap: wrap;
+}

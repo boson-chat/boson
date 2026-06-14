@@ -105,14 +105,14 @@ export function AboutPage() {
               <h3>2. Keep identity client-side.</h3>
               <p>
                 The directory holds a list of servers and an encrypted bag of bytes for each user.
-                We can't read the bag. We can't help you recover it. Your platform password derives
-                a key that unlocks it, locally, on your machine. That key produces a unique
-                credential for every server you join.
+                We can't read the bag. Your platform password derives a key that unlocks it, locally,
+                on your machine. That key produces a unique credential for every server you join.
               </p>
               <p>
-                The honest part: there's no recovery. If you lose your password, the bag is gone.
-                We provide guided per-server reclaim via NickServ — but that's the recovery, not us
-                re-deriving anything.
+                The honest part: we never see your secret, so we can't reset it for you. What we give
+                you instead is a one-time recovery code — a second, independent wrap of the same bag.
+                Forget your password and the code unlocks it; lose both and it's gone for good. (Per-
+                server identity can still be reclaimed via NickServ.)
               </p>
 
               <h3>3. Build a directory, not a network.</h3>
@@ -177,9 +177,9 @@ export function AboutPage() {
                   is solid.
                 </li>
                 <li>
-                  <strong>Account recovery.</strong> The cryptography is one-way on purpose. The
-                  guided per-server reclaim is the recovery; there is no other recovery, and there
-                  isn't going to be one.
+                  <strong>A password-reset backdoor.</strong> We never hold a key to your secret, so
+                  we can't reset it. Recovery rides on a one-time code you save (and per-server NickServ
+                  reclaim) — never a switch we can flip.
                 </li>
                 <li>
                   <strong>Friends lists and cross-server social graphs.</strong> Profiles, yes. A

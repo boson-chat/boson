@@ -52,7 +52,6 @@ export function DocsPage() {
                 <li><a href="#commands"       class={linkClass('commands')}>Slash commands</a></li>
               </ul>
               <h4>List in the directory</h4>
-              <p class="docs-sidebar-note">Planned · not yet shipped</p>
               <ul>
                 <li><a href="#host-start"    class={linkClass('host-start')}>Before you start</a></li>
                 <li><a href="#host-daemon"   class={linkClass('host-daemon')}>Pick an IRCd</a></li>
@@ -240,12 +239,12 @@ export function DocsPage() {
               <header class="docs-group-header">
                 <p class="eyebrow">Part 2</p>
                 <h2>List your server in the directory.</h2>
-                <Badge tone="warn">Planned · not yet shipped</Badge>
                 <p class="muted" style="margin-top: 16px;">
-                  Everything in this group is design intent — the registration UI in the client
-                  and the verification / health workers on the backend aren't shipped yet. We're
-                  putting the docs here now so self-hosters can see the shape of what's coming. If
-                  you run an IRC server today and want to discuss listing once this lands,{' '}
+                  Run an IRC server? Register it in the directory yourself — from the client,
+                  verified by a DNS TXT record, no human reviewer in the loop. Registration and DNS
+                  verification ship today; the background <em>health</em> and <em>re-verification</em>
+                  workers (which would auto-flag offline or lapsed listings) are still on the roadmap —
+                  see the last section. Questions?{' '}
                   <a href="mailto:hi@boson.chat" class="docs-link">drop us a line</a>.
                 </p>
               </header>
@@ -254,7 +253,7 @@ export function DocsPage() {
                 <p class="eyebrow">01</p>
                 <h2>Before you start.</h2>
                 <p>
-                  The directory will only list servers that meet four bars. None of them are about
+                  The directory only lists servers that meet four bars. None of them are about
                   hardware — they're about being a reachable, identifiable host that the Boson
                   client can SASL into without surprises.
                 </p>
@@ -265,8 +264,8 @@ export function DocsPage() {
                   <li>Control of the DNS record for the hostname you want to register.</li>
                 </ul>
                 <div class="doc-callout">
-                  <strong>About anonymity:</strong> the directory will not require server operators
-                  to identify themselves to us. It will require a DNS-verifiable hostname and a
+                  <strong>About anonymity:</strong> the directory does not require server operators
+                  to identify themselves to us. It requires a DNS-verifiable hostname and a
                   contact address for moderation reports — neither of which need to point to a
                   real name.
                 </div>
@@ -318,8 +317,8 @@ export function DocsPage() {
                 <p class="eyebrow">03</p>
                 <h2>DNS TXT verification.</h2>
                 <p>
-                  When you submit a server, the directory will hand you a one-time verification
-                  token. You'll add it as a TXT record under <span class="num">_boson</span> on the
+                  When you submit a server, the directory hands you a one-time verification
+                  token. You add it as a TXT record under <span class="num">_boson</span> on the
                   hostname you're registering, then click verify.
                 </p>
 
@@ -327,9 +326,9 @@ export function DocsPage() {
                   <li>
                     <h3>Get a verification token.</h3>
                     <p class="muted">
-                      Sign in to Boson, go to{' '}
-                      <strong>Settings → Server hosting → Register a server</strong>. You'll get a
-                      one-time token bound to your account.
+                      Sign in to Boson, open the <strong>Directory</strong> and click{' '}
+                      <strong>Add your server to the community → Add a server</strong>. Fill in the
+                      form and submit — you get a one-time token bound to your account.
                     </p>
                   </li>
                   <li>
@@ -349,7 +348,7 @@ export function DocsPage() {
                   <li>
                     <h3>Wait for propagation, then verify.</h3>
                     <p class="muted">
-                      Click verify in the app. The directory will query multiple resolvers and look
+                      Click verify in the app. The directory queries multiple resolvers and looks
                       for an exact-match record.
                     </p>
                     <Terminal>
@@ -368,7 +367,10 @@ export function DocsPage() {
               <article class="doc-section" id="host-register">
                 <p class="eyebrow">04</p>
                 <h2>Submit to the directory.</h2>
-                <p>After verification, fill in the server profile. The four fields that matter:</p>
+                <p>
+                  The registration form (the <strong>Add a server</strong> step above) captures the
+                  server profile in one go. The four fields that matter:
+                </p>
                 <ul>
                   <li><strong>Name</strong> — short, human-readable. Shown in the directory list.</li>
                   <li><strong>Description</strong> — one paragraph. What's the community for? Who's it not for?</li>
@@ -376,7 +378,7 @@ export function DocsPage() {
                   <li><strong>Languages</strong> — at least one. Drives the language filter for users.</li>
                 </ul>
                 <p>
-                  NSFW servers must check the NSFW flag. The directory will exclude them from
+                  NSFW servers must check the NSFW flag. The directory excludes them from
                   default search; users opt in via a toggle.
                 </p>
               </article>
@@ -452,11 +454,11 @@ export function DocsPage() {
                 <p class="eyebrow">Reference</p>
                 <h2>TLS &amp; port choices.</h2>
                 <p>
-                  <strong>Port:</strong> the directory will accept any port.{' '}
+                  <strong>Port:</strong> the directory accepts any port.{' '}
                   <span class="num">6697</span> is the convention; <span class="num">7000</span>{' '}
                   and <span class="num">9999</span> are common alternatives. Avoid{' '}
-                  <span class="num">6667</span> — that's plaintext IRC, and the directory will
-                  reject non-TLS hostnames.
+                  <span class="num">6667</span> — that's plaintext IRC, and the directory
+                  rejects non-TLS hostnames.
                 </p>
                 <p>
                   <strong>Certificate:</strong> standard public-CA certs are fine (Let's Encrypt is
@@ -474,13 +476,12 @@ export function DocsPage() {
                 <p class="eyebrow">Reference</p>
                 <h2>Removal and appeals.</h2>
                 <p>
-                  Once listing goes live, servers will be removable from the directory for one of
-                  three reasons. The directory does not police speech on your server — it polices
-                  presence on the directory.
+                  Listings can come off the directory for one of three reasons. The directory does
+                  not police speech on your server — it polices presence on the directory.
                 </p>
                 <ul>
                   <li><strong>Operator request.</strong> You ask. We remove. The hostname is freed up for re-registration after 30 days.</li>
-                  <li><strong>Lapsed verification.</strong> TXT record missing for &gt; 14 days. Add it back to re-list automatically.</li>
+                  <li><strong>Lapsed verification.</strong> TXT record missing for &gt; 14 days. Add it back to re-list — automatic once the re-verification worker ships.</li>
                   <li><strong>Abuse.</strong> Repeated unreviewed reports tied to your server. We notify the contact address. Restoration is via the contact form.</li>
                 </ul>
                 <p>
@@ -495,10 +496,10 @@ export function DocsPage() {
 
       <section class="section cta-strip docs-cta">
         <div class="container">
-          <h2 style="margin-bottom: 16px;">The desktop client is live. Listing is next.</h2>
+          <h2 style="margin-bottom: 16px;">The desktop client is live — and so is directory listing.</h2>
           <p class="lead">
-            Install Boson, connect to any server in Advanced mode, and watch the directory side
-            grow over the next few releases.
+            Install Boson, browse the directory, or register your own server. The background health
+            and re-verification workers are landing over the next few releases.
           </p>
           <div class="hero-cta" style="justify-content: center;">
             <a class="btn btn-primary" href="/download">Download Boson</a>
