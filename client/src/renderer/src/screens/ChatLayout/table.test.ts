@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTable } from './table';
+import { parseTable, parseTables } from './table';
 
 describe('parseTable', () => {
   it('parses a box-drawing table (┌─┬─┐ │ ├─┼─┤ └─┴─┘)', () => {
@@ -55,5 +55,42 @@ describe('parseTable', () => {
   it('returns null for non-table monospace content (ascii art / logs)', () => {
     expect(parseTable('  /\\_/\\\n ( o.o )\n  > ^ <')).toBeNull();
     expect(parseTable('just one line with | a pipe')).toBeNull(); // single row
+  });
+});
+
+describe('parseTables (multiple tables in one block)', () => {
+  it('splits two box tables pasted back-to-back', () => {
+    const text = [
+      '┌────┬────┐',
+      '│ a  │ b  │',
+      '├────┼────┤',
+      '│ 1  │ 2  │',
+      '└────┴────┘',
+      '┌────┬────┐',
+      '│ c  │ d  │',
+      '├────┼────┤',
+      '│ 3  │ 4  │',
+      '└────┴────┘',
+    ].join('\n');
+    const ts = parseTables(text)!;
+    expect(ts).toHaveLength(2);
+    expect(ts[0]!.headers).toEqual(['a', 'b']);
+    expect(ts[0]!.rows).toEqual([['1', '2']]);
+    expect(ts[1]!.headers).toEqual(['c', 'd']);
+    expect(ts[1]!.rows).toEqual([['3', '4']]);
+  });
+
+  it('splits two markdown tables and a blank-separated pair', () => {
+    const md = '| a | b |\n|---|---|\n| 1 | 2 |\n| c | d |\n|---|---|\n| 3 | 4 |';
+    expect(parseTables(md)!).toHaveLength(2);
+
+    const blankSep = '| a | b |\n|---|---|\n| 1 | 2 |\n\n| c | d |\n|---|---|\n| 3 | 4 |';
+    const ts = parseTables(blankSep)!;
+    expect(ts).toHaveLength(2);
+    expect(ts[1]!.headers).toEqual(['c', 'd']);
+  });
+
+  it('returns null when any line is not part of a table', () => {
+    expect(parseTables('| a | b |\n|---|---|\n| 1 | 2 |\nplain text line')).toBeNull();
   });
 });

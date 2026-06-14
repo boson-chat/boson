@@ -6,7 +6,7 @@ import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, isPreformattedLine, type MdToken } from './markdown';
-import { parseTable } from './table';
+import { parseTables, type ParsedTable } from './table';
 import { emojiFor } from './emoji-data';
 import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
@@ -561,9 +561,10 @@ function PreBlock({
   const head = items[0]!;
   const time = new Date(head.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const body = items.map((m) => m.text).join('\n');
-  // A pasted box-drawing / pipe / ascii table renders as a real <table>; any
-  // other monospace block (ascii art, logs, code) stays as aligned <pre>.
-  const table = parseTable(body);
+  // Pasted box-drawing / pipe / ascii tables render as real <table>s (a block
+  // may hold more than one); any other monospace block (ascii art, logs, code)
+  // stays as aligned <pre>.
+  const tables = parseTables(body);
   return (
     <div class="message-row message-preblock">
       <div class="message-row-gutter">
@@ -575,25 +576,39 @@ function PreBlock({
           <span class="message-row-handle">~{head.from}</span>
           <span class="message-row-time">{time}</span>
         </div>
-        {table ? <MessageTable table={table} /> : <pre class="message-preblock-pre">{body}</pre>}
+        {tables
+          ? tables.map((t, i) => <MessageTable key={i} table={t} />)
+          : <pre class="message-preblock-pre">{body}</pre>}
       </div>
     </div>
   );
 }
 
-function MessageTable({ table }: { table: ReturnType<typeof parseTable> & {} }) {
+const TABLE_ROW_CAP = 12;
+
+function MessageTable({ table }: { table: ParsedTable }) {
+  const [expanded, setExpanded] = useState(false);
+  const many = table.rows.length > TABLE_ROW_CAP;
+  const rows = expanded || !many ? table.rows : table.rows.slice(0, TABLE_ROW_CAP);
   return (
-    <div class="message-table-wrap">
-      <table class="message-table">
-        <thead>
-          <tr>{table.headers.map((h, i) => <th key={i}>{h}</th>)}</tr>
-        </thead>
-        <tbody>
-          {table.rows.map((row, ri) => (
-            <tr key={ri}>{row.map((cell, ci) => <td key={ci}>{cell}</td>)}</tr>
-          ))}
-        </tbody>
-      </table>
+    <div class="message-table-block">
+      <div class={`message-table-wrap${expanded ? ' is-expanded' : ''}`}>
+        <table class="message-table">
+          <thead>
+            <tr>{table.headers.map((h, i) => <th key={i}>{h}</th>)}</tr>
+          </thead>
+          <tbody>
+            {rows.map((row, ri) => (
+              <tr key={ri}>{row.map((cell, ci) => <td key={ci}>{cell}</td>)}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {many && (
+        <button type="button" class="message-table-toggle" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? '▾ Show less' : `▸ Show all ${table.rows.length} rows`}
+        </button>
+      )}
     </div>
   );
 }

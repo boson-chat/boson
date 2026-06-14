@@ -1300,14 +1300,29 @@
 }
 
 /* Pasted box-drawing / pipe tables rendered as a real <table>. */
-.message-table-wrap {
+.message-table-block {
   margin: 2px 0 0;
+  max-width: 100%;
+}
+.message-table-block + .message-table-block { margin-top: var(--space-2); }
+.message-table-wrap {
   max-width: 100%;
   overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
+.message-table-wrap.is-expanded { max-height: 360px; overflow-y: auto; }
+.message-table-toggle {
+  margin-top: 4px;
+  padding: 2px 6px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.message-table-toggle:hover { text-decoration: underline; }
 .message-table {
   border-collapse: collapse;
   width: 100%;
