@@ -173,6 +173,7 @@ engine-build:
 sidecar-build:
 	@echo "Building sidecar engine binaries for client/resources/engine/..."
 	GOOS=linux   GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64       ./engine/cmd/engine
+	GOOS=linux   GOARCH=arm64 go build -o client/resources/engine/engine-linux-arm64       ./engine/cmd/engine
 	GOOS=windows GOARCH=amd64 go build -o client/resources/engine/engine-windows-amd64.exe ./engine/cmd/engine
 	@ls -la client/resources/engine/
 

@@ -112,13 +112,21 @@ export function DownloadPage() {
                   <LinuxIcon />
                   {recommended('linux')}
                   <h3>Linux</h3>
-                  <span class="dl-arch">x64 · AppImage or Debian/Ubuntu</span>
+                  <span class="dl-arch">x64 &amp; ARM64 · AppImage or Debian/Ubuntu</span>
                   <div class="dl-actions">
                     <a class="btn btn-primary" href={DL('Boson-linux-x86_64.AppImage')} rel="noopener">
-                      AppImage
+                      AppImage (x64)
                     </a>
                     <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-amd64.deb')} rel="noopener">
-                      .deb (Debian/Ubuntu)
+                      .deb (x64)
+                    </a>
+                  </div>
+                  <div class="dl-actions">
+                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-arm64.AppImage')} rel="noopener">
+                      AppImage (ARM64)
+                    </a>
+                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-arm64.deb')} rel="noopener">
+                      .deb (ARM64)
                     </a>
                   </div>
                   <span class="dl-bytes">AppImage is self-contained; .deb installs system-wide</span>

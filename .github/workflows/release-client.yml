@@ -74,7 +74,10 @@ jobs:
               client/resources/engine/engine-darwin-arm64 \
               client/resources/engine/engine-darwin-amd64
           else
-            CGO_ENABLED=0 GOOS=linux  GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64  ./engine/cmd/engine
+            # Linux ships both x64 and arm64; the engine cross-compiles cleanly
+            # (CGO off), and electron-builder packages both arches from this runner.
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64 ./engine/cmd/engine
+            CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o client/resources/engine/engine-linux-arm64 ./engine/cmd/engine
           fi
       - name: build engine sidecar (windows)
         if: runner.os == 'Windows'

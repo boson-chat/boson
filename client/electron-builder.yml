@@ -107,6 +107,6 @@ linux:
   artifactName: Boson-linux-${arch}.${ext}
   target:
     - target: AppImage
-      arch: [x64]
+      arch: [x64, arm64]
     - target: deb
-      arch: [x64]
+      arch: [x64, arm64]
