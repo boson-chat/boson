@@ -1,3 +1,9 @@
+## [0.25.3](https://github.com/boson-chat/boson/compare/v0.25.2...v0.25.3) (2026-06-14)
+
+### Bug Fixes
+
+* **client:** avoid YouTube Error 153 on file:// (packaged) builds ([0946aaa](https://github.com/boson-chat/boson/commit/0946aaa935bc575b2e922d3402a33052c5998b4b))
+
 ## [0.25.2](https://github.com/boson-chat/boson/compare/v0.25.1...v0.25.2) (2026-06-14)
 
 ### Bug Fixes
