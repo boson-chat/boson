@@ -1,3 +1,9 @@
+## [0.29.3](https://github.com/boson-chat/boson/compare/v0.29.2...v0.29.3) (2026-06-15)
+
+### Bug Fixes
+
+* **website:** replace Services feature shot with the NickServ identity panel ([73c066b](https://github.com/boson-chat/boson/commit/73c066b3d3061a457170b354b5e825d9c645291c))
+
 ## [0.29.2](https://github.com/boson-chat/boson/compare/v0.29.1...v0.29.2) (2026-06-14)
 
 ### Bug Fixes
