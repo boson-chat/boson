@@ -67,7 +67,7 @@ export function FeaturesPage() {
         title="NickServ, automated."
         blurb="Boson talks to network services for you — no /msg NickServ choreography."
         image="/screenshots/feat-services.png"
-        imageAlt="Inbox showing MemoServ memos, a DM, and a NickServ auto-identify notice"
+        imageAlt="Server Identity panel: detected Atheme services, an E2E-synced NickServ password, and auto-IDENTIFY"
         features={[
           { icon: <KeyIcon />, title: 'Auto-identify', body: 'Saved per-server credentials identify you to NickServ on connect. Atheme, Anope, and Ergo are detected automatically.' },
           { icon: <InboxIcon />, title: 'MemoServ inbox', body: 'Memos surface in an in-app inbox with unread tracking, instead of scrolling past service notices.' },

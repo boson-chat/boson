@@ -17,6 +17,7 @@ import { LoginScreen } from './screens/LoginScreen';
 import { UserSettings } from './screens/UserSettings/UserSettings';
 import { Inbox } from './screens/Inbox/Inbox';
 import type { Memo } from './modules/memos';
+import { ServerSettings } from './screens/ChatLayout/ServerSettings';
 
 // ---- Stub the Electron embed bridges so cards render rich content ----
 type W = typeof window & { bosonUnfurl?: unknown; bosonSpotify?: unknown };
@@ -252,8 +253,32 @@ const MEMOS: Memo[] = [
     text: 'memo from orbit: welcome to the network! ping an op in #help if you need anything.',
     timestamp: Date.now() - 3 * 3600_000, memoIndex: 2, bodyFetched: true } as Memo,
 ];
-function servicesView(): void {
+function inboxView(): void {
   render(<Inbox open memos={MEMOS} onClose={() => {}} />, app());
+}
+
+function servicesView(): void {
+  const serverInfo = {
+    serverName: 'irc.nebula.example', version: 'ngircd-27', network: 'Nebula',
+    enabledCaps: ['sasl', 'server-time', 'message-tags', 'chathistory', 'account-notify'],
+  };
+  render(
+    <ServerSettings
+      serverDisplayName="Nebula"
+      serverId="s1"
+      myNick="ada"
+      serverInfo={serverInfo as never}
+      serverLog={[]}
+      onClearServerLog={() => {}}
+      onClose={() => {}}
+      servicesFramework="atheme"
+      signedIn
+      onChangeNick={() => {}}
+      onTriggerAutoIdentify={() => {}}
+      onDetectAccountState={async () => 'identified'}
+    />,
+    app(),
+  );
 }
 
 const view = new URLSearchParams(location.search).get('view') ?? 'chat';
@@ -262,4 +287,5 @@ else if (view === 'directory') directoryView();
 else if (view === 'auth') authView();
 else if (view === 'settings') settingsView();
 else if (view === 'services') servicesView();
+else if (view === 'inbox') inboxView();
 else app().textContent = `unknown view: ${view}`;
