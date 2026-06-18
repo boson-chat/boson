@@ -12,7 +12,7 @@ import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu } from './NickContextMenu';
 import { buildNickContextActions, type NickActions } from './nick-actions';
-import { resolveScrollTop } from './scroll-resolve';
+import { resolveScrollTop, AT_BOTTOM_SLACK } from './scroll-resolve';
 
 // Map IRC channel-status prefix to a short display label + a class name.
 // Used both for the role pill rendered next to a nick in chat (MOD/OPS/V)
@@ -273,6 +273,13 @@ export const MessageList = memo(function MessageList({
   // on channel switch. Unrelated re-renders (members/typing/history flags)
   // don't change `msgs`, so this effect doesn't run and won't yank the view.
   const scrollTrack = useRef({ name: channelName ?? undefined, count: 0, firstId: '', scrollHeight: 0 });
+  // Live "is the viewport parked at the bottom?" flag, updated from real scroll
+  // events (see onScroll). Defaults true so the first messages in a channel
+  // stick before the user has scrolled at all. This is the source of truth for
+  // sticking on live appends — measured from where the user actually is, so it
+  // survives height drift between renders (embeds loading, cap trimming) that a
+  // captured scrollHeight baseline could not.
+  const atBottomRef = useRef(true);
   useEffect(() => {
     const el = (scrollRef as { current: HTMLDivElement | null }).current;
     if (!el) return;
@@ -282,8 +289,12 @@ export const MessageList = memo(function MessageList({
       prev,
       { name: channelName ?? undefined, count: msgs.length, firstId },
       { scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight },
+      { atBottom: atBottomRef.current },
     );
-    if (target !== null) el.scrollTop = target;
+    if (target !== null) {
+      el.scrollTop = target;
+      atBottomRef.current = true;
+    }
     scrollTrack.current = { name: channelName ?? undefined, count: msgs.length, firstId, scrollHeight: el.scrollHeight };
   }, [msgs, channelName, scrollRef]);
   // Briefly confirm a completed load: flash "Loaded older messages" when a
@@ -308,8 +319,12 @@ export const MessageList = memo(function MessageList({
   const scrollDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (scrollDebounce.current) clearTimeout(scrollDebounce.current); }, []);
   const onScroll = (e: Event): void => {
-    if (!onLoadOlder || !historySupported || historyLoading || historyExhausted || historyError) return;
     const el = e.currentTarget as HTMLDivElement;
+    // Track bottom-stickiness on every scroll (including our own programmatic
+    // scroll-to-bottom) — this must run regardless of the load-older guards
+    // below, since it drives live-append autoscroll.
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
+    if (!onLoadOlder || !historySupported || historyLoading || historyExhausted || historyError) return;
     if (scrollDebounce.current) clearTimeout(scrollDebounce.current);
     scrollDebounce.current = setTimeout(() => {
       scrollDebounce.current = null;

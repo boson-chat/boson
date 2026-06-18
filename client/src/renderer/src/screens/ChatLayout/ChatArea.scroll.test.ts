@@ -41,4 +41,18 @@ describe('resolveScrollTop', () => {
     // Scrolled up: viewport bottom (300+300=600) is well above prev height 1000.
     expect(resolveScrollTop(prev, next, { scrollTop: 300, clientHeight: VIEW, scrollHeight: 1080 })).toBeNull();
   });
+
+  it('prefers the live atBottom flag over the stale height baseline', () => {
+    const prev = { name: '#a', count: 10, firstId: 'm1', scrollHeight: 1000 };
+    const next = { name: '#a', count: 11, firstId: 'm1' };
+    // Layout metrics say "not at bottom" (the baseline went stale because
+    // content height drifted), but the live scroll tracker says we ARE parked
+    // at the bottom → must stick. This is the incoming-message autoscroll fix.
+    const el = { scrollTop: 300, clientHeight: VIEW, scrollHeight: 1080 };
+    expect(resolveScrollTop(prev, next, el, { atBottom: true })).toBe(1080);
+    // And the inverse: live tracker says scrolled up → leave the user put even
+    // if the height comparison would have said "at bottom".
+    const elB = { scrollTop: 700, clientHeight: VIEW, scrollHeight: 1080 };
+    expect(resolveScrollTop(prev, next, elB, { atBottom: false })).toBeNull();
+  });
 });
