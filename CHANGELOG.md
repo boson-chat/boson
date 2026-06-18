@@ -1,3 +1,9 @@
+## [0.29.4](https://github.com/boson-chat/boson/compare/v0.29.3...v0.29.4) (2026-06-18)
+
+### Bug Fixes
+
+* **client:** stick to bottom on live appends via a live scroll tracker ([3750612](https://github.com/boson-chat/boson/commit/37506120c0f743d6174b4dcfd41bdb1d4c64a154))
+
 ## [0.29.3](https://github.com/boson-chat/boson/compare/v0.29.2...v0.29.3) (2026-06-15)
 
 ### Bug Fixes
