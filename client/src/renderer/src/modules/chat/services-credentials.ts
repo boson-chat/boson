@@ -77,6 +77,16 @@ export interface ServiceCredentials {
   // NickServ IDENTIFY password. When present, the chat service auto-sends
   // `/msg NickServ IDENTIFY <password>` after RPL_WELCOME (001).
   nickservPassword?: string;
+  // IRC server password — the PASS line sent before registration. Set from
+  // the manual "Add server" form for daemons that gate connections behind a
+  // password (private IRCds, some bouncers). Device-local: the backend
+  // NickServ-sync layer only ever round-trips `nickservPassword`, so this
+  // never leaves the OS keychain. Sensitive — never log it.
+  serverPass?: string;
+  // SASL PLAIN credentials, negotiated during CAP before registration. Set
+  // from the manual "Add server" form. Same device-local guarantee as
+  // serverPass. Sensitive — never log the password.
+  sasl?: { user: string; password: string };
   // Account nick the credentials are for. Defaults to the current
   // session's nick when omitted (older entries from before this
   // field existed have no value here).
@@ -145,6 +155,8 @@ const STORAGE_PREFIX = 'boson.services-creds.';
 function credsHaveContent(creds: ServiceCredentials): boolean {
   return (
     Boolean(creds.nickservPassword)
+    || Boolean(creds.serverPass)
+    || Boolean(creds.sasl)
     || Boolean(creds.accountName)
     || Boolean(creds.email)
     || Boolean(creds.status)

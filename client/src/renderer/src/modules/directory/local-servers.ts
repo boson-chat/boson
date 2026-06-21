@@ -31,6 +31,11 @@ export interface LocalServer {
   hostname: string;
   port: number;
   tls: boolean;
+  // Skip TLS certificate verification. Non-secret connection option for
+  // self-hosted IRCds with self-signed certs. Only honoured when `tls` is
+  // true. Secrets (server password, SASL) live in the keychain-backed
+  // credentials store, never here in plain-text localStorage.
+  tlsInsecure?: boolean;
 }
 
 export function loadLocalServers(): LocalServer[] {
@@ -118,7 +123,8 @@ function isLocalServer(v: unknown): v is LocalServer {
     && typeof o.name === 'string'
     && typeof o.hostname === 'string' && o.hostname.length > 0
     && typeof o.port === 'number'
-    && typeof o.tls === 'boolean';
+    && typeof o.tls === 'boolean'
+    && (o.tlsInsecure === undefined || typeof o.tlsInsecure === 'boolean');
 }
 
 function mintId(): string {

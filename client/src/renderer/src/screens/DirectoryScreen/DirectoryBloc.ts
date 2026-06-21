@@ -809,9 +809,33 @@ export class DirectoryBloc {
   }
 
   // Advanced-mode action: persist a user-entered server locally + emit so
-  // the directory list re-renders with it merged in.
-  addLocalServer(input: { name: string; hostname: string; port: number; tls: boolean }): LocalServer {
-    const created = addLocalServer(input);
+  // the directory list re-renders with it merged in. Non-secret connection
+  // options (tlsInsecure) go in the localStorage server record; secrets
+  // (server password, SASL, NickServ password) are written to the
+  // keychain-backed credentials store keyed by the new server's id — never
+  // to plain-text localStorage.
+  addLocalServer(input: {
+    name: string;
+    hostname: string;
+    port: number;
+    tls: boolean;
+    tlsInsecure?: boolean;
+    serverPass?: string;
+    sasl?: { user: string; password: string };
+    nickservPassword?: string;
+  }): LocalServer {
+    const { serverPass, sasl, nickservPassword, ...serverFields } = input;
+    const created = addLocalServer(serverFields);
+    if (serverPass || sasl || nickservPassword) {
+      const store = getServiceCredentialsStore();
+      const existing = store.get(created.id) ?? {};
+      store.set(created.id, {
+        ...existing,
+        ...(serverPass ? { serverPass } : {}),
+        ...(sasl ? { sasl } : {}),
+        ...(nickservPassword ? { nickservPassword } : {}),
+      });
+    }
     this.emit();
     return created;
   }
@@ -1258,8 +1282,15 @@ export class DirectoryBloc {
     const route = (server as SavedServer).bouncer
       ?? this.sessionStore.load()?.servers.find((s) => s.server.id === server.id)?.server.bouncer;
     let host = server.hostname, port = server.port, tls = server.tls;
-    let serverPass: string | undefined;
-    let tlsInsecure: boolean | undefined;
+    // Direct-connection defaults from the manually-added server: the PASS
+    // line + SASL come from the (keychain-backed) credentials store; the
+    // non-secret tlsInsecure flag lives on the local-server record. All are
+    // undefined for ordinary directory servers. The bouncer branch below
+    // overrides them when a route is active.
+    let serverPass: string | undefined = storedCreds?.serverPass;
+    let sasl: { user: string; password: string } | undefined = storedCreds?.sasl;
+    let tlsInsecure: boolean | undefined =
+      loadLocalServers().find((s) => s.id === server.id)?.tlsInsecure || undefined;
     if (route?.route) {
       const bouncerStore = getBouncerStore();
       await bouncerStore.whenHydrated?.();
@@ -1272,6 +1303,9 @@ export class DirectoryBloc {
         const net = (route.network ?? '').trim();
         const userPart = net ? `${profile.username}/${net}` : profile.username;
         serverPass = `${userPart}:${profile.password}`; // sensitive — never log
+        // The PASS line authenticates us to the bouncer; the server's own
+        // SASL creds don't apply to that hop, so don't forward them.
+        sasl = undefined;
       }
     }
 
@@ -1281,6 +1315,7 @@ export class DirectoryBloc {
       port,
       tls,
       nick: ircNick,
+      sasl,
       nickservPassword: storedCreds?.nickservPassword,
       serverPass,
       tlsInsecure,

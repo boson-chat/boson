@@ -11,7 +11,9 @@ import { SessionStore } from '../../modules/session';
 import {
   LocalStorageServiceCredentialsStore,
   setServiceCredentialsStore,
+  getServiceCredentialsStore,
 } from '../../modules/chat/services-credentials';
+import { loadLocalServers } from '../../modules/directory/local-servers';
 import { SecureBouncerStore, setBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { InMemorySecureStorage } from '../../shared/secure-storage';
 
@@ -505,6 +507,84 @@ describe('DirectoryBloc', () => {
     expect(s.activeServerId).toBe('libera');
     expect(activeConnection(s)?.server.id).toBe('libera');
     bloc.dispose();
+  });
+
+  describe('manual server connection options', () => {
+    // Local servers persist to the window's localStorage (not the injected
+    // session store), so clear the key to keep tests independent.
+    beforeEach(() => { localStorage.removeItem('boson:local-servers:v1'); });
+
+    it('addLocalServer writes secrets to the credentials store and tlsInsecure to the local record', async () => {
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }),
+        engine: fakeEngine().client, sessionStore: new SessionStore(memoryStorage()),
+      });
+      await flushPromises(4);
+
+      const created = bloc.addLocalServer({
+        name: 'Private', hostname: 'irc.private.test', port: 6697, tls: true,
+        tlsInsecure: true,
+        serverPass: 'srv-pw',
+        sasl: { user: 'alice', password: 'sasl-pw' },
+        nickservPassword: 'ns-pw',
+      });
+
+      // Secrets land in the keychain-backed cred store, never the local record.
+      const creds = getServiceCredentialsStore().get(created.id);
+      expect(creds?.serverPass).toBe('srv-pw');
+      expect(creds?.sasl).toEqual({ user: 'alice', password: 'sasl-pw' });
+      expect(creds?.nickservPassword).toBe('ns-pw');
+      // Non-secret tlsInsecure lives on the local-server record.
+      const rec = loadLocalServers().find((s) => s.id === created.id);
+      expect(rec?.tlsInsecure).toBe(true);
+      expect((rec as Record<string, unknown> | undefined)?.serverPass).toBeUndefined();
+      bloc.dispose();
+    });
+
+    it('connect() forwards the manual server password, SASL, and tlsInsecure to the engine', async () => {
+      const engine = fakeEngine();
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }),
+        engine: engine.client, sessionStore: new SessionStore(memoryStorage()),
+      });
+      await flushPromises(4);
+
+      const created = bloc.addLocalServer({
+        name: 'Private', hostname: 'irc.private.test', port: 6697, tls: true,
+        tlsInsecure: true, serverPass: 'srv-pw',
+        sasl: { user: 'alice', password: 'sasl-pw' }, nickservPassword: 'ns-pw',
+      });
+      await bloc.connect(fakeServer(created.id, { hostname: 'irc.private.test', port: 6697, tls: true }));
+      await flushPromises(2);
+
+      const call = engine.connectCalls[0]!;
+      expect(call.serverPass).toBe('srv-pw');
+      expect(call.sasl).toEqual({ user: 'alice', password: 'sasl-pw' });
+      expect(call.nickservPassword).toBe('ns-pw');
+      expect(call.tlsInsecure).toBe(true);
+      bloc.dispose();
+    });
+
+    it('connect() to an ordinary directory server sends no manual auth', async () => {
+      const engine = fakeEngine();
+      const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }),
+        engine: engine.client, sessionStore: new SessionStore(memoryStorage()),
+      });
+      await flushPromises(4);
+      await bloc.connect(server);
+      await flushPromises(2);
+
+      const call = engine.connectCalls[0]!;
+      expect(call.serverPass).toBeUndefined();
+      expect(call.sasl).toBeUndefined();
+      expect(call.tlsInsecure).toBeUndefined();
+      bloc.dispose();
+    });
   });
 
   // Repro for the "client opens but server doesn't join" bug from clicking

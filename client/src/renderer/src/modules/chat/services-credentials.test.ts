@@ -83,6 +83,28 @@ describe('LocalStorageServiceCredentialsStore', () => {
     });
   });
 
+  it('round-trips a server password (PASS) and SASL credentials from the manual add form', () => {
+    store.set('private-ircd', {
+      serverPass: 's3cret',
+      sasl: { user: 'alice', password: 'hunter2' },
+    });
+    expect(store.get('private-ircd')).toEqual({
+      serverPass: 's3cret',
+      sasl: { user: 'alice', password: 'hunter2' },
+    });
+  });
+
+  it('persists a server password on its own (no nickserv password) without being treated as empty', () => {
+    store.set('private-ircd', { serverPass: 'pw' });
+    expect(store.get('private-ircd')?.serverPass).toBe('pw');
+    expect(store.get('private-ircd')?.nickservPassword).toBeUndefined();
+  });
+
+  it('persists SASL on its own without being treated as empty', () => {
+    store.set('private-ircd', { sasl: { user: 'alice', password: 'pw' } });
+    expect(store.get('private-ircd')?.sasl).toEqual({ user: 'alice', password: 'pw' });
+  });
+
   it('persists just a status field (no password yet — e.g. after a failed identify-without-creds)', () => {
     store.set('libera', { status: 'no-account' });
     expect(store.get('libera')?.status).toBe('no-account');

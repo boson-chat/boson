@@ -878,7 +878,16 @@ function hashHue(s: string): number {
 // adds it to the merged directory list immediately; the connection itself
 // still uses the regular Connect button.
 interface AddLocalServerFormProps {
-  onSubmit: (input: { name: string; hostname: string; port: number; tls: boolean }) => void;
+  onSubmit: (input: {
+    name: string;
+    hostname: string;
+    port: number;
+    tls: boolean;
+    tlsInsecure?: boolean;
+    serverPass?: string;
+    sasl?: { user: string; password: string };
+    nickservPassword?: string;
+  }) => void;
   onCancel: () => void;
 }
 
@@ -887,6 +896,11 @@ function AddLocalServerForm({ onSubmit, onCancel }: AddLocalServerFormProps) {
   const [hostname, setHostname] = useState('');
   const [port, setPort] = useState('6697');
   const [tls, setTls] = useState(true);
+  const [tlsInsecure, setTlsInsecure] = useState(false);
+  const [serverPass, setServerPass] = useState('');
+  const [saslUser, setSaslUser] = useState('');
+  const [saslPass, setSaslPass] = useState('');
+  const [nickservPass, setNickservPass] = useState('');
   const [err, setErr] = useState<string | null>(null);
 
   const submit = (e: Event): void => {
@@ -899,7 +913,24 @@ function AddLocalServerForm({ onSubmit, onCancel }: AddLocalServerFormProps) {
       setErr('Port must be a number between 1 and 65535.');
       return;
     }
-    onSubmit({ name: trimmedName, hostname: trimmedHost, port: portNum, tls });
+    // SASL needs both halves to be usable — reject a half-filled pair rather
+    // than silently sending an empty account/password to the daemon.
+    const saslAccount = saslUser.trim();
+    if ((saslAccount && !saslPass) || (!saslAccount && saslPass)) {
+      setErr('SASL needs both an account and a password (or leave both blank).');
+      return;
+    }
+    onSubmit({
+      name: trimmedName,
+      hostname: trimmedHost,
+      port: portNum,
+      tls,
+      // Skipping verification only means anything for a TLS connection.
+      tlsInsecure: tls ? tlsInsecure : false,
+      serverPass: serverPass || undefined,
+      sasl: saslAccount && saslPass ? { user: saslAccount, password: saslPass } : undefined,
+      nickservPassword: nickservPass || undefined,
+    });
   };
 
   return (
@@ -945,6 +976,68 @@ function AddLocalServerForm({ onSubmit, onCancel }: AddLocalServerFormProps) {
       </div>
 
       <Toggle checked={tls} onChange={setTls} label="Use TLS (recommended)" />
+
+      {tls && (
+        <Toggle
+          checked={tlsInsecure}
+          onChange={setTlsInsecure}
+          label="Skip certificate verification (self-signed certs)"
+        />
+      )}
+
+      <Field
+        label="Server password"
+        hint="Optional. Sent as the IRC PASS line — for private daemons or a bouncer."
+      >
+        <Input
+          type="password"
+          placeholder="••••••••"
+          value={serverPass}
+          onInput={(e) => setServerPass((e.target as HTMLInputElement).value)}
+          autoComplete="off"
+          spellcheck={false}
+        />
+      </Field>
+
+      <div class="directory-add-form-row">
+        <Field
+          label="SASL account"
+          hint="Optional SASL PLAIN login."
+          error={err && err.toLowerCase().includes('sasl') ? err : undefined}
+        >
+          <Input
+            placeholder="account"
+            value={saslUser}
+            onInput={(e) => setSaslUser((e.target as HTMLInputElement).value)}
+            autoComplete="off"
+            spellcheck={false}
+          />
+        </Field>
+        <Field label="SASL password" hint="Paired with the SASL account.">
+          <Input
+            type="password"
+            placeholder="••••••••"
+            value={saslPass}
+            onInput={(e) => setSaslPass((e.target as HTMLInputElement).value)}
+            autoComplete="off"
+            spellcheck={false}
+          />
+        </Field>
+      </div>
+
+      <Field
+        label="NickServ password"
+        hint="Optional. Auto-identifies to NickServ after connecting. Editable later in Services."
+      >
+        <Input
+          type="password"
+          placeholder="••••••••"
+          value={nickservPass}
+          onInput={(e) => setNickservPass((e.target as HTMLInputElement).value)}
+          autoComplete="off"
+          spellcheck={false}
+        />
+      </Field>
 
       <div class="directory-add-actions">
         <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
