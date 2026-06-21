@@ -1,3 +1,9 @@
+## [0.30.0](https://github.com/boson-chat/boson/compare/v0.29.4...v0.30.0) (2026-06-21)
+
+### Features
+
+* **client:** add password, SASL & skip-TLS options to manual server add ([9e4810b](https://github.com/boson-chat/boson/commit/9e4810baaf8fbf74241b6310c6c547bb6c56c5dc))
+
 ## [0.29.4](https://github.com/boson-chat/boson/compare/v0.29.3...v0.29.4) (2026-06-18)
 
 ### Bug Fixes
