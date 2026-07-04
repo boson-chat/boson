@@ -4,3 +4,7 @@ dist
 .env
 .env.local
 *.log
+# electron-vite writes a timestamped transpile of the config next to the
+# source when it can't use the .ts directly; it's a machine-generated
+# duplicate that must never be committed.
+electron.vite.config.*.mjs

@@ -293,7 +293,13 @@ export const MessageList = memo(function MessageList({
     );
     if (target !== null) {
       el.scrollTop = target;
-      atBottomRef.current = true;
+      // Recompute stickiness from where we actually landed rather than
+      // assuming the bottom. The stick-to-bottom and channel-switch paths
+      // land at the bottom (→ true), but the prepended-history path restores
+      // an interior position; claiming "at bottom" there would let the next
+      // live PRIVMSG yank the viewport away from the older messages the user
+      // just loaded — the same stale-stickiness bug this tracker fixes.
+      atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
     }
     scrollTrack.current = { name: channelName ?? undefined, count: msgs.length, firstId, scrollHeight: el.scrollHeight };
   }, [msgs, channelName, scrollRef]);

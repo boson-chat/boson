@@ -47,15 +47,62 @@ export async function proxyApiFetch(req: ApiProxyRequest): Promise<ApiProxyRespo
     const body = req.body == null
       ? undefined
       : (typeof req.body === 'string' ? req.body : Buffer.from(req.body));
-    const res = await fetch(req.url, {
-      method: req.method,
-      headers: req.headers ?? {},
-      body,
-      signal: ctrl.signal,
-      redirect: 'follow',
-    });
-    const text = await res.text();
-    return { status: res.status, ok: res.ok, statusText: res.statusText, text };
+
+    // Follow redirects MANUALLY so allowed() runs on every hop. With
+    // redirect:'follow' the guard only checks the initial URL — a public
+    // https host could then 302 us to http://169.254.169.254/ or a LAN
+    // address and the proxy would happily fetch it, defeating the SSRF
+    // blocklist this function exists to enforce.
+    const MAX_REDIRECTS = 5;
+    let currentUrl = u.toString();
+    let currentOrigin = u.origin;
+    let method = req.method;
+    let sendBody = body;
+    let headers: Record<string, string> = { ...(req.headers ?? {}) };
+
+    for (let hop = 0; ; hop++) {
+      const res = await fetch(currentUrl, {
+        method,
+        headers,
+        body: sendBody,
+        signal: ctrl.signal,
+        redirect: 'manual',
+      });
+
+      if (res.status >= 300 && res.status < 400) {
+        if (hop >= MAX_REDIRECTS) return fail('Too many redirects');
+        const loc = res.headers.get('location');
+        if (!loc) return fail('Redirect without location');
+        let next: URL;
+        try { next = new URL(loc, currentUrl); } catch { return fail('Bad redirect URL'); }
+        if (next.protocol !== 'http:' && next.protocol !== 'https:') return fail('Bad redirect scheme');
+        if (!allowed(next)) return fail('Blocked redirect host');
+
+        // Cross-origin hop: drop credential-bearing headers so a redirect to
+        // a third-party host can't harvest the Authorization/Cookie the
+        // renderer set for our own API (mirrors the fetch spec's stripping).
+        if (next.origin !== currentOrigin) {
+          const stripped: Record<string, string> = {};
+          for (const [k, v] of Object.entries(headers)) {
+            const lk = k.toLowerCase();
+            if (lk === 'authorization' || lk === 'cookie') continue;
+            stripped[k] = v;
+          }
+          headers = stripped;
+        }
+        // 303 (and a non-GET/HEAD 301/302) becomes a bodyless GET.
+        if (res.status === 303 || ((res.status === 301 || res.status === 302) && method !== 'GET' && method !== 'HEAD')) {
+          method = 'GET';
+          sendBody = undefined;
+        }
+        currentUrl = next.toString();
+        currentOrigin = next.origin;
+        continue;
+      }
+
+      const text = await res.text();
+      return { status: res.status, ok: res.ok, statusText: res.statusText, text };
+    }
   } catch (e) {
     return fail(e instanceof Error ? e.message : 'fetch failed');
   } finally {

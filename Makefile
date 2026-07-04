@@ -34,7 +34,7 @@ stack-down:
 	docker compose down -v
 
 run:
-	go run ./backend/cmd/server serve
+	go run -tags boson_dev ./backend/cmd/server serve
 
 migrate-up:
 	go run ./backend/cmd/server migrate up

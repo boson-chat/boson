@@ -39,7 +39,7 @@ func (h *NickServSecretsHandler) list(w stdhttp.ResponseWriter, r *stdhttp.Reque
 	p := middleware.MustUser(r.Context())
 	rows, err := h.Secrets.List(r.Context(), p.UserID)
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	out := make([]nickservSecretDTO, 0, len(rows))
@@ -85,7 +85,7 @@ func (h *NickServSecretsHandler) put(w stdhttp.ResponseWriter, r *stdhttp.Reques
 		writeError(w, stdhttp.StatusBadRequest, "server_id is required")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, nickservSecretDTO{
@@ -104,7 +104,7 @@ func (h *NickServSecretsHandler) delete(w stdhttp.ResponseWriter, r *stdhttp.Req
 	}
 	err := h.Secrets.Delete(r.Context(), p.UserID, serverID)
 	if err != nil && !errors.Is(err, nickservsecret.ErrNotFound) {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	// Idempotent delete — 204 whether or not a row existed.

@@ -257,22 +257,6 @@ func TestVerify_ContextCancelledMidQuery(t *testing.T) {
 	assert.False(t, report.Success)
 }
 
-func TestAlwaysSucceedVerifier_AlwaysReturnsMatch(t *testing.T) {
-	// Dev-mode bypass — used by the API when SKIP_DNS_VERIFY=true. The
-	// shape of the returned Report matters: it has to look like a
-	// real "matched on all three resolvers" outcome so the rest of
-	// the service code path (status transitions, /verify HTTP 200)
-	// behaves identically to a successful real verify.
-	v := dnsverify.AlwaysSucceedVerifier{}
-	report, err := v.Verify(context.Background(), "anything.localhost", "garbage-token", dnsverify.ModeStrict)
-	require.NoError(t, err)
-	assert.True(t, report.Success)
-	for _, provider := range []string{"cloudflare", "google", "quad9"} {
-		assert.Equal(t, dnsverify.OutcomeMatch, report.Results[provider].Outcome,
-			"bypass verifier must report match on every resolver, got %+v", report.Results[provider])
-	}
-}
-
 // Sanity-check the public Report JSON shape — the HTTP handler returns it
 // verbatim on 409, so accidental field renames would silently break the
 // client matrix UI.

@@ -36,7 +36,7 @@ func (h *SessionHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, map[string]any{
@@ -72,7 +72,7 @@ func (h *SessionHandler) put(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 
 	s, err := h.Sessions.Put(r.Context(), p.UserID, req.Payload)
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, map[string]any{

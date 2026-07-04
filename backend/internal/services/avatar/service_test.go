@@ -3,6 +3,8 @@ package avatar
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"hash/crc32"
 	"image"
 	"image/png"
 	"strings"
@@ -86,6 +88,56 @@ func TestProcess_RejectsNonImage(t *testing.T) {
 	svc := NewService(newFakeStorage(), "https://cdn.boson.chat")
 	_, err := svc.Process(context.Background(), uuid.New(), []byte("this is not an image"), "")
 	assert.ErrorIs(t, err, ErrUnsupportedImage)
+}
+
+// writePNGChunk appends a length-prefixed, CRC-suffixed PNG chunk.
+func writePNGChunk(buf *bytes.Buffer, typ string, data []byte) {
+	var n [4]byte
+	binary.BigEndian.PutUint32(n[:], uint32(len(data)))
+	buf.Write(n[:])
+	c := crc32.NewIEEE()
+	_, _ = c.Write([]byte(typ))
+	_, _ = c.Write(data)
+	buf.WriteString(typ)
+	buf.Write(data)
+	var crc [4]byte
+	binary.BigEndian.PutUint32(crc[:], c.Sum32())
+	buf.Write(crc[:])
+}
+
+// bombPNG builds a ~45-byte PNG whose IHDR declares w×h but which carries no
+// real pixel data — the classic decompression bomb: tiny on the wire, huge
+// when decoded. DecodeConfig reads only the header, so the service can reject
+// it before allocating the pixel buffer.
+func bombPNG(w, h uint32) []byte {
+	var buf bytes.Buffer
+	buf.Write([]byte("\x89PNG\r\n\x1a\n")) // signature
+	ihdr := make([]byte, 13)
+	binary.BigEndian.PutUint32(ihdr[0:4], w)
+	binary.BigEndian.PutUint32(ihdr[4:8], h)
+	ihdr[8] = 8 // bit depth
+	ihdr[9] = 6 // color type RGBA
+	writePNGChunk(&buf, "IHDR", ihdr)
+	writePNGChunk(&buf, "IDAT", nil) // empty; DecodeConfig returns at first IDAT
+	writePNGChunk(&buf, "IEND", nil)
+	return buf.Bytes()
+}
+
+func TestProcessImage_RejectsDecompressionBomb(t *testing.T) {
+	svc := NewService(newFakeStorage(), "https://cdn.boson.chat")
+	bomb := bombPNG(30000, 30000) // 900M pixels declared, a handful of bytes on disk
+	assert.Less(t, len(bomb), 100, "bomb payload should be tiny on the wire")
+	_, err := svc.Process(context.Background(), uuid.New(), bomb, "")
+	assert.ErrorIs(t, err, ErrTooLarge, "oversized decoded dimensions must be rejected pre-decode")
+}
+
+func TestProcessImage_AcceptsLargeButBoundedImage(t *testing.T) {
+	// Just under the pixel cap must still be accepted (guards against an
+	// over-aggressive bomb check rejecting legitimate large sources).
+	fs := newFakeStorage()
+	svc := NewService(fs, "https://cdn.boson.chat")
+	_, err := svc.Process(context.Background(), uuid.New(), pngBytes(t, 2000, 2000), "")
+	require.NoError(t, err)
 }
 
 func TestProcess_NotConfigured(t *testing.T) {

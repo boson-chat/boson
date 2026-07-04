@@ -7,6 +7,8 @@ import (
 	stdhttp "net/http"
 	"time"
 
+	"github.com/rs/zerolog/log"
+
 	"github.com/boson-chat/boson/backend/config"
 	"github.com/boson-chat/boson/backend/http/handlers"
 	"github.com/boson-chat/boson/backend/http/middleware"
@@ -38,17 +40,11 @@ func StartServerWithContext(ctx context.Context) error {
 
 	// Services
 	userService := user.NewUserService(userRepo)
-	// Pick the verifier based on the SKIP_DNS_VERIFY flag — the
-	// dev-mode bypass returns success without touching the network,
-	// so localhost-only registrations don't need a real TXT record.
-	// Production deployments leave the flag off (default) and we get
-	// the standard three-resolver verifier.
-	var verifier serversvc_dns.Verifier
-	if cfg.AppConfig.SkipDNSVerify {
-		verifier = serversvc_dns.AlwaysSucceedVerifier{}
-	} else {
-		verifier = serversvc_dns.NewVerifier()
-	}
+	// Pick the verifier for the SKIP_DNS_VERIFY flag. The dev bypass is
+	// only compiled into `boson_dev` builds; in the production binary
+	// SelectVerifier always returns the real three-resolver verifier
+	// regardless of the flag (see dns/bypass_prod.go).
+	verifier := serversvc_dns.SelectVerifier(cfg.AppConfig.SkipDNSVerify)
 	serverService := serversvc.NewServerServiceWithVerifier(serverRepo, verifier)
 	sessionService := sessionsvc.NewService(sessionRepo)
 	nickClaimService := nickclaim.NewService(nickClaimRepo, nickclaim.Config{
@@ -166,7 +162,10 @@ func healthHandler(database *db.DB) stdhttp.HandlerFunc {
 			return
 		}
 		if err := sqlDB.PingContext(r.Context()); err != nil {
-			writeJSON(w, stdhttp.StatusServiceUnavailable, map[string]string{"status": "db_ping_failed", "error": err.Error()})
+			// Don't leak the DB ping error (it carries host/port/driver
+			// internals) to unauthenticated /health callers; log it instead.
+			log.Error().Err(err).Msg("health check: db ping failed")
+			writeJSON(w, stdhttp.StatusServiceUnavailable, map[string]string{"status": "db_ping_failed"})
 			return
 		}
 		writeJSON(w, stdhttp.StatusOK, map[string]string{"status": "ok"})
@@ -175,6 +174,12 @@ func healthHandler(database *db.DB) stdhttp.HandlerFunc {
 
 func writeJSON(w stdhttp.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
+	// 204 No Content carries no body — skip the encode so we don't emit a
+	// stray `null` on no-content responses.
+	if status == stdhttp.StatusNoContent || body == nil {
+		w.WriteHeader(status)
+		return
+	}
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
 }

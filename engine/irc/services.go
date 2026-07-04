@@ -29,15 +29,15 @@ import (
 type ServicesFramework string
 
 const (
-	FrameworkAtheme  ServicesFramework = "atheme"
-	FrameworkAnope   ServicesFramework = "anope"
+	FrameworkAtheme ServicesFramework = "atheme"
+	FrameworkAnope  ServicesFramework = "anope"
 	// Ergo IRCd (formerly Oragono) ships built-in account management
 	// under the same NickServ name. It's modern, runs ~15% of new
 	// networks, and has its own command set that doesn't line up with
 	// Atheme or Anope. We track it as a first-class framework so the
 	// UI can show appropriate flows (e.g. Ergo's SACERT is its
 	// preferred login mechanism, not REGISTER+IDENTIFY).
-	FrameworkErgo    ServicesFramework = "ergo"
+	FrameworkErgo ServicesFramework = "ergo"
 	// Anything else — Bahamut services, UnderNet X/W, ratbox-services,
 	// custom in-house packages — bucket here. The user can still drive
 	// services via raw /msg commands; the UI just doesn't render a
@@ -64,21 +64,21 @@ const (
 // Well-known IRC service nicks — same list the renderer used to keep,
 // now the engine's responsibility since detection lives here.
 var serviceNicks = map[string]bool{
-	"nickserv":   true,
-	"chanserv":   true,
-	"operserv":   true,
-	"memoserv":   true,
-	"botserv":    true,
-	"hostserv":   true,
-	"saslserv":   true,
-	"authserv":   true,
-	"aliasserv":  true,
-	"groupserv":  true,
-	"rootserv":   true,
-	"gameserv":   true,
-	"statserv":   true,
-	"helpserv":   true,
-	"global":     true,
+	"nickserv":  true,
+	"chanserv":  true,
+	"operserv":  true,
+	"memoserv":  true,
+	"botserv":   true,
+	"hostserv":  true,
+	"saslserv":  true,
+	"authserv":  true,
+	"aliasserv": true,
+	"groupserv": true,
+	"rootserv":  true,
+	"gameserv":  true,
+	"statserv":  true,
+	"helpserv":  true,
+	"global":    true,
 }
 
 // IsServiceSender mirrors the renderer-side helper of the same name —
@@ -99,30 +99,30 @@ func IsServiceSender(from string) bool {
 
 // Word-boundary matchers. Two tiers:
 //
-//   Brand match — the package literally names itself in a banner.
-//   Trivial wins when it shows up (Atheme + Anope both brand their
-//   VERSION banner with their name); useless when the network has
-//   rebranded or the package's VERSION command is gagged.
+//	Brand match — the package literally names itself in a banner.
+//	Trivial wins when it shows up (Atheme + Anope both brand their
+//	VERSION banner with their name); useless when the network has
+//	rebranded or the package's VERSION command is gagged.
 //
-//   Verb match — the package's HELP listing uses package-specific
-//   command verbs. This is the dominant signal in the wild: many
-//   networks (especially UnrealIRCd+Anope deployments seen in the
-//   wild) strip the brand from banners but keep the standard verb
-//   set. The verbs below are unique to one package within Atheme
-//   vs Anope, taken from each project's HELP output:
-//     - CONFIRM: Anope's post-REGISTER passcode flow. Atheme uses
-//       a different "VERIFY REGISTER" form, no CONFIRM verb.
-//     - TAXONOMY / UNGROUP: Atheme-specific verbs. TAXONOMY is
-//       Atheme's per-account metadata browser. UNGROUP detaches an
-//       alias nick (the inverse of GROUP); Anope doesn't expose
-//       UNGROUP.
-//     - FLAGS is NOT Atheme-exclusive — Anope ChanServ also ships
-//       FLAGS (cs_flags.cpp in Anope 2.0). Verified live: a HELP
-//       reply from Anope ChanServ on irc.boson.chat lists FLAGS,
-//       which previously triggered a false-positive Atheme verdict
-//       and routed DROP through the wrong adapter (2-arg form),
-//       leaking the saved password into the nick lookup. FLAGS is
-//       deliberately excluded from the Atheme fingerprint below.
+//	Verb match — the package's HELP listing uses package-specific
+//	command verbs. This is the dominant signal in the wild: many
+//	networks (especially UnrealIRCd+Anope deployments seen in the
+//	wild) strip the brand from banners but keep the standard verb
+//	set. The verbs below are unique to one package within Atheme
+//	vs Anope, taken from each project's HELP output:
+//	  - CONFIRM: Anope's post-REGISTER passcode flow. Atheme uses
+//	    a different "VERIFY REGISTER" form, no CONFIRM verb.
+//	  - TAXONOMY / UNGROUP: Atheme-specific verbs. TAXONOMY is
+//	    Atheme's per-account metadata browser. UNGROUP detaches an
+//	    alias nick (the inverse of GROUP); Anope doesn't expose
+//	    UNGROUP.
+//	  - FLAGS is NOT Atheme-exclusive — Anope ChanServ also ships
+//	    FLAGS (cs_flags.cpp in Anope 2.0). Verified live: a HELP
+//	    reply from Anope ChanServ on irc.boson.chat lists FLAGS,
+//	    which previously triggered a false-positive Atheme verdict
+//	    and routed DROP through the wrong adapter (2-arg form),
+//	    leaking the saved password into the nick lookup. FLAGS is
+//	    deliberately excluded from the Atheme fingerprint below.
 //
 // Case-insensitive word-boundary match against these verbs lets us
 // classify off any HELP reply even when no brand text is present.
@@ -133,7 +133,7 @@ var (
 	// ("Ergo IRCd version X.Y.Z"). The brand keyword also shows up
 	// in the server's own VERSION reply / 002-004 lines (RPL_YOURHOST
 	// / RPL_CREATED). Same word-boundary safety.
-	rxErgo   = regexp.MustCompile(`(?i)\bergo\b`)
+	rxErgo = regexp.MustCompile(`(?i)\bergo\b`)
 
 	// Anope-exclusive verbs. Adding to this set strictly *helps* — a
 	// false-positive Anope match on an Atheme network would require
@@ -154,7 +154,7 @@ var (
 	// CLONE was specifically observed in the wild on irc.boson.chat's
 	// ChanServ HELP listing, where it appears alongside AKICK /
 	// ENFORCE / ENTRYMSG in the Anope ChanServ verb roster.
-	rxAnopeVerb  = regexp.MustCompile(`(?i)\b(?:confirm|resend|glist|enforce|clone)\b`)
+	rxAnopeVerb = regexp.MustCompile(`(?i)\b(?:confirm|resend|glist|enforce|clone)\b`)
 	// FLAGS deliberately excluded — Anope's cs_flags.cpp ships the
 	// same verb. TAXONOMY + UNGROUP remain genuinely Atheme-only.
 	rxAthemeVerb = regexp.MustCompile(`(?i)\b(?:taxonomy|ungroup)\b`)
@@ -221,11 +221,8 @@ type servicesState struct {
 
 	// Latched flags so a 001 re-emit (rare but observed on nick-collision
 	// recoveries) doesn't repeat the probe or the auto-identify.
-	probeFired         bool
-	autoIdentifyFired  bool
-	// Stopped via stop() when the IRC client is shutting down; prevents
-	// the timeout fallback from racing a fresh probe on reconnect.
-	stopCh chan struct{}
+	probeFired        bool
+	autoIdentifyFired bool
 
 	// Optional auto-identify password, set at connect time. When set, the
 	// `001` handler sends `PRIVMSG NickServ IDENTIFY <password>` before
@@ -239,9 +236,7 @@ type servicesState struct {
 }
 
 func newServicesState() *servicesState {
-	return &servicesState{
-		stopCh: make(chan struct{}),
-	}
+	return &servicesState{}
 }
 
 // setOnChange installs the verdict-change callback. Called from the
@@ -359,17 +354,5 @@ func (s *servicesState) onWelcome(
 				cb(FrameworkUnknown)
 			}
 		})
-	}
-}
-
-// stop releases the state. Safe to call multiple times.
-func (s *servicesState) stop() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	select {
-	case <-s.stopCh:
-		return
-	default:
-		close(s.stopCh)
 	}
 }

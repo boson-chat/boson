@@ -94,19 +94,24 @@ describe('AuthService', () => {
     await expect(svc.signIn('a@b', 'pw')).rejects.toThrow('bad creds');
   });
 
-  it('signUp delegates to supabase with the confirmation redirect URL', async () => {
+  it('signUp delegates to supabase with a state-bearing confirmation redirect URL', async () => {
     mockSignUp.mockResolvedValueOnce({ error: null });
     await svc.signUp('a@b', 'pw');
     // The redirect URL is what makes the confirmation email open the
-    // desktop app — Supabase mails out a link to this page on
-    // boson.chat, which then forwards into boson://auth/confirmed.
-    // Regression-protect the URL so an accidental refactor doesn't
-    // silently route confirmations to /404.
-    expect(mockSignUp).toHaveBeenCalledWith({
-      email: 'a@b',
-      password: 'pw',
-      options: { emailRedirectTo: 'https://boson.chat/auth/confirmed' },
-    });
+    // desktop app — Supabase mails a link to this page on boson.chat,
+    // which forwards into boson://auth/confirmed. It now carries a
+    // one-time `state` nonce (login-CSRF guard).
+    expect(mockSignUp).toHaveBeenCalledOnce();
+    const arg = mockSignUp.mock.calls[0][0];
+    expect(arg).toMatchObject({ email: 'a@b', password: 'pw' });
+    const redirect = new URL(arg.options.emailRedirectTo);
+    expect(redirect.origin + redirect.pathname).toBe('https://boson.chat/auth/confirmed');
+    const state = redirect.searchParams.get('state');
+    expect(state).toMatch(/^[0-9a-f]{32}$/);
+    // The nonce is persisted so the deep-link handler can validate it, and
+    // consuming it clears it (single-use).
+    expect(svc.consumeDeepLinkState()).toBe(state);
+    expect(svc.consumeDeepLinkState()).toBeNull();
   });
 
   it('getToken returns access_token from session', async () => {

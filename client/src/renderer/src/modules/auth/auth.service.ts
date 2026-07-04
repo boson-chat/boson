@@ -9,6 +9,11 @@ export interface AuthState {
 export type AuthListener = (state: AuthState) => void;
 
 export class AuthService {
+  // localStorage key holding the one-time deep-link state nonce. Set when we
+  // initiate an email-confirmation flow, checked when the boson://auth/
+  // confirmed deep-link comes back. See newDeepLinkState/consumeDeepLinkState.
+  private static readonly DEEPLINK_STATE_KEY = 'boson.auth.deeplink_state';
+
   private readonly supabase: SupabaseClient;
   private state: AuthState = { session: null, loading: true, error: null };
   private readonly listeners = new Set<AuthListener>();
@@ -49,12 +54,50 @@ export class AuthService {
     // handler in the renderer's deep-link module). The marketing site
     // also serves as the install fallback when Boson isn't on the
     // user's machine yet.
+    //
+    // We thread a one-time `state` nonce through emailRedirectTo. The
+    // website forwards it back in the boson:// URL, and the deep-link
+    // handler refuses to hydrate a session unless it matches — without
+    // this, any web page could fire boson://auth/confirmed with attacker
+    // tokens and silently sign the running app into the attacker's account.
+    const state = this.newDeepLinkState();
+    const redirect = new URL('https://boson.chat/auth/confirmed');
+    redirect.searchParams.set('state', state);
     const { error } = await this.supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: 'https://boson.chat/auth/confirmed' },
+      options: { emailRedirectTo: redirect.toString() },
     });
     if (error) throw error;
+  }
+
+  // Mint + persist a one-time deep-link state nonce. Persisted (not just in
+  // memory) so it survives the app restart that can happen between signup
+  // and the user clicking the confirmation email.
+  private newDeepLinkState(): string {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    const state = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    try {
+      localStorage.setItem(AuthService.DEEPLINK_STATE_KEY, state);
+    } catch {
+      // localStorage unavailable (e.g. tests / private mode) — the nonce
+      // still travels in the URL; consume just won't find a match and the
+      // handler will reject, which is the safe direction.
+    }
+    return state;
+  }
+
+  // Read + clear the stored deep-link state nonce. Single-use: a replayed
+  // deep-link finds nothing and is rejected.
+  consumeDeepLinkState(): string | null {
+    try {
+      const v = localStorage.getItem(AuthService.DEEPLINK_STATE_KEY);
+      localStorage.removeItem(AuthService.DEEPLINK_STATE_KEY);
+      return v;
+    } catch {
+      return null;
+    }
   }
 
   // Hydrate a Supabase session from tokens handed to us via a

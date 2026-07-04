@@ -51,7 +51,7 @@ func (h *BouncerSecretHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request)
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, map[string]any{"bouncer": toBouncerDTO(s)})
@@ -81,7 +81,7 @@ func (h *BouncerSecretHandler) put(w stdhttp.ResponseWriter, r *stdhttp.Request)
 		writeError(w, stdhttp.StatusBadRequest, "ciphertext is required")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, toBouncerDTO(s))
@@ -90,7 +90,7 @@ func (h *BouncerSecretHandler) put(w stdhttp.ResponseWriter, r *stdhttp.Request)
 func (h *BouncerSecretHandler) delete(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	p := middleware.MustUser(r.Context())
 	if err := h.Secrets.Delete(r.Context(), p.UserID); err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	// Idempotent delete — 204 whether or not a row existed.
