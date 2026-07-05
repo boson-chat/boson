@@ -70,7 +70,7 @@ func (h *NickClaimsHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request)
 		})
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 
@@ -106,7 +106,7 @@ func (h *NickClaimsHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusNotFound, "not found")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 

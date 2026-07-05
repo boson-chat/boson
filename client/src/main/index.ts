@@ -317,7 +317,18 @@ class BosonApp {
     this.mainWindow.on('unmaximize', broadcastMaxState);
 
     this.mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-      shell.openExternal(url);
+      // Only hand http/https to the OS. Without this guard any renderer
+      // path (or an XSS foothold) that reaches window.open could launch
+      // arbitrary schemes — file://, smb://, or app/installer handlers.
+      let scheme = '';
+      try {
+        scheme = new URL(url).protocol;
+      } catch {
+        return { action: 'deny' };
+      }
+      if (scheme === 'http:' || scheme === 'https:') {
+        void shell.openExternal(url);
+      }
       return { action: 'deny' };
     });
 

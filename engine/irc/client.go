@@ -52,8 +52,8 @@ type Event struct {
 	From    string            // nick/source
 	Target  string            // channel or our nick (for DMs)
 	Message string            // trailing message (reason, body, etc.)
-	Args    []string          `json:"Args,omitempty"`  // additional positional params (KICK: kicked-nick; MODE: modestring + args)
-	Tags    map[string]string `json:"Tags,omitempty"`  // IRCv3 message tags (e.g. "+typing": "active")
+	Args    []string          `json:"Args,omitempty"` // additional positional params (KICK: kicked-nick; MODE: modestring + args)
+	Tags    map[string]string `json:"Tags,omitempty"` // IRCv3 message tags (e.g. "+typing": "active")
 	// Host is the source's hostname (from the nick!user@host prefix), when
 	// the wire carried one. Powers Boson-member presence matching.
 	Host string `json:"Host,omitempty"`
@@ -82,23 +82,29 @@ type ChannelDirectoryEntry struct {
 type ChannelDirectoryHandler func([]ChannelDirectoryEntry)
 
 type Client struct {
-	cfg                 Config
-	girc                *girc.Client
-	onEvent             EventHandler
-	onChannelDirectory  ChannelDirectoryHandler
+	cfg                Config
+	girc               *girc.Client
+	onEvent            EventHandler
+	onChannelDirectory ChannelDirectoryHandler
 	// girc dispatches handlers concurrently (AddBg), so this mutex guards the
 	// Client's own mutable handler state below. Without it, a burst of RPL_LIST
 	// (322) frames races on pendingDirectory's append/growslice → memory
 	// corruption / SIGSEGV.
-	mu                  sync.Mutex
+	mu sync.Mutex
+	// lifeCtx is the connection's lifetime context, set at the top of
+	// Connect. Deferred work (the post-welcome LIST timers, the services
+	// probe-timeout fallbacks) selects on its Done so a disconnect within
+	// the timer window cancels the pending goroutine instead of firing
+	// SendRaw on a torn-down girc client. nil before Connect.
+	lifeCtx context.Context
 	// Accumulator for the in-flight LIST reply. Reset on RPL_LISTEND.
-	pendingDirectory    []ChannelDirectoryEntry
-	autoListScheduled   bool
-	listRetryScheduled  bool
+	pendingDirectory   []ChannelDirectoryEntry
+	autoListScheduled  bool
+	listRetryScheduled bool
 	// Services detection + auto-identify state. Lives on the engine
 	// (not the renderer) so every client of the engine — Electron,
 	// future mobile / web — gets identical NickServ behaviour.
-	services            *servicesState
+	services *servicesState
 }
 
 // ServicesHandler fires when the detected services package (Atheme /
@@ -127,19 +133,19 @@ func New(cfg Config) (*Client, error) {
 	}
 
 	gc := girc.New(girc.Config{
-		Server:     cfg.Hostname,
-		Port:       cfg.Port,
-		Nick:       cfg.Nick,
-		User:       cfg.User,
-		Name:       cfg.RealName,
-		SSL:        cfg.TLS,
-		TLSConfig:  tlsConfigFor(cfg),
+		Server:    cfg.Hostname,
+		Port:      cfg.Port,
+		Nick:      cfg.Nick,
+		User:      cfg.User,
+		Name:      cfg.RealName,
+		SSL:       cfg.TLS,
+		TLSConfig: tlsConfigFor(cfg),
 		// Bouncer (ZNC) PASS line, e.g. "user/network:password". Empty for
 		// direct connections. girc sends it as PASS before registration.
-		ServerPass: cfg.ServerPass,
-		PingDelay:  30 * time.Second,
+		ServerPass:  cfg.ServerPass,
+		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
-		SASL:       saslConfig(cfg.SASL),
+		SASL:        saslConfig(cfg.SASL),
 		// IRCv3 capabilities we negotiate at connect:
 		//   message-tags     — required to send/receive client tags like +typing
 		//   server-time      — server-stamps messages with a UTC timestamp
@@ -251,7 +257,10 @@ func (c *Client) OnEvent(fn EventHandler) {
 			// session — handled by latches inside servicesState.
 			c.services.onWelcome(
 				func(target, body string) { c.girc.Cmd.Message(target, body) },
-				func(d time.Duration, fn func()) { time.AfterFunc(d, fn) },
+				// Tie the probe-timeout fallbacks to the connection lifetime
+				// so they don't fire (and send on a dead client) after a
+				// disconnect within the window.
+				c.afterConnLifetime,
 			)
 		case girc.PRIVMSG, girc.NOTICE:
 			// Feed service-sourced messages into the framework classifier.
@@ -367,6 +376,29 @@ const initialAutoListDelay = 2500 * time.Millisecond
 // fresh rate-limit window.
 const listRetryDelay = 65 * time.Second
 
+// afterConnLifetime runs fn after d, unless the connection ends first — in
+// which case the goroutine exits without running fn. This keeps deferred
+// SendRaw calls from firing on a torn-down girc client and from leaking a
+// goroutine for the full delay after a disconnect.
+func (c *Client) afterConnLifetime(d time.Duration, fn func()) {
+	c.mu.Lock()
+	ctx := c.lifeCtx
+	c.mu.Unlock()
+	go func() {
+		t := time.NewTimer(d)
+		defer t.Stop()
+		var done <-chan struct{}
+		if ctx != nil {
+			done = ctx.Done()
+		}
+		select {
+		case <-t.C:
+			fn()
+		case <-done:
+		}
+	}()
+}
+
 func (c *Client) scheduleAutoList() {
 	c.mu.Lock()
 	if c.autoListScheduled {
@@ -375,10 +407,9 @@ func (c *Client) scheduleAutoList() {
 	}
 	c.autoListScheduled = true
 	c.mu.Unlock()
-	go func() {
-		time.Sleep(initialAutoListDelay)
+	c.afterConnLifetime(initialAutoListDelay, func() {
 		_ = c.girc.Cmd.SendRaw("LIST")
-	}()
+	})
 }
 
 // is421ForListThrottle picks the specific 421 reply that means
@@ -413,16 +444,21 @@ func (c *Client) scheduleListRetry() {
 	}
 	c.listRetryScheduled = true
 	c.mu.Unlock()
-	go func() {
-		time.Sleep(listRetryDelay)
+	c.afterConnLifetime(listRetryDelay, func() {
 		_ = c.girc.Cmd.SendRaw("LIST")
-	}()
+	})
 }
 
 // Connect blocks until the context is cancelled or the underlying
 // connection ends. Returns nil on context cancellation (graceful shutdown)
 // and non-nil on transport errors.
 func (c *Client) Connect(ctx context.Context) error {
+	// Record the connection lifetime so deferred timers (auto-LIST, services
+	// probe fallbacks) can cancel when this context ends.
+	c.mu.Lock()
+	c.lifeCtx = ctx
+	c.mu.Unlock()
+
 	// Dial + TLS ourselves and hand girc a ready conn via MockConnect, with a
 	// blank-line filter spliced in above TLS (see conn.go). girc still runs the
 	// full registration flow over it; this just makes the read path tolerant of

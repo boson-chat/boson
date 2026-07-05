@@ -108,7 +108,7 @@ func (h *ServerHandler) list(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		Status:      "verified",
 	})
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	for _, s := range results {
@@ -161,7 +161,7 @@ func (h *ServerHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	// 201 response carries the freshly-minted verification_token so the
@@ -174,7 +174,7 @@ func (h *ServerHandler) listMine(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	p := middleware.MustUser(r.Context())
 	results, err := h.Servers.ListByOwner(r.Context(), p.UserID)
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	// Marshal each row through ToOwnerView so the verification_token
@@ -215,7 +215,7 @@ func (h *ServerHandler) verify(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusConflict, "no verification token to check; regenerate first")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 
@@ -277,7 +277,7 @@ func (h *ServerHandler) updateProfile(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeError(w, stdhttp.StatusBadRequest, "name must be non-empty")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.enrich(srv).ToOwnerView())
@@ -299,7 +299,7 @@ func (h *ServerHandler) regenerateToken(w stdhttp.ResponseWriter, r *stdhttp.Req
 		writeError(w, stdhttp.StatusForbidden, "not the owner")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.enrich(srv).ToOwnerView())
@@ -317,7 +317,7 @@ func (h *ServerHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.enrich(s))
@@ -369,7 +369,7 @@ func (h *ServerHandler) uploadImage(w stdhttp.ResponseWriter, r *stdhttp.Request
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	// Owner check up front so a non-owner can't even spend an R2 upload.
@@ -396,7 +396,7 @@ func (h *ServerHandler) uploadImage(w stdhttp.ResponseWriter, r *stdhttp.Request
 		writeError(w, stdhttp.StatusServiceUnavailable, "image uploads are not available")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 
@@ -410,7 +410,7 @@ func (h *ServerHandler) uploadImage(w stdhttp.ResponseWriter, r *stdhttp.Request
 		writeError(w, stdhttp.StatusNotFound, "not found")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.enrich(srv).ToOwnerView())
@@ -429,7 +429,7 @@ func (h *ServerHandler) deleteImage(w stdhttp.ResponseWriter, r *stdhttp.Request
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	old := ""
@@ -448,7 +448,7 @@ func (h *ServerHandler) deleteImage(w stdhttp.ResponseWriter, r *stdhttp.Request
 		writeError(w, stdhttp.StatusNotFound, "not found")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if old != "" && h.Avatar != nil {

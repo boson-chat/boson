@@ -115,6 +115,11 @@ type engineClient struct {
 type session struct {
 	ws *websocket.Conn
 
+	// ctx bounds the session lifetime; set once at the top of run() before
+	// any IRC client (and thus any send) can exist. Read by send() so a
+	// blocked write unblocks on shutdown instead of hanging.
+	ctx context.Context
+
 	mu      sync.Mutex
 	clients map[string]*engineClient
 	out     chan ServerMessage
@@ -134,6 +139,7 @@ func newSession(ws *websocket.Conn) *session {
 func (s *session) run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	s.ctx = ctx
 	go s.writeLoop(ctx)
 
 	for {
@@ -169,10 +175,28 @@ func (s *session) writeLoop(ctx context.Context) {
 }
 
 func (s *session) send(msg ServerMessage) {
+	// Fast path: room in the buffer, enqueue without blocking.
 	select {
 	case s.out <- msg:
+		return
 	default:
-		// Drop on backpressure rather than block the IRC reader.
+	}
+	// Backpressure: the buffer (1024) is full. Silently dropping here loses
+	// IRC state (JOIN/PART/NAMES/PRIVMSG) and leaves the renderer's channel
+	// view permanently inconsistent until a manual refresh, so we block for
+	// a bounded window instead. If the writer is still wedged after that the
+	// websocket is effectively dead — drop rather than stall the IRC reader
+	// forever; closing ctx (session teardown) also unblocks us immediately.
+	ctx := s.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	t := time.NewTimer(5 * time.Second)
+	defer t.Stop()
+	select {
+	case s.out <- msg:
+	case <-ctx.Done():
+	case <-t.C:
 	}
 }
 

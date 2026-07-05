@@ -51,7 +51,7 @@ func (h *PresenceHandler) publish(w stdhttp.ResponseWriter, r *stdhttp.Request) 
 		writeError(w, stdhttp.StatusBadRequest, "nick is required")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusNoContent, nil)
@@ -101,7 +101,7 @@ func (h *PresenceHandler) lookup(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusBadRequest, "network is required")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	out := lookupResponse{Matches: make([]lookupMatchOut, 0, len(matches))}

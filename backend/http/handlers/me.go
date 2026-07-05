@@ -57,7 +57,7 @@ func (h *MeHandler) get(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.toResponse(u))
@@ -119,7 +119,7 @@ func (h *MeHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusConflict, "user already exists")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusCreated, h.toResponse(u))
@@ -159,7 +159,7 @@ func (h *MeHandler) patch(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusNotFound, "user not found")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.toResponse(u))
@@ -176,7 +176,7 @@ func (h *MeHandler) delete(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 			writeJSON(w, stdhttp.StatusNoContent, nil)
 			return
 		}
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusNoContent, nil)
@@ -228,7 +228,7 @@ func (h *MeHandler) updateSecretWraps(w stdhttp.ResponseWriter, r *stdhttp.Reque
 		writeError(w, stdhttp.StatusNotFound, "user not found")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.toResponse(u))
@@ -263,7 +263,7 @@ func (h *MeHandler) uploadAvatar(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	prevKey := ""
@@ -283,13 +283,13 @@ func (h *MeHandler) uploadAvatar(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		writeError(w, stdhttp.StatusServiceUnavailable, "avatar uploads are not available")
 		return
 	case err != nil:
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 
 	updated, err := h.Users.SetAvatarKey(r.Context(), p.UserID, &key)
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.toResponse(updated))
@@ -304,7 +304,7 @@ func (h *MeHandler) deleteAvatar(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	if cur.AvatarStorageKey != nil && h.Avatar != nil {
@@ -312,7 +312,7 @@ func (h *MeHandler) deleteAvatar(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	updated, err := h.Users.SetAvatarKey(r.Context(), p.UserID, nil)
 	if err != nil {
-		writeError(w, stdhttp.StatusInternalServerError, err.Error())
+		writeInternalError(w, err)
 		return
 	}
 	writeJSON(w, stdhttp.StatusOK, h.toResponse(updated))

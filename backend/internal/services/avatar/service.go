@@ -24,6 +24,13 @@ const (
 	MaxUploadBytes = 5 << 20 // 5 MiB
 	// avatarSize is the square edge every avatar is normalized to.
 	avatarSize = 256
+	// MaxImagePixels caps the DECODED dimensions. A small compressed file
+	// can declare enormous dimensions (a decompression bomb) — e.g. a few-
+	// KiB PNG claiming 30000×30000 decodes to gigabytes of pixels and OOMs
+	// the process. We reject on DecodeConfig (which only reads the header)
+	// before ever allocating the pixel buffer. 24MP comfortably covers any
+	// legitimate avatar/banner source while capping a decode at ~96 MiB.
+	MaxImagePixels = 24 * 1000 * 1000
 )
 
 var (
@@ -78,6 +85,19 @@ func (s *Service) ProcessImage(ctx context.Context, namespace, id string, raw []
 		return "", ErrUnsupportedImage
 	}
 	if len(raw) > MaxUploadBytes {
+		return "", ErrTooLarge
+	}
+	// Reject decompression bombs before decoding: DecodeConfig reads only
+	// the header, so we learn the declared dimensions without allocating
+	// the pixel buffer. A tiny file declaring huge dimensions is refused
+	// here instead of OOM-ing the process inside image.Decode.
+	cfg, _, err := image.DecodeConfig(bytes.NewReader(raw))
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", ErrUnsupportedImage, err)
+	}
+	// Compare via division so a header declaring dimensions near the int
+	// range can't overflow the multiplication and wrap past the cap.
+	if cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width > MaxImagePixels/cfg.Height {
 		return "", ErrTooLarge
 	}
 	src, _, err := image.Decode(bytes.NewReader(raw))

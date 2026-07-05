@@ -71,6 +71,15 @@ if (!publishableKey) {
     // PKCE code) here so the app drops them straight into the
     // post-signup landing screen.
     subscribeAuthConfirmed((params) => {
+      // Login-CSRF guard: only hydrate if the deep-link carries the one-time
+      // state nonce we minted when starting this flow. A forged
+      // boson://auth/confirmed from an arbitrary web page won't know it, so
+      // it can't inject an attacker's Supabase session into the running app.
+      const expected = props.auth.consumeDeepLinkState();
+      if (!expected || params.state !== expected) {
+        console.warn('[auth-confirmed] rejected: missing or mismatched state nonce (possible login CSRF)');
+        return;
+      }
       console.info('[auth-confirmed] hydrating session', {
         kind: params.code ? 'pkce-code' : params.accessToken ? 'implicit-tokens' : 'empty',
         type: params.type,

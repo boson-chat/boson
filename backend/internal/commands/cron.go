@@ -59,6 +59,17 @@ func init() {
 	cronCmd.Flags().BoolVar(&cronVerbose, "verbose", false, "log every server, not just the summary")
 	_ = cronCmd.MarkFlagRequired("mode")
 	rootCmd.AddCommand(cronCmd)
+
+	// A cobra error from RunE must produce a non-zero exit so Helm marks
+	// the CronJob run failed instead of "Succeeded". SilenceErrors keeps
+	// cobra from also printing the error (we log it ourselves).
+	cronCmd.SilenceUsage = true
+	cronCmd.SilenceErrors = false
+	cobra.OnInitialize(func() {
+		// Flush stdlog buffers before exit when running under kubectl,
+		// where the container's logs are tail-followed.
+		_ = os.Stderr.Sync()
+	})
 }
 
 func runCron(_ *cobra.Command, _ []string) error {
@@ -78,15 +89,10 @@ func runCron(_ *cobra.Command, _ []string) error {
 
 	// Mirror the API's SKIP_DNS_VERIFY behaviour — useful when firing
 	// the cron locally against rows whose hostnames you don't actually
-	// own (localhost / LAN-only daemons). Production deployments
-	// don't set this so the real three-resolver verifier is used.
-	var verifier dns.Verifier
-	if cfg.AppConfig.SkipDNSVerify {
-		log.Warn().Msg("SKIP_DNS_VERIFY=true — using stub verifier; never set this in production")
-		verifier = dns.AlwaysSucceedVerifier{}
-	} else {
-		verifier = dns.NewVerifier()
-	}
+	// own (localhost / LAN-only daemons). The bypass only exists in
+	// `boson_dev` builds; in a production binary SelectVerifier always
+	// returns the real three-resolver verifier (see dns/bypass_prod.go).
+	verifier := dns.SelectVerifier(cfg.AppConfig.SkipDNSVerify)
 
 	switch cronMode {
 	case "verify":
@@ -116,6 +122,17 @@ func runVerifyCron(ctx context.Context, log *zerolog.Logger, repo server.ServerR
 	now := time.Now()
 	cutoff := now.Add(-24 * time.Hour)
 	const lapseAfter = 14 * 24 * time.Hour
+
+	// Capture each row's last_checked_at BEFORE the loop mutates it. The
+	// demote decision needs the timestamp of the previous successful
+	// check, but the loop overwrites s.VerificationLastCheckedAt with
+	// `now` before the demote block runs — reading it back afterwards
+	// (or scanning `rows`, which holds the same mutated pointers) always
+	// compares `now` to itself. Snapshotting here keeps the prior value.
+	priorChecked := make(map[string]*time.Time, len(rows))
+	for _, s := range rows {
+		priorChecked[s.ID.String()] = s.VerificationLastCheckedAt
+	}
 
 	var (
 		processed int
@@ -156,24 +173,11 @@ func runVerifyCron(ctx context.Context, log *zerolog.Logger, repo server.ServerR
 			}
 			matched++
 		case s.VerificationStatus == "verified":
-			// Soft miss on a verified row — demote only if the last
-			// successful check (which is what last_checked_at tracked
-			// BEFORE this update) is already old enough.
-			if s.VerificationLastCheckedAt != nil &&
-				s.VerificationLastCheckedAt.Before(now.Add(-lapseAfter)) {
-				// The condition above can never be true because we
-				// just rewrote last_checked_at to `now`. We need the
-				// PRIOR value — capture before the update.
-			}
-			// Captured before the update at top of the loop iteration.
-			// See preCheck note below.
-		}
-
-		// Re-check the pre-update timestamp for the demote decision —
-		// this avoids the subtle bug above where we'd accidentally
-		// compare `now` to itself.
-		if !report.Success && s.VerificationStatus == "verified" {
-			pre := preCheckTimestamp(rows, s.ID.String())
+			// Soft miss on a verified row — demote to "lapsed" only if
+			// the last successful check is already older than the grace
+			// window. `priorChecked` holds the pre-update timestamp; the
+			// live s.VerificationLastCheckedAt was just rewritten to now.
+			pre := priorChecked[s.ID.String()]
 			if pre != nil && pre.Before(now.Add(-lapseAfter)) {
 				s.VerificationStatus = "lapsed"
 				demoted++
@@ -198,23 +202,6 @@ func runVerifyCron(ctx context.Context, log *zerolog.Logger, repo server.ServerR
 		Int("demoted_to_lapsed", demoted).
 		Int("errored", errored).
 		Msg("verify cron complete")
-	return nil
-}
-
-// preCheckTimestamp returns the verification_last_checked_at value for
-// `id` as captured in the original `rows` slice (i.e. before this run
-// rewrote anything). The verify loop has to mutate the in-memory row
-// to call repo.Update, so the original timestamp is otherwise lost.
-//
-// Implementation: linear scan over rows. For low-thousand counts the
-// cost is irrelevant; for larger directories the cron should switch
-// to a map keyed on row ID built once before the loop.
-func preCheckTimestamp(rows []*server.Server, id string) *time.Time {
-	for _, r := range rows {
-		if r.ID.String() == id {
-			return r.VerificationLastCheckedAt
-		}
-	}
 	return nil
 }
 
@@ -323,16 +310,4 @@ func probeHealth(ctx context.Context, s *server.Server) string {
 		return "unknown"
 	}
 	return "up"
-}
-
-// os.Exit hook so a cobra error from RunE produces a non-zero exit.
-// Without this Helm marks the CronJob run "Succeeded" even on failure.
-func init_cronExit() {
-	cronCmd.SilenceUsage = true
-	cronCmd.SilenceErrors = false
-	cobra.OnInitialize(func() {
-		// Force a flush of stdlog buffers before exit when running
-		// under kubectl, where the container's logs are tail-followed.
-		os.Stderr.Sync()
-	})
 }

@@ -44,6 +44,11 @@ export interface AuthConfirmedParams {
   // "signup" / "recovery" / "magiclink" / "invite" / "email_change".
   // The app uses it to pick the right post-auth landing screen.
   type?: string;
+  // `state` is the one-time nonce we set on the emailRedirectTo when
+  // initiating the flow (AuthService.signUp). The auth handler validates
+  // it against the stored nonce before hydrating, so a forged deep-link
+  // from a random web page can't inject a session (login CSRF).
+  state?: string;
 }
 
 interface DeepLinkBridge {
@@ -114,14 +119,22 @@ export function parseAuthConfirmedUrl(url: string): AuthConfirmedParams | null {
   // PKCE-flow code lives in the query string.
   const fromQuery = parsed.searchParams;
 
+  // Read every field from the fragment OR the query. Supabase emits the
+  // implicit-flow tokens in the fragment, but the website's /auth/confirmed
+  // page relocates them to the query string before building the boson://
+  // URL (browsers routinely drop the fragment on custom-scheme navigation),
+  // so both shapes reach us. `code` is PKCE-only and always query-side.
   const params: AuthConfirmedParams = {
-    accessToken: fromHash.get('access_token') ?? undefined,
-    refreshToken: fromHash.get('refresh_token') ?? undefined,
-    tokenType: fromHash.get('token_type') ?? undefined,
+    accessToken: fromHash.get('access_token') ?? fromQuery.get('access_token') ?? undefined,
+    refreshToken: fromHash.get('refresh_token') ?? fromQuery.get('refresh_token') ?? undefined,
+    tokenType: fromHash.get('token_type') ?? fromQuery.get('token_type') ?? undefined,
     type: fromHash.get('type') ?? fromQuery.get('type') ?? undefined,
     code: fromQuery.get('code') ?? undefined,
+    // The nonce lives in the query string (set on emailRedirectTo); also
+    // accept it from the fragment in case a flow round-trips it there.
+    state: fromQuery.get('state') ?? fromHash.get('state') ?? undefined,
   };
-  const expiresIn = fromHash.get('expires_in');
+  const expiresIn = fromHash.get('expires_in') ?? fromQuery.get('expires_in');
   if (expiresIn) {
     const n = Number.parseInt(expiresIn, 10);
     if (Number.isFinite(n)) params.expiresIn = n;

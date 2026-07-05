@@ -46,6 +46,51 @@ describe('proxyApiFetch', () => {
     expect(res).toMatchObject({ ok: false, status: 0, statusText: 'boom' });
   });
 
+  it('refuses a redirect that points at a blocked host without fetching it', async () => {
+    // SSRF guard: a public https host 302s to the cloud-metadata endpoint.
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data/' } }),
+    );
+    const res = await proxyApiFetch({ method: 'GET', url: 'https://api.boson.chat/redir' });
+    expect(res.ok).toBe(false);
+    expect(res.statusText).toBe('Blocked redirect host');
+    // The metadata endpoint is never fetched — only the initial URL was.
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('follows a redirect to an allowed host and returns the final body', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://cdn.boson.chat/final' } }))
+      .mockResolvedValueOnce(new Response('done', { status: 200, statusText: 'OK' }));
+    const res = await proxyApiFetch({ method: 'GET', url: 'https://api.boson.chat/start' });
+    expect(res).toMatchObject({ status: 200, ok: true, text: 'done' });
+    expect(fetchMock.mock.calls[1][0]).toBe('https://cdn.boson.chat/final');
+  });
+
+  it('strips Authorization/Cookie on a cross-origin redirect', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://evil.example.com/x' } }))
+      .mockResolvedValueOnce(new Response('ok', { status: 200 }));
+    await proxyApiFetch({
+      method: 'GET',
+      url: 'https://api.boson.chat/start',
+      headers: { Authorization: 'Bearer secret', Cookie: 'sid=1', 'X-Keep': '1' },
+    });
+    const secondInit = fetchMock.mock.calls[1][1] as RequestInit;
+    expect(secondInit.headers).not.toHaveProperty('Authorization');
+    expect(secondInit.headers).not.toHaveProperty('Cookie');
+    expect(secondInit.headers).toMatchObject({ 'X-Keep': '1' });
+  });
+
+  it('stops after too many redirects', async () => {
+    fetchMock.mockResolvedValue(
+      new Response(null, { status: 302, headers: { location: 'https://api.boson.chat/loop' } }),
+    );
+    const res = await proxyApiFetch({ method: 'GET', url: 'https://api.boson.chat/start' });
+    expect(res.ok).toBe(false);
+    expect(res.statusText).toBe('Too many redirects');
+  });
+
   it('rejects a malformed request', async () => {
     expect((await proxyApiFetch({ method: 'GET', url: 'not a url' })).statusText).toBe('Bad URL');
     // @ts-expect-error intentionally bad shape
