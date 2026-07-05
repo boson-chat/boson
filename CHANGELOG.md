@@ -1,3 +1,9 @@
+## [0.30.1](https://github.com/boson-chat/boson/compare/v0.30.0...v0.30.1) (2026-07-05)
+
+### Bug Fixes
+
+* address code-review findings across engine, backend & client ([#2](https://github.com/boson-chat/boson/issues/2)) ([bb0fa5d](https://github.com/boson-chat/boson/commit/bb0fa5d77320d360cb9d773b45ce1bbe598303cb))
+
 ## [0.30.0](https://github.com/boson-chat/boson/compare/v0.29.4...v0.30.0) (2026-06-21)
 
 ### Features
