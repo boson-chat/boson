@@ -6,7 +6,7 @@ import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
 import { BarLoader } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
-import { tokenizeMarkdown, isPreformattedLine, type MdToken } from './markdown';
+import { tokenizeMarkdown, isPreformattedLine, stripIrcFormatting, type MdToken } from './markdown';
 import { parseTables, type ParsedTable } from './table';
 import { emojiFor } from './emoji-data';
 import { MessageEmbeds } from './Embed';
@@ -643,7 +643,7 @@ export function renderMessageBody(
   myNick: string,
   members: { nick: string }[],
 ): preact.ComponentChildren {
-  const tokens = tokenizeMarkdown(text);
+  const tokens = tokenizeMarkdown(stripIrcFormatting(text));
   return tokens.map((t, i) => renderMdToken(t, myNick, members, i));
 }
 
