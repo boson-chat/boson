@@ -126,13 +126,15 @@ type bouncerState struct {
 	connectingTimeout time.Duration
 	autoConnectGrace  time.Duration
 
-	// Injected side effects. send ships a raw line; after schedules fn on
+	// Injected side effects. send queues a raw line with its send class
+	// (status-bot connect/disconnect are interactive, the USERHOST probe is
+	// background); after schedules fn on
 	// the connection lifetime; selfNick returns our current nick; rearm
 	// re-arms the per-upstream-session welcome latches (IDENTIFY, services
 	// probe, auto-LIST). onChange must not block — the Client routes it
 	// through the dispatch queue — because it is invoked under mu so that
 	// emissions stay in transition order.
-	send     func(line string)
+	send     func(line string, class sendClass)
 	after    func(d time.Duration, fn func())
 	selfNick func() string
 	rearm    func()
@@ -249,10 +251,18 @@ func (b *bouncerState) schedule(d time.Duration, fn func()) {
 	}
 }
 
-func (b *bouncerState) sendLine(line string) {
+func (b *bouncerState) sendLine(line string, class sendClass) {
 	if b.send != nil {
-		b.send(line)
+		b.send(line, class)
 	}
+}
+
+// isBouncer reports whether this connection is (declared or detected as) a
+// bouncer. Picks the send queue's pacing profile.
+func (b *bouncerState) isBouncer() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.isBouncerLocked()
 }
 
 // onWelcome handles 001 RPL_WELCOME and reports whether the Client should
@@ -317,7 +327,7 @@ func (b *bouncerState) fireAutoConnectLocked(post *bouncerPost) {
 		return
 	}
 	line := "PRIVMSG " + b.statusNick + " :connect"
-	*post = append(*post, func() { b.sendLine(line) })
+	*post = append(*post, func() { b.sendLine(line, classInteractive) })
 	b.enterConnectingLocked(post)
 }
 
@@ -400,7 +410,7 @@ func (b *bouncerState) fireProbe(epoch uint64, timeout time.Duration) {
 	if b.selfNick != nil {
 		nick = b.selfNick()
 	}
-	b.sendLine("USERHOST " + nick)
+	b.sendLine("USERHOST "+nick, classBackground)
 	b.schedule(timeout, func() {
 		b.mu.Lock()
 		var p bouncerPost
@@ -437,7 +447,7 @@ func (b *bouncerState) connect() {
 	b.mu.Lock()
 	if b.state != UpstreamConnected {
 		line := "PRIVMSG " + b.statusNick + " :connect"
-		post = append(post, func() { b.sendLine(line) })
+		post = append(post, func() { b.sendLine(line, classInteractive) })
 		b.enterConnectingLocked(&post)
 	}
 	b.mu.Unlock()
@@ -454,7 +464,7 @@ func (b *bouncerState) disconnect() {
 	b.mu.Lock()
 	b.userWantsDown = true
 	line := "PRIVMSG " + b.statusNick + " :disconnect"
-	post = append(post, func() { b.sendLine(line) })
+	post = append(post, func() { b.sendLine(line, classInteractive) })
 	b.enterDisconnectedLocked(&post)
 	b.mu.Unlock()
 	post.run()
