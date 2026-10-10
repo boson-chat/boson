@@ -199,7 +199,9 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onClaimNick={(acct, opts) => target.chat.claimNick(acct, opts)}
             onDetectAccountState={(acct) => target.chat.detectAccountState(acct)}
             onResumeConfirmation={(acct, opts) => target.chat.resumePendingConfirmation(acct, opts)}
-            signedIn={Boolean(me)}
+            // Guests get a synthetic `me` (id __guest__) but no Boson account: no
+            // backend nick-claim, no E2E-encrypted password sync.
+            signedIn={Boolean(me) && !guestNick}
             // Ownership check: render the Edit tab only when the signed-in
             // account owns the row. The connection may hold a cold-start
             // SavedServer snapshot (no profile fields); buildEditableProps

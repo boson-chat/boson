@@ -337,9 +337,10 @@ describe('ChatService — NickServ reply → account status', () => {
     }
   });
 
-  it('does NOT update status when persistence (and therefore serverId) is missing', () => {
-    // Without a stable serverId there's nothing to key into the store
-    // with — silent no-op rather than writing to an empty key.
+  it('keys the status by the session\'s serverId when there is no persistence (guests)', () => {
+    // Guests have no chat-history persistence, but their connection still
+    // has a stable serverId — the status must not be dropped (it used to
+    // be, leaving the Identity badge stuck for every guest).
     const { session } = chatFor({ persistence: false });
     session.emit(ev({
       Kind: 'NOTICE',
@@ -347,8 +348,7 @@ describe('ChatService — NickServ reply → account status', () => {
       Target: 'me',
       Message: 'You are now identified.',
     }));
-    // No entries created.
-    expect(store.get('srv-test')).toBeNull();
+    expect(store.get('srv-test')?.status).toBe('identified');
     expect(store.get('')).toBeNull();
   });
 
@@ -442,7 +442,7 @@ describe('ChatService — NickServ reply → account status', () => {
     expect(store.get('srv-test')?.status).toBe('identified');
   });
 
-  it('numeric 900 is a no-op when there is no persisted serverId scope', () => {
+  it('numeric 900 without persistence still flips the session\'s server to identified', () => {
     const { session } = chatFor({ persistence: false });
     session.emit(ev({
       Kind: '900',
@@ -451,8 +451,8 @@ describe('ChatService — NickServ reply → account status', () => {
       Args: ['Nyan', 'Nyan!Nyan@host', 'Nyan'],
       Message: 'You are now logged in as Nyan.',
     }));
-    // No persistence → no scope.serverId → silent no-op.
-    expect(store.get('srv-test')).toBeNull();
+    // No persistence → keyed by the session's serverId.
+    expect(store.get('srv-test')?.status).toBe('identified');
   });
 
   it('post-CONFIRM "email address has been confirmed" while identified-unconfirmed → identified', () => {
