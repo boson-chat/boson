@@ -90,3 +90,45 @@ func TestLookupPresence_InvalidNetwork(t *testing.T) {
 	rr := callPresence(t, svc, nil, middleware.Principal{UserID: uuid.New()}, "POST", "/presence/lookup", `{"members":[]}`)
 	assert.Equal(t, stdhttp.StatusBadRequest, rr.Code)
 }
+
+func TestLookupPresence_RejectsTooManyMembers(t *testing.T) {
+	called := false
+	svc := &stubPresence{lookupFn: func(context.Context, string, []presence.LookupItem) ([]presence.LookupMatch, error) {
+		called = true
+		return nil, nil
+	}}
+	members := make([]string, maxLookupMembers+1)
+	for i := range members {
+		members[i] = `{"nick":"n"}`
+	}
+	body := `{"network":"Libera","members":[` + strings.Join(members, ",") + `]}`
+	rr := callPresence(t, svc, nil, middleware.Principal{UserID: uuid.New()}, "POST", "/presence/lookup", body)
+	assert.Equal(t, stdhttp.StatusBadRequest, rr.Code)
+	assert.False(t, called, "oversized member lists must be rejected before hitting the service")
+}
+
+func TestLookupPresence_AcceptsMaxMembers(t *testing.T) {
+	svc := &stubPresence{}
+	members := make([]string, maxLookupMembers)
+	for i := range members {
+		members[i] = `{"nick":"n"}`
+	}
+	body := `{"network":"Libera","members":[` + strings.Join(members, ",") + `]}`
+	rr := callPresence(t, svc, nil, middleware.Principal{UserID: uuid.New()}, "POST", "/presence/lookup", body)
+	assert.Equal(t, stdhttp.StatusOK, rr.Code)
+}
+
+func TestLookupPresence_RejectsOversizedBody(t *testing.T) {
+	svc := &stubPresence{}
+	body := `{"network":"Libera","members":[{"nick":"` + strings.Repeat("a", maxPresenceLookupBody) + `"}]}`
+	rr := callPresence(t, svc, nil, middleware.Principal{UserID: uuid.New()}, "POST", "/presence/lookup", body)
+	assert.Equal(t, stdhttp.StatusRequestEntityTooLarge, rr.Code)
+}
+
+func TestPublishPresence_RejectsOversizedBody(t *testing.T) {
+	svc := &stubPresence{}
+	body := `{"network":"Libera","nick":"` + strings.Repeat("a", maxPresencePublishBody) + `"}`
+	rr := callPresence(t, svc, nil, middleware.Principal{UserID: uuid.New()}, "PUT", "/me/presence", body)
+	assert.Equal(t, stdhttp.StatusRequestEntityTooLarge, rr.Code)
+	assert.Empty(t, svc.lastNick)
+}

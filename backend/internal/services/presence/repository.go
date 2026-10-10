@@ -17,7 +17,9 @@ type RepositoryImpl interface {
 	Upsert(ctx context.Context, userID uuid.UUID, network, nick, host, account string) (*MemberPresence, error)
 	// Lookup resolves which of the queried users on `network` are Boson
 	// members. Hybrid match: the strong (network, account) key when an
-	// account is given, else the (network, nick, host) fallback.
+	// account is given, else the (network, nick, host) fallback. Only
+	// discoverable users are returned, and a key claimed by more than one
+	// user is treated as ambiguous and matches nobody (see Lookup).
 	Lookup(ctx context.Context, network string, items []LookupItem) ([]LookupMatch, error)
 }
 
@@ -74,31 +76,53 @@ func (r *Repository) Lookup(ctx context.Context, network string, items []LookupI
 		Select("p.nick, p.host, p.account, u.id AS user_id, u.handle, u.display_name, u.avatar_storage_key").
 		Joins("JOIN users u ON u.id = p.user_id").
 		Where("p.network = ?", network).
+		// Users who opted out of discovery must not be identifiable by
+		// anyone who can see them in a channel.
+		Where("u.is_discoverable = true").
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}
 
-	byAccount := make(map[string]row)
-	byNickHost := make(map[string]row)
-	for _, rw := range rows {
-		if rw.Account != "" {
-			byAccount[strings.ToLower(rw.Account)] = rw
+	// Identities are self-reported, so nothing stops a second user from
+	// publishing someone else's account (or nick+host), and letting
+	// whichever row scanned last win was both nondeterministic and an
+	// impersonation vector. Instead, a key claimed by more than one user
+	// is ambiguous and resolves to nobody: a squatter can at worst hide
+	// the real member's badge, never put their own profile on the real
+	// member's nick. (First-claim-wins would need a claim timestamp we
+	// don't store — updated_at moves on every publish — and would let a
+	// squatter who got there first keep the key forever.)
+	byAccount := make(map[string]*row)
+	byNickHost := make(map[string]*row)
+	claim := func(m map[string]*row, key string, rw *row) {
+		if prev, exists := m[key]; exists {
+			if prev != nil && prev.UserID != rw.UserID {
+				m[key] = nil // contested
+			}
+			return
 		}
-		byNickHost[nickHostKey(rw.Nick, rw.Host)] = rw
+		m[key] = rw
+	}
+	for i := range rows {
+		rw := &rows[i]
+		if rw.Account != "" {
+			claim(byAccount, strings.ToLower(rw.Account), rw)
+		}
+		claim(byNickHost, nickHostKey(rw.Nick, rw.Host), rw)
 	}
 
 	out := make([]LookupMatch, 0, len(items))
 	seen := make(map[string]bool)
 	for _, it := range items {
-		rw, ok := row{}, false
+		var rw *row
 		if it.Account != "" {
-			rw, ok = byAccount[strings.ToLower(it.Account)]
+			rw = byAccount[strings.ToLower(it.Account)]
 		}
-		if !ok {
-			rw, ok = byNickHost[nickHostKey(it.Nick, it.Host)]
+		if rw == nil {
+			rw = byNickHost[nickHostKey(it.Nick, it.Host)]
 		}
-		if !ok {
+		if rw == nil {
 			continue
 		}
 		lk := strings.ToLower(it.Nick)
