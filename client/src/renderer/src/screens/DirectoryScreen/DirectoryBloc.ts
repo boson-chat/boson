@@ -90,6 +90,9 @@ export interface DirectoryState {
   language: string;
   showNsfw: boolean;
   error: string | null;
+  // True while a search / refresh refetch of the list is in flight. The
+  // initial load is covered by `servers === null`.
+  searching: boolean;
   // All currently-open connections, ordered by insertion. The active one is
   // identified by `activeServerId`.
   connections: ReadonlyArray<DirectoryConnection>;
@@ -164,6 +167,7 @@ export class DirectoryBloc {
 
   private me: User | null | undefined = undefined;
   private servers: Server[] | null = null;
+  private searching = false;
   private query = '';
   // One bouncer network-discovery probe at a time.
   private bouncerProbeInFlight = false;
@@ -276,6 +280,7 @@ export class DirectoryBloc {
       language: this.language,
       showNsfw: this.showNsfw,
       error: this.error,
+      searching: this.searching,
       connections: this.snapshotConnections(),
       activeServerId: this.activeServerId,
       showChat,
@@ -1175,15 +1180,20 @@ export class DirectoryBloc {
   }
 
   private async runSearch(token: number): Promise<void> {
+    this.searching = true;
+    this.emit();
     try {
       const list = await this.directory.listServers({ q: this.query || undefined });
-      // If a newer search started while we were in flight, drop this result.
+      // If a newer search started while we were in flight, drop this result
+      // (that search owns `searching` now).
       if (this.disposed || token !== this.listToken) return;
       this.servers = list;
+      this.searching = false;
       this.emit();
     } catch (e) {
       if (this.disposed || token !== this.listToken) return;
       this.error = e instanceof Error ? e.message : String(e);
+      this.searching = false;
       this.emit();
     }
   }

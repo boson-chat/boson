@@ -382,6 +382,34 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('flags `searching` while a refetch is in flight', async () => {
+    let resolve!: (v: Awaited<ReturnType<DirectoryService['listServers']>>) => void;
+    const listServers = vi.fn(async () => [fakeServer('libera')]) as unknown as DirectoryService['listServers'];
+    const directory = fakeDirectory({ user: fakeUser(), list: listServers });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises();
+    expect(bloc.getState().searching).toBe(false);
+
+    (listServers as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise((r) => { resolve = r; }),
+    );
+    bloc.refreshDirectory();
+    expect(bloc.getState().searching).toBe(true);
+    // Existing results stay on screen during the refetch.
+    expect(bloc.getState().servers).not.toBeNull();
+
+    resolve([fakeServer('oftc')]);
+    await flushPromises();
+    expect(bloc.getState().searching).toBe(false);
+    bloc.dispose();
+  });
+
   it('setQuery coalesces rapid typing into a single search', async () => {
     vi.useFakeTimers();
     const listServers = vi.fn(async () => [fakeServer('a')]) as unknown as DirectoryService['listServers'];

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal, memo } from 'preact/compat';
 import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
+import { BarLoader } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, isPreformattedLine, type MdToken } from './markdown';
 import { parseTables, type ParsedTable } from './table';
@@ -360,7 +361,10 @@ export const MessageList = memo(function MessageList({
                 {historyError} — retry
               </button>
             ) : historyLoading ? (
-              <span class="chat-load-older-loading">Loading older messages…</span>
+              <>
+                <BarLoader class="chat-load-older-bar" label="Loading older messages" />
+                <span class="chat-load-older-loading">Loading older messages…</span>
+              </>
             ) : justLoaded ? (
               <span class="chat-load-older-success">Loaded older messages</span>
             ) : historyExhausted ? (

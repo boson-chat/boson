@@ -158,6 +158,14 @@
    3-up to 2-up to 1-up cleanly as the viewport (or modal) narrows.
    No explicit media queries required for that — the grid is responsive
    by design. */
+/* Shimmer shown above the list while a search / refresh refetches. Negative
+   bottom margin keeps the grid from shifting when it appears. */
+.directory-refetch-bar {
+  margin-bottom: -2px;
+  position: relative;
+  top: calc(-1 * var(--space-2));
+}
+
 .directory-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));

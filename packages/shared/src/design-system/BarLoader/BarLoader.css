@@ -1,0 +1,51 @@
+/* Shimmer bar loader. A faint track in currentColor with a soft wave of
+   light sweeping across it (indeterminate), or a solid fill to
+   --bds-bar-value (determinate). CSS-only.
+
+   The wave's NON-animated position is the middle of the track: the global
+   prefers-reduced-motion rule in tokens.css cuts the animation to one ~0ms
+   run, after which the bar falls back to a still, centred glow instead of
+   an empty track. */
+
+.bds-bar-loader {
+  position: relative;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  color: var(--accent);
+}
+
+/* Track. */
+.bds-bar-loader::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0.22;
+}
+
+.bds-bar-loader-fill {
+  position: absolute;
+  inset: 0;
+}
+
+.bds-bar-loader[data-mode="indeterminate"] .bds-bar-loader-fill {
+  background: linear-gradient(90deg, transparent 0%, currentColor 50%, transparent 100%);
+  background-size: 50% 100%;
+  background-repeat: no-repeat;
+  background-position: 50% 0;
+  opacity: 0.9;
+  animation: bds-bar-shimmer 1.8s ease-in-out infinite;
+}
+
+.bds-bar-loader[data-mode="determinate"] .bds-bar-loader-fill {
+  right: auto;
+  width: var(--bds-bar-value, 0%);
+  background: currentColor;
+  transition: width var(--motion-slow) var(--ease-standard);
+}
+
+@keyframes bds-bar-shimmer {
+  0%   { background-position: -50% 0; }
+  100% { background-position: 150% 0; }
+}

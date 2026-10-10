@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { Settings, Unplug } from 'lucide-preact';
-import { AtomLoader } from '@boson/shared';
+import { PlugZap, Settings, Unplug } from 'lucide-preact';
+import { BarLoader } from '@boson/shared';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
   getServiceCredentialsStore,
@@ -488,10 +488,11 @@ export function BouncerUpstreamBanner({ serverInfo, serverName, onConnect }: Bou
   if (upstream === 'connecting') {
     return (
       <div class="chat-bouncer-upstream-banner" data-state="connecting" role="status">
-        <AtomLoader size={14} class="chat-bouncer-upstream-icon" label="Connecting" />
+        <PlugZap size={14} class="chat-bouncer-upstream-icon" aria-hidden="true" />
         <span class="chat-bouncer-upstream-text">
           Your bouncer is connecting to {network}…
         </span>
+        <BarLoader class="chat-bouncer-upstream-bar" label={`Connecting to ${network}`} />
       </div>
     );
   }

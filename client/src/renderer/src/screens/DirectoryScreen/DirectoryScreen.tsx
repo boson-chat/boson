@@ -13,7 +13,7 @@ import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
 import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
-import { AtomLoader, Badge, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
+import { AtomLoader, Badge, BarLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { HostServerModal } from './HostServerModal';
 import './DirectoryScreen.css';
@@ -337,7 +337,7 @@ interface DirectoryBodyProps {
 // "browsing to switch servers mid-chat").
 function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBodyProps) {
   const {
-    me, servers, filteredServers, query, language, showNsfw, error, connections,
+    me, servers, filteredServers, query, language, showNsfw, error, connections, searching,
   } = state;
   // First-launch-after-confirmation: the user has a session but no row
   // in /me yet — they need to pick a handle before anything else makes
@@ -492,6 +492,11 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
         directory={directory}
       />
 
+      {/* Refetch (search / filters / Refresh) while results are on screen:
+          a shimmer above the list instead of swapping it for a spinner. */}
+      {searching && filteredServers !== null && (
+        <BarLoader class="directory-refetch-bar" label="Updating results" />
+      )}
       {filteredServers === null ? (
         <div class="directory-loading">
           <AtomLoader size={32} />

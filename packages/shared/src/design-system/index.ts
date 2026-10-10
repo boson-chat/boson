@@ -15,4 +15,5 @@ export { TotpInput } from './TotpInput/TotpInput';
 export { Logo } from './Logo/Logo';
 export { BosonGlyph } from './BosonGlyph/BosonGlyph';
 export { AtomLoader } from './AtomLoader/AtomLoader';
+export { BarLoader } from './BarLoader/BarLoader';
 export { ChipInput } from './ChipInput/ChipInput';

@@ -64,6 +64,8 @@ describe('ChatArea — bouncer upstream strip', () => {
     expect(b.dataset.state).toBe('connecting');
     expect(b).toHaveTextContent('connecting to Libera…');
     expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull();
+    // Shimmer bar along the strip's edge while connecting.
+    expect(screen.getByRole('progressbar', { name: 'Connecting to Libera' })).toBeInTheDocument();
   });
 
   it('also shows on the no-channel empty state (offline bouncers have no channels yet)', () => {
