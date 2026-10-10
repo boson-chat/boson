@@ -1,3 +1,9 @@
+## [0.32.0](https://github.com/boson-chat/boson/compare/v0.31.1...v0.32.0) (2026-10-10)
+
+### Features
+
+* **release:** Developer ID signing + notarization for macOS when secrets exist ([#5](https://github.com/boson-chat/boson/issues/5)) ([a62a7c0](https://github.com/boson-chat/boson/commit/a62a7c0f9d57bb1f54f2a2bb206828ef6cd111fd))
+
 ## [0.31.1](https://github.com/boson-chat/boson/compare/v0.31.0...v0.31.1) (2026-10-10)
 
 ### Bug Fixes
