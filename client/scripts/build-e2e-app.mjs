@@ -19,6 +19,12 @@
 //
 // Usage: node scripts/build-e2e-app.mjs [--skip-engine]
 //   --skip-engine  reuse the sidecar already in out-e2e/resources/engine
+//
+// With E2E_COVERAGE=1 the bundles get source maps (electron.vite.config.ts)
+// and the engine is built with `go build -cover` so a coverage run
+// (`npm run test:e2e:app:coverage`) can map all three layers back to source.
+// A coverage build is otherwise identical; rebuild without the flag before a
+// timing-sensitive normal run.
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -29,6 +35,7 @@ const clientDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = join(clientDir, '..');
 const outDir = join(clientDir, 'out-e2e');
 const skipEngine = process.argv.includes('--skip-engine');
+const coverage = process.env.E2E_COVERAGE === '1';
 
 function run(cmd, args, opts) {
   console.log(`$ ${cmd} ${args.join(' ')}`);
@@ -80,7 +87,8 @@ if (!skipEngine) {
   const ext = process.platform === 'win32' ? '.exe' : '';
   const engineDir = join(outDir, 'resources', 'engine');
   mkdirSync(engineDir, { recursive: true });
-  run('go', ['build', '-o', join(engineDir, `engine-${os}-${arch}${ext}`), './engine/cmd/engine'], {
+  const coverFlags = coverage ? ['-cover', '-coverpkg=./engine/...'] : [];
+  run('go', ['build', ...coverFlags, '-o', join(engineDir, `engine-${os}-${arch}${ext}`), './engine/cmd/engine'], {
     cwd: repoRoot,
     env: { ...process.env, CGO_ENABLED: '0' },
   });
@@ -91,4 +99,4 @@ if (!skipEngine) {
 const electronBin = createRequire(import.meta.url)('electron');
 console.log(`electron binary: ${electronBin}`);
 
-console.log(`e2e app built in ${outDir}`);
+console.log(`e2e app built in ${outDir}${coverage ? ' (coverage build)' : ''}`);

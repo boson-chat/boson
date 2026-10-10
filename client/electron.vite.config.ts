@@ -146,13 +146,22 @@ function injectFreshEngineDiscovery(): Plugin {
   };
 }
 
+// Coverage builds for the real-app e2e suite (`E2E_COVERAGE=1 npm run
+// build:e2e-app`) emit source maps for every bundle so V8 coverage maps back
+// to src/, and leave the renderer unminified so byte ranges map onto source
+// lines precisely. Off otherwise: release builds are unchanged.
+const coverageBuild = process.env['E2E_COVERAGE'] === '1';
+const sourcemap = coverageBuild;
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    build: { sourcemap },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {
+      sourcemap,
       rollupOptions: {
         output: {
           format: 'cjs',
@@ -163,5 +172,6 @@ export default defineConfig({
   },
   renderer: {
     plugins: [preact(), stripCrossOriginAttr(), injectFreshEngineDiscovery()],
+    build: coverageBuild ? { sourcemap: true, minify: false } : {},
   },
 });
