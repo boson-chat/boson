@@ -229,6 +229,12 @@ test.describe('channel events from others', () => {
     await expect(page.getByRole('tooltip')).toContainText('Operator');
     await page.mouse.move(0, 0);
 
+    // Messaging an away user: the server answers RPL_AWAY with their message.
+    await say(page, `/msg ${alice.nick} are you back?`);
+    await waitCmd(alice, 'PRIVMSG', nick, (l) => l.params[1] === 'are you back?');
+    await conversation(page, channel).click();
+    await expect(memberRow(page, alice.nick)).toHaveClass(/user-panel-item-away/);
+
     alice.send('AWAY');
     await expect(memberRow(page, alice.nick)).toHaveClass(/user-panel-item-online/);
 

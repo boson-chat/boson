@@ -230,6 +230,10 @@ test.describe('slash commands', () => {
       await expect(kinds.filter({ hasText: new RegExp(`^${kind}$`) }).first()).toBeAttached({ timeout: 60_000 });
     }
     await expect(kinds.filter({ hasText: /^(464|491)$/ }).first()).toBeAttached({ timeout: 60_000 });
+    // The log can be cleared.
+    await page.locator('.server-settings-log').getByRole('button', { name: 'Clear' }).click();
+    await expect(page.locator('.server-settings-log-count')).toHaveText(/^(No entries yet\.|\d+ entries)$/);
+    await expect(kinds.filter({ hasText: /^311$/ })).toHaveCount(0);
   });
 
   test('/help lists commands; /clear empties the log; /away and /back', async ({ launchApp }) => {
@@ -239,6 +243,10 @@ test.describe('slash commands', () => {
     const { page, nick } = await connectGuest(launchApp);
     await joinViaUi(page, channel, nick);
     await peer.join(channel);
+
+    // /topic with no text on a channel without one → RPL_NOTOPIC; no header topic.
+    await command(page, '/topic');
+    await expect(page.locator('.chat-channel-topic')).toHaveCount(0);
 
     await command(page, '/help');
     const help = page.getByRole('dialog', { name: 'Slash commands' });

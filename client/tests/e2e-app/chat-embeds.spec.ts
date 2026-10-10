@@ -139,6 +139,12 @@ test.describe('embeds', () => {
     await expect(row('img1').locator('.embed')).toHaveCount(0);
     await expect(row('img1').locator('a.md-link')).toBeVisible();
 
+    // Video: an inline player (metadata only until played).
+    peer.privmsg(channel, `vid1 http://127.0.0.1:${s.port}/clip.mp4`);
+    const video = row('vid1').locator('video.embed-video-el');
+    await expect(video).toHaveAttribute('src', `http://127.0.0.1:${s.port}/clip.mp4`);
+    await expect(video).toHaveAttribute('controls', '');
+
     // Files: a guarded download chip → confirm → OS browser. Executables get
     // a stronger warning.
     const zip = `http://127.0.0.1:${s.port}/notes.zip`;
@@ -177,15 +183,20 @@ test.describe('embeds', () => {
     const article = `http://${HOST}:${s.port}/article.html`;
     peer.privmsg(channel, `lazy1 ${article}`);
     peer.privmsg(channel, `lazy2 http://127.0.0.1:${s.port}/dog.png`);
+    peer.privmsg(channel, `lazy3 http://127.0.0.1:${s.port}/movie.webm`);
     const linkcard = row('lazy1').locator('.embed-linkcard');
     await expect(linkcard).toContainText('Click to load preview');
     const chip = row('lazy2').getByRole('button', { name: /Image · 127\.0\.0\.1 — click to load/ });
     await expect(chip).toBeVisible();
+    const videoChip = row('lazy3').getByRole('button', { name: /Video · 127\.0\.0\.1 — click to play/ });
+    await expect(videoChip).toBeVisible();
     // Nothing was fetched yet.
     expect(s.hits.map((h) => h.path)).toEqual([]);
 
     await linkcard.click();
     await expect(row('lazy1').locator('.embed-card-title')).toHaveText('Boson & the e2e article');
+    await videoChip.click();
+    await expect(row('lazy3').locator('video.embed-video-el')).toBeVisible();
     await chip.click();
     await expect.poll(() => row('lazy2').locator('img.embed-img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(2);
     expect(s.hits.map((h) => h.path)).toEqual(expect.arrayContaining(['/article.html', '/dog.png']));

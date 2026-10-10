@@ -93,10 +93,18 @@ test.describe('channel operation', () => {
     await mode('-b', 'troll!*@*');
     await expect(banRow).toHaveCount(0);
 
-    // Closing + reopening re-reads the server's modes (RPL_CHANNELMODEIS).
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
+    // One ban that stays, set from the composer.
+    await say(page, '/ban spammer');
+    await mode('+b', 'spammer!*@*');
+
+    // Reopening re-reads the server's modes (RPL_CHANNELMODEIS) and ban list
+    // (RPL_BANLIST, with who set it).
     await page.getByRole('button', { name: 'Channel settings' }).click();
+    const kept = dialog.locator('.chan-ban-row').filter({ hasText: 'spammer!*@*' });
+    await expect(kept.locator('.chan-ban-meta')).toHaveText(new RegExp(`^by ${nick}`));
+    await expect(dialog.getByRole('heading', { name: 'Bans (1)' })).toBeVisible();
     await expect(toggle('Secret (+s)')).toBeChecked();
     await expect(toggle('Invite only (+i)')).toBeChecked();
     await expect(toggle('Moderated (+m)')).not.toBeChecked();
