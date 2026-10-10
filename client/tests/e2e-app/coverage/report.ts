@@ -5,16 +5,19 @@
 //   coverage/e2e/main/      index.html (V8 report) + lcov.info + coverage-summary.json
 //   coverage/e2e/engine/    index.html (go tool cover) + coverage.out + lcov.info
 //                           + packages.txt / functions.txt
+//   coverage/e2e/backend/   same as engine/, for the Go API server (only when
+//                           the e2e stack's backend is a coverage build)
 //   coverage/e2e/summary.md per-layer totals + least-covered files
 //
 // Called from global-teardown.ts, so it runs after every coverage run,
 // passing or not.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import MCR from 'monocart-coverage-reports';
 import {
-  APP_OUT_DIR, CLIENT_DIR, COVERAGE_DIR, RAW, REPO_ROOT, RENDERER_CHUNK_URL, isPreloadUrl,
+  APP_OUT_DIR, BACKEND_COVER_DIR, BACKEND_PID_FILE, CLIENT_DIR, COVERAGE_DIR, RAW, REPO_ROOT,
+  RENDERER_CHUNK_URL, isMainUrl, isPreloadUrl,
 } from './config';
 
 type V8Entry = MCR.V8CoverageEntry;
@@ -22,6 +25,8 @@ type V8Entry = MCR.V8CoverageEntry;
 interface Metric { covered: number; total: number }
 interface LayerSummary {
   name: string;
+  // Report subdirectory under coverage/e2e/.
+  dir: string;
   scope: string;
   lines: Metric;
   statements: Metric;
@@ -82,7 +87,7 @@ async function v8Layer(opts: {
     entryFilter: (entry: V8Entry) =>
       opts.layer === 'renderer'
         ? entry.url.startsWith(join(APP_OUT_DIR, 'renderer'))
-        : entry.url.includes('out-e2e/main/') || isPreloadUrl(entry.url),
+        : isMainUrl(entry.url) || isPreloadUrl(entry.url),
     sourceFilter: (sourcePath: string) => isAppSource(sourcePath, opts.layer),
     // Sources come out of the sourcemaps relative to the bundle; report them
     // relative to client/ (src/renderer/src/..., src/main/...).
@@ -102,6 +107,7 @@ async function v8Layer(opts: {
   if (!total) return null;
   return {
     name: opts.name,
+    dir: opts.layer,
     scope: opts.scope,
     lines: toMetric(total.lines),
     statements: toMetric(total.statements),
@@ -131,7 +137,7 @@ function rawV8Entries(): { renderer: V8Entry[]; preload: V8Entry[] } {
   return { renderer, preload };
 }
 
-// ---- engine (Go) -----------------------------------------------------------
+// ---- Go layers (engine, backend) --------------------------------------------
 
 function go(args: string[], cwd = REPO_ROOT): string {
   const r = spawnSync(process.env['GO'] ?? 'go', args, { cwd, encoding: 'utf8' });
@@ -151,16 +157,36 @@ async function waitForEngineFlush(timeoutMs = 15_000): Promise<void> {
   }
 }
 
-function engineLayer(): LayerSummary | null {
-  if (!listFiles(RAW.engine).some((f) => basename(f).startsWith('covmeta.'))) {
-    console.warn('[e2e-coverage] no engine coverage — was the sidecar built with E2E_COVERAGE=1?');
-    return null;
+// The e2e stack's backend runs for the whole session: ask it (SIGUSR1, see
+// backend/cmd/server/coverflush_e2e.go) to write a counter snapshot and wait
+// for it. 'none' when there's no coverage-built backend running.
+async function flushBackendCoverage(timeoutMs = 10_000): Promise<'none' | 'flushed'> {
+  if (!existsSync(BACKEND_PID_FILE) || !existsSync(BACKEND_COVER_DIR)) return 'none';
+  const pid = Number(readFileSync(BACKEND_PID_FILE, 'utf8').trim());
+  const newest = (): number => Math.max(0, ...listFiles(BACKEND_COVER_DIR)
+    .filter((f) => basename(f).startsWith('covcounters.'))
+    .map((f) => statSync(f).mtimeMs));
+  const before = newest();
+  try {
+    process.kill(pid, 'SIGUSR1');
+  } catch {
+    return 'none'; // not running any more
   }
-  const outputDir = join(COVERAGE_DIR, 'engine');
+  const deadline = Date.now() + timeoutMs;
+  while (newest() <= before && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
+  if (newest() <= before) {
+    throw new Error(`backend (pid ${pid}) wrote no coverage snapshot on SIGUSR1 — see infra/e2e/.run/backend.log`);
+  }
+  return 'flushed';
+}
+
+function goLayer(opts: { layer: 'engine' | 'backend'; name: string; scope: string; rawDir: string }): LayerSummary | null {
+  if (!listFiles(opts.rawDir).some((f) => basename(f).startsWith('covmeta.'))) return null;
+  const outputDir = join(COVERAGE_DIR, opts.layer);
   mkdirSync(outputDir, { recursive: true });
   const profile = join(outputDir, 'coverage.out');
-  writeFileSync(join(outputDir, 'packages.txt'), go(['tool', 'covdata', 'percent', '-i', RAW.engine]));
-  go(['tool', 'covdata', 'textfmt', '-i', RAW.engine, '-o', profile]);
+  writeFileSync(join(outputDir, 'packages.txt'), go(['tool', 'covdata', 'percent', '-i', opts.rawDir]));
+  go(['tool', 'covdata', 'textfmt', '-i', opts.rawDir, '-o', profile]);
   go(['tool', 'cover', `-html=${profile}`, '-o', join(outputDir, 'index.html')]);
   writeFileSync(join(outputDir, 'functions.txt'), go(['tool', 'cover', `-func=${profile}`]));
 
@@ -180,12 +206,13 @@ function engineLayer(): LayerSummary | null {
     for (let l = Number(l0); l <= Number(l1); l++) f.lines.set(l, Math.max(f.lines.get(l) ?? 0, Number(count)));
   }
 
-  // lcov (paths relative to the repo root), so the engine can go to the
+  // lcov (paths relative to the repo root), so the Go layers can go to the
   // same tooling as the JS layers.
   const lcov: string[] = [];
   const summary: LayerSummary = {
-    name: 'Engine (Go)',
-    scope: 'engine/... packages linked into the sidecar',
+    name: opts.name,
+    dir: opts.layer,
+    scope: opts.scope,
     lines: { covered: 0, total: 0 },
     statements: { covered: 0, total: 0 },
     files: [],
@@ -228,18 +255,23 @@ function markdown(layers: LayerSummary[], top = 15): string {
   for (const f of files) out.push(`| \`${f.path}\` | ${f.layer} | ${cell(f.lines)} | ${f.uncovered} |`);
   out.push(
     '',
-    'Reports: `renderer/index.html`, `main/index.html`, `engine/index.html` (each layer also has `lcov.info`).',
+    `Reports: ${layers.map((l) => `\`${l.dir}/index.html\``).join(', ')} (each layer also has \`lcov.info\`).`,
     '',
   );
   return out.join('\n');
 }
 
+const SKIPPED = Symbol('skipped');
+
 export async function generateE2eCoverageReport(): Promise<void> {
   const errors: string[] = [];
   const layers: LayerSummary[] = [];
-  const attempt = async (name: string, fn: () => Promise<LayerSummary | null> | LayerSummary | null): Promise<void> => {
+  const attempt = async (
+    name: string, fn: () => Promise<LayerSummary | null | typeof SKIPPED> | LayerSummary | null,
+  ): Promise<void> => {
     try {
       const layer = await fn();
+      if (layer === SKIPPED) return;
       if (layer) layers.push(layer);
       else errors.push(`${name}: no coverage data`);
     } catch (err) {
@@ -255,7 +287,23 @@ export async function generateE2eCoverageReport(): Promise<void> {
     layer: 'main', name: 'Main + preload', scope: 'src/main, src/preload', entries: preload, nodeCoverageDir: RAW.main,
   }));
   await waitForEngineFlush();
-  await attempt('engine', engineLayer);
+  await attempt('engine', () => {
+    const layer = goLayer({
+      layer: 'engine', name: 'Engine (Go)', scope: 'engine/... packages linked into the sidecar', rawDir: RAW.engine,
+    });
+    if (!layer) console.warn('[e2e-coverage] no engine coverage — was the sidecar built with E2E_COVERAGE=1?');
+    return layer;
+  });
+  // Optional layer: guest-only runs don't need the backend at all.
+  await attempt('backend', async () => {
+    if ((await flushBackendCoverage()) === 'none') {
+      console.warn('[e2e-coverage] no backend coverage — bring the stack up with E2E_COVERAGE=1 (make test-e2e-app-coverage does)');
+      return SKIPPED;
+    }
+    return goLayer({
+      layer: 'backend', name: 'Backend (Go)', scope: 'backend/... (API server + migrations)', rawDir: BACKEND_COVER_DIR,
+    });
+  });
 
   const md = markdown(layers);
   writeFileSync(join(COVERAGE_DIR, 'summary.md'), md);
