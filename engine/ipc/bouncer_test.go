@@ -134,24 +134,34 @@ func TestSession_BouncerUpstreamOverWebsocket(t *testing.T) {
 				writeJSON(t, c, ClientMessage{Type: "bouncer-connect", Params: json.RawMessage(`{"serverId":"znc"}`)})
 			}
 			assert.Equal(t, "connecting", readUpstream(t, rdr).Upstream)
-			assert.Equal(t, "connected", readUpstream(t, rdr).Upstream)
+			// The upstream burst's 422 ERR_NOMOTD is informational: forwarded
+			// as an event, never as a session error. "connected" is emitted on
+			// the 001, so the 422 may still be in flight behind it — wait for
+			// it before disconnecting rather than racing the exec loop.
+			saw422 := false
+			var all []ServerMessage
+			is422 := func(f ServerMessage) bool {
+				return f.Type == MsgEvent && f.Event != nil && f.Event.Kind == "422"
+			}
+			frames = readUntil(t, rdr, func(m ServerMessage) bool { return m.Type == MsgBouncerUpstream })
+			all = append(all, frames...)
+			assert.Equal(t, "connected", frames[len(frames)-1].Upstream)
+			for _, f := range frames {
+				saw422 = saw422 || is422(f)
+			}
+			if !saw422 {
+				all = append(all, readUntil(t, rdr, is422)...)
+			}
 
 			writeJSON(t, c, ClientMessage{Type: "bouncer-disconnect", Params: json.RawMessage(`{"serverId":"znc"}`)})
 			frames = readUntil(t, rdr, func(m ServerMessage) bool { return m.Type == MsgBouncerUpstream })
+			all = append(all, frames...)
 			m = frames[len(frames)-1]
 			assert.Equal(t, "znc", m.ServerID)
 			assert.Equal(t, "disconnected", m.Upstream)
-
-			// The upstream burst's 422 ERR_NOMOTD (read on the way here) is
-			// informational: forwarded as an event, never as a session error.
-			saw422 := false
-			for _, f := range frames {
+			for _, f := range all {
 				assert.NotEqual(t, MsgError, f.Type, "unexpected error frame: %s", f.Error)
-				if f.Type == MsgEvent && f.Event != nil && f.Event.Kind == "422" {
-					saw422 = true
-				}
 			}
-			assert.True(t, saw422, "422 should still reach the renderer as an event")
 		})
 	}
 }
