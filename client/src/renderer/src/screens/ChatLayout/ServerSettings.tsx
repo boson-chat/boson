@@ -1027,20 +1027,33 @@ function IdentitySection({
                   bug was offering Claim on an *already-registered* nick,
                   not hiding it whenever detection was merely
                   inconclusive. While the on-open probe is in flight we
-                  show a "checking…" line instead of flashing Claim. */}
+                  show a "checking…" line instead of flashing Claim. An
+                  in-flight claim keeps the card (and its Cancel) even though
+                  the claim itself moves the status to registering. */}
               {claimAvailable && stillDetecting && (
                 <p class="services-creds-status-msg services-creds-status-msg-info">
                   Checking <code>{(accountName.trim() || creds?.accountName || myNick || '').trim()}</code>'s
                   account status on this network…
                 </p>
               )}
-              {claimAvailable && !stillDetecting && !claimHiddenByState && (
+              {claimAvailable && !stillDetecting && (!claimHiddenByState || claimState?.kind === 'pending') && (
                 <ClaimNickCard
                   state={claimState}
                   accountName={(accountName.trim() || creds?.accountName || myNick || '').trim()}
                   onClaim={() => { void handleClaimNick(); }}
                   onCancel={cancelClaim}
                 />
+              )}
+              {/* A successful claim flips the status to identified, which
+                  hides the card above — keep its outcome (the one-time
+                  "copy your generated password now" reminder) visible. */}
+              {claimAvailable && claimHiddenByState && claimState && claimState.kind !== 'pending' && (
+                <p
+                  class={`server-settings-identify-feedback server-settings-identify-${claimState.kind}`}
+                  role={claimState.kind === 'error' ? 'alert' : 'status'}
+                >
+                  {claimState.message}
+                </p>
               )}
 
               <form onSubmit={onSaveCreds} class="user-settings-form">
