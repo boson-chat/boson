@@ -19,23 +19,26 @@
 // Open dismisses it). That's documented in /download#first-launch-macos
 // on the website.
 
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawnSync } = require('node:child_process');
 const path = require('node:path');
 
 module.exports = async function macAdhocSign(context) {
   // Only relevant for darwin builds. Linux + Windows take the same
   // afterSign hook but bail out here.
   if (context.electronPlatformName !== 'darwin') return;
-  // Developer ID build: electron-builder already signed (and, in the
-  // release workflow, notarized) the bundle. Re-signing ad hoc here would
-  // replace that signature and break notarization.
-  if (process.env.CSC_LINK) {
-    console.log('[mac-adhoc-sign] CSC_LINK set — Developer ID signing in effect, skipping ad-hoc signing');
-    return;
-  }
 
   const appName = context.packager.appInfo.productFilename;
   const appPath = path.join(context.appOutDir, `${appName}.app`);
+
+  // Developer ID build: electron-builder already signed (and, with
+  // notarize on, notarized) the bundle — via CSC_LINK in CI or a keychain
+  // identity locally. Re-signing ad hoc would replace that signature and
+  // break notarization, so only ad-hoc sign bundles that aren't signed with
+  // a real identity.
+  if (developerIdSigned(appPath)) {
+    console.log('[mac-adhoc-sign] bundle is Developer ID signed, skipping ad-hoc signing');
+    return;
+  }
 
   console.log(`[mac-adhoc-sign] codesign --sign - --force --deep --timestamp=none "${appPath}"`);
   // --deep is documented as discouraged for production Developer-ID
@@ -58,3 +61,11 @@ module.exports = async function macAdhocSign(context) {
     { stdio: 'inherit' },
   );
 };
+
+// True when codesign reports a "Developer ID Application" authority for the
+// bundle. codesign -dv prints its report on stderr (exit 0 when signed,
+// non-zero when unsigned); an ad-hoc signature has no Authority lines.
+function developerIdSigned(appPath) {
+  const r = spawnSync('codesign', ['-dv', '--verbose=2', appPath], { encoding: 'utf8' });
+  return /Authority=Developer ID Application:/.test(`${r.stdout ?? ''}${r.stderr ?? ''}`);
+}
