@@ -76,6 +76,17 @@ a conversation (`connect`, `join`, `privmsg`, `mark`, `waitFor`,
 `waitForJoin`, `waitForPrivmsg`, `quit`); with `pass` it talks to ZNC.
 ZNC: `leaseZncUser()` / `resetZncUser()` if a test needs more than one.
 
+IRC services (`helpers/services.ts`, imported directly): ergo's NickServ
+mails verification codes to the catch-all — `verificationCode(email)` reads
+one before the POP3 worker drains it; `registerPeerAccount(peer, pw)` /
+`preregisterAccount(nick, pw)` make verified accounts; `whoisAccount` /
+`expectWhoisAccount` / `nickServInfo` check the IRC side;
+`openServerSettings(page, section)`, `servicesBadge`, `accountBadge` for the
+Identity panel. The e2e ergo has no MemoServ, no ChanServ channel
+registration and no GHOST (and refuses `*Serv` nicks), so `MemoNet` is a
+tiny in-process IRC server with Anope-style NickServ VERSION + MemoServ
+(LIST / READ / DEL) for the memo flows.
+
 Endpoints and paths: `STACK` / `APP_DIR` (`stack.ts`), `IRC_HOST` /
 `IRC_PORT` / `ZNC_HOST` / `ZNC_PORT`.
 
