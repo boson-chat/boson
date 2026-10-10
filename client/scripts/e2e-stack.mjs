@@ -135,13 +135,18 @@ function supabaseUp() {
   const got = {
     apiUrl: st.API_URL,
     publishableKey: st.PUBLISHABLE_KEY,
-    secretKey: st.SECRET_KEY,
   };
   for (const k of Object.keys(got)) {
     if (got[k] !== want[k]) {
       throw new Error(`Supabase ${k} is ${got[k]}, infra/e2e/stack.json expects ${want[k]} — update stack.json`);
     }
   }
+  // The secret (service-role) key isn't committed — GitHub push protection
+  // flags it even though it's the CLI's local key. Hand the running
+  // project's key to the tests via the gitignored run dir instead.
+  if (!st.SECRET_KEY) throw new Error('`supabase status` reported no SECRET_KEY');
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, 'supabase.json'), `${JSON.stringify({ secretKey: st.SECRET_KEY })}\n`, { mode: 0o600 });
 }
 
 function supabaseDown() {
