@@ -168,27 +168,52 @@ func TestSendQueue_MessageSupersedesQueuedTyping(t *testing.T) {
 		"@+typing=active TAGMSG #b", "@+typing=done TAGMSG #c"}, drain(q))
 }
 
-func TestSendQueue_TypingDroppedWhenTokensLow(t *testing.T) {
+func TestSendQueue_TypingWaitsWhenTokensLow(t *testing.T) {
 	q, clk := newTestQueue(directPacing)
 	q.charge(directPacing.burst - 1.5) // 1.5 tokens left: below droppableMinTokens
 	q.enqueue(typing("#a", "active"), classDroppable, typingKey("#a"))
 	ev, wait := q.next()
 	assert.Nil(t, ev)
-	assert.Zero(t, wait, "dropped, not waited for")
-	assert.Empty(t, drain(q))
+	assert.Positive(t, wait, "held until there's headroom, not dropped")
 
-	// Plenty of budget again: typing goes out.
-	clk.Advance(10 * time.Second)
-	q.enqueue(typing("#a", "active"), classDroppable, typingKey("#a"))
+	// Once the bucket refills past the threshold it goes out (regression:
+	// it used to be dropped, losing "typing…" right after every join).
+	clk.Advance(wait)
 	assert.Equal(t, []string{"@+typing=active TAGMSG #a"}, drain(q))
 
-	// Typing never delays a real line queued behind it: with exactly the
-	// threshold left, typing goes and a token remains for the user.
-	q.charge(q.available() - droppableMinTokens)
-	q.enqueue(typing("#a", "paused"), classDroppable, typingKey("#a"))
-	assert.Len(t, drain(q), 1)
+	// Typing never delays a real line: a message enqueued while typing is
+	// held goes first (and supersedes that target's queued "active").
+	clk.Advance(10 * time.Second) // refill to a full bucket
+	q.charge(q.available() - 1.5)
+	q.enqueue(typing("#b", "active"), classDroppable, typingKey("#b"))
 	q.enqueue(pm("#a", "x"), classInteractive, "")
-	assert.Equal(t, []string{"PRIVMSG #a x"}, drain(q))
+	ev, _ = q.next()
+	assert.Equal(t, "PRIVMSG #a x", ev.String())
+
+	// With exactly the threshold left, typing goes and a token remains.
+	// (2s: enough refill, still well inside droppableTTL for #b.)
+	clk.Advance(2 * time.Second)
+	q.charge(q.available() - droppableMinTokens)
+	assert.Len(t, drain(q), 1)
+	q.enqueue(pm("#a", "y"), classInteractive, "")
+	assert.Equal(t, []string{"PRIVMSG #a y"}, drain(q))
+}
+
+func TestSendQueue_StaleTypingDiscarded(t *testing.T) {
+	q, clk := newTestQueue(directPacing)
+	q.charge(directPacing.burst) // empty bucket: typing must wait
+	q.enqueue(typing("#a", "active"), classDroppable, typingKey("#a"))
+	clk.Advance(droppableTTL + time.Second)
+	// Plenty of tokens again, but the state is stale: discarded, not sent.
+	assert.Empty(t, drain(q))
+
+	// Coalescing refreshes the timestamp: a newer state isn't stale.
+	q.charge(directPacing.burst)
+	q.enqueue(typing("#a", "active"), classDroppable, typingKey("#a"))
+	clk.Advance(droppableTTL - time.Second)
+	q.enqueue(typing("#a", "paused"), classDroppable, typingKey("#a"))
+	clk.Advance(3 * time.Second) // refill; the paused state is only 3s old
+	assert.Equal(t, []string{"@+typing=paused TAGMSG #a"}, drain(q))
 }
 
 func TestSendQueue_TokenBucketBurstAndRefill(t *testing.T) {

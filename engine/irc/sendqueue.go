@@ -75,6 +75,9 @@ type outbound struct {
 	class sendClass
 	// key coalesces droppable lines ("" = no coalescing).
 	key string
+	// at is when the (latest coalesced) line was enqueued; droppable lines
+	// older than droppableTTL are discarded instead of sent.
+	at time.Time
 }
 
 // pacing is a token-bucket configuration. rate <= 0 means unlimited.
@@ -112,7 +115,16 @@ var (
 
 // droppableMinTokens: a droppable line is sent only while at least this many
 // tokens remain, i.e. while there is headroom for a real line right behind it.
+// Below that it WAITS (lowest priority — any real line enqueued meanwhile
+// wakes the drainer and goes first) rather than being dropped: dropping here
+// lost the "typing…" notification on every channel join, because the
+// automatic WHO/MODE burst leaves the bucket just under this threshold.
 const droppableMinTokens = 2
+
+// droppableTTL: a droppable line still queued after this long is stale (an
+// IRCv3 "active" typing state is only meaningful for a few seconds; a CTCP
+// auto-reply this late is pointless) and is discarded instead of sent.
+const droppableTTL = 5 * time.Second
 
 // interactiveReserve: background lines are only sent while more than this
 // many tokens would remain, so an automatic burst (WHO per channel on
@@ -183,6 +195,7 @@ func (q *sendQueue) enqueue(ev *girc.Event, class sendClass, key string) {
 		for i := range q.queues[classDroppable] {
 			if q.queues[classDroppable][i].key == key {
 				q.queues[classDroppable][i].ev = ev
+				q.queues[classDroppable][i].at = q.now()
 				q.mu.Unlock()
 				q.nudge()
 				return
@@ -198,7 +211,7 @@ func (q *sendQueue) enqueue(ev *girc.Event, class sendClass, key string) {
 			q.removeStaleTypingLocked(typingKey(t))
 		}
 	}
-	q.queues[class] = append(q.queues[class], outbound{ev: ev, class: class, key: key})
+	q.queues[class] = append(q.queues[class], outbound{ev: ev, class: class, key: key, at: q.now()})
 	q.mu.Unlock()
 	q.nudge()
 }
@@ -267,13 +280,16 @@ func (q *sendQueue) next() (*girc.Event, time.Duration) {
 		if class < 0 {
 			return nil, 0
 		}
-		if limited && sendClass(class) == classDroppable && q.bucket.tokens < droppableMinTokens {
-			q.popLocked(class) // would delay real traffic: drop it
+		if sendClass(class) == classDroppable && q.now().Sub(q.queues[class][0].at) > droppableTTL {
+			q.popLocked(class) // stale: discard rather than send late
 			continue
 		}
 		need := 1.0
-		if sendClass(class) == classBackground {
+		switch sendClass(class) {
+		case classBackground:
 			need += interactiveReserve
+		case classDroppable:
+			need = droppableMinTokens
 		}
 		if limited && q.bucket.tokens < need {
 			wait := time.Duration((need - q.bucket.tokens) / p.rate * float64(time.Second))
