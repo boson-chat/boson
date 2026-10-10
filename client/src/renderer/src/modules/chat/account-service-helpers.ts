@@ -455,6 +455,11 @@ export function classifyRegisterReply(body: string, email: string): RegisterResu
   //   "X is already registered" (Atheme variant on auth=none)
   if (/\bis already registered\b/i.test(s)) return { kind: 'nick-taken' };
   if (/\baccount\b[^.]*\balready registered\b/i.test(s)) return { kind: 'nick-taken' };
+  //   Ergo (captured from the e2e ergo): "Account already exists", and
+  //   "Name reserved due to a prior registration" for a name that is (or
+  //   was — ergo never frees an unregistered name) registered.
+  if (/\baccount already exists\b/i.test(s)) return { kind: 'nick-taken' };
+  if (/\bname reserved due to a prior registration\b/i.test(s)) return { kind: 'nick-taken' };
 
   // ---- email-rejected --------------------------------------------
   //

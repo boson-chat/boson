@@ -85,6 +85,13 @@ describe('classifyRegisterReply — package-agnostic reply table', () => {
       .toEqual({ kind: 'nick-taken' });
   });
 
+  it.each([
+    'Account already exists',
+    'Name reserved due to a prior registration',
+  ])('ergo "%s" → nick-taken', (body) => {
+    expect(classifyRegisterReply(body, 'a@b.test')).toEqual({ kind: 'nick-taken' });
+  });
+
   it('"Account Nyan is already registered" → nick-taken', () => {
     expect(classifyRegisterReply('Account Nyan is already registered', email))
       .toEqual({ kind: 'nick-taken' });
