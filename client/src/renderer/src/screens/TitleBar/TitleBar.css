@@ -15,9 +15,12 @@
   z-index: 100;
 }
 
-/* macOS variant — leave room for the native traffic lights on the left. */
+/* macOS variant — leave room for the native traffic lights on the left.
+   They sit at x=16 (trafficLightPosition in src/main/index.ts) and span
+   ~54px, so 88px leaves the same 16px gap before the mark as the window
+   edge leaves before the lights. */
 .title-bar-darwin .title-bar-drag {
-  padding-left: 80px;
+  padding-left: 88px;
 }
 
 /* The drag region fills the bar minus the controls. -webkit-app-region: drag

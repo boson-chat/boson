@@ -65,6 +65,23 @@ export function ChatInputBar({
     autoResize(textareaRef.current);
   }, [state.input]);
 
+  // Re-measure when the composer's width changes (window / panel resize, or
+  // the first real layout after mounting into a not-yet-sized column): the
+  // height depends on how the text wraps, and a measurement taken at the
+  // wrong width otherwise sticks until the next keystroke.
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let lastWidth = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === lastWidth) return; // our own height writes
+      lastWidth = el.clientWidth;
+      autoResize(el);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Apply any pending cursor placement queued by an autocomplete commit or
   // nick tab-complete. The bloc stashes the target index in state and we
   // drain it here once the controlled-input value has actually flipped.
@@ -219,8 +236,16 @@ export function ChatInputBar({
   );
 }
 
-function autoResize(el: HTMLTextAreaElement | null) {
+export function autoResize(el: HTMLTextAreaElement | null) {
   if (!el) return;
+  // Empty: fall back to the CSS min-height (one line). Chromium counts the
+  // placeholder in scrollHeight, so measuring an empty textarea while its
+  // column is still narrow wraps the placeholder per character and pins the
+  // composer at max height.
+  if (!el.value) {
+    el.style.height = '';
+    return;
+  }
   el.style.height = 'auto';
   el.style.height = Math.min(el.scrollHeight, 160) + 'px';
 }
