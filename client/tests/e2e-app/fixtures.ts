@@ -1,0 +1,315 @@
+// Shared fixtures for the real-app Electron e2e suite.
+//
+// Every test gets a throwaway profile directory holding:
+//   home/      → $HOME          (engine discovery file fallback, dotfiles)
+//   run/       → $XDG_RUNTIME_DIR (engine writes run/boson/engine.json here)
+//   userData/  → --user-data-dir (Electron userData: localStorage, the
+//                secure-store file, the persisted renderer port, …)
+// so nothing touches the developer's ~/.boson, real app profile, or keychain
+// (--use-mock-keychain on macOS; the basic password store on Linux).
+//
+// `launchApp()` can be called repeatedly with the same profile to test
+// restore-on-relaunch. Apps are closed and the profile is deleted in
+// teardown; on failure, main-process logs (incl. the engine sidecar's) and a
+// trace + screenshot of the main window are attached to the report.
+import { test as base, expect, _electron, type ElectronApplication, type Page, type Locator } from '@playwright/test';
+import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
+
+export const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../out-e2e');
+
+// Test IRC infra (infra/e2e/docker-compose.yml). The app's engine and the
+// peer bot both reach ergo on the host port; ZNC reaches it as `ergo` on the
+// compose network.
+export const IRC_HOST = process.env['E2E_IRC_HOST'] ?? '127.0.0.1';
+export const IRC_PORT = Number(process.env['E2E_IRC_PORT'] ?? 16667);
+export const ZNC_HOST = process.env['E2E_ZNC_HOST'] ?? '127.0.0.1';
+export const ZNC_PORT = Number(process.env['E2E_ZNC_PORT'] ?? 16501);
+export const ZNC_USER = 'tester';
+export const ZNC_PASS = 'pw';
+export const ZNC_NETWORK = 'ergo';
+
+export function uid(len = 6): string {
+  return randomBytes(8).toString('hex').slice(0, len);
+}
+
+export interface Profile {
+  root: string;
+  home: string;
+  runtime: string;
+  userData: string;
+}
+
+export interface LaunchedApp {
+  app: ElectronApplication;
+  page: Page;
+  // URLs the app tried to hand to the OS browser (shell.openExternal is
+  // stubbed so a test never opens the developer's browser).
+  openedExternally: () => Promise<string[]>;
+}
+
+function makeProfile(): Profile {
+  // Short base path: Chromium puts a SingletonSocket under userData and unix
+  // socket paths are capped at ~104 bytes on macOS.
+  const root = mkdtempSync(join(process.platform === 'darwin' ? '/tmp' : tmpdir(), 'boson-e2e-'));
+  const p = { root, home: join(root, 'home'), runtime: join(root, 'run'), userData: join(root, 'userData') };
+  for (const d of [p.home, p.runtime, p.userData]) mkdirSync(d, { recursive: true, mode: 0o700 });
+  return p;
+}
+
+// The main window loads the renderer from the loopback server
+// (http://127.0.0.1:<port>/index.html). Other windows can exist briefly — the
+// one-time storage-migration probe opens hidden file:// windows — so match on
+// URL rather than taking firstWindow().
+async function mainWindow(app: ElectronApplication, timeoutMs = 30_000): Promise<Page> {
+  const isMain = (p: Page): boolean => /^http:\/\/127\.0\.0\.1:\d+\/index\.html/.test(p.url());
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const found = app.windows().find(isMain);
+    if (found) return found;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`main window never loaded; windows: ${app.windows().map((w) => w.url()).join(', ') || '(none)'}`);
+}
+
+interface Fixtures {
+  profile: Profile;
+  launchApp: (opts?: { profile?: Profile }) => Promise<LaunchedApp>;
+}
+
+export const test = base.extend<Fixtures>({
+  // eslint-disable-next-line no-empty-pattern
+  profile: async ({}, use) => {
+    const p = makeProfile();
+    await use(p);
+    rmSync(p.root, { recursive: true, force: true });
+  },
+
+  launchApp: async ({ profile }, use, testInfo) => {
+    if (!existsSync(join(APP_DIR, 'package.json'))) {
+      throw new Error(`${APP_DIR} is missing — run \`npm run build:e2e-app\` (or \`make test-e2e-app\`) first.`);
+    }
+    const launched: Array<{ app: ElectronApplication; logs: string[]; n: number }> = [];
+
+    const launch = async (opts: { profile?: Profile } = {}): Promise<LaunchedApp> => {
+      const p = opts.profile ?? profile;
+      const env: Record<string, string> = {};
+      for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+      // Never let a dev-server URL leak in: the app must serve its own build.
+      delete env['ELECTRON_RENDERER_URL'];
+      delete env['ELECTRON_RUN_AS_NODE'];
+      Object.assign(env, {
+        HOME: p.home,
+        XDG_RUNTIME_DIR: p.runtime,
+        XDG_CONFIG_HOME: join(p.home, '.config'),
+        // Make Electron print renderer console output to stdout so it lands
+        // in the attached log.
+        ELECTRON_ENABLE_LOGGING: '1',
+      });
+
+      const args = [APP_DIR, `--user-data-dir=${p.userData}`];
+      if (process.platform === 'darwin') args.push('--use-mock-keychain');
+      if (process.platform === 'linux') {
+        // CI containers lack the setuid sandbox helper + a keyring daemon.
+        args.push('--no-sandbox', '--password-store=basic', '--disable-gpu');
+      }
+
+      const app = await _electron.launch({ args, env, timeout: 60_000 });
+      const logs: string[] = [];
+      const n = launched.length + 1;
+      launched.push({ app, logs, n });
+      const proc = app.process();
+      proc.stdout?.on('data', (b: Buffer) => logs.push(b.toString()));
+      proc.stderr?.on('data', (b: Buffer) => logs.push(b.toString()));
+
+      // Stub the OS-browser handoff before the renderer can trigger it.
+      await app.evaluate(({ shell }) => {
+        const g = globalThis as unknown as { __e2eOpened: string[] };
+        g.__e2eOpened = [];
+        shell.openExternal = async (url: string) => {
+          g.__e2eOpened.push(url);
+        };
+      });
+
+      const page = await mainWindow(app);
+      await page.waitForLoadState('domcontentloaded');
+      await page.context().tracing.start({ screenshots: true, snapshots: true, title: `${testInfo.title} (launch ${n})` })
+        .catch(() => { /* tracing already running for this context */ });
+
+      return {
+        app,
+        page,
+        openedExternally: () =>
+          app.evaluate(() => (globalThis as unknown as { __e2eOpened: string[] }).__e2eOpened.slice()),
+      };
+    };
+
+    await use(launch);
+
+    const failed = testInfo.status !== testInfo.expectedStatus;
+    for (const { app, logs, n } of launched) {
+      const page = app.windows().find((w) => /\/index\.html/.test(w.url()));
+      if (failed && page && !page.isClosed()) {
+        const shot = await page.screenshot().catch(() => null);
+        if (shot) await testInfo.attach(`screenshot-launch-${n}`, { body: shot, contentType: 'image/png' });
+        const tracePath = testInfo.outputPath(`trace-launch-${n}.zip`);
+        await page.context().tracing.stop({ path: tracePath }).catch(() => {});
+        if (existsSync(tracePath)) await testInfo.attach(`trace-launch-${n}`, { path: tracePath, contentType: 'application/zip' });
+      }
+      await app.close().catch(() => {});
+      if (failed) {
+        const logPath = testInfo.outputPath(`main-process-launch-${n}.log`);
+        writeFileSync(logPath, logs.join(''));
+        await testInfo.attach(`main-process-log-launch-${n}`, { path: logPath, contentType: 'text/plain' });
+      }
+    }
+  },
+});
+
+export { expect };
+
+// ---- UI helpers ------------------------------------------------------------
+
+// The design-system <Field> renders a <label> next to (not wrapping /
+// for=) its input, so getByLabel can't see it. Locate the input through the
+// field container whose label text is exactly `label`.
+export function field(scope: Page | Locator, label: string): Locator {
+  const page = 'page' in scope && typeof scope.page === 'function' ? scope.page() : (scope as Page);
+  const labelRe = new RegExp(`^\\s*${escapeRe(label)}(\\s*\\(optional\\))?\\s*$`);
+  return scope
+    .locator('.bds-field')
+    .filter({ has: page.locator('label.bds-field-label', { hasText: labelRe }) })
+    .locator('input, textarea')
+    .first();
+}
+
+// Login screen → "Continue without an account" → nick → directory.
+export async function continueAsGuest(page: Page, nick: string): Promise<void> {
+  await page.getByRole('button', { name: 'Continue without an account' }).click();
+  await page.getByPlaceholder('your-nick').fill(nick);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible({ timeout: 20_000 });
+}
+
+// Directory → Advanced → "+ Add server manually" → fill → Add. Leaves the
+// new card visible in the directory grid.
+export async function addServerManually(
+  page: Page,
+  s: { hostname: string; port: number; name: string; tls?: boolean },
+): Promise<void> {
+  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+  await page.getByRole('button', { name: '+ Add server manually' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a server manually' });
+  await expect(dialog).toBeVisible();
+  await field(dialog, 'Hostname').fill(s.hostname);
+  await field(dialog, 'Port').fill(String(s.port));
+  await field(dialog, 'Display name').fill(s.name);
+  const tls = dialog.getByRole('checkbox', { name: 'Use TLS (recommended)' });
+  // The checkbox itself is visually hidden behind the toggle track; click
+  // the wrapping label like a user would.
+  if ((await tls.isChecked()) !== (s.tls ?? false)) await dialog.getByText('Use TLS (recommended)').click();
+  await expect(tls).toBeChecked({ checked: s.tls ?? false });
+  await dialog.getByRole('button', { name: /^Add/ }).click();
+  await expect(dialog).toBeHidden();
+}
+
+export function serverCard(page: Page, name: string): Locator {
+  return page.locator('article.directory-card').filter({ hasText: name });
+}
+
+// Channel sidebar "+" → type the channel → Enter. Resolves once the channel
+// is the active conversation (composer placeholder names it).
+export async function joinChannel(page: Page, channel: string): Promise<void> {
+  await page.getByRole('button', { name: 'Add channel' }).click();
+  const input = page.getByPlaceholder('Search channels by name or topic — or type #channel to join directly');
+  await input.fill(channel);
+  await input.press('Enter');
+  await expect(composer(page, channel)).toBeVisible({ timeout: 20_000 });
+}
+
+export function composer(page: Page, channel?: string): Locator {
+  if (channel) {
+    const bare = channel.replace(/^#/, '');
+    return page.getByPlaceholder(new RegExp(`^Message #?${escapeRe(bare)}$`));
+  }
+  return page.getByPlaceholder(/^Message /);
+}
+
+export function memberList(page: Page): Locator {
+  return page.getByRole('complementary', { name: 'Members' });
+}
+
+export function messageList(page: Page): Locator {
+  return page.locator('main');
+}
+
+export async function sendMessage(page: Page, channel: string, text: string): Promise<void> {
+  const box = composer(page, channel);
+  await box.click();
+  await box.fill(text);
+  await box.press('Enter');
+}
+
+export function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ---- ZNC helpers -----------------------------------------------------------
+
+// Puts the shared ZNC network back into its initial state — off the
+// network upstream (IRCConnectEnabled=false) and with no remembered channels —
+// via a throwaway client, so the bouncer spec is repeatable against a
+// long-lived container.
+export async function resetZncNetwork(): Promise<void> {
+  const { IrcPeer } = await import('./irc-peer');
+  const admin = await IrcPeer.connect({
+    host: ZNC_HOST, port: ZNC_PORT, nick: `zncadm${uid(4)}`,
+    pass: `${ZNC_USER}/${ZNC_NETWORK}:${ZNC_PASS}`,
+  });
+  try {
+    const from = admin.mark();
+    admin.privmsg('*status', 'disconnect');
+    // Either "Disconnected from IRC…" or "You are currently disconnected…".
+    await admin.waitFor(
+      (l) => l.prefix.startsWith('*status') && /disconnected/i.test(l.params[1] ?? ''),
+      10_000, '*status disconnect ack', from,
+    );
+    const delFrom = admin.mark();
+    admin.privmsg('*controlpanel', `DelChan ${ZNC_USER} ${ZNC_NETWORK} #*`);
+    await admin.waitFor(
+      (l) => l.prefix.startsWith('*controlpanel'), 10_000, '*controlpanel DelChan reply', delFrom,
+    );
+  } finally {
+    await admin.quit();
+  }
+}
+
+// User Settings → Bouncer: enable + save the global bouncer profile.
+export async function configureBouncerProfile(
+  page: Page,
+  p: { host: string; port: number; username: string; password: string; tls?: boolean },
+): Promise<void> {
+  await page.getByRole('button', { name: 'User settings' }).click();
+  const dialog = page.getByRole('dialog', { name: 'User settings' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('tab', { name: /^Bouncer/ }).click();
+
+  const toggle = async (label: string, want: boolean): Promise<void> => {
+    const box = dialog.getByRole('checkbox', { name: label, exact: true });
+    if ((await box.isChecked()) !== want) await dialog.getByText(label, { exact: true }).click();
+    await expect(box).toBeChecked({ checked: want });
+  };
+  await toggle('Use a bouncer', true);
+  await field(dialog, 'Host').fill(p.host);
+  await field(dialog, 'Port').fill(String(p.port));
+  await toggle('Use TLS', p.tls ?? false);
+  await field(dialog, 'Username').fill(p.username);
+  await field(dialog, 'Password').fill(p.password);
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog.getByText('Saved', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+}

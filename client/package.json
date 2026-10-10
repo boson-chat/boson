@@ -20,6 +20,8 @@
     "dev": "electron-vite dev",
     "dev:renderer-only": "vite --config vite.renderer.config.ts",
     "test:e2e": "playwright test",
+    "build:e2e-app": "node scripts/build-e2e-app.mjs",
+    "test:e2e:app": "playwright test -c playwright.electron.config.ts",
     "build": "tsc --noEmit && electron-vite build",
     "build:installer": "npm run build && electron-builder --config electron-builder.yml --publish never",
     "start": "electron-vite preview",

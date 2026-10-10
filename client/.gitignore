@@ -8,3 +8,6 @@ dist
 # source when it can't use the .ts directly; it's a machine-generated
 # duplicate that must never be committed.
 electron.vite.config.*.mjs
+out-e2e
+playwright-report
+test-results
