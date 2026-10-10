@@ -110,9 +110,6 @@ func TestPresenceRepository_LookupExcludesNonDiscoverable(t *testing.T) {
 	require.NoError(t, userRepo.Create(testutil.Ctx(), &user.User{
 		ID: hidden, Handle: "hidden", EncryptedUserSecret: []byte("x"), IsDiscoverable: false,
 	}))
-	// The users model carries `default:true`, so gorm substitutes the column
-	// default for a false IsDiscoverable on INSERT; flip it explicitly.
-	require.NoError(t, database.DB.Exec("UPDATE users SET is_discoverable = false WHERE id = ?", hidden).Error)
 	_, err := repo.Upsert(testutil.Ctx(), hidden, "Libera", "Hidden", "h", "hiddenacct")
 	require.NoError(t, err)
 
