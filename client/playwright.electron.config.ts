@@ -7,12 +7,15 @@ import { defineConfig } from '@playwright/test';
 //
 //   make test-e2e-app            # infra up + build + run
 //   npm run test:e2e:app         # just run (infra + build already done)
+//   make test-e2e-app-coverage   # same, plus coverage → coverage/e2e/
 //
 // Separate from playwright.config.ts, which runs the renderer in a browser
 // against the full dev stack.
 export default defineConfig({
   testDir: './tests/e2e-app',
   globalSetup: './tests/e2e-app/global-setup.ts',
+  // Writes the coverage reports when E2E_COVERAGE=1.
+  globalTeardown: './tests/e2e-app/global-teardown.ts',
   outputDir: './test-results/e2e-app',
   // Each test boots Electron (and an engine) at least once; bouncer flows
   // wait on ZNC's reconnect pacing.

@@ -11,3 +11,4 @@ electron.vite.config.*.mjs
 out-e2e
 playwright-report
 test-results
+/coverage

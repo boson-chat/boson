@@ -4,7 +4,7 @@
         client-install client-env client-dev client-build \
         engine-build engine-connect engine-serve engine-env sidecar-build \
         test test-go test-client test-e2e hooks-install \
-        test-e2e-app test-e2e-app-up test-e2e-app-down \
+        test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage \
         test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme
 
 setup: tidy up
@@ -256,6 +256,14 @@ test-e2e-app-up:
 test-e2e-app: test-e2e-app-up
 	cd client && npm run build:e2e-app
 	cd client && npm run test:e2e:app
+
+# Same suite with code coverage for all three layers (renderer, Electron
+# main + preload, Go engine) → client/coverage/e2e/ (HTML + lcov per layer,
+# summary.md). Leaves a coverage build in out-e2e; the next
+# `make test-e2e-app` rebuilds it normally.
+test-e2e-app-coverage: test-e2e-app-up
+	cd client && E2E_COVERAGE=1 npm run build:e2e-app
+	cd client && npm run test:e2e:app:coverage
 
 test-e2e-app-down:
 	$(E2E_APP_COMPOSE) down -v --remove-orphans

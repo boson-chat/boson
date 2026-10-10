@@ -12,12 +12,16 @@
 // restore-on-relaunch. Apps are closed and the profile is deleted in
 // teardown; on failure, main-process logs (incl. the engine sidecar's) and a
 // trace + screenshot of the main window are attached to the report.
+//
+// With E2E_COVERAGE=1 every launch also collects code coverage for the
+// renderer, main/preload and engine (see coverage/config.ts).
 import { test as base, expect, _electron, type ElectronApplication, type Page, type Locator } from '@playwright/test';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { COVERAGE, ELECTRON_HOOK, RAW, RENDERER_CHUNK_URL, isPreloadUrl } from './coverage/config';
 
 export const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../out-e2e');
 
@@ -75,6 +79,20 @@ async function mainWindow(app: ElectronApplication, timeoutMs = 30_000): Promise
   throw new Error(`main window never loaded; windows: ${app.windows().map((w) => w.url()).join(', ') || '(none)'}`);
 }
 
+// Coverage mode: take the renderer/preload V8 coverage that electron-hook.cjs
+// has been recording, and keep only the app's own bundles (not Electron's
+// internal sandbox bundle or anonymous eval'd snippets).
+async function saveRendererCoverage(app: ElectronApplication): Promise<void> {
+  const entries = await app
+    .evaluate(() => (globalThis as unknown as { __bosonE2ETakeCoverage: () => Promise<Array<{ url: string }>> }).__bosonE2ETakeCoverage())
+    .catch((err: unknown) => {
+      console.warn(`[e2e-coverage] could not take renderer coverage: ${String(err)}`);
+      return [];
+    });
+  const keep = entries.filter((e) => RENDERER_CHUNK_URL.test(e.url) || isPreloadUrl(e.url));
+  if (keep.length > 0) writeFileSync(join(RAW.renderer, `${randomUUID()}.json`), JSON.stringify(keep));
+}
+
 interface Fixtures {
   profile: Profile;
   launchApp: (opts?: { profile?: Profile }) => Promise<LaunchedApp>;
@@ -109,8 +127,18 @@ export const test = base.extend<Fixtures>({
         // in the attached log.
         ELECTRON_ENABLE_LOGGING: '1',
       });
+      if (COVERAGE) {
+        // Main process: Node writes V8 coverage here on exit. Engine: the
+        // main process passes its env through to the sidecar.
+        env['NODE_V8_COVERAGE'] = RAW.main;
+        env['GOCOVERDIR'] = RAW.engine;
+        writeFileSync(join(RAW.launches, randomUUID()), '');
+      }
 
       const args = [APP_DIR, `--user-data-dir=${p.userData}`];
+      // Preloaded ahead of the app's main bundle so renderer coverage starts
+      // before the first page script runs.
+      if (COVERAGE) args.unshift('-r', ELECTRON_HOOK);
       if (process.platform === 'darwin') args.push('--use-mock-keychain');
       if (process.platform === 'linux') {
         // CI containers lack the setuid sandbox helper + a keyring daemon.
@@ -118,6 +146,20 @@ export const test = base.extend<Fixtures>({
       }
 
       const app = await _electron.launch({ args, env, timeout: 60_000 });
+      if (COVERAGE) {
+        // Collect before ANY close — the teardown below and specs that close
+        // the app themselves (restore.spec relaunches). close() quits the app
+        // gracefully, which lets the main process and engine flush theirs.
+        const close = app.close.bind(app);
+        let saved = false;
+        app.close = async () => {
+          if (!saved) {
+            saved = true;
+            await saveRendererCoverage(app);
+          }
+          await close();
+        };
+      }
       const logs: string[] = [];
       const n = launched.length + 1;
       launched.push({ app, logs, n });
