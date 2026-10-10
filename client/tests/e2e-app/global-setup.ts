@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import { join } from 'node:path';
 import { APP_DIR, IRC_HOST, IRC_PORT, ZNC_HOST, ZNC_PORT } from './fixtures';
+import { STACK } from './stack';
 import { COVERAGE, COVERAGE_DIR, RAW } from './coverage/config';
 
 function probe(host: string, port: number, timeoutMs = 3_000): Promise<boolean> {
@@ -33,9 +34,17 @@ export default async function globalSetup(): Promise<void> {
   if (problems.length > 0) {
     throw new Error(
       'Real-app e2e prerequisites missing:\n  - ' + problems.join('\n  - ') +
-      '\nBring up the infra with `docker compose -f infra/e2e/docker-compose.yml up -d --wait` ' +
-      '(from the repo root) or just run `make test-e2e-app`.',
+      '\nBring up the infra with `make test-e2e-app-up` (repo root) or just run `make test-e2e-app`.',
     );
+  }
+
+  // Account-mode specs need the rest of the stack; guest-only runs don't,
+  // so this only warns (the account fixtures fail fast with the details).
+  const backendUp = await fetch(`${STACK.backend.url}/health`, { signal: AbortSignal.timeout(3_000) })
+    .then((r) => r.ok, () => false);
+  if (!backendUp) {
+    console.warn(`[e2e] backend not reachable on ${STACK.backend.url} — account-mode specs will fail. ` +
+      'Bring the full stack up with `make test-e2e-app-up`.');
   }
 
   if (COVERAGE) {

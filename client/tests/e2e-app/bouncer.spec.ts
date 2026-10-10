@@ -4,14 +4,12 @@
 // must round-trip through ZNC to a peer on ergo, and the user must be able to
 // disconnect / reconnect the upstream from the UI.
 import {
-  test, expect, IRC_HOST, IRC_PORT, ZNC_HOST, ZNC_PORT, ZNC_USER, ZNC_PASS, ZNC_NETWORK, uid,
-  continueAsGuest, configureBouncerProfile, resetZncNetwork, joinChannel, sendMessage, messageList,
+  test, expect, IRC_HOST, IRC_PORT, uid,
+  continueAsGuest, configureBouncerProfile, joinChannel, sendMessage, messageList,
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
 
-test('bouncer network auto-connects upstream, relays messages, and can be disconnected + reconnected', async ({ launchApp }) => {
-  await resetZncNetwork();
-
+test('bouncer network auto-connects upstream, relays messages, and can be disconnected + reconnected', async ({ launchApp, zncUser }) => {
   const channel = `#e2e-bnc-${uid(8)}`;
   const displayName = `ZNC Ergo ${uid(4)}`;
   const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
@@ -21,14 +19,14 @@ test('bouncer network auto-connects upstream, relays messages, and can be discon
     const { page } = await launchApp();
     await continueAsGuest(page, `bnc${uid()}`);
     await configureBouncerProfile(page, {
-      host: ZNC_HOST, port: ZNC_PORT, username: ZNC_USER, password: ZNC_PASS, tls: false,
+      host: zncUser.host, port: zncUser.port, username: zncUser.username, password: zncUser.password, tls: false,
     });
 
     // Directory → Bouncer tab → add the ZNC network → Connect.
     await page.getByRole('tab', { name: 'Bouncer' }).click();
-    await expect(page.getByText(`${ZNC_HOST}:${ZNC_PORT}`)).toBeVisible();
+    await expect(page.getByText(`${zncUser.host}:${zncUser.port}`)).toBeVisible();
     await page.getByPlaceholder('Display name').fill(displayName);
-    await page.getByPlaceholder('ZNC network, e.g. libera').fill(ZNC_NETWORK);
+    await page.getByPlaceholder('ZNC network, e.g. libera').fill(zncUser.network);
     await page.getByRole('button', { name: 'Add network' }).click();
     const row = page.locator('.directory-bouncer-row').filter({ hasText: displayName });
     await expect(row).toBeVisible();

@@ -15,30 +15,41 @@
 //
 // With E2E_COVERAGE=1 every launch also collects code coverage for the
 // renderer, main/preload and engine (see coverage/config.ts).
+//
+// Account-mode fixtures (createAccount / account / backendApi / mailpit)
+// need the full e2e stack (`make test-e2e-app-up`); zncUser leases one of
+// the ZNC users so tests can run in parallel. See README.md next to this
+// file for the whole fixture/helper API.
 import { test as base, expect, _electron, type ElectronApplication, type Page, type Locator } from '@playwright/test';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { COVERAGE, ELECTRON_HOOK, RAW, RENDERER_CHUNK_URL, isPreloadUrl } from './coverage/config';
+import { APP_DIR, STACK } from './stack';
+import { BackendApi, provisionIdentity, randomHandle } from './helpers/backend';
+import { Mailpit } from './helpers/mailpit';
+import { createConfirmedUser, deleteAuthUser, type AuthUser } from './helpers/supabase';
+import { leaseZncUser, resetZncUser, type ZncUser } from './helpers/znc';
 
-export const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../out-e2e');
+export { APP_DIR, STACK };
 
 // Test IRC infra (infra/e2e/docker-compose.yml). The app's engine and the
 // peer bot both reach ergo on the host port; ZNC reaches it as `ergo` on the
 // compose network.
-export const IRC_HOST = process.env['E2E_IRC_HOST'] ?? '127.0.0.1';
-export const IRC_PORT = Number(process.env['E2E_IRC_PORT'] ?? 16667);
-export const ZNC_HOST = process.env['E2E_ZNC_HOST'] ?? '127.0.0.1';
-export const ZNC_PORT = Number(process.env['E2E_ZNC_PORT'] ?? 16501);
-export const ZNC_USER = 'tester';
-export const ZNC_PASS = 'pw';
-export const ZNC_NETWORK = 'ergo';
+export const IRC_HOST = process.env['E2E_IRC_HOST'] ?? STACK.irc.host;
+export const IRC_PORT = Number(process.env['E2E_IRC_PORT'] ?? STACK.irc.port);
+export const ZNC_HOST = process.env['E2E_ZNC_HOST'] ?? STACK.znc.host;
+export const ZNC_PORT = Number(process.env['E2E_ZNC_PORT'] ?? STACK.znc.port);
 
 export function uid(len = 6): string {
   return randomBytes(8).toString('hex').slice(0, len);
 }
+
+// Unique-per-call names, so tests never share IRC state (in parallel or
+// across runs against a long-lived ergo).
+export const randomChannel = (prefix = 'e2e'): string => `#${prefix}-${uid(8)}`;
+export const randomNick = (prefix = 'n'): string => `${prefix}${uid(7)}`;
 
 export interface Profile {
   root: string;
@@ -93,12 +104,101 @@ async function saveRendererCoverage(app: ElectronApplication): Promise<void> {
   if (keep.length > 0) writeFileSync(join(RAW.renderer, `${randomUUID()}.json`), JSON.stringify(keep));
 }
 
+export interface Account extends AuthUser {
+  // Set when the account has its Boson identity (POST /me) — signing in
+  // then lands in the directory instead of the handle setup.
+  handle?: string;
+  recoveryCode?: string;
+}
+
+export interface CreateAccountOptions {
+  email?: string;
+  password?: string;
+  // true → random handle; a string → that handle; false (default for
+  // createAccount) → no identity yet: the first sign-in shows the setup.
+  handle?: boolean | string;
+}
+
 interface Fixtures {
   profile: Profile;
   launchApp: (opts?: { profile?: Profile }) => Promise<LaunchedApp>;
+  // A ZNC user (tester1..8) leased for this test and reset to its initial
+  // state: network `ergo` disconnected upstream, no channels.
+  zncUser: ZncUser;
+  // Confirmed Supabase users (admin API), deleted after the test.
+  createAccount: (opts?: CreateAccountOptions) => Promise<Account>;
+  // createAccount({ handle: true }): signs straight into the directory.
+  account: Account;
+  // API client for the e2e backend — anonymous, or authed as `user`.
+  backendApi: (user?: Pick<AuthUser, 'email' | 'password'>) => Promise<BackendApi>;
+  mailpit: { users: Mailpit; catchall: Mailpit };
+}
+
+// Account fixtures need the whole e2e stack; fail with instructions instead
+// of a sign-in timeout when it isn't up.
+let accountStackChecked: Promise<void> | null = null;
+function requireAccountStack(): Promise<void> {
+  accountStackChecked ??= (async () => {
+    const problems: string[] = [];
+    const ok = async (url: string): Promise<boolean> => {
+      try { return (await fetch(url, { signal: AbortSignal.timeout(3_000) })).ok; } catch { return false; }
+    };
+    if (!(await ok(`${STACK.backend.url}/health`))) problems.push(`backend not answering on ${STACK.backend.url}/health`);
+    if (!(await ok(`${STACK.supabase.apiUrl}/auth/v1/health?apikey=${STACK.supabase.publishableKey}`))) {
+      problems.push(`Supabase Auth not answering on ${STACK.supabase.apiUrl}`);
+    }
+    if (!(await ok(`${STACK.supabase.mailpitUrl}/api/v1/info`))) problems.push(`auth Mailpit not answering on ${STACK.supabase.mailpitUrl}`);
+    if (problems.length > 0) {
+      throw new Error(`account-mode e2e stack is not up:\n  - ${problems.join('\n  - ')}\nRun \`make test-e2e-app-up\` (repo root).`);
+    }
+  })();
+  return accountStackChecked;
 }
 
 export const test = base.extend<Fixtures>({
+  // eslint-disable-next-line no-empty-pattern
+  zncUser: async ({}, use, testInfo) => {
+    const lease = await leaseZncUser(testInfo.workerIndex);
+    try {
+      await resetZncUser(lease);
+      await use(lease);
+    } finally {
+      lease.release();
+    }
+  },
+
+  // eslint-disable-next-line no-empty-pattern
+  createAccount: async ({}, use) => {
+    await requireAccountStack();
+    const created: Account[] = [];
+    await use(async (opts = {}) => {
+      const user = await createConfirmedUser({ email: opts.email, password: opts.password });
+      const acct: Account = { ...user };
+      created.push(acct);
+      if (opts.handle) {
+        const ident = await provisionIdentity(user, typeof opts.handle === 'string' ? opts.handle : randomHandle());
+        Object.assign(acct, ident);
+      }
+      return acct;
+    });
+    for (const a of created) await deleteAuthUser(a.id).catch(() => {});
+  },
+
+  account: async ({ createAccount }, use) => {
+    await use(await createAccount({ handle: true }));
+  },
+
+  // eslint-disable-next-line no-empty-pattern
+  backendApi: async ({}, use) => {
+    await requireAccountStack();
+    await use((user) => (user ? BackendApi.as(user) : Promise.resolve(BackendApi.anonymous())));
+  },
+
+  // eslint-disable-next-line no-empty-pattern
+  mailpit: async ({}, use) => {
+    await use({ users: Mailpit.users(), catchall: Mailpit.catchall() });
+  },
+
   // eslint-disable-next-line no-empty-pattern
   profile: async ({}, use) => {
     const p = makeProfile();
@@ -299,35 +399,7 @@ export function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// ---- ZNC helpers -----------------------------------------------------------
-
-// Puts the shared ZNC network back into its initial state — off the
-// network upstream (IRCConnectEnabled=false) and with no remembered channels —
-// via a throwaway client, so the bouncer spec is repeatable against a
-// long-lived container.
-export async function resetZncNetwork(): Promise<void> {
-  const { IrcPeer } = await import('./irc-peer');
-  const admin = await IrcPeer.connect({
-    host: ZNC_HOST, port: ZNC_PORT, nick: `zncadm${uid(4)}`,
-    pass: `${ZNC_USER}/${ZNC_NETWORK}:${ZNC_PASS}`,
-  });
-  try {
-    const from = admin.mark();
-    admin.privmsg('*status', 'disconnect');
-    // Either "Disconnected from IRC…" or "You are currently disconnected…".
-    await admin.waitFor(
-      (l) => l.prefix.startsWith('*status') && /disconnected/i.test(l.params[1] ?? ''),
-      10_000, '*status disconnect ack', from,
-    );
-    const delFrom = admin.mark();
-    admin.privmsg('*controlpanel', `DelChan ${ZNC_USER} ${ZNC_NETWORK} #*`);
-    await admin.waitFor(
-      (l) => l.prefix.startsWith('*controlpanel'), 10_000, '*controlpanel DelChan reply', delFrom,
-    );
-  } finally {
-    await admin.quit();
-  }
-}
+// ---- Bouncer UI ------------------------------------------------------------
 
 // User Settings → Bouncer: enable + save the global bouncer profile.
 export async function configureBouncerProfile(
@@ -355,3 +427,15 @@ export async function configureBouncerProfile(
   await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(dialog).toBeHidden();
 }
+
+// ---- Helpers, re-exported so specs import everything from './fixtures' -----
+
+export * from './helpers/account';
+export { BackendApi, backendSql, provisionIdentity, randomHandle, seedServer } from './helpers/backend';
+export type { DirectoryServer, SeedServerInput } from './helpers/backend';
+export { Mailpit, extractCode, extractLinks } from './helpers/mailpit';
+export type { MailMessage, MailSummary } from './helpers/mailpit';
+export { createConfirmedUser, deleteAuthUser, findAuthUserByEmail, randomEmail, randomPassword, signInWithPassword } from './helpers/supabase';
+export type { AuthUser, AuthSession } from './helpers/supabase';
+export { leaseZncUser, resetZncUser } from './helpers/znc';
+export type { ZncLease, ZncUser } from './helpers/znc';

@@ -18,8 +18,8 @@ test('guest connects to a manually added server and chats with a peer', async ({
     const { page } = await launchApp();
     await continueAsGuest(page, nick);
 
-    // No backend is running: the public directory can't load, but manual add
-    // is local-only and must still work.
+    // Manual add is local-only: it works whether or not the e2e backend (and
+    // so the public directory) is up.
     await addServerManually(page, { hostname: IRC_HOST, port: IRC_PORT, name: serverName, tls: false });
     const card = serverCard(page, serverName);
     await expect(card).toBeVisible();
