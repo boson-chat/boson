@@ -107,10 +107,11 @@ export function DocsPage() {
                   </li>
                 </ul>
                 <div class="doc-callout">
-                  <strong>On macOS first launch:</strong> Boson is ad-hoc signed but not registered
-                  with an Apple Developer ID. Gatekeeper will show "unverified developer". See the{' '}
-                  <a href="/download#first-launch-macos" class="docs-link">download page</a> for
-                  the right-click → Open workaround.
+                  <strong>On macOS:</strong> since v0.32.1 Boson is signed with an Apple Developer
+                  ID and notarized, so it opens without Gatekeeper warnings. Upgrading from an
+                  older build? See the{' '}
+                  <a href="/download#first-launch-macos" class="docs-link">download page</a> — you
+                  need to download the new version once by hand.
                 </div>
               </article>
 
