@@ -135,3 +135,51 @@ describe('BouncerNetworksPanel — search', () => {
     expect(screen.getByText('libera')).toBeInTheDocument();
   });
 });
+
+describe('BouncerNetworksPanel — saved network status', () => {
+  const saved = { id: 'b1', name: 'Libera', hostname: 'znc.host', port: 6697, tls: true,
+    bouncer: { route: true, network: 'libera' } } as SavedServer;
+  type Conn = Parameters<typeof BouncerNetworksPanel>[0]['connections'][number];
+  const conn = (over: Partial<Conn>): Conn => ({
+    serverId: 'b1', server: saved, chat: {} as Conn['chat'], engineState: 'connected',
+    error: null, reconnect: { active: false }, bouncerUpstream: null, ...over,
+  });
+  const row = () => screen.getByText('Libera').closest('.directory-bouncer-row') as HTMLElement;
+
+  it('not connected: shows Connect (connects through the bouncer)', () => {
+    const connectBouncerNetwork = vi.fn();
+    render(<BouncerNetworksPanel bloc={stubBloc({ bouncerNetworks: () => [saved], connectBouncerNetwork })} connections={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(connectBouncerNetwork).toHaveBeenCalledWith('b1');
+  });
+
+  it('bouncer attached but upstream offline: "Network offline" + Connect network', () => {
+    const bouncerConnect = vi.fn();
+    render(<BouncerNetworksPanel
+      bloc={stubBloc({ bouncerNetworks: () => [saved], bouncerConnect })}
+      connections={[conn({ bouncerUpstream: 'disconnected' })]}
+    />);
+    expect(row()).toHaveTextContent('Network offline');
+    expect(row()).not.toHaveTextContent(/^Connected$/);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect network' }));
+    expect(bouncerConnect).toHaveBeenCalledWith('b1');
+  });
+
+  it('upstream connecting: "Connecting…", no connect buttons', () => {
+    render(<BouncerNetworksPanel
+      bloc={stubBloc({ bouncerNetworks: () => [saved] })}
+      connections={[conn({ bouncerUpstream: 'connecting' })]}
+    />);
+    expect(row()).toHaveTextContent('Connecting…');
+    expect(screen.queryByRole('button', { name: /^Connect/ })).toBeNull();
+  });
+
+  it('upstream connected: "Connected"', () => {
+    render(<BouncerNetworksPanel
+      bloc={stubBloc({ bouncerNetworks: () => [saved] })}
+      connections={[conn({ bouncerUpstream: 'connected' })]}
+    />);
+    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Connect/ })).toBeNull();
+  });
+});

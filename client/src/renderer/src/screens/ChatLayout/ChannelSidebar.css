@@ -98,7 +98,9 @@
   flex-shrink: 0;
   background: var(--success);
 }
-.sidebar-status-dot[data-state='connecting'] { background: var(--warning, #e0a32a); }
+.sidebar-status-dot[data-state='connecting'] { background: var(--warn, #e0a32a); }
+.sidebar-status-dot[data-state='upstream-offline'] { background: var(--warn, #e0a32a); }
+.sidebar-bnc[data-upstream='disconnected'] { color: var(--warn, #e0a32a); }
 .sidebar-status-dot[data-state='disconnected'] { background: var(--danger, #e0533a); }
 /* Banner variant: lighten meta text + dot for legibility over the image scrim. */
 .channel-sidebar-header-banner .sidebar-server-meta { color: rgba(255, 255, 255, 0.82); }

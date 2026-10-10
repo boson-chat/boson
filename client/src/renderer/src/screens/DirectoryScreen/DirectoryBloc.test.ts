@@ -85,6 +85,10 @@ class FakeServerSession {
   private channelDirectoryListeners = new Set<(entries: { name: string; userCount: number; topic: string }[]) => void>();
   private servicesListeners = new Set<(fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void>();
   private servicesFramework_: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
+  private bouncerUpstreamListeners = new Set<(s: 'connected' | 'disconnected' | 'connecting') => void>();
+  private bouncerUpstream_: 'connected' | 'disconnected' | 'connecting' | null = null;
+  bouncerConnectCalls = 0;
+  bouncerDisconnectCalls = 0;
 
   constructor(public readonly serverId: string) {}
 
@@ -108,6 +112,14 @@ class FakeServerSession {
     return () => { this.servicesListeners.delete(fn); };
   }
   servicesFramework(): 'atheme' | 'anope' | 'ergo' | 'unknown' | null { return this.servicesFramework_; }
+  onBouncerUpstream(fn: (s: 'connected' | 'disconnected' | 'connecting') => void): () => void {
+    this.bouncerUpstreamListeners.add(fn);
+    if (this.bouncerUpstream_ !== null) fn(this.bouncerUpstream_);
+    return () => { this.bouncerUpstreamListeners.delete(fn); };
+  }
+  bouncerUpstream(): 'connected' | 'disconnected' | 'connecting' | null { return this.bouncerUpstream_; }
+  bouncerConnect(): void { this.bouncerConnectCalls++; }
+  bouncerDisconnect(): void { this.bouncerDisconnectCalls++; }
   join(channel: string): void { this.joinCalls.push(channel); }
   part(channel: string): void { this.partCalls.push(channel); }
   privmsg(target: string, message: string): void { this.privmsgCalls.push({ target, message }); }
@@ -132,6 +144,10 @@ class FakeServerSession {
   _emitServicesFramework(fw: 'atheme' | 'anope' | 'ergo' | 'unknown'): void {
     this.servicesFramework_ = fw;
     this.servicesListeners.forEach((fn) => fn(fw));
+  }
+  _emitBouncerUpstream(s: 'connected' | 'disconnected' | 'connecting'): void {
+    this.bouncerUpstream_ = s;
+    this.bouncerUpstreamListeners.forEach((fn) => fn(s));
   }
   _dispose(): void {
     this.disposed_ = true;
@@ -1422,7 +1438,7 @@ describe('DirectoryBloc', () => {
     };
 
     async function connectWithRoute(
-      route: { route: boolean; network: string } | null,
+      route: { route: boolean; network: string; autoConnect?: boolean } | null,
       bouncer: BouncerProfile | null,
     ) {
       const storage = memoryStorage();
@@ -1451,6 +1467,15 @@ describe('DirectoryBloc', () => {
       expect(call.tls).toBe(true);
       expect(call.tlsInsecure).toBe(true);
       expect(call.serverPass).toBe('me/libera:pw');
+      // Flags the connection as a bouncer link; auto-connect defaults ON.
+      expect(call.bouncer).toBe(true);
+      expect(call.bouncerAutoConnect).toBe(true);
+    });
+
+    it('passes bouncerAutoConnect=false when the server opted out', async () => {
+      const call = await connectWithRoute({ route: true, network: 'libera', autoConnect: false }, profile);
+      expect(call.bouncer).toBe(true);
+      expect(call.bouncerAutoConnect).toBe(false);
     });
 
     it('omits the /network when the network name is blank', async () => {
@@ -1463,12 +1488,15 @@ describe('DirectoryBloc', () => {
       expect(call.hostname).toBe('irc.libera.chat');
       expect(call.serverPass).toBeUndefined();
       expect(call.tlsInsecure).toBeUndefined();
+      expect(call.bouncer).toBeUndefined();
+      expect(call.bouncerAutoConnect).toBeUndefined();
     });
 
     it('connects directly when the global profile is disabled', async () => {
       const call = await connectWithRoute({ route: true, network: 'libera' }, { ...profile, enabled: false });
       expect(call.hostname).toBe('irc.libera.chat');
       expect(call.serverPass).toBeUndefined();
+      expect(call.bouncer).toBeUndefined();
     });
   });
 
@@ -1515,6 +1543,43 @@ describe('DirectoryBloc', () => {
       const call = engine.connectCalls[0]!;
       expect(call.hostname).toBe('znc.host');
       expect(call.serverPass).toBe('me/libera:pw');
+      bloc.dispose();
+    });
+
+    it('surfaces bouncer upstream state on the connection + chat serverInfo', async () => {
+      const { bloc, engine } = await makeBloc();
+      bloc.addBouncerNetwork({ name: 'Libera', network: 'libera' });
+      const id = bloc.bouncerNetworks()[0]!.id;
+      bloc.connectBouncerNetwork(id);
+      await flushPromises(2);
+      const conn = () => bloc.getState().connections.find((c) => c.serverId === id)!;
+      expect(conn().bouncerUpstream).toBeNull();
+
+      const session = engine.sessionFor(id);
+      session._setState('connected');
+      session._emitBouncerUpstream('disconnected');
+      expect(conn().bouncerUpstream).toBe('disconnected');
+      expect(conn().chat.getState().serverInfo.bouncerUpstream).toBe('disconnected');
+      expect(conn().chat.getState().serverInfo.bouncer).toBe(true);
+
+      session._emitBouncerUpstream('connected');
+      expect(conn().bouncerUpstream).toBe('connected');
+      expect(conn().chat.getState().serverInfo.bouncerUpstream).toBe('connected');
+      bloc.dispose();
+    });
+
+    it('bouncerConnect / bouncerDisconnect drive the live session; no-op for unknown ids', async () => {
+      const { bloc, engine } = await makeBloc();
+      bloc.addBouncerNetwork({ name: 'Libera', network: 'libera' });
+      const id = bloc.bouncerNetworks()[0]!.id;
+      bloc.connectBouncerNetwork(id);
+      await flushPromises(2);
+      const session = engine.sessionFor(id);
+      bloc.bouncerConnect(id);
+      bloc.bouncerDisconnect(id);
+      expect(session.bouncerConnectCalls).toBe(1);
+      expect(session.bouncerDisconnectCalls).toBe(1);
+      expect(() => bloc.bouncerConnect('nope')).not.toThrow();
       bloc.dispose();
     });
 

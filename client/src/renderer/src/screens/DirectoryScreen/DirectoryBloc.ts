@@ -8,11 +8,11 @@ import { getNotifier } from '../../modules/ui/notifier';
 import { getWindowBridge } from '../../shared/window-controls';
 import { parseZncNetworks } from '../../modules/chat/znc.parse';
 import type { DirectoryService, Server, User } from '../../modules/directory';
-import type { EngineClient, EngineState, ServerSession } from '../../modules/engine';
+import type { BouncerUpstreamState, EngineClient, EngineState, ServerSession } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
-import { SessionStore, type SavedServer, type SavedSession } from '../../modules/session';
+import { SessionStore, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
 import {
   addLocalServer,
   loadLocalServers,
@@ -43,6 +43,11 @@ export interface DirectoryConnection {
   // false when (a) we reach `connected`, (b) the user clicks Cancel, or
   // (c) the user disconnects explicitly.
   reconnect: { active: boolean };
+  // Bouncer upstream state: whether the bouncer (ZNC) is itself connected
+  // to the real IRC network. `engineState === 'connected'` only means the
+  // link to the bouncer is up. Null for direct connections / until the
+  // engine reports.
+  bouncerUpstream: BouncerUpstreamState | null;
 }
 
 interface Connection {
@@ -52,7 +57,9 @@ interface Connection {
   session: ServerSession;
   engineState: EngineState;
   error: string | null;
+  bouncerUpstream: BouncerUpstreamState | null;
   unsubscribeState: () => void;
+  unsubscribeBouncerUpstream: () => void;
   unsubscribeChat: () => void;
   unsubscribePresence: () => void;
 }
@@ -399,12 +406,23 @@ export class DirectoryBloc {
   // Per-server bouncer routing (read/write the saved-session row). Takes
   // effect on the next (re)connect — connectWith reads it from the session
   // store by serverId.
-  getServerBouncer(serverId: string): { route: boolean; network: string } | undefined {
+  getServerBouncer(serverId: string): SavedServerBouncer | undefined {
     return this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.server.bouncer;
   }
 
-  setServerBouncer(serverId: string, route: { route: boolean; network: string }): void {
+  setServerBouncer(serverId: string, route: SavedServerBouncer): void {
     this.sessionStore.setServerBouncer(serverId, route);
+  }
+
+  // Ask a live bouncer connection to connect / disconnect its upstream IRC
+  // network (ZNC `*status connect` / `disconnect`, sent by the engine).
+  // No-op when the server isn't a live connection.
+  bouncerConnect(serverId: string): void {
+    this.connections.get(serverId)?.chat.bouncerConnect();
+  }
+
+  bouncerDisconnect(serverId: string): void {
+    this.connections.get(serverId)?.chat.bouncerDisconnect();
   }
 
   // Open a conversation surfaced from the Inbox: focus its server (and show
@@ -777,6 +795,7 @@ export class DirectoryBloc {
       engineState: c.engineState,
       error: c.error,
       reconnect: { active: this.isAutoReconnectActive(c.serverId) },
+      bouncerUpstream: c.bouncerUpstream,
     }));
   }
 
@@ -1291,6 +1310,9 @@ export class DirectoryBloc {
     let sasl: { user: string; password: string } | undefined = storedCreds?.sasl;
     let tlsInsecure: boolean | undefined =
       loadLocalServers().find((s) => s.id === server.id)?.tlsInsecure || undefined;
+    // True only when the bouncer branch below actually swaps the target —
+    // a route on a disabled profile connects directly.
+    let viaBouncer = false;
     if (route?.route) {
       const bouncerStore = getBouncerStore();
       await bouncerStore.whenHydrated?.();
@@ -1306,6 +1328,7 @@ export class DirectoryBloc {
         // The PASS line authenticates us to the bouncer; the server's own
         // SASL creds don't apply to that hop, so don't forward them.
         sasl = undefined;
+        viaBouncer = true;
       }
     }
 
@@ -1319,6 +1342,10 @@ export class DirectoryBloc {
       nickservPassword: storedCreds?.nickservPassword,
       serverPass,
       tlsInsecure,
+      // Bouncer hints for the engine: treat this as a bouncer link from the
+      // start, and (unless the user opted out per server) ask the bouncer to
+      // connect its upstream network when it attaches disconnected.
+      ...(viaBouncer ? { bouncer: true, bouncerAutoConnect: route?.autoConnect ?? true } : {}),
     });
     // Pass the nick-claim API so signed-in users get the automated
     // claim flow. The interface is the minimal subset of
@@ -1345,7 +1372,9 @@ export class DirectoryBloc {
       session,
       engineState: session.state(),
       error: null,
+      bouncerUpstream: session.bouncerUpstream?.() ?? null,
       unsubscribeState: () => {},
+      unsubscribeBouncerUpstream: () => {},
       unsubscribeChat: () => {},
       unsubscribePresence: () => {},
     };
@@ -1411,6 +1440,14 @@ export class DirectoryBloc {
       }
       this.emit();
     });
+
+    // Bouncer upstream state → connection snapshot (drives the Bouncer tab's
+    // per-network badges). Sticky: replays synchronously if already known.
+    conn.unsubscribeBouncerUpstream = session.onBouncerUpstream?.((upstream) => {
+      if (conn.bouncerUpstream === upstream) return;
+      conn.bouncerUpstream = upstream;
+      this.emit();
+    }) ?? (() => {});
 
     // Persist this connection into the saved-session set. SessionStore v2
     // keeps one record per server so a multi-server session round-trips
@@ -1478,6 +1515,7 @@ export class DirectoryBloc {
   // Drop listeners + (optionally) send a per-server disconnect to the engine.
   private teardownConnection(c: Connection, opts: { sendDisconnect: boolean }): void {
     c.unsubscribeState();
+    c.unsubscribeBouncerUpstream();
     c.unsubscribeChat();
     c.unsubscribePresence();
     c.chat.detach();

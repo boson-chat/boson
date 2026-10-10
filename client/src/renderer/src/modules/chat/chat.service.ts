@@ -325,6 +325,7 @@ export class ChatService {
   // has classified.
   private servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
   private unsubscribeServices: (() => void) | null = null;
+  private unsubscribeBouncerUpstream: (() => void) | null = null;
 
   // Optional backend API for the automated nick-claim flow. When
   // present, claimNick() orchestrates the full mint-email →
@@ -387,6 +388,26 @@ export class ChatService {
       this.servicesFramework = fw;
       this.emit();
     });
+    // Bouncer upstream state (is ZNC connected to the real network?).
+    // Sticky on the session, so a late attach replays the current value.
+    // Optional-call: lightweight test fakes may not implement it.
+    this.unsubscribeBouncerUpstream = this.session.onBouncerUpstream?.((upstream) => {
+      if (this.serverInfo.bouncerUpstream === upstream) return;
+      // Only bouncer connections report upstream state, so this also
+      // latches the "via bouncer" flag.
+      this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerUpstream: upstream };
+      this.emit();
+    }) ?? null;
+  }
+
+  // Ask the bouncer to connect / disconnect its upstream IRC network.
+  // The engine reports the resulting state via `bouncer-upstream`.
+  bouncerConnect(): void {
+    this.session.bouncerConnect();
+  }
+
+  bouncerDisconnect(): void {
+    this.session.bouncerDisconnect();
   }
 
   detach(): void {
@@ -409,6 +430,8 @@ export class ChatService {
     // a torn-down chat service.
     this.unsubscribeServices?.();
     this.unsubscribeServices = null;
+    this.unsubscribeBouncerUpstream?.();
+    this.unsubscribeBouncerUpstream = null;
   }
 
   // Ask the engine to refresh the channel directory. The engine handles

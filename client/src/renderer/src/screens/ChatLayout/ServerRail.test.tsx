@@ -59,3 +59,66 @@ describe('ServerRail hover name flyout', () => {
     expect(document.querySelector('.server-rail-tooltip')).toBeNull();
   });
 });
+
+describe('ServerRail context menu — bouncer network items', () => {
+  function openMenu(t: ServerRailTile, handlers: { onBouncerConnect?: (id: string) => void; onBouncerDisconnect?: (id: string) => void } = {}) {
+    render(
+      <ServerRail
+        servers={[t]}
+        activeServerId="s1"
+        onSelectServer={vi.fn()}
+        onBrowseServers={vi.fn()}
+        onOpenServerSettings={vi.fn()}
+        onLeaveServer={vi.fn()}
+        {...handlers}
+      />,
+    );
+    const btn = document.querySelector('.server-item:not(.server-item-add)') as HTMLElement;
+    fireEvent.contextMenu(btn);
+  }
+
+  it('upstream disconnected → "Connect network"', () => {
+    const onBouncerConnect = vi.fn();
+    openMenu(tile({ bouncerUpstream: 'disconnected' }), { onBouncerConnect, onBouncerDisconnect: vi.fn() });
+    expect(screen.queryByRole('menuitem', { name: 'Disconnect network' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Connect network' }));
+    expect(onBouncerConnect).toHaveBeenCalledWith('s1');
+    // Menu closes after the action.
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('upstream connected → "Disconnect network"', () => {
+    const onBouncerDisconnect = vi.fn();
+    openMenu(tile({ bouncerUpstream: 'connected' }), { onBouncerConnect: vi.fn(), onBouncerDisconnect });
+    expect(screen.queryByRole('menuitem', { name: 'Connect network' })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect network' }));
+    expect(onBouncerDisconnect).toHaveBeenCalledWith('s1');
+  });
+
+  it('direct (non-bouncer) server → no network items', () => {
+    openMenu(tile(), { onBouncerConnect: vi.fn(), onBouncerDisconnect: vi.fn() });
+    expect(screen.getByRole('menuitem', { name: 'Server details' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /network/ })).toBeNull();
+  });
+
+  it('bouncer link itself down → no network items (stale upstream ignored)', () => {
+    openMenu(tile({ engineState: 'disconnected', bouncerUpstream: 'connected' }), {
+      onBouncerConnect: vi.fn(), onBouncerDisconnect: vi.fn(),
+    });
+    expect(screen.queryByRole('menuitem', { name: /network/ })).toBeNull();
+  });
+
+  it('flyout says "network offline" for an attached-but-offline bouncer', () => {
+    render(
+      <ServerRail
+        servers={[tile({ name: 'Libera', bouncerUpstream: 'disconnected' })]}
+        activeServerId="s1"
+        onSelectServer={vi.fn()}
+        onBrowseServers={vi.fn()}
+      />,
+    );
+    const btn = document.querySelector('.server-item:not(.server-item-add)') as HTMLElement;
+    fireEvent.mouseEnter(btn);
+    expect(document.querySelector('.server-rail-tooltip')?.textContent).toBe('Libera (network offline)');
+  });
+});

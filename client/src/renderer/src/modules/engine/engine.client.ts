@@ -1,4 +1,5 @@
 import type {
+  BouncerUpstreamState,
   ChannelDirectoryEntry,
   ClientCommand,
   ConnectParams,
@@ -84,6 +85,8 @@ export class ServerSession {
   private readonly channelDirectoryListeners = new Set<ChannelDirectoryListener>();
   private readonly servicesListeners = new Set<(fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void>();
   private servicesFramework_: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
+  private readonly bouncerUpstreamListeners = new Set<(s: BouncerUpstreamState) => void>();
+  private bouncerUpstream_: BouncerUpstreamState | null = null;
   private disposed_ = false;
 
   constructor(
@@ -126,6 +129,43 @@ export class ServerSession {
   // classified, then sticky.
   servicesFramework(): 'atheme' | 'anope' | 'ergo' | 'unknown' | null {
     return this.servicesFramework_;
+  }
+
+  // Subscribe to the bouncer's upstream-network state (ZNC connected to
+  // the real IRC network or not). Only bouncer connections ever report
+  // it. Sticky like onServicesFramework: a late subscriber gets the last
+  // known value synchronously.
+  onBouncerUpstream(fn: (s: BouncerUpstreamState) => void): () => void {
+    this.bouncerUpstreamListeners.add(fn);
+    if (this.bouncerUpstream_ !== null) {
+      try { fn(this.bouncerUpstream_); } catch { /* isolate */ }
+    }
+    return () => { this.bouncerUpstreamListeners.delete(fn); };
+  }
+
+  // Last reported upstream state — null until the engine reports one
+  // (and forever for direct, non-bouncer connections).
+  bouncerUpstream(): BouncerUpstreamState | null {
+    return this.bouncerUpstream_;
+  }
+
+  // Ask the bouncer to connect its upstream network. The engine sends
+  // `connect` to the status bot (only when upstream isn't already up)
+  // and reports `connecting`.
+  bouncerConnect(): void {
+    this.engine._sendForSession({
+      type: 'bouncer-connect',
+      params: { serverId: this.serverId },
+    });
+  }
+
+  // Ask the bouncer to drop its upstream network. Also disarms the
+  // engine's auto-connect for the rest of this engine connection.
+  bouncerDisconnect(): void {
+    this.engine._sendForSession({
+      type: 'bouncer-disconnect',
+      params: { serverId: this.serverId },
+    });
   }
 
   join(channel: string): void {
@@ -259,6 +299,14 @@ export class ServerSession {
     });
   }
 
+  _emitBouncerUpstream(state: BouncerUpstreamState): void {
+    if (this.bouncerUpstream_ === state) return;
+    this.bouncerUpstream_ = state;
+    this.bouncerUpstreamListeners.forEach((fn) => {
+      try { fn(state); } catch { /* isolate */ }
+    });
+  }
+
   _emitChannelDirectory(entries: ChannelDirectoryEntry[]): void {
     this.channelDirectoryListeners.forEach((fn) => {
       try { fn(entries); } catch { /* isolate */ }
@@ -276,6 +324,7 @@ export class ServerSession {
     this.eventListeners.clear();
     this.stateListeners.clear();
     this.channelDirectoryListeners.clear();
+    this.bouncerUpstreamListeners.clear();
   }
 }
 
@@ -544,6 +593,11 @@ export class EngineClient {
         break;
       case 'services-framework':
         if (msg.framework) session._emitServicesFramework(msg.framework);
+        break;
+      case 'bouncer-upstream':
+        if (msg.upstream === 'connected' || msg.upstream === 'disconnected' || msg.upstream === 'connecting') {
+          session._emitBouncerUpstream(msg.upstream);
+        }
         break;
       case 'status':
         if (msg.state) {

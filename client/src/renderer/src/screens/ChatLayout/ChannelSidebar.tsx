@@ -82,12 +82,25 @@ export function ChannelSidebar({
   // Compact daemon label under the server name (e.g. "ngircd-27"); network +
   // hostname stay in the title tooltip rather than crowding the sidebar.
   const serverMeta = serverInfo?.version ?? serverInfo?.serverName ?? '';
-  const statusLabel = engineState === 'connected' ? 'Connected'
-    : engineState === 'connecting' ? 'Connecting…' : 'Disconnected';
+  // On a bouncer link, engine 'connected' only means the bouncer is reachable;
+  // whether the bouncer is attached to the real network is `bouncerUpstream`.
+  const upstream = engineState === 'connected' && serverInfo?.bouncer
+    ? serverInfo.bouncerUpstream
+    : undefined;
+  const statusLabel = engineState === 'connecting' ? 'Connecting…'
+    : engineState !== 'connected' ? 'Disconnected'
+      : upstream === 'disconnected' ? 'Bouncer connected · network offline'
+        : upstream === 'connecting' ? 'Bouncer connected · network connecting…'
+          : 'Connected';
+  // Dot colour: an offline upstream reads as a warning (amber), a pending
+  // one as connecting; otherwise mirror the engine state.
+  const dotState = upstream === 'disconnected' ? 'upstream-offline'
+    : upstream === 'connecting' ? 'connecting'
+      : engineState;
   const metaTooltip = [
     serverInfo?.serverName,
     serverInfo?.network ? `Network: ${serverInfo.network}` : '',
-    serverInfo?.bouncer ? 'Connected via bouncer' : '',
+    serverInfo?.bouncer && !upstream ? 'Connected via bouncer' : '',
     statusLabel,
   ].filter(Boolean).join('\n');
   // The synthetic `~server` channel is intentionally not rendered here —
@@ -104,9 +117,17 @@ export function ChannelSidebar({
           <div class="channel-sidebar-title sidebar-server-name">{serverName}</div>
           {(serverMeta || serverInfo?.bouncer) && (
             <div class="sidebar-server-meta" title={metaTooltip}>
-              <span class="sidebar-status-dot" data-state={engineState} aria-label={statusLabel} />
+              <span class="sidebar-status-dot" data-state={dotState} aria-label={statusLabel} />
               {serverMeta && <span class="sidebar-server-version">{serverMeta}</span>}
-              {serverInfo?.bouncer && <ArrowLeftRight class="sidebar-bnc" size={12} aria-label="via bouncer" />}
+              {serverInfo?.bouncer && (
+                <ArrowLeftRight
+                  class="sidebar-bnc"
+                  size={12}
+                  data-upstream={upstream}
+                  aria-label={upstream === 'disconnected' ? 'via bouncer, network offline'
+                    : upstream === 'connecting' ? 'via bouncer, network connecting' : 'via bouncer'}
+                />
+              )}
             </div>
           )}
         </div>

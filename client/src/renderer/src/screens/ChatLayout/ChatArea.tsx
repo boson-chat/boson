@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { Settings } from 'lucide-preact';
+import { Settings, Unplug } from 'lucide-preact';
+import { AtomLoader } from '@boson/shared';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
   getServiceCredentialsStore,
@@ -88,6 +89,10 @@ interface ChatAreaProps {
   // Opens the Channel Settings modal (modes / bans / topic). Present only for
   // channel targets; absent for DMs / the ~server log.
   onOpenChannelSettings?: () => void;
+  // Ask the active server's bouncer to connect its upstream network. Drives
+  // the bouncer-upstream strip's [Connect] button; when omitted the strip
+  // still shows state but without the action.
+  onBouncerConnect?: () => void;
 }
 
 export function ChatArea({
@@ -113,6 +118,7 @@ export function ChatArea({
   avatarFor,
   messagesSignal,
   onOpenChannelSettings,
+  onBouncerConnect,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -245,6 +251,11 @@ export function ChatArea({
   if (!channel) {
     return (
       <main class="chat-area chat-area-empty">
+        <BouncerUpstreamBanner
+          serverInfo={serverInfo}
+          serverName={serverName}
+          onConnect={onBouncerConnect}
+        />
         <div class="chat-area-empty-state">
           <p>Select a channel from the sidebar, or join one to start chatting.</p>
         </div>
@@ -290,6 +301,12 @@ export function ChatArea({
         serverId={activeServerId ?? null}
         serverName={serverName}
         onOpenSettings={onOpenServerSettings}
+      />
+
+      <BouncerUpstreamBanner
+        serverInfo={serverInfo}
+        serverName={serverName}
+        onConnect={onBouncerConnect}
       />
 
       <MessageList
@@ -450,3 +467,49 @@ function PendingConfirmationBanner({
   );
 }
 
+
+interface BouncerUpstreamBannerProps {
+  serverInfo?: ServerInfo;
+  serverName?: string;
+  onConnect?: () => void;
+}
+
+// Slim strip under the chat header for bouncer (ZNC) connections whose
+// bouncer is NOT connected to the real network. The engine's link to the
+// bouncer is up (so the rest of the UI says "connected"), but nothing the
+// user sends reaches the network until the bouncer reconnects upstream.
+//   disconnected → "Your bouncer isn't connected to X." + [Connect]
+//   connecting   → spinner + "Connecting to X…", no action
+// Renders nothing for direct connections, an unknown state, or connected.
+export function BouncerUpstreamBanner({ serverInfo, serverName, onConnect }: BouncerUpstreamBannerProps) {
+  const upstream = serverInfo?.bouncerUpstream;
+  if (!serverInfo?.bouncer || (upstream !== 'disconnected' && upstream !== 'connecting')) return null;
+  const network = serverInfo.network || serverName || 'the network';
+  if (upstream === 'connecting') {
+    return (
+      <div class="chat-bouncer-upstream-banner" data-state="connecting" role="status">
+        <AtomLoader size={14} class="chat-bouncer-upstream-icon" label="Connecting" />
+        <span class="chat-bouncer-upstream-text">
+          Your bouncer is connecting to {network}…
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div class="chat-bouncer-upstream-banner" data-state="disconnected" role="status">
+      <Unplug size={14} class="chat-bouncer-upstream-icon" aria-hidden="true" />
+      <span class="chat-bouncer-upstream-text">
+        Your bouncer isn't connected to {network}.
+      </span>
+      {onConnect && (
+        <button
+          type="button"
+          class="chat-bouncer-upstream-action"
+          onClick={onConnect}
+        >
+          Connect
+        </button>
+      )}
+    </div>
+  );
+}

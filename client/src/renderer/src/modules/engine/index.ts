@@ -23,4 +23,6 @@ export type {
   IrcEvent,
   ServerMessage,
   EngineState,
+  BouncerUpstreamState,
+  BouncerUpstreamParams,
 } from './engine.types';

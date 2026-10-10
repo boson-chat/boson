@@ -44,3 +44,39 @@ describe('cssUrl', () => {
     expect(cssUrl('https://x/a")evil("b.png')).toBe('https://x/a\\"\\)evil\\(\\"b.png');
   });
 });
+
+describe('ChannelSidebar bouncer upstream meta', () => {
+  const meta = () => document.querySelector('.sidebar-server-meta') as HTMLElement;
+  const dot = () => document.querySelector('.sidebar-status-dot') as HTMLElement;
+
+  it('plain bouncer link (no upstream report) reads Connected via bouncer', () => {
+    render(<ChannelSidebar {...baseProps} engineState="connected" serverInfo={{ bouncer: true }} />);
+    expect(dot().dataset.state).toBe('connected');
+    expect(meta().title).toContain('Connected via bouncer');
+  });
+
+  it('upstream offline: warn dot + "Bouncer connected · network offline" tooltip', () => {
+    render(<ChannelSidebar {...baseProps} engineState="connected" serverInfo={{ bouncer: true, bouncerUpstream: 'disconnected' }} />);
+    expect(dot().dataset.state).toBe('upstream-offline');
+    expect(dot().getAttribute('aria-label')).toBe('Bouncer connected · network offline');
+    expect(meta().title).toContain('Bouncer connected · network offline');
+    expect(screen.getByLabelText('via bouncer, network offline')).toBeTruthy();
+  });
+
+  it('upstream connecting: connecting dot', () => {
+    render(<ChannelSidebar {...baseProps} engineState="connected" serverInfo={{ bouncer: true, bouncerUpstream: 'connecting' }} />);
+    expect(dot().dataset.state).toBe('connecting');
+    expect(meta().title).toContain('network connecting');
+  });
+
+  it('upstream connected: plain Connected', () => {
+    render(<ChannelSidebar {...baseProps} engineState="connected" serverInfo={{ bouncer: true, bouncerUpstream: 'connected' }} />);
+    expect(dot().dataset.state).toBe('connected');
+    expect(dot().getAttribute('aria-label')).toBe('Connected');
+  });
+
+  it('bouncer link down: engine state wins over a stale upstream', () => {
+    render(<ChannelSidebar {...baseProps} engineState="disconnected" serverInfo={{ bouncer: true, bouncerUpstream: 'connected' }} />);
+    expect(dot().dataset.state).toBe('disconnected');
+  });
+});

@@ -140,6 +140,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
                 serverId: c.serverId,
                 name: c.server.name,
                 engineState: c.engineState,
+                bouncerUpstream: c.bouncerUpstream,
                 unread,
                 mentions,
                 iconUrl: resolveServerImages(c, state.servers).iconUrl,
@@ -155,6 +156,8 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onBrowseServers={() => bloc.openServerBrowser()}
             // Right-click on another tile switches the settings page to it.
             onOpenServerSettings={(id) => setServerSettingsForId(id)}
+            onBouncerConnect={(id) => bloc.bouncerConnect(id)}
+            onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
           />
           <ServerSettings
             serverDisplayName={target.server.name}
@@ -180,6 +183,11 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             bouncerRoute={bloc.getServerBouncer(target.serverId)}
             bouncerGloballyEnabled={getBouncerStore().get()?.enabled ?? false}
             onSaveBouncerRoute={(route) => bloc.setServerBouncer(target.serverId, route)}
+            // Only meaningful while attached via the bouncer — a stale value
+            // from a dropped link would misreport the network state.
+            bouncerUpstream={target.engineState === 'connected' ? target.bouncerUpstream : null}
+            onBouncerConnect={() => bloc.bouncerConnect(target.serverId)}
+            onBouncerDisconnect={() => bloc.bouncerDisconnect(target.serverId)}
             onTriggerAutoIdentify={() => target.chat.triggerAutoIdentify()}
             onRunCommand={(line) => target.chat.input(line)}
             onDropAccount={(acct, pw) => target.chat.dropAccount(acct, pw)}
@@ -225,6 +233,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
               serverId: c.serverId,
               name: c.server.name,
               engineState: c.engineState,
+              bouncerUpstream: c.bouncerUpstream,
               unread,
               mentions,
               iconUrl: resolveServerImages(c, state.servers).iconUrl,
@@ -241,6 +250,8 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
           connectionError={active.error}
           onOpenServerSettings={(id) => setServerSettingsForId(id)}
           onLeaveServer={(id) => bloc.disconnect(id)}
+          onBouncerConnect={(id) => bloc.bouncerConnect(id)}
+          onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
         />
         <Modal
           open={serverBrowserOpen}
@@ -520,6 +531,43 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
 // / remove, plus a one-field add form. Networks added here sync across devices
 // via the session payload. When no global bouncer is configured it nudges the
 // user to User Settings → Bouncer.
+// Status + primary action for one saved bouncer network. "Connected" must
+// mean the bouncer is on the real network, not merely that we reached the
+// bouncer: an attached-but-offline bouncer reads "Network offline" with a
+// Connect network action.
+function BouncerNetworkStatus({ conn, onConnect, onConnectUpstream }: {
+  conn: DirectoryState['connections'][number] | undefined;
+  onConnect: () => void;
+  onConnectUpstream: () => void;
+}) {
+  if (conn?.engineState === 'connecting') {
+    return <Badge tone="info">Connecting…</Badge>;
+  }
+  if (conn?.engineState !== 'connected') {
+    return (
+      <Button variant="primary" onClick={onConnect}>
+        Connect
+      </Button>
+    );
+  }
+  switch (conn.bouncerUpstream) {
+    case 'disconnected':
+      return (
+        <>
+          <Badge tone="warn">Network offline</Badge>
+          <Button variant="primary" onClick={onConnectUpstream}>
+            Connect network
+          </Button>
+        </>
+      );
+    case 'connecting':
+      return <Badge tone="info">Connecting…</Badge>;
+    default:
+      // 'connected', or not reported (an engine without upstream tracking).
+      return <Badge tone="success">Connected</Badge>;
+  }
+}
+
 export function BouncerNetworksPanel({ bloc, connections }: {
   bloc: DirectoryBloc;
   connections: DirectoryState['connections'];
@@ -693,13 +741,11 @@ export function BouncerNetworksPanel({ bloc, connections }: {
                   </div>
                 </div>
                 <div class="directory-bouncer-actions">
-                  {conn?.engineState === 'connected' ? (
-                    <Badge tone="success">Connected</Badge>
-                  ) : (
-                    <Button variant="primary" onClick={() => bloc.connectBouncerNetwork(s.id)}>
-                      Connect
-                    </Button>
-                  )}
+                  <BouncerNetworkStatus
+                    conn={conn}
+                    onConnect={() => bloc.connectBouncerNetwork(s.id)}
+                    onConnectUpstream={() => bloc.bouncerConnect(s.id)}
+                  />
                   <Button variant="ghost" onClick={() => bloc.removeBouncerNetwork(s.id)}>Remove</Button>
                 </div>
               </div>

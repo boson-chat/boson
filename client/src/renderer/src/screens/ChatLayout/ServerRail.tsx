@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import type { EngineState } from '../../modules/engine';
+import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
 import './ServerRail.css';
 
 export interface ServerRailTile {
@@ -15,6 +15,10 @@ export interface ServerRailTile {
   // CDN URL of the server's directory icon, when the owner set one. Shown
   // in place of the initials tile; absent → initials fallback.
   iconUrl?: string;
+  // Bouncer connections only: whether the bouncer is connected to the real
+  // network. Null/absent for direct connections (and until reported).
+  // Drives the "Connect / Disconnect network" context-menu items.
+  bouncerUpstream?: BouncerUpstreamState | null;
 }
 
 interface ServerRailProps {
@@ -34,6 +38,11 @@ interface ServerRailProps {
   // the "Leave server" item in the right-click menu. Optional: when
   // absent, the menu item is hidden.
   onLeaveServer?: (serverId: string) => void;
+  // Ask a bouncer server's bouncer to connect / disconnect its upstream
+  // network. Shown in the context menu only for tiles that report a
+  // `bouncerUpstream` state.
+  onBouncerConnect?: (serverId: string) => void;
+  onBouncerDisconnect?: (serverId: string) => void;
 }
 
 // ServerRail renders one tile per connected server, plus a `+` button that
@@ -42,12 +51,13 @@ interface ServerRailProps {
 // view driven by `activeServerName` for legacy callers.
 export function ServerRail({
   servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings, onLeaveServer,
+  onBouncerConnect, onBouncerDisconnect,
 }: ServerRailProps) {
   // Right-click context menu state. Anchored to the tile, positioned at the
   // event's client coords so the menu pops up under the cursor.
   const [menu, setMenu] = useState<{ serverId: string; x: number; y: number } | null>(null);
   const handleContextMenu = (e: MouseEvent, serverId: string): void => {
-    if (!onOpenServerSettings && !onLeaveServer) return;
+    if (!onOpenServerSettings && !onLeaveServer && !onBouncerConnect && !onBouncerDisconnect) return;
     e.preventDefault();
     setMenu({ serverId, x: e.clientX, y: e.clientY });
   };
@@ -87,7 +97,15 @@ export function ServerRail({
           hasMention ? 'server-item-mention' : '',
           t.iconUrl ? 'server-item-has-icon' : '',
         ].filter(Boolean).join(' ');
-        const titleSuffix = t.engineState === 'connected' ? '' : ` (${t.engineState})`;
+        // A bouncer tile whose bouncer is up but not attached to the network
+        // reads "connected" by engine state alone — say what's really going on.
+        const titleSuffix = t.engineState !== 'connected'
+          ? ` (${t.engineState})`
+          : t.bouncerUpstream === 'disconnected'
+            ? ' (network offline)'
+            : t.bouncerUpstream === 'connecting'
+              ? ' (network connecting)'
+              : '';
         // Ambient unread = small neutral dot. Mention = amber counter badge
         // with the number. Mentions are louder so they win when both apply.
         const badge = hasMention ? (
@@ -162,15 +180,25 @@ export function ServerRail({
         +
       </button>
 
-      {menu && (
+      {menu && (() => {
+        const tile = tiles.find((t) => t.serverId === menu.serverId);
+        const upstream = tile?.engineState === 'connected' ? tile.bouncerUpstream ?? null : null;
+        return (
         <ServerRailContextMenu
           x={menu.x}
           y={menu.y}
           onClose={closeMenu}
           onDetails={onOpenServerSettings ? () => { onOpenServerSettings(menu.serverId); closeMenu(); } : undefined}
           onLeave={onLeaveServer ? () => { onLeaveServer(menu.serverId); closeMenu(); } : undefined}
+          onBouncerConnect={upstream === 'disconnected' && onBouncerConnect
+            ? () => { onBouncerConnect(menu.serverId); closeMenu(); }
+            : undefined}
+          onBouncerDisconnect={(upstream === 'connected' || upstream === 'connecting') && onBouncerDisconnect
+            ? () => { onBouncerDisconnect(menu.serverId); closeMenu(); }
+            : undefined}
         />
-      )}
+        );
+      })()}
     </nav>
     {hovered && createPortal(
       <div
@@ -199,9 +227,13 @@ interface ServerRailContextMenuProps {
   onClose: () => void;
   onDetails?: () => void;
   onLeave?: () => void;
+  onBouncerConnect?: () => void;
+  onBouncerDisconnect?: () => void;
 }
 
-function ServerRailContextMenu({ x, y, onClose, onDetails, onLeave }: ServerRailContextMenuProps) {
+function ServerRailContextMenu({
+  x, y, onClose, onDetails, onLeave, onBouncerConnect, onBouncerDisconnect,
+}: ServerRailContextMenuProps) {
   useEffect(() => {
     const onDown = (e: MouseEvent): void => {
       const t = e.target as HTMLElement | null;
@@ -228,6 +260,16 @@ function ServerRailContextMenu({ x, y, onClose, onDetails, onLeave }: ServerRail
       {onDetails && (
         <button type="button" class="server-rail-context-item" role="menuitem" onClick={onDetails}>
           Server details
+        </button>
+      )}
+      {onBouncerConnect && (
+        <button type="button" class="server-rail-context-item" role="menuitem" onClick={onBouncerConnect}>
+          Connect network
+        </button>
+      )}
+      {onBouncerDisconnect && (
+        <button type="button" class="server-rail-context-item" role="menuitem" onClick={onBouncerDisconnect}>
+          Disconnect network
         </button>
       )}
       {onLeave && (

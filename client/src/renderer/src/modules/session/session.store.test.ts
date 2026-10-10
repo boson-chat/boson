@@ -166,5 +166,28 @@ describe('SessionStore (v2 multi-server)', () => {
       }));
       expect(new SessionStore(bad).load()).toBeNull();
     });
+
+    it('persists bouncer.autoConnect and accepts it on load', () => {
+      store.upsertServer(srvA);
+      store.setServerBouncer('srv-a', { route: true, network: 'libera', autoConnect: false });
+      const got = new SessionStore(storage).load()!.servers[0]!.server;
+      expect(got.bouncer).toEqual({ route: true, network: 'libera', autoConnect: false });
+    });
+
+    it('accepts a bouncer without autoConnect (older payloads); rejects a non-boolean autoConnect', () => {
+      const old = makeStorage();
+      old.setItem('boson:session:v2', JSON.stringify({
+        servers: [{ server: { ...srvA, bouncer: { route: true, network: 'libera' } }, channels: [], activeChannel: null }],
+        activeServerId: 'srv-a',
+      }));
+      expect(new SessionStore(old).load()!.servers[0]!.server.bouncer?.autoConnect).toBeUndefined();
+
+      const bad = makeStorage();
+      bad.setItem('boson:session:v2', JSON.stringify({
+        servers: [{ server: { ...srvA, bouncer: { route: true, network: 'libera', autoConnect: 'yes' } }, channels: [], activeChannel: null }],
+        activeServerId: 'srv-a',
+      }));
+      expect(new SessionStore(bad).load()).toBeNull();
+    });
   });
 });

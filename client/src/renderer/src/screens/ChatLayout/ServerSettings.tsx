@@ -2,6 +2,8 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, ChipInput, Divider, Field, Input, Tabs, Toggle, useTransientFlag } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
+import type { BouncerUpstreamState } from '../../modules/engine';
+import type { SavedServerBouncer } from '../../modules/session';
 import {
   getServiceCredentialsStore,
   type AccountStatus,
@@ -145,12 +147,18 @@ interface ServerSettingsProps {
   // ---- Bouncer (per-server routing) -----------------------------------
   // Current per-server bouncer route for this connection (from the saved
   // session), or undefined when none is configured.
-  bouncerRoute?: { route: boolean; network: string };
+  bouncerRoute?: SavedServerBouncer;
   // Whether the user's GLOBAL bouncer profile is enabled — drives the
   // "enable it in User Settings first" banner.
   bouncerGloballyEnabled?: boolean;
   // Persist the per-server route. Takes effect on the next (re)connect.
-  onSaveBouncerRoute?: (route: { route: boolean; network: string }) => void;
+  onSaveBouncerRoute?: (route: SavedServerBouncer) => void;
+  // Live upstream state when THIS connection is currently attached via the
+  // bouncer (null/undefined otherwise). Drives the "Network" status card
+  // with Connect / Disconnect network buttons.
+  bouncerUpstream?: BouncerUpstreamState | null;
+  onBouncerConnect?: () => void;
+  onBouncerDisconnect?: () => void;
 }
 
 interface MenuItem {
@@ -175,6 +183,7 @@ export function ServerSettings({
   serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
   directoryEntry, onSaveProfile, onSaveServerImage, isOper = false,
   bouncerRoute, bouncerGloballyEnabled = false, onSaveBouncerRoute,
+  bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
   // Hide the owner-only tabs (Edit + Operators) when the parent didn't pass
@@ -263,6 +272,10 @@ export function ServerSettings({
               route={bouncerRoute}
               globallyEnabled={bouncerGloballyEnabled}
               onSave={onSaveBouncerRoute}
+              upstream={bouncerUpstream}
+              networkLabel={serverInfo.network || bouncerRoute?.network || serverDisplayName}
+              onConnectUpstream={onBouncerConnect}
+              onDisconnectUpstream={onBouncerDisconnect}
             />
           )}
           {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
@@ -1550,26 +1563,66 @@ function OperatorConfigCard({
 // Per-server bouncer routing. Toggles whether THIS connection goes through the
 // user's global ZNC profile (configured in User Settings → Bouncer) and names
 // the ZNC network this server maps to. Takes effect on the next (re)connect.
-function BouncerServerSection({ route, globallyEnabled, onSave }: {
-  route?: { route: boolean; network: string };
+function BouncerServerSection({
+  route, globallyEnabled, onSave, upstream = null, networkLabel, onConnectUpstream, onDisconnectUpstream,
+}: {
+  route?: SavedServerBouncer;
   globallyEnabled: boolean;
-  onSave?: (route: { route: boolean; network: string }) => void;
+  onSave?: (route: SavedServerBouncer) => void;
+  // Live bouncer → network state; null when not currently attached via the
+  // bouncer (the status card is hidden then).
+  upstream?: BouncerUpstreamState | null;
+  networkLabel?: string;
+  onConnectUpstream?: () => void;
+  onDisconnectUpstream?: () => void;
 }) {
   const [on, setOn] = useState(route?.route ?? false);
   const [network, setNetwork] = useState(route?.network ?? '');
+  // Default ON when never set: users route through a bouncer to stay on the
+  // network, so a bouncer that's offline from it is almost never intended.
+  const [autoConnect, setAutoConnect] = useState(route?.autoConnect ?? true);
   const [saved, triggerSaved] = useTransientFlag();
 
   const submit = (e: Event): void => {
     e.preventDefault();
-    onSave?.({ route: on, network: network.trim() });
+    onSave?.({ route: on, network: network.trim(), autoConnect });
     triggerSaved();
   };
 
+  const net = networkLabel || 'the network';
   return (
     <SectionFrame
       title="Bouncer"
       description="Route this server through your ZNC/BNC bouncer instead of connecting to it directly. Reconnect for changes to take effect."
     >
+      {upstream && (
+        <Card>
+          <div class="server-settings-card-body server-settings-bouncer-upstream" data-state={upstream}>
+            <div class="server-settings-bouncer-upstream-status">
+              <Badge tone={upstream === 'connected' ? 'success' : upstream === 'connecting' ? 'info' : 'warn'}>
+                {upstream === 'connected' ? 'Network connected'
+                  : upstream === 'connecting' ? 'Network connecting…' : 'Network offline'}
+              </Badge>
+              <p class="server-settings-cmd-hint">
+                {upstream === 'connected'
+                  ? `Your bouncer is connected to ${net}.`
+                  : upstream === 'connecting'
+                    ? `Your bouncer is connecting to ${net}…`
+                    : `Your bouncer is reachable but isn't connected to ${net}. Messages won't reach the network until it connects.`}
+              </p>
+            </div>
+            {upstream === 'disconnected' ? (
+              <Button type="button" variant="primary" size="sm" onClick={onConnectUpstream} disabled={!onConnectUpstream}>
+                Connect network
+              </Button>
+            ) : (
+              <Button type="button" variant="secondary" size="sm" onClick={onDisconnectUpstream} disabled={!onDisconnectUpstream}>
+                Disconnect network
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
       <Card>
         <form onSubmit={submit} class="server-settings-card-body">
           {!globallyEnabled && (
@@ -1592,6 +1645,11 @@ function BouncerServerSection({ route, globallyEnabled, onSave }: {
               disabled={!onSave}
             />
           </Field>
+          <Toggle
+            checked={autoConnect}
+            onChange={setAutoConnect}
+            label="Automatically connect the network when the bouncer is disconnected"
+          />
           <div class="server-settings-oper-config-actions">
             {saved && <span class="user-settings-saved">Saved — reconnect to apply</span>}
             <Button type="submit" variant="primary" disabled={!onSave}>Save</Button>
