@@ -166,9 +166,10 @@ export class ServerSession {
     });
   }
 
-  // Ask the server for its channel directory (IRC LIST). Replies stream back
-  // as 322 RPL_LIST events, terminated by 323 RPL_LISTEND. ChatService
-  // collects them into a per-server cache for the join autocomplete.
+  // Ask the server for its channel directory (IRC LIST). The engine
+  // collects the 322 RPL_LIST replies itself and sends one
+  // `channel-directory` frame on 323 RPL_LISTEND; ChatService caches that
+  // per server for the join autocomplete.
   list(): void {
     this.engine._sendForSession({
       type: 'list',
