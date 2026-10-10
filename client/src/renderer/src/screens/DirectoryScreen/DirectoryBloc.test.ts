@@ -586,6 +586,28 @@ describe('DirectoryBloc', () => {
       bloc.dispose();
     });
 
+    it('guest mode with the backend unreachable still lists locally-added servers', async () => {
+      const directory = fakeDirectory({
+        list: vi.fn(async () => { throw new TypeError('fetch failed'); }),
+      });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: false }),
+        engine: fakeEngine().client, sessionStore: new SessionStore(memoryStorage()),
+        guestNick: 'offline-guest',
+      });
+      await flushPromises(4);
+
+      // The error is surfaced, but the directory isn't stuck "loading" and the
+      // guest identity is synthesised (session restore needs me.handle).
+      expect(bloc.getState().error).toBe('fetch failed');
+      expect(bloc.getState().filteredServers).toEqual([]);
+      expect(bloc.getState().me?.handle).toBe('offline-guest');
+
+      const created = bloc.addLocalServer({ name: 'LAN', hostname: '192.168.1.42', port: 6667, tls: false });
+      expect(bloc.getState().filteredServers?.map((s) => s.id)).toEqual([created.id]);
+      bloc.dispose();
+    });
+
     it('connect() forwards the manual server password, SASL, and tlsInsecure to the engine', async () => {
       const engine = fakeEngine();
       const directory = fakeDirectory({ user: fakeUser('alice'), servers: [] });

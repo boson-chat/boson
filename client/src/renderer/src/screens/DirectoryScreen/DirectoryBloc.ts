@@ -1122,7 +1122,19 @@ export class DirectoryBloc {
       // call. The id `__guest__` is stable across reloads so chat-history
       // scoping has a consistent key for the guest's local-only logs.
       if (this.guestNick) {
-        const list = await this.directory.listServers();
+        // The public directory is optional for a guest: with the backend
+        // unreachable (offline, self-hosted setup, outage) they must still
+        // see + connect to their locally-added servers and get their saved
+        // session restored. Surface the error but carry on with an empty
+        // public list instead of leaving `servers` null (an endless
+        // "Loading directory…" that hides local entries and blocks restore).
+        let list: Server[] = [];
+        try {
+          list = await this.directory.listServers();
+        } catch (e) {
+          if (this.disposed) return;
+          this.error = e instanceof Error ? e.message : String(e);
+        }
         if (this.disposed) return;
         this.me = {
           id: '__guest__',
