@@ -1,7 +1,9 @@
 # Ergo config for the real-app e2e suite (client/tests/e2e-app/). Brought up
 # by infra/e2e/docker-compose.yml — never the dev `ergo` service. Differs from
-# infra/ergo/ircd.yaml in that nothing depends on mailpit and every throttle /
-# limit that could trip repeated test runs from one (NATed) IP is off.
+# infra/ergo/ircd.yaml in that every throttle / limit that could trip repeated
+# test runs from one (NATed) IP is off. Like dev, NickServ registration mails
+# its verification code to the compose `mailpit` (the boson.chat catch-all
+# the backend's nick-claim worker drains); ergo doesn't need mailpit to start.
 network:
   name: BosonE2E
 
@@ -27,7 +29,20 @@ server:
 
 accounts:
   registration:
-    enabled: false
+    enabled: true
+    allow-before-connect: true
+    bcrypt-cost: 4
+    verify-timeout: "32h"
+    # Inline-MTA form (see infra/ergo/ircd.yaml for why not `mta:`).
+    email-verification:
+      enabled: true
+      sender: "noreply@boson.chat"
+      require-tls: false
+      helo-domain: "boson.chat"
+      timeout: 60s
+      server: "mailpit"
+      port: 1025
+      implicit-tls: false
   authentication-enabled: true
   require-sasl:
     enabled: false

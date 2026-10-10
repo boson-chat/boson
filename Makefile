@@ -238,35 +238,44 @@ test-e2e: engine-build
 
 # ----- Real-app e2e (built Electron app + its own engine sidecar) -----
 #
-# Drives the BUILT Electron app (client/out-e2e/) with Playwright's
-# _electron API: guest login, manual server add, chat with a raw IRC peer,
-# restore-on-relaunch, the ZNC bouncer flow, and navigation-guard smoke
-# tests. Needs only docker — no Postgres/Supabase/backend. The IRC infra is
-# its own compose project (boson-e2e: ergo on 127.0.0.1:16667, ZNC on
-# 127.0.0.1:16501, tmpfs state) and never touches the dev stack's
-# containers, ports or volumes. Each test runs the app with a throwaway
-# HOME / XDG_RUNTIME_DIR / userData, so ~/.boson and the real app profile
-# are left alone. Infra stays up afterwards for quick reruns
-# (`cd client && npm run test:e2e:app`); `make test-e2e-app-down` stops it.
-E2E_APP_COMPOSE := docker compose -f infra/e2e/docker-compose.yml
+# Drives the BUILT Electron app (client/out-e2e/, or $$E2E_OUT_DIR) with
+# Playwright's _electron API: guest flows (manual server add, chat with a raw
+# IRC peer, restore-on-relaunch, ZNC bouncer, navigation guards) and account
+# flows (sign-up + email confirmation, handle setup, the backend directory).
+#
+# test-e2e-app-up brings up the whole isolated e2e stack
+# (client/scripts/e2e-stack.mjs): compose project boson-e2e (ergo :16667,
+# ZNC :16501, Postgres :16432, catch-all Mailpit :11025/:11110/:18025, MinIO
+# :19000), the boson-e2e Supabase CLI project in infra/e2e/supabase (Auth +
+# Kong on :55321, auth Mailpit :55324) and the Go backend on :13000 (built
+# from this checkout, run on the host). None of it touches the dev stack's
+# containers, ports, volumes or Supabase project; endpoints are in
+# infra/e2e/stack.json. Each test runs the app with a throwaway HOME /
+# XDG_RUNTIME_DIR / userData, so ~/.boson and the real app profile are left
+# alone. The stack stays up afterwards for quick reruns
+# (`cd client && npm run test:e2e:app`); `make test-e2e-app-down` stops it
+# and drops its state.
+E2E_STACK := node client/scripts/e2e-stack.mjs
 
 test-e2e-app-up:
-	$(E2E_APP_COMPOSE) up -d --force-recreate --wait
+	$(E2E_STACK) up
 
 test-e2e-app: test-e2e-app-up
 	cd client && npm run build:e2e-app
 	cd client && npm run test:e2e:app
 
-# Same suite with code coverage for all three layers (renderer, Electron
-# main + preload, Go engine) → client/coverage/e2e/ (HTML + lcov per layer,
-# summary.md). Leaves a coverage build in out-e2e; the next
-# `make test-e2e-app` rebuilds it normally.
-test-e2e-app-coverage: test-e2e-app-up
+# Same suite with code coverage for all four layers (renderer, Electron main
+# + preload, Go engine, Go backend) → client/coverage/e2e/ (HTML + lcov per
+# layer, summary.md). Brings the stack up with a coverage-built backend (so
+# its counters cover just this run) and leaves a coverage build in out-e2e;
+# the next `make test-e2e-app` rebuilds both normally.
+test-e2e-app-coverage:
+	E2E_COVERAGE=1 $(E2E_STACK) up
 	cd client && E2E_COVERAGE=1 npm run build:e2e-app
 	cd client && npm run test:e2e:app:coverage
 
 test-e2e-app-down:
-	$(E2E_APP_COMPOSE) down -v --remove-orphans
+	$(E2E_STACK) down
 
 # ----- Services e2e (live IRC services packages) -----
 #
