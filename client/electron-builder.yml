@@ -3,11 +3,13 @@
 # client/dist/ as platform-native installers (the GitHub release uploader
 # then attaches them to the just-published release).
 #
-# Code-signing is intentionally OFF for v0.x:
-#   - macOS: ships unsigned. Users right-click → Open the first time.
+# Code signing:
+#   - macOS: Developer ID–signed + notarized when the release workflow has
+#     the CSC_LINK / CSC_KEY_PASSWORD / APPLE_API_* secrets (see
+#     .github/workflows/release-client.yml); otherwise ad-hoc signed by the
+#     afterSign hook (first launch needs right-click → Open).
 #   - Windows: ships unsigned. Users will see SmartScreen warnings.
 #   - Linux: AppImage is self-contained, no signing concept.
-# Add CSC_* + APPLE_* secrets to the workflow when ready to sign.
 
 appId: chat.boson.app
 productName: Boson
@@ -63,11 +65,12 @@ publish:
     repo: boson
     releaseType: release
 
-# Ad-hoc sign the packaged macOS .app via scripts/mac-adhoc-sign.cjs.
-# electron-builder's own signing path doesn't understand `identity: '-'`
-# (it treats the value as a keychain identity name and silently skips
-# signing when the keychain doesn't have one), so we sign in this hook
-# instead. No-op on Linux / Windows builds.
+# Ad-hoc sign the packaged macOS .app via scripts/mac-adhoc-sign.cjs when
+# no Developer ID certificate is configured. electron-builder's own signing
+# path doesn't understand `identity: '-'` (it treats the value as a keychain
+# identity name and silently skips signing when the keychain doesn't have
+# one), so unsigned builds are signed in this hook instead. The hook is a
+# no-op for Developer ID builds (CSC_LINK set) and on Linux / Windows.
 afterSign: scripts/mac-adhoc-sign.cjs
 
 # Stable, version-less artifact names so the website can hard-link to
@@ -87,14 +90,28 @@ mac:
       arch: [x64, arm64]
     - target: zip
       arch: [x64, arm64]
-  # Ad-hoc signing is handled by the afterSign hook above
-  # (scripts/mac-adhoc-sign.cjs). We intentionally do NOT set
-  # `identity` here — electron-builder would try to look it up in the
-  # keychain as an identity *name*, fail, and silently skip signing.
-  # Hardened Runtime + notarisation require a paid Apple Developer
-  # cert, which v0.x doesn't have.
-  hardenedRuntime: false
+  # Signing identity comes from CSC_LINK (a Developer ID Application
+  # .p12) in the release workflow; without it electron-builder skips
+  # signing and the afterSign hook ad-hoc signs instead. We intentionally
+  # do NOT set `identity` here — electron-builder would look it up in the
+  # keychain as an identity *name*.
+  #
+  # Hardened Runtime (required for notarization) with the minimal
+  # entitlement set Electron needs; helpers inherit the same file.
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
   gatekeeperAssess: false
+  # The Go engine sidecar lives in Contents/Resources/engine (extraResources),
+  # outside the paths electron-builder signs by default. Notarization rejects
+  # any unsigned or non-hardened Mach-O, so sign both arches explicitly.
+  binaries:
+    - Contents/Resources/engine/engine-darwin-arm64
+    - Contents/Resources/engine/engine-darwin-amd64
+  # Notarization is switched on per build by the release workflow
+  # (`-c.mac.notarize=true`) only when the App Store Connect API key
+  # secrets exist, so local and unsigned builds don't try to notarize.
+  notarize: false
 
 win:
   target:
