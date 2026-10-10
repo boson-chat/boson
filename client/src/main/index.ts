@@ -385,9 +385,11 @@ class BosonApp {
       backgroundColor: '#1a1b1e',
       // Custom title bar — frameless on Windows/Linux, `hiddenInset` on
       // macOS so the native traffic-light controls stay visible (Mac users
-      // expect them) but the OS chrome above is gone.
+      // expect them) but the OS chrome above is gone. `y` places the top of
+      // the ~14pt traffic-light cluster; 9 centres it in the renderer's 32px
+      // TitleBar (TitleBar.css) so it lines up with the title and icons.
       ...(process.platform === 'darwin'
-        ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 12 } }
+        ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 9 } }
         : { frame: false }),
       webPreferences: {
         preload: join(__dirname, '../preload/index.js'),
