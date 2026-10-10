@@ -8,6 +8,8 @@ import { createConnection, type Socket } from 'node:net';
 
 export interface IrcLine {
   raw: string;
+  // IRCv3 message tags (only when the peer negotiated message-tags).
+  tags: Record<string, string>;
   prefix: string;
   command: string;
   params: string[];
@@ -15,9 +17,16 @@ export interface IrcLine {
 
 export function parseLine(raw: string): IrcLine {
   let rest = raw;
-  // Drop IRCv3 message tags — the peer never requests caps, but ZNC/ergo
-  // could still send @time on some replies.
-  if (rest.startsWith('@')) rest = rest.slice(rest.indexOf(' ') + 1);
+  // IRCv3 message tags (sent when the peer requested caps, and by ZNC/ergo
+  // on some replies regardless).
+  const tags: Record<string, string> = {};
+  if (rest.startsWith('@')) {
+    for (const kv of rest.slice(1, rest.indexOf(' ')).split(';')) {
+      const eq = kv.indexOf('=');
+      tags[eq < 0 ? kv : kv.slice(0, eq)] = eq < 0 ? '' : kv.slice(eq + 1);
+    }
+    rest = rest.slice(rest.indexOf(' ') + 1);
+  }
   let prefix = '';
   if (rest.startsWith(':')) {
     const sp = rest.indexOf(' ');
@@ -39,7 +48,7 @@ export function parseLine(raw: string): IrcLine {
     rest = rest.slice(sp + 1);
   }
   const command = (params.shift() ?? '').toUpperCase();
-  return { raw, prefix, command, params };
+  return { raw, tags, prefix, command, params };
 }
 
 type Matcher = (l: IrcLine) => boolean;
@@ -59,13 +68,22 @@ export class IrcPeer {
     port: number;
     nick: string;
     pass?: string;
+    // IRCv3 caps to request during registration (e.g. message-tags to send
+    // +typing TAGMSGs). Registration waits for the ACK/NAK.
+    caps?: string[];
     timeoutMs?: number;
   }): Promise<IrcPeer> {
     const peer = new IrcPeer(opts.nick);
     await peer.open(opts.host, opts.port);
+    if (opts.caps?.length) peer.send('CAP LS 302');
     if (opts.pass) peer.send(`PASS ${opts.pass}`);
     peer.send(`NICK ${opts.nick}`);
     peer.send(`USER ${opts.nick} 0 * :boson e2e peer`);
+    if (opts.caps?.length) {
+      peer.send(`CAP REQ :${opts.caps.join(' ')}`);
+      await peer.waitFor((l) => l.command === 'CAP' && (l.params[1] === 'ACK' || l.params[1] === 'NAK'), opts.timeoutMs ?? 15_000, 'CAP ACK');
+      peer.send('CAP END');
+    }
     await peer.waitFor((l) => l.command === '001', opts.timeoutMs ?? 15_000, 'RPL_WELCOME');
     return peer;
   }

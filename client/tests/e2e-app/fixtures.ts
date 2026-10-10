@@ -126,8 +126,10 @@ export interface CreateAccountOptions {
 interface Fixtures {
   profile: Profile;
   // `args`: extra command-line arguments for this launch (e.g. a boson://
-  // URL, as the OS passes one on a cold start from a link click).
-  launchApp: (opts?: { profile?: Profile; args?: string[] }) => Promise<LaunchedApp>;
+  // URL, as the OS passes one on a cold start from a link click). `env`:
+  // extra environment for the app (e.g. BOSON_E2E_HOST_MAP, see
+  // electron-sandbox-hook.cjs).
+  launchApp: (opts?: { profile?: Profile; args?: string[]; env?: Record<string, string> }) => Promise<LaunchedApp>;
   // A ZNC user (tester1..8) leased for this test and reset to its initial
   // state: network `ergo` disconnected upstream, no channels.
   zncUser: ZncUser;
@@ -218,7 +220,7 @@ export const test = base.extend<Fixtures>({
     }
     const launched: Array<{ app: ElectronApplication; logs: string[]; n: number }> = [];
 
-    const launch = async (opts: { profile?: Profile; args?: string[] } = {}): Promise<LaunchedApp> => {
+    const launch = async (opts: { profile?: Profile; args?: string[]; env?: Record<string, string> } = {}): Promise<LaunchedApp> => {
       const p = opts.profile ?? profile;
       const env: Record<string, string> = {};
       for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
@@ -233,6 +235,7 @@ export const test = base.extend<Fixtures>({
         // in the attached log.
         ELECTRON_ENABLE_LOGGING: '1',
       });
+      if (opts.env) Object.assign(env, opts.env);
       if (COVERAGE) {
         // Main process: Node writes V8 coverage here on exit. Engine: the
         // main process passes its env through to the sidecar.
