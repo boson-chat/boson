@@ -43,7 +43,7 @@
     "@testing-library/preact": "^3.2.4",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20.14.0",
-    "electron": "^32.0.0",
+    "electron": "^44.7.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^2.3.0",
     "happy-dom": "^20.9.0",

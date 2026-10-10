@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { proxyApiFetch } from './api-proxy';
+import { createApiProxyPolicy, proxyApiFetch as rawProxyApiFetch, type ApiProxyRequest } from './api-proxy';
+
+// Packaged-build policy: only the configured API origin, no loopback.
+const prodPolicy = createApiProxyPolicy({ apiBase: 'https://api.boson.chat', allowLoopback: false });
+// Dev-build policy: configured local backend + any loopback port.
+const devPolicy = createApiProxyPolicy({ apiBase: 'http://localhost:3000', allowLoopback: true });
+const proxyApiFetch = (req: ApiProxyRequest) => rawProxyApiFetch(req, prodPolicy);
 
 describe('proxyApiFetch', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
@@ -19,19 +25,48 @@ describe('proxyApiFetch', () => {
     expect((init as RequestInit).headers).toMatchObject({ Authorization: 'Bearer x' });
   });
 
-  it('allows loopback (local dev backend) over http', async () => {
-    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 200 }));
-    await proxyApiFetch({ method: 'GET', url: 'http://localhost:8080/me' });
+  it('allows loopback (local dev backend) over http only in dev', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    await rawProxyApiFetch({ method: 'GET', url: 'http://localhost:8080/me' }, devPolicy);
+    await rawProxyApiFetch({ method: 'GET', url: 'http://127.0.0.1:3000/me' }, devPolicy);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // Packaged: loopback is off, so a compromised renderer can't reach
+    // other local services (the engine, a dev DB, a router admin page…).
+    fetchMock.mockClear();
+    for (const url of ['http://localhost:8080/me', 'http://127.0.0.1:3000/me', 'http://[::1]:3000/me']) {
+      const res = await proxyApiFetch({ method: 'GET', url });
+      expect(res.statusText).toBe('Blocked host');
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('allows the configured API base even when it is loopback', async () => {
+    // A build pointed at a local backend still reaches exactly that origin.
+    const policy = createApiProxyPolicy({ apiBase: 'http://localhost:3000/', allowLoopback: false });
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    expect((await rawProxyApiFetch({ method: 'GET', url: 'http://localhost:3000/me' }, policy)).ok).toBe(true);
+    expect((await rawProxyApiFetch({ method: 'GET', url: 'http://localhost:3001/me' }, policy)).statusText).toBe('Blocked host');
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('blocks private / link-local / non-https public hosts without fetching', async () => {
+  it('falls back to the production API when no base is configured', async () => {
+    const policy = createApiProxyPolicy({ apiBase: undefined, allowLoopback: false });
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    expect((await rawProxyApiFetch({ method: 'GET', url: 'https://api.boson.chat/me' }, policy)).ok).toBe(true);
+  });
+
+  it('blocks everything off the exact-origin allowlist without fetching', async () => {
     for (const url of [
-      'http://api.boson.chat/me',        // public must be https
-      'https://192.168.1.10/x',          // private LAN
-      'https://169.254.169.254/latest',  // cloud metadata
-      'https://10.0.0.1/x',              // private
-      'ftp://api.boson.chat/x',          // bad scheme
+      'http://api.boson.chat/me',            // wrong scheme
+      'https://api.boson.chat:8443/me',      // wrong port
+      'https://api.boson.chat.evil.com/me',  // suffix trick
+      'https://evil.boson.chat/me',          // sibling subdomain
+      'https://example.com/x',               // arbitrary public host
+      'https://192.168.1.10/x',              // private LAN
+      'https://169.254.169.254/latest',      // cloud metadata
+      'https://10.0.0.1/x',                  // private
+      'ftp://api.boson.chat/x',              // bad scheme
     ]) {
       const res = await proxyApiFetch({ method: 'GET', url });
       expect(res.ok).toBe(false);
@@ -47,7 +82,7 @@ describe('proxyApiFetch', () => {
   });
 
   it('refuses a redirect that points at a blocked host without fetching it', async () => {
-    // SSRF guard: a public https host 302s to the cloud-metadata endpoint.
+    // SSRF guard: an allowed host 302s to the cloud-metadata endpoint.
     fetchMock.mockResolvedValueOnce(
       new Response(null, { status: 302, headers: { location: 'http://169.254.169.254/latest/meta-data/' } }),
     );
@@ -58,24 +93,40 @@ describe('proxyApiFetch', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
   });
 
-  it('follows a redirect to an allowed host and returns the final body', async () => {
+  it('refuses a redirect to a public host off the allowlist', async () => {
+    // Redirects are held to the same allowlist as the initial request, so an
+    // open redirect on our API can't bounce the proxy to a third party.
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, { status: 302, headers: { location: 'https://evil.example.com/x' } }),
+    );
+    const res = await proxyApiFetch({
+      method: 'GET',
+      url: 'https://api.boson.chat/start',
+      headers: { Authorization: 'Bearer secret' },
+    });
+    expect(res.statusText).toBe('Blocked redirect host');
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('follows a same-origin redirect and returns the final body', async () => {
     fetchMock
-      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://cdn.boson.chat/final' } }))
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: '/final' } }))
       .mockResolvedValueOnce(new Response('done', { status: 200, statusText: 'OK' }));
     const res = await proxyApiFetch({ method: 'GET', url: 'https://api.boson.chat/start' });
     expect(res).toMatchObject({ status: 200, ok: true, text: 'done' });
-    expect(fetchMock.mock.calls[1][0]).toBe('https://cdn.boson.chat/final');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.boson.chat/final');
   });
 
-  it('strips Authorization/Cookie on a cross-origin redirect', async () => {
+  it('strips Authorization/Cookie on a cross-origin redirect between allowed origins', async () => {
+    // Dev: the configured backend on :3000 redirects to another loopback port.
     fetchMock
-      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'https://evil.example.com/x' } }))
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: 'http://127.0.0.1:9999/x' } }))
       .mockResolvedValueOnce(new Response('ok', { status: 200 }));
-    await proxyApiFetch({
+    await rawProxyApiFetch({
       method: 'GET',
-      url: 'https://api.boson.chat/start',
+      url: 'http://localhost:3000/start',
       headers: { Authorization: 'Bearer secret', Cookie: 'sid=1', 'X-Keep': '1' },
-    });
+    }, devPolicy);
     const secondInit = fetchMock.mock.calls[1][1] as RequestInit;
     expect(secondInit.headers).not.toHaveProperty('Authorization');
     expect(secondInit.headers).not.toHaveProperty('Cookie');
