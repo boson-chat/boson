@@ -293,6 +293,21 @@ func (s *servicesState) observe(from, body string) {
 	}
 }
 
+// rearmForUpstream re-arms the welcome latches for a new upstream session
+// behind a bouncer: ZNC keeps our client registered while its own upstream
+// connection comes and goes, so each upstream session needs its own
+// IDENTIFY. The services probe is re-armed only while the framework is still
+// unclassified — a verdict (including the "unknown" fallback) describes the
+// network, not the session, so it survives reconnects.
+func (s *servicesState) rearmForUpstream() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.autoIdentifyFired = false
+	if s.framework == "" {
+		s.probeFired = false
+	}
+}
+
 // onWelcome is called by the Client when it receives 001 RPL_WELCOME.
 // Fires the auto-identify (if a password is configured) and the VERSION
 // probes across NickServ + ChanServ + HostServ. Re-emits of 001 are

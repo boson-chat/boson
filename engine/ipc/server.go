@@ -317,6 +317,21 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 		if c := s.clientFor(p.ServerID); c != nil {
 			c.SendRaw(p.Line)
 		}
+	case CmdBouncerConnect, CmdBouncerDisconnect:
+		var p BouncerParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			s.send(ServerMessage{Type: MsgError, Error: "bad " + msg.Type + " params: " + err.Error()})
+			return
+		}
+		if c := s.clientFor(p.ServerID); c != nil {
+			// The resulting state change comes back as a bouncer-upstream
+			// message via OnBouncerUpstream; no direct reply here.
+			if msg.Type == CmdBouncerConnect {
+				c.BouncerConnect()
+			} else {
+				c.BouncerDisconnect()
+			}
+		}
 	default:
 		s.send(ServerMessage{Type: MsgError, Error: "unknown command: " + msg.Type})
 	}
@@ -340,13 +355,15 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 	s.mu.Unlock()
 
 	cfg := irc.Config{
-		Hostname:         p.Hostname,
-		Port:             p.Port,
-		TLS:              p.TLS,
-		Nick:             p.Nick,
-		NickservPassword: p.NickservPassword,
-		ServerPass:       p.ServerPass,
-		TLSInsecure:      p.TLSInsecure,
+		Hostname:           p.Hostname,
+		Port:               p.Port,
+		TLS:                p.TLS,
+		Nick:               p.Nick,
+		NickservPassword:   p.NickservPassword,
+		ServerPass:         p.ServerPass,
+		TLSInsecure:        p.TLSInsecure,
+		Bouncer:            p.Bouncer,
+		BouncerAutoConnect: p.BouncerAutoConnect,
 	}
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}
@@ -374,6 +391,15 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 			Framework: string(fw),
 		})
 	})
+	// Bouncer upstream state (connected/disconnected/connecting). Only fires
+	// for bouncer connections; sticky on the renderer like the framework.
+	client.OnBouncerUpstream(func(u irc.BouncerUpstream) {
+		s.send(ServerMessage{
+			Type:     MsgBouncerUpstream,
+			ServerID: serverID,
+			Upstream: string(u),
+		})
+	})
 	client.OnEvent(func(e irc.Event) {
 		ev := e
 		s.send(ServerMessage{Type: MsgEvent, ServerID: serverID, Event: &ev})
@@ -385,7 +411,9 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 		// a session error so the renderer surfaces a real reason instead of
 		// sitting on "connecting...". Common: 432 ERR_ERRONEUSNICKNAME,
 		// 433 ERR_NICKNAMEINUSE, 464 ERR_PASSWDMISMATCH, 465 YOUREBANNEDCREEP.
-		if len(e.Kind) == 3 && (e.Kind[0] == '4' || e.Kind[0] == '5') {
+		// 422 ERR_NOMOTD is informational (the server just has no MOTD), not
+		// a failure, so it stays a plain event.
+		if len(e.Kind) == 3 && (e.Kind[0] == '4' || e.Kind[0] == '5') && e.Kind != "422" {
 			msg := e.Message
 			if msg == "" {
 				msg = "IRC error " + e.Kind

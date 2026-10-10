@@ -39,6 +39,16 @@ type Config struct {
 	// TLS is true. For self-signed bouncer certs the user explicitly
 	// trusts — a footgun, off by default.
 	TLSInsecure bool
+	// Bouncer marks a connection the renderer routed through the user's
+	// bouncer profile. Bouncer handling also switches on by itself when the
+	// wire shows ZNC (001 from irc.znc.in, or a status@znc.in message); the
+	// flag just means upstream-state reporting starts without waiting for
+	// such a signal. See bouncer.go.
+	Bouncer bool
+	// BouncerAutoConnect: when the bouncer reports its upstream disconnected
+	// at attach time, send `connect` to the status bot automatically (once
+	// per engine connection, never after an explicit BouncerDisconnect).
+	BouncerAutoConnect bool
 }
 
 type SASLPlain struct {
@@ -105,6 +115,11 @@ type Client struct {
 	// (not the renderer) so every client of the engine — Electron,
 	// future mobile / web — gets identical NickServ behaviour.
 	services *servicesState
+	// Bouncer (ZNC) upstream tracking — decides whether a 001 is the real
+	// network's welcome or ZNC's synthetic one. See bouncer.go.
+	bouncer *bouncerState
+	// autoListDelay is initialAutoListDelay; a field so tests can shorten it.
+	autoListDelay time.Duration
 	// dispatch carries callback invocations (onEvent, onChannelDirectory,
 	// services verdicts) off girc's exec loop to a single ordered drainer.
 	// See dispatch.go.
@@ -195,8 +210,19 @@ func New(cfg Config) (*Client, error) {
 		},
 	})
 
-	c := &Client{cfg: cfg, girc: gc, services: newServicesState(), dispatch: newDispatchQueue()}
+	c := &Client{
+		cfg:           cfg,
+		girc:          gc,
+		services:      newServicesState(),
+		bouncer:       newBouncerState(cfg.Bouncer, cfg.BouncerAutoConnect),
+		autoListDelay: initialAutoListDelay,
+		dispatch:      newDispatchQueue(),
+	}
 	c.services.setNickservPassword(cfg.NickservPassword)
+	c.bouncer.send = func(line string) { _ = c.girc.Cmd.SendRaw(line) }
+	c.bouncer.after = c.afterConnLifetime
+	c.bouncer.selfNick = c.girc.GetNick
+	c.bouncer.rearm = c.rearmUpstreamSession
 	return c, nil
 }
 
@@ -210,6 +236,38 @@ func (c *Client) OnServices(fn ServicesHandler) {
 	c.services.setOnChange(func(fw ServicesFramework) {
 		c.dispatch.push(func() { fn(fw) })
 	})
+}
+
+// OnBouncerUpstream installs the bouncer upstream-state callback. Fires on
+// every deduped transition, only for connections that are (declared or
+// detected as) a bouncer. Must be called before Connect.
+func (c *Client) OnBouncerUpstream(fn BouncerUpstreamHandler) {
+	// Transitions happen on the exec loop, on probe timer goroutines and on
+	// the IPC command path; the dispatch queue keeps the IPC send off all of
+	// them and orders it with the event stream: a report triggered by a 001
+	// is delivered after that 001 event.
+	c.bouncer.setOnChange(func(u BouncerUpstream) {
+		c.dispatch.push(func() { fn(u) })
+	})
+}
+
+// BouncerUpstream returns the current upstream state, or "" when unknown or
+// when this connection isn't a bouncer.
+func (c *Client) BouncerUpstream() BouncerUpstream {
+	return c.bouncer.snapshot()
+}
+
+// BouncerConnect asks the bouncer to connect its upstream (`PRIVMSG
+// <statusNick> :connect`). A no-op while the upstream is connected, because
+// ZNC's `connect` bounces a live upstream.
+func (c *Client) BouncerConnect() {
+	c.bouncer.connect()
+}
+
+// BouncerDisconnect asks the bouncer to drop its upstream and suppresses
+// auto-connect for the rest of this connection.
+func (c *Client) BouncerDisconnect() {
+	c.bouncer.disconnect()
 }
 
 // Services returns the current framework verdict — empty string before
@@ -260,6 +318,17 @@ func tlsConfigFor(cfg Config) *tls.Config {
 func (c *Client) OnEvent(fn EventHandler) {
 	c.onEvent = fn
 	c.girc.Handlers.Add(girc.ALL_EVENTS, func(_ *girc.Client, e girc.Event) {
+		forwarded := false
+		forward := func() {
+			forwarded = true
+			if c.onEvent == nil {
+				return
+			}
+			evt := translate(e)
+			if evt.Kind != "" {
+				c.dispatch.push(func() { c.onEvent(evt) })
+			}
+		}
 		// Intercept directory-list lifecycle before forwarding the generic
 		// event stream. The renderer doesn't need the per-line 322 frames —
 		// just the final atomic update — so 322 is consumed here and never
@@ -271,20 +340,32 @@ func (c *Client) OnEvent(fn EventHandler) {
 		case girc.RPL_LISTEND:
 			c.flushListEntries()
 		case girc.RPL_WELCOME:
-			c.scheduleAutoList()
-			// Fire NickServ IDENTIFY (if configured) + VERSION probes to
-			// classify the services package. Both are one-shot per
-			// session — handled by latches inside servicesState. Safe on
-			// the exec loop: the sends land in girc's buffered tx queue
-			// and the fallbacks run on their own timer goroutines.
-			c.services.onWelcome(
-				func(target, body string) { c.girc.Cmd.Message(target, body) },
-				// Tie the probe-timeout fallbacks to the connection lifetime
-				// so they don't fire (and send on a dead client) after a
-				// disconnect within the window.
-				c.afterConnLifetime,
-			)
+			// A bouncer's synthetic 001 (upstream down) must not trigger the
+			// welcome work — ZNC would drop it all. The bouncer state re-arms
+			// the latches when a real upstream 001 arrives.
+			source := ""
+			if e.Source != nil {
+				source = e.Source.Name
+			}
+			// Forward the 001 first so the renderer sees it (and the IPC
+			// layer's status=connected) before the bouncer-upstream report
+			// it triggers — a reset on "connected" can't wipe that state.
+			forward()
+			if c.bouncer.onWelcome(source) {
+				c.runWelcomeWork()
+			}
+		case girc.RPL_USERHOST:
+			// Answer to the bouncer's upstream self-probe: consumed, so the
+			// periodic probe doesn't show up in the renderer's server log.
+			if c.bouncer.onUserhostReply() {
+				return
+			}
 		case girc.PRIVMSG, girc.NOTICE:
+			// ZNC's status bot (`<StatusPrefix>status!status@znc.in`) is the
+			// only wire signal that a bouncer's upstream went away.
+			if e.Source != nil && isStatusSource(e.Source.Ident, e.Source.Host) {
+				c.bouncer.onStatusMessage(e.Source.Name, e.Last())
+			}
 			// Feed service-sourced messages into the framework classifier.
 			// A hit on "atheme" / "anope" anywhere in the body settles
 			// the verdict. The verdict callback flows up to the IPC
@@ -339,12 +420,8 @@ func (c *Client) OnEvent(fn EventHandler) {
 					"source", e.Source.Name, "self", c.girc.GetNick())
 			}
 		}
-		if c.onEvent == nil {
-			return
-		}
-		evt := translate(e)
-		if evt.Kind != "" {
-			c.dispatch.push(func() { c.onEvent(evt) })
+		if !forwarded {
+			forward()
 		}
 	})
 }
@@ -425,6 +502,34 @@ func (c *Client) afterConnLifetime(d time.Duration, fn func()) {
 	}()
 }
 
+// runWelcomeWork is what an (upstream) RPL_WELCOME kicks off: the delayed
+// auto-LIST, NickServ IDENTIFY (if configured) and the services VERSION
+// probes. All are latched; on a bouncer the latches are re-armed per
+// upstream session (rearmUpstreamSession). Safe on the exec loop: the sends
+// land in girc's buffered tx queue and the fallbacks run on their own timer
+// goroutines.
+func (c *Client) runWelcomeWork() {
+	c.scheduleAutoList()
+	c.services.onWelcome(
+		func(target, body string) { c.girc.Cmd.Message(target, body) },
+		// Tie the probe-timeout fallbacks to the connection lifetime so they
+		// don't fire (and send on a dead client) after a disconnect within
+		// the window.
+		c.afterConnLifetime,
+	)
+}
+
+// rearmUpstreamSession resets the per-session welcome latches when a
+// bouncer's upstream goes away or a new upstream session starts, so the next
+// upstream 001 identifies, lists and (if still unclassified) probes again.
+func (c *Client) rearmUpstreamSession() {
+	c.mu.Lock()
+	c.autoListScheduled = false
+	c.listRetryScheduled = false
+	c.mu.Unlock()
+	c.services.rearmForUpstream()
+}
+
 func (c *Client) scheduleAutoList() {
 	c.mu.Lock()
 	if c.autoListScheduled {
@@ -432,8 +537,9 @@ func (c *Client) scheduleAutoList() {
 		return
 	}
 	c.autoListScheduled = true
+	delay := c.autoListDelay
 	c.mu.Unlock()
-	c.afterConnLifetime(initialAutoListDelay, func() {
+	c.afterConnLifetime(delay, func() {
 		_ = c.girc.Cmd.SendRaw("LIST")
 	})
 }

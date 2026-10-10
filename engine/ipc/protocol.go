@@ -36,6 +36,13 @@ type ConnectParams struct {
 	// TLSInsecure skips TLS cert verification (self-signed bouncer certs).
 	// Only honoured when TLS is true.
 	TLSInsecure bool `json:"tlsInsecure,omitempty"`
+	// Bouncer: the renderer routed this connection through the user's
+	// bouncer profile. Upstream-state reporting (bouncer-upstream) starts
+	// at once instead of waiting for the engine to detect ZNC on the wire.
+	Bouncer bool `json:"bouncer,omitempty"`
+	// BouncerAutoConnect: if the bouncer reports its upstream disconnected
+	// at attach time, the engine sends `connect` to the status bot itself.
+	BouncerAutoConnect bool `json:"bouncerAutoConnect,omitempty"`
 }
 
 type SASLPlain struct {
@@ -120,6 +127,13 @@ type RawParams struct {
 	Line     string `json:"line"`
 }
 
+// BouncerParams targets the bouncer behind a connection for the
+// bouncer-connect / bouncer-disconnect commands (ZNC `*status connect` /
+// `disconnect`).
+type BouncerParams struct {
+	ServerID string `json:"serverId"`
+}
+
 const (
 	CmdConnect           = "connect"
 	CmdDisconnect        = "disconnect"
@@ -133,16 +147,18 @@ const (
 	CmdNick              = "nick"
 	CmdNickservIdentify  = "nickserv-identify"
 	CmdRaw               = "raw"
+	CmdBouncerConnect    = "bouncer-connect"
+	CmdBouncerDisconnect = "bouncer-disconnect"
 )
 
 // Outbound: messages from the engine to the renderer.
 
 type ServerMessage struct {
-	Type     string                       `json:"type"`               // see Msg* below
-	ServerID string                       `json:"serverId,omitempty"` // empty for transport-level errors
-	Event    *irc.Event                   `json:"event,omitempty"`    // populated when Type == "event"
-	State    string                       `json:"state,omitempty"`    // populated when Type == "status"
-	Error    string                       `json:"error,omitempty"`    // populated when Type == "error"
+	Type     string     `json:"type"`               // see Msg* below
+	ServerID string     `json:"serverId,omitempty"` // empty for transport-level errors
+	Event    *irc.Event `json:"event,omitempty"`    // populated when Type == "event"
+	State    string     `json:"state,omitempty"`    // populated when Type == "status"
+	Error    string     `json:"error,omitempty"`    // populated when Type == "error"
 	// Directory carries the full channel list emitted when a LIST cycle
 	// completes (engine accumulates 322s, fires once on 323). Populated only
 	// when Type == "channel-directory".
@@ -151,6 +167,11 @@ type ServerMessage struct {
 	// "atheme" | "anope" | "unknown". Populated only when Type ==
 	// "services-framework". Fires once per detected-state transition.
 	Framework string `json:"framework,omitempty"`
+	// Upstream is the bouncer's upstream state for this serverId —
+	// "connected" | "disconnected" | "connecting". Populated only when
+	// Type == "bouncer-upstream", which is emitted (deduped) on every change
+	// for connections declared or detected as a bouncer, never otherwise.
+	Upstream string `json:"upstream,omitempty"`
 }
 
 const (
@@ -159,6 +180,7 @@ const (
 	MsgError             = "error"
 	MsgChannelDirectory  = "channel-directory"
 	MsgServicesFramework = "services-framework"
+	MsgBouncerUpstream   = "bouncer-upstream"
 
 	StateConnecting   = "connecting"
 	StateConnected    = "connected"
