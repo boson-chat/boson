@@ -26,6 +26,13 @@ module.exports = async function macAdhocSign(context) {
   // Only relevant for darwin builds. Linux + Windows take the same
   // afterSign hook but bail out here.
   if (context.electronPlatformName !== 'darwin') return;
+  // Developer ID build: electron-builder already signed (and, in the
+  // release workflow, notarized) the bundle. Re-signing ad hoc here would
+  // replace that signature and break notarization.
+  if (process.env.CSC_LINK) {
+    console.log('[mac-adhoc-sign] CSC_LINK set — Developer ID signing in effect, skipping ad-hoc signing');
+    return;
+  }
 
   const appName = context.packager.appInfo.productFilename;
   const appPath = path.join(context.appOutDir, `${appName}.app`);

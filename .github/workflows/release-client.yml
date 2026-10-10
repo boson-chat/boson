@@ -2,9 +2,14 @@
 # v*.*.* tag, then attaches them to the matching GitHub Release. The
 # release was opened by .github/workflows/release.yml (semantic-release).
 #
-# v0.x ships unsigned — see comments in client/electron-builder.yml.
-# Replace `CSC_IDENTITY_AUTO_DISCOVERY: false` with real signing creds
-# once Apple Developer + Windows EV cert are in place.
+# macOS signing + notarization turn on automatically once these repository
+# secrets exist (otherwise the build is ad-hoc signed, as before):
+#   CSC_LINK            base64 of the "Developer ID Application" .p12
+#   CSC_KEY_PASSWORD    the .p12's export password
+#   APPLE_API_KEY       contents of the App Store Connect API key (.p8)
+#   APPLE_API_KEY_ID    that key's ID
+#   APPLE_API_ISSUER    the issuer ID (App Store Connect → Users and Access → Integrations)
+# Windows stays unsigned until an Authenticode cert is in place.
 name: Release Electron client
 
 on:
@@ -29,17 +34,20 @@ jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      # 'true' only when every macOS signing/notarization secret is present.
+      MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '24'
           cache: npm
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: '1.27'
           cache: true
@@ -88,12 +96,29 @@ jobs:
           $env:GOOS = 'windows'
           $env:GOARCH = 'amd64'
           go build -o client/resources/engine/engine-windows-amd64.exe ./engine/cmd/engine
+      # notarytool takes the App Store Connect key as a file path.
+      - name: macOS notarization key
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key"
+          chmod 600 "$key"
+          echo "APPLE_API_KEY=$key" >> "$GITHUB_ENV"
       - name: build installer
         working-directory: client
         env:
-          # Skip code-sign discovery on macOS — we don't ship signed
-          # builds yet and the runner has no Apple Developer cert.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # macOS Developer ID signing — only on the macOS leg (CSC_LINK
+          # would otherwise be picked up for Windows Authenticode too) and
+          # only when the secrets exist. Without them: no keychain
+          # discovery, and the afterSign hook ad-hoc signs.
+          CSC_LINK: ${{ runner.os == 'macOS' && env.MAC_SIGNING == 'true' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ runner.os == 'macOS' && env.MAC_SIGNING == 'true' && secrets.CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' && env.MAC_SIGNING == 'true' && 'true' || 'false' }}
+          APPLE_API_KEY_ID: ${{ runner.os == 'macOS' && env.MAC_SIGNING == 'true' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ runner.os == 'macOS' && env.MAC_SIGNING == 'true' && secrets.APPLE_API_ISSUER || '' }}
+          NOTARIZE_FLAG: ${{ runner.os == 'macOS' && env.MAC_SIGNING == 'true' && '-c.mac.notarize=true' || '' }}
           # Vite bakes VITE_* env vars into the renderer bundle at build
           # time, so the released installer connects to the production
           # backend instead of localhost. Engine URL/token aren't set
@@ -107,9 +132,25 @@ jobs:
           # semantic-release has already synced via scripts/sync-version.cjs
           # — but the tag-triggered run checks out the tagged commit, so
           # the right value is already on disk. No extra step needed.
-        run: npm run build:installer
+        shell: bash
+        run: npm run build:installer -- $NOTARIZE_FLAG
+      # Fail the release rather than ship a bundle Gatekeeper would reject.
+      - name: verify macOS signature + notarization
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        working-directory: client/dist
+        run: |
+          for app in mac*/Boson.app; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign -dv --verbose=2 "$app" 2>&1 | grep -E 'Authority=Developer ID Application|flags=.*runtime'
+            spctl --assess --type execute --verbose=4 "$app"
+            xcrun stapler validate "$app"
+            for bin in "$app"/Contents/Resources/engine/engine-darwin-*; do
+              codesign --verify --strict --verbose=2 "$bin"
+              codesign -dv --verbose=2 "$bin" 2>&1 | grep -E 'flags=.*runtime'
+            done
+          done
       - name: upload installers to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           # Match every artifact electron-builder produces, regardless of
           # platform — keep this glob loose so adding a new target above
