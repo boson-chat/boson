@@ -128,7 +128,47 @@ make test               # Go + TS unit tests (requires Postgres up)
 make test-go            # Just Go
 make test-client        # Just renderer (vitest)
 make test-e2e           # Playwright E2E (needs the full dev stack + engine built)
+make test-e2e-app       # Real Electron app E2E (needs only Docker — see below)
 ```
+
+### End-to-end tests (real app)
+
+`client/tests/e2e-app/` drives the **built Electron app** — main process,
+preload, renderer and its own Go engine sidecar — with Playwright's
+`_electron` API. It covers guest login → manually added server → chat with a
+raw IRC peer bot, restore-on-relaunch, the ZNC bouncer flow (auto-connect,
+disconnect, reconnect) and navigation-guard smoke tests. No Postgres,
+Supabase or backend is needed; the app runs in guest mode.
+
+```bash
+make test-e2e-app        # infra up + build app/engine + run the suite
+make test-e2e-app-down   # stop the e2e infra
+
+# Iterating (infra already up):
+cd client
+npm run build:e2e-app    # → client/out-e2e (+ host engine sidecar); rerun after code changes
+npm run test:e2e:app     # add e.g. `-- bouncer` to run one spec file
+```
+
+Isolation, so it can run next to a live dev stack:
+
+- IRC infra is its own compose project (`infra/e2e/docker-compose.yml`,
+  project `boson-e2e`): ergo on `127.0.0.1:16667`, ZNC 1.9 on
+  `127.0.0.1:16501` (user `tester` / `pw`, network `ergo`), state in tmpfs.
+  The dev `ergo`, Postgres, Supabase, mailpit and MinIO containers are never
+  touched.
+- The app is built into `client/out-e2e/` (not `client/out/`, which
+  `electron-vite dev` owns) with the backend/Supabase URLs pinned to an
+  unused port, so a local `client/.env` can't leak in.
+- Every test launches the app with a throwaway `HOME`, `XDG_RUNTIME_DIR` and
+  `--user-data-dir`, plus `--use-mock-keychain` on macOS — your
+  `~/.boson/engine.json`, real app profile and keychain are left alone.
+  `shell.openExternal` is stubbed so nothing opens in your browser.
+
+Failures leave a screenshot, a Playwright trace and the main-process +
+engine log in `client/test-results/e2e-app/` (`npx playwright show-trace
+<zip>`). CI runs the same suite on Linux under Xvfb
+(`.github/workflows/e2e.yml`).
 
 ## Useful one-shots
 
