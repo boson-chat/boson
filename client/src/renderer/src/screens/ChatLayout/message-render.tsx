@@ -742,7 +742,9 @@ export function renderRichText(
         if (m.index > last) {
           out.push(<span key={key++}>{renderWithMentions(text.slice(last, m.index), myNick)}</span>);
         }
-        out.push(<span key={key++} class="chat-token-mention">{tokenText}</span>);
+        // Our own nick is a member too — keep the self-mention highlight on it.
+        const self = !!myNick && candidate === myNick.toLowerCase();
+        out.push(<span key={key++} class={self ? 'chat-token-mention mention-self' : 'chat-token-mention'}>{tokenText}</span>);
         last = m.index + tokenText.length;
         consumed = true;
       }

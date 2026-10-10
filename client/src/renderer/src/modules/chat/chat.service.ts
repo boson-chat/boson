@@ -2083,6 +2083,22 @@ export class ChatService {
         }
         break;
       }
+      case '471':   // ERR_CHANNELISFULL  (+l)
+      case '473':   // ERR_INVITEONLYCHAN (+i)
+      case '474':   // ERR_BANNEDFROMCHAN (+b)
+      case '475': { // ERR_BADCHANNELKEY  (+k)
+        // A /join the server refused. join() already created (and switched
+        // to) the channel optimistically; drop that placeholder so it doesn't
+        // sit in the sidebar as an empty channel we're not in, and tell the
+        // user why. The engine passes numerics through as Args = [channel],
+        // Message = the server's reason.
+        const chan = e.Args?.[0] ?? e.Target ?? '';
+        if (!chan.startsWith('#') && !chan.startsWith('&')) break;
+        const ch = this.channels.get(this.channelKey(chan));
+        if (ch && !ch.joined) this.removeChannel(chan);
+        this.emitFeedback({ kind: 'error', text: `Cannot join ${chan}: ${e.Message || 'refused by the server'}` });
+        break;
+      }
       case '421': {
         // ERR_UNKNOWNCOMMAND. If it's for CHATHISTORY, the server advertised
         // the cap but doesn't implement the command (e.g. ZNC < 1.8 relaying
@@ -2660,7 +2676,10 @@ export class ChatService {
       this.pendingHistoryKind.delete(key);
       this.clearLoadOlderTimeout(key);
       if (this.activeChannel === key) {
-        this.activeChannel = this.channels.size > 0 ? this.channels.keys().next().value! : null;
+        // Fall back to another conversation the user can see — never the
+        // hidden ~server log (it isn't in the sidebar, and its composer
+        // would PRIVMSG a "~server" target).
+        this.activeChannel = Array.from(this.channels.keys()).find((k) => k !== SERVICE_CHANNEL) ?? null;
       }
       this.emit();
     }
@@ -2699,7 +2718,9 @@ export class ChatService {
     const isZncBot = /^\*[a-zA-Z]/.test(from); // *status, *controlpanel, …
     const fromZncHost = from.includes('znc.in');
     const capText = e.Kind === 'CAP' ? `${e.Message ?? ''} ${(e.Args ?? []).join(' ')}` : '';
-    const advertisesZnc = /(^|\s)znc\.in\//.test(capText);
+    // znc.in/self-message is not a ZNC signal: plain IRCds (ergo, …)
+    // advertise it too.
+    const advertisesZnc = /(^|\s)znc\.in\/(?!self-message(\s|=|$))/.test(capText);
     if (isZncBot || fromZncHost || advertisesZnc) {
       this.zncDetected = true;
       if (!this.serverInfo.bouncer) {
