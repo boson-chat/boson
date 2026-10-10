@@ -1429,6 +1429,10 @@ export class DirectoryBloc {
       // serverPass, not the route toggle: if the route is on but the bouncer
       // profile is disabled we connect directly, so it's not really a bouncer.
       bouncer: !!serverPass,
+      // Server identity for notifications + Inbox attribution. Signed-in users
+      // also get it via the persistence scope; guests (no persistence) only
+      // have this, so without it their notifications carry no server name.
+      server: { serverId: server.id, serverName: server.name },
     });
     chat.attach();
     chat.setNotifier((ev) => getNotifier().notify(ev));

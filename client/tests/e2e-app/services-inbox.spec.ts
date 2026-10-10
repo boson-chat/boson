@@ -32,7 +32,8 @@ test('MemoServ memos: listed on login, body fetched on open, dismissed, deleted 
   ]);
   try {
     const { page } = await launchApp();
-    await guestOnErgo(page, nick, { host: memoNet.host, port: memoNet.port, name: `MemoNet ${uid(4)}` });
+    const serverName = `MemoNet ${uid(4)}`;
+    await guestOnErgo(page, nick, { host: memoNet.host, port: memoNet.port, name: serverName });
     await memoNet.waitForClient(nick);
     await expect(inboxButton(page)).toHaveAccessibleName('Inbox');
 
@@ -51,9 +52,9 @@ test('MemoServ memos: listed on login, body fetched on open, dismissed, deleted 
     await expect(alice.locator('.inbox-row-kind')).toHaveText('memo');
     await expect(alice.locator('.inbox-row-time')).toHaveText('Oct 10 12:00:00 2026 UTC');
     await expect(alice.getByText('Click to read →')).toBeVisible();
-    // Guests have no persistence scope; the entry is attributed to the
-    // network name the server advertised (005 NETWORK=).
-    await expect(alice.locator('.inbox-row-server')).toHaveText('MemoNet');
+    // Attributed to the server's display name (guests get it via the chat
+    // service's server scope, not only the 005 NETWORK= name).
+    await expect(alice.locator('.inbox-row-server')).toHaveText(serverName);
     expect(memoNet.memoCommands).toEqual(['LIST']);
 
     // Opening the memo fetches its body in place: READ 1.
