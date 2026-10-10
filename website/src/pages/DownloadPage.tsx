@@ -72,7 +72,7 @@ export function DownloadPage() {
                   <MacIcon />
                   {recommended('mac')}
                   <h3>macOS</h3>
-                  <span class="dl-arch">12.0+ · Apple Silicon or Intel</span>
+                  <span class="dl-arch">13.0+ · Apple Silicon or Intel</span>
                   <div class="dl-actions">
                     <a class="btn btn-primary" href={DL('Boson-mac-arm64.dmg')} rel="noopener">
                       Apple Silicon (.dmg)
@@ -82,7 +82,7 @@ export function DownloadPage() {
                     </a>
                   </div>
                   <span class="dl-bytes">
-                    Unverified developer · see{' '}
+                    Signed &amp; notarized by Apple · see{' '}
                     <a href="#first-launch-macos">first-launch notes</a>
                   </span>
                 </div>
@@ -101,7 +101,7 @@ export function DownloadPage() {
                       Installer (.exe)
                     </a>
                   </div>
-                  <span class="dl-bytes">Unsigned for v0.0.x · SmartScreen will warn on first launch</span>
+                  <span class="dl-bytes">Not yet code-signed · SmartScreen will warn on first launch</span>
                 </div>
               </Card>
             </article>
@@ -155,7 +155,7 @@ export function DownloadPage() {
             <div>
               <h3>macOS</h3>
               <ul>
-                <li>macOS 12 Monterey or newer</li>
+                <li>macOS 13 Ventura or newer</li>
                 <li>250 MB free disk</li>
                 <li>Keychain access for credential storage</li>
                 <li>Outbound TCP/TLS to your servers (port 6697 by default)</li>
@@ -200,8 +200,10 @@ export function DownloadPage() {
                 <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
                 <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
                 <Line />
-                <Line><C tone="cmt"># 3. v0.0.x ships unsigned — Gatekeeper will prompt</C></Line>
-                <Line><C tone="cmt">#    right-click → Open the first time to bypass</C></Line>
+                <Line><C tone="cmt"># 3. macOS: confirm Apple notarized it</C></Line>
+                <Line prompt>spctl -a -vv /Applications/Boson.app</Line>
+                <Line><C tone="ok">accepted</C> &nbsp;source=Notarized Developer ID</Line>
+                <Line><C tone="cmt">#    signed by Developer ID team FJY7UPX884</C></Line>
               </Terminal>
             </div>
             <div>
@@ -213,7 +215,7 @@ export function DownloadPage() {
                 <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
                 <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
                 <Line />
-                <Line><C tone="cmt"># 3. v0.0.x ships unsigned — SmartScreen will warn</C></Line>
+                <Line><C tone="cmt"># 3. not yet code-signed — SmartScreen will warn</C></Line>
                 <Line><C tone="cmt">#    "More info" → "Run anyway" the first time</C></Line>
               </Terminal>
             </div>
@@ -234,30 +236,32 @@ export function DownloadPage() {
         <div class="container stack" style="gap: 28px;">
           <div style="max-width: 42ch;">
             <p class="eyebrow">First launch on macOS</p>
-            <h2>One extra step on Apple Silicon.</h2>
+            <h2>Opens like any other app.</h2>
           </div>
           <p style="max-width: 72ch;">
-            v0.0.x ships ad-hoc signed — enough for macOS to load the binary, but the app isn't
-            registered with an Apple Developer ID yet, so Gatekeeper marks it as "unverified
-            developer" on first launch. Two ways past that:
+            Since v0.32.1, Boson for macOS is signed with an Apple Developer ID (team{' '}
+            <span class="num">FJY7UPX884</span>) and notarized by Apple, so Gatekeeper lets it open
+            without an "unverified developer" or "damaged" warning. Drag it to Applications and
+            launch it — no right-click or Terminal workaround needed.
           </p>
           <div class="grid-2" style="gap: 32px; align-items: start;">
             <div>
-              <h3 style="margin-bottom: 12px; font-size: 16px;">Easier: right-click → Open</h3>
+              <h3 style="margin-bottom: 12px; font-size: 16px;">Upgrading from v0.32.0 or earlier</h3>
               <p class="muted" style="margin-bottom: 12px;">
-                In Finder, right-click <strong>Boson.app</strong> in /Applications, choose
-                <strong> Open</strong>, then confirm in the dialog. macOS remembers the
-                exception; from then on it launches normally.
+                Older builds were ad-hoc signed, and macOS won't let them auto-update to a
+                Developer ID–signed release. Download the new version from this page once and
+                replace <strong>Boson.app</strong> in /Applications; in-app updates work from
+                then on.
               </p>
             </div>
             <div>
-              <h3 style="margin-bottom: 12px; font-size: 16px;">Faster: strip the quarantine bit</h3>
+              <h3 style="margin-bottom: 12px; font-size: 16px;">Check it yourself</h3>
               <p class="muted" style="margin-bottom: 12px;">
-                Run this once in Terminal — drops the <span class="num">com.apple.quarantine</span>{' '}
-                attribute Safari sets on downloaded apps:
+                Gatekeeper's verdict on the installed app:
               </p>
               <Terminal>
-                <Line prompt>xattr -cr /Applications/Boson.app</Line>
+                <Line prompt>spctl -a -vv /Applications/Boson.app</Line>
+                <Line><C tone="ok">accepted</C> &nbsp;source=Notarized Developer ID</Line>
               </Terminal>
             </div>
           </div>
