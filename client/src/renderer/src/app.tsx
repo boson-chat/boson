@@ -1,6 +1,8 @@
 import type preact from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AuthProvider, AuthService, useAuthState } from './modules/auth';
+import { signOutAndForget } from './modules/auth/sign-out';
+import { SessionStore } from './modules/session';
 import { DirectoryService } from './modules/directory';
 import { EngineClient } from './modules/engine';
 import { IDBChatHistoryStore, type ChatHistoryStore } from './modules/history';
@@ -85,7 +87,10 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         onClose={() => setSettingsOpen(false)}
         authedHandle={authedHandle}
         authedEmail={session?.user?.email ?? null}
-        onSignOut={() => { void auth.signOut(); }}
+        // Same device cleanup as the directory's Sign out button: a bare
+        // auth.signOut() would leave the identity secret in the keychain
+        // and the saved session + scrollback behind for the next account.
+        onSignOut={() => { void signOutAndForget({ auth, identity, history, sessionStore: new SessionStore() }); }}
         directory={directory}
         identity={identity}
         auth={auth}
