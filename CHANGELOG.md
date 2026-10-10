@@ -1,3 +1,9 @@
+## [0.32.1](https://github.com/boson-chat/boson/compare/v0.32.0...v0.32.1) (2026-10-10)
+
+### Bug Fixes
+
+* **release:** import the signing cert into our own keychain on CI ([#6](https://github.com/boson-chat/boson/issues/6)) ([0eeb878](https://github.com/boson-chat/boson/commit/0eeb878930d00118b010998341b39ea8131dec2e))
+
 ## [0.32.0](https://github.com/boson-chat/boson/compare/v0.31.1...v0.32.0) (2026-10-10)
 
 ### Features
