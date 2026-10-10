@@ -11,6 +11,11 @@ import (
 	"github.com/boson-chat/boson/backend/internal/logger"
 
 	"github.com/emersion/go-message"
+	// Registers every charset golang.org/x/text knows (iso-8859-*,
+	// windows-125x, …) with go-message. Without it only UTF-8 and
+	// US-ASCII decode, and IRC services that send Latin-1 mail fail in
+	// readBody on every tick.
+	_ "github.com/emersion/go-message/charset"
 	"github.com/knadh/go-pop3"
 )
 
