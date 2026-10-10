@@ -541,7 +541,9 @@ export class DirectoryBloc {
 
   // ---- Connect / disconnect ----
 
-  async connect(server: Server): Promise<void> {
+  // `focus: false` connects without making the server the active one (a
+  // background auto-reconnect must not yank the user to that server).
+  async connect(server: Server, opts: { focus?: boolean } = {}): Promise<void> {
     const existing = this.connections.get(server.id);
     if (existing) {
       // Same-server guard generalised: if a connection already exists in
@@ -581,7 +583,7 @@ export class DirectoryBloc {
       this.teardownConnection(existing, { sendDisconnect: false });
       this.connections.delete(server.id);
     }
-    await this.connectWith(server);
+    await this.connectWith(server, opts);
     if (this.serverBrowserOpen) {
       this.serverBrowserOpen = false;
       this.emit();
@@ -717,7 +719,7 @@ export class DirectoryBloc {
       // connect() routes through the existing wedge → teardown →
       // connectWith path, which seeds pendingJoins from sessionStore
       // so channels are rejoined on the fresh session.
-      void this.connect(conn.server as Server);
+      void this.connect(conn.server as Server, { focus: false });
     }, delayMs);
     this.emit();
   }
@@ -1271,15 +1273,16 @@ export class DirectoryBloc {
       : saved.servers[0]!.server.id;
     this.activeServerId = restoreActive;
     this.applyForegroundState();
-    // Spin up every saved server's IRC session in parallel.
+    // Spin up every saved server's IRC session in parallel — without each
+    // one grabbing focus as it comes up (the restored active one above wins).
     for (const s of saved.servers) {
-      void this.connectWith(s.server);
+      void this.connectWith(s.server, { focus: false });
     }
   }
 
   // Build a brand-new connection (ServerSession + ChatService + listeners) for
   // the given server, store it in the map, and fire off the engine connect.
-  private async connectWith(server: Server | SavedServer): Promise<void> {
+  private async connectWith(server: Server | SavedServer, opts: { focus?: boolean } = {}): Promise<void> {
     if (!this.engine || !this.me?.handle) return;
     // Already have a live Connection record for this server? Skip — caller
     // paths overlap (user-initiated connect, saved-session restore, and the
@@ -1538,7 +1541,12 @@ export class DirectoryBloc {
     };
 
     this.connections.set(server.id, conn);
-    this.activeServerId = server.id;
+    if (opts.focus !== false || this.activeServerId === null) {
+      this.activeServerId = server.id;
+      // Remembered like a rail click, so a relaunch restores this server as
+      // the active one.
+      this.sessionStore.setActiveServer(server.id);
+    }
     this.applyForegroundState();
 
     // Pre-emit so subscribers see the new connection immediately, even

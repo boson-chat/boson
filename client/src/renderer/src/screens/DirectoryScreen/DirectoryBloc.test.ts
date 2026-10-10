@@ -967,6 +967,74 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  describe('active server', () => {
+    function twoServers() {
+      const sessionStore = new SessionStore(memoryStorage());
+      const engine = fakeEngine();
+      const a = fakeServer('a');
+      const b = fakeServer('b');
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [a, b] });
+      return { sessionStore, engine, a, b, directory };
+    }
+
+    it('restoring several servers keeps the saved active one (the last to connect does not steal it)', async () => {
+      const { sessionStore, engine, directory } = twoServers();
+      sessionStore.save({
+        servers: [
+          { server: { id: 'a', name: 'a', hostname: 'irc.a', port: 6697, tls: true }, channels: [], activeChannel: null },
+          { server: { id: 'b', name: 'b', hostname: 'irc.b', port: 6697, tls: true }, channels: [], activeChannel: null },
+        ],
+        activeServerId: 'a',
+      });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }), engine: engine.client, sessionStore,
+      });
+      await flushPromises(20);
+      expect(engine.connectCalls.map((c) => c.serverId)).toEqual(['a', 'b']);
+      expect(bloc.getState().activeServerId).toBe('a');
+      expect(sessionStore.load()?.activeServerId).toBe('a');
+      bloc.dispose();
+    });
+
+    it('connecting a server makes it the active one, also for the next launch', async () => {
+      const { sessionStore, engine, directory, a, b } = twoServers();
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }), engine: engine.client, sessionStore,
+      });
+      await flushPromises(4);
+      await bloc.connect(a);
+      await bloc.connect(b);
+      expect(bloc.getState().activeServerId).toBe('b');
+      expect(sessionStore.load()?.activeServerId).toBe('b');
+      bloc.dispose();
+    });
+
+    it('a background server auto-reconnecting does not take focus', async () => {
+      vi.useFakeTimers();
+      const { sessionStore, engine, directory, a, b } = twoServers();
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }), engine: engine.client, sessionStore,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(a);
+      engine.sessionFor('a')._setState('connected');
+      await bloc.connect(b);
+      engine.sessionFor('b')._setState('connected');
+      bloc.setActiveServer('b');
+      await vi.advanceTimersByTimeAsync(0);
+
+      // A drops in the background and auto-reconnects after the backoff.
+      const calls = engine.connectCalls.length;
+      engine.sessionFor('a')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(engine.connectCalls.length).toBe(calls + 1);
+      expect(bloc.getState().activeServerId).toBe('b');
+      expect(sessionStore.load()?.activeServerId).toBe('b');
+      bloc.dispose();
+      vi.useRealTimers();
+    });
+  });
+
   describe('auto-reconnect', () => {
     // Helper: spin up a bloc with one server already in the saved set so
     // `pendingJoins` gets seeded with the saved channels during the
