@@ -344,6 +344,11 @@ export class DirectoryBloc {
     if (this.showNsfw === v) return;
     this.showNsfw = v;
     this.emit();
+    // The backend leaves NSFW rows out unless asked (`nsfw=true`), so
+    // turning the toggle on must refetch — filtering the rows we already
+    // have could never reveal one. Turning it off refetches too, so the
+    // page of results is filled with SFW rows again.
+    if (this.servers !== null) this.refreshDirectory();
   }
 
   setMe(u: User): void {
@@ -1195,11 +1200,18 @@ export class DirectoryBloc {
     this.searching = true;
     this.emit();
     try {
-      const list = await this.directory.listServers({ q: this.query || undefined });
+      const list = await this.directory.listServers({
+        q: this.query || undefined,
+        nsfw: this.showNsfw || undefined,
+      });
       // If a newer search started while we were in flight, drop this result
       // (that search owns `searching` now).
       if (this.disposed || token !== this.listToken) return;
       this.servers = list;
+      // The backend answered: an earlier list failure is resolved. Not when
+      // the initial load never got `me` (account mode) — that error still
+      // explains why nothing can connect.
+      if (this.me !== undefined) this.error = null;
       this.searching = false;
       this.emit();
     } catch (e) {

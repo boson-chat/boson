@@ -480,6 +480,55 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('setShowNsfw refetches with nsfw=true (the backend omits NSFW rows otherwise)', async () => {
+    const safe = fakeServer('safe', { is_nsfw: false });
+    const naughty = fakeServer('naughty', { is_nsfw: true });
+    // Like the real backend: NSFW rows only when asked for.
+    const listServers = vi.fn(async (p?: { nsfw?: boolean }) => (p?.nsfw ? [safe, naughty] : [safe]));
+    const directory = fakeDirectory({ user: fakeUser(), list: listServers as unknown as DirectoryService['listServers'] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises(4);
+    bloc.setQuery('x');
+    bloc.setShowNsfw(true);
+    await flushPromises(4);
+    expect(listServers.mock.calls.at(-1)?.[0]).toEqual({ q: 'x', nsfw: true });
+    expect(bloc.getState().filteredServers?.map((s) => s.id)).toEqual(['safe', 'naughty']);
+
+    bloc.setShowNsfw(false);
+    await flushPromises(4);
+    expect(listServers.mock.calls.at(-1)?.[0]).toEqual({ q: 'x' });
+    expect(bloc.getState().filteredServers?.map((s) => s.id)).toEqual(['safe']);
+    bloc.dispose();
+  });
+
+  it('a successful refetch clears an earlier list error', async () => {
+    const listServers = vi.fn(async () => { throw new Error('backend down'); });
+    const directory = fakeDirectory({ user: fakeUser(), list: listServers as unknown as DirectoryService['listServers'] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+      guestNick: 'guest',
+    });
+    await flushPromises(4);
+    expect(bloc.getState().error).toBe('backend down');
+
+    listServers.mockImplementation(async () => [fakeServer('libera')] as never);
+    bloc.refreshDirectory();
+    await flushPromises(4);
+    expect(bloc.getState().servers?.map((s) => s.id)).toEqual(['libera']);
+    expect(bloc.getState().error).toBeNull();
+    bloc.dispose();
+  });
+
   it('setMe transitions me from null and triggers session restore when eligible', async () => {
     const storage = memoryStorage();
     const sessionStore = new SessionStore(storage);
