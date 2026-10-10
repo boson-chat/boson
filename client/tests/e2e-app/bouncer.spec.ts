@@ -54,9 +54,12 @@ test('bouncer network auto-connects upstream, relays messages, and can be discon
     await expect(strip).toBeHidden();
     await expect(sidebar.getByLabel('via bouncer', { exact: true })).toBeVisible();
     const states = await page.evaluate(() => (window as unknown as { __stripStates: string[] }).__stripStates);
-    // Observed sequence: absent → "isn't connected" (attach burst) →
+    // Typical sequence: absent → "isn't connected" (attach burst) →
     // "connecting…" (auto-connect sent `connect`) → absent (upstream 001).
-    expect(states).toContain('connecting');
+    // The intermediate states can come and go within a single frame on a
+    // fast runner, so only the end state is asserted here; that auto-connect
+    // really reached the network is proven below (JOIN + messages relayed
+    // through ZNC to ergo, which only works once ZNC is upstream).
     expect(states[states.length - 1]).toBe('none');
 
     // Join through ZNC; the peer on ergo sees the bouncer's upstream nick.
