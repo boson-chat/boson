@@ -4,6 +4,7 @@
         client-install client-env client-dev client-build \
         engine-build engine-connect engine-serve engine-env sidecar-build \
         test test-go test-client test-e2e hooks-install \
+        test-e2e-app test-e2e-app-up test-e2e-app-down \
         test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme
 
 setup: tidy up
@@ -234,6 +235,30 @@ test-client:
 # without paying the `go run` compile cost on every test run.
 test-e2e: engine-build
 	cd client && npm run test:e2e
+
+# ----- Real-app e2e (built Electron app + its own engine sidecar) -----
+#
+# Drives the BUILT Electron app (client/out-e2e/) with Playwright's
+# _electron API: guest login, manual server add, chat with a raw IRC peer,
+# restore-on-relaunch, the ZNC bouncer flow, and navigation-guard smoke
+# tests. Needs only docker — no Postgres/Supabase/backend. The IRC infra is
+# its own compose project (boson-e2e: ergo on 127.0.0.1:16667, ZNC on
+# 127.0.0.1:16501, tmpfs state) and never touches the dev stack's
+# containers, ports or volumes. Each test runs the app with a throwaway
+# HOME / XDG_RUNTIME_DIR / userData, so ~/.boson and the real app profile
+# are left alone. Infra stays up afterwards for quick reruns
+# (`cd client && npm run test:e2e:app`); `make test-e2e-app-down` stops it.
+E2E_APP_COMPOSE := docker compose -f infra/e2e/docker-compose.yml
+
+test-e2e-app-up:
+	$(E2E_APP_COMPOSE) up -d --force-recreate --wait
+
+test-e2e-app: test-e2e-app-up
+	cd client && npm run build:e2e-app
+	cd client && npm run test:e2e:app
+
+test-e2e-app-down:
+	$(E2E_APP_COMPOSE) down -v --remove-orphans
 
 # ----- Services e2e (live IRC services packages) -----
 #

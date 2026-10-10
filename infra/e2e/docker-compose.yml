@@ -1,0 +1,51 @@
+# Isolated infra for the real-app Electron e2e suite (client/tests/e2e-app/).
+#
+#   docker compose -f infra/e2e/docker-compose.yml up -d --wait
+#   docker compose -f infra/e2e/docker-compose.yml down -v
+#
+# (or `make test-e2e-app` / `make test-e2e-app-down`).
+#
+# Deliberately a separate compose PROJECT (`name: boson-e2e`) with its own
+# network, no named volumes and non-default host ports, so it can run next to
+# the dev stack (boson-ergo-1 on :6667 etc.) without touching it. Both
+# services keep their state in tmpfs: every `up --force-recreate` is fresh.
+name: boson-e2e
+
+services:
+  ergo:
+    image: ghcr.io/ergochat/ergo:v2.19.1
+    ports:
+      - '127.0.0.1:16667:6667'
+    tmpfs:
+      - /ircd
+    volumes:
+      - ./ergo.yaml:/ircd/ircd.yaml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 6667']
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  znc:
+    image: znc:1.9.1
+    ports:
+      - '127.0.0.1:16501:6501'
+    # The image chowns /znc-data to the znc user at startup, so seed the
+    # config from a read-only mount into tmpfs, then hand over to the stock
+    # entrypoint (which drops privileges and launches ZNC).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mkdir -p /znc-data/configs && cp /seed/znc.conf /znc-data/configs/znc.conf && exec /entrypoint.sh
+    tmpfs:
+      - /znc-data
+    volumes:
+      - ./znc.conf:/seed/znc.conf:ro
+    depends_on:
+      ergo:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 6501']
+      interval: 1s
+      timeout: 2s
+      retries: 30
