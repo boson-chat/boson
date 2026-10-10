@@ -1,0 +1,94 @@
+# Real-app e2e: builds the Electron app + its Go engine sidecar for
+# linux/amd64 and drives it with Playwright's _electron API (under Xvfb)
+# against an isolated ergo + ZNC (infra/e2e/docker-compose.yml). No backend,
+# Postgres or Supabase — the app runs in guest mode. Locally: `make
+# test-e2e-app`. The browser-only Playwright suite (client/tests/e2e/) still
+# needs the full dev stack and isn't run here.
+name: E2E (real app)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  electron:
+    name: Electron app (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.27'
+          cache: true
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      # Pull + start the IRC infra first; it comes up while we build.
+      - name: Start e2e IRC infra (ergo + ZNC)
+        run: docker compose -f infra/e2e/docker-compose.yml up -d
+
+      - run: npm ci
+
+      # Xvfb + the shared libraries Electron's Chromium needs. Electron ships
+      # its own browser, so no Playwright browser download.
+      - name: Install Electron system dependencies
+        working-directory: client
+        run: npx playwright install-deps chromium
+
+      - name: Typecheck e2e suite
+        working-directory: client
+        run: npx tsc -p tests/e2e-app/tsconfig.json
+
+      # Builds client/out-e2e (renderer/main/preload), the linux/amd64 engine
+      # sidecar into out-e2e/resources/engine, and fetches the Electron binary.
+      - name: Build app + engine sidecar
+        working-directory: client
+        run: npm run build:e2e-app
+
+      - name: Wait for e2e IRC infra
+        run: |
+          docker compose -f infra/e2e/docker-compose.yml up -d --wait --wait-timeout 120
+          docker compose -f infra/e2e/docker-compose.yml ps
+
+      - name: Run Electron e2e suite
+        working-directory: client
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24" npm run test:e2e:app
+
+      - name: Collect docker logs
+        if: failure()
+        run: |
+          mkdir -p e2e-docker-logs
+          docker compose -f infra/e2e/docker-compose.yml ps -a > e2e-docker-logs/ps.txt 2>&1 || true
+          docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps ergo > e2e-docker-logs/ergo.log 2>&1 || true
+          docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps znc > e2e-docker-logs/znc.log 2>&1 || true
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-app-results
+          path: |
+            client/test-results/e2e-app/
+            client/playwright-report/e2e-app/
+            e2e-docker-logs/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop e2e IRC infra
+        if: always()
+        run: docker compose -f infra/e2e/docker-compose.yml down -v --remove-orphans
