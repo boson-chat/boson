@@ -1,3 +1,9 @@
+## [0.31.1](https://github.com/boson-chat/boson/compare/v0.31.0...v0.31.1) (2026-10-10)
+
+### Bug Fixes
+
+* **release:** pin electron so electron-builder can package the app ([#4](https://github.com/boson-chat/boson/issues/4)) ([78f13ac](https://github.com/boson-chat/boson/commit/78f13ac42c339bb527f0a79c228aac4d2500978c))
+
 ## [0.31.0](https://github.com/boson-chat/boson/compare/v0.30.1...v0.31.0) (2026-10-10)
 
 ### Features
