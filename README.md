@@ -170,6 +170,39 @@ engine log in `client/test-results/e2e-app/` (`npx playwright show-trace
 <zip>`). CI runs the same suite on Linux under Xvfb
 (`.github/workflows/e2e.yml`).
 
+#### Coverage
+
+```bash
+make test-e2e-app-coverage   # coverage build + run → client/coverage/e2e/
+
+# Iterating (infra already up):
+cd client
+E2E_COVERAGE=1 npm run build:e2e-app
+npm run test:e2e:app:coverage
+```
+
+`E2E_COVERAGE=1` builds the bundles with source maps (renderer unminified)
+and the engine with `go build -cover`, then measures all three layers across
+every launch in the run (relaunches included):
+
+- **Renderer** — V8 precise coverage, started on each window before its first
+  script runs (`tests/e2e-app/coverage/electron-hook.cjs`, preloaded into the
+  main process with `-r`) and taken just before the app closes.
+- **Main + preload** — `NODE_V8_COVERAGE` for the main process (flushed on a
+  graceful quit); the sandboxed preload runs in the renderer's V8 and comes
+  with the renderer data.
+- **Engine** — `GOCOVERDIR`, inherited by the sidecar; counters are written
+  when it exits on the app's SIGTERM.
+
+Reports are mapped back to `client/src/…` and `engine/…` (node_modules,
+tests and the shared workspace package are excluded): `renderer/`, `main/`
+and `engine/` each hold an `index.html` and `lcov.info`, and `summary.md` has
+per-layer totals plus the least-covered files. Expect about 10% overhead.
+CI runs with coverage on, adds `summary.md` to the job summary and uploads
+the reports as the `e2e-app-coverage` artifact. A coverage build left in
+`client/out-e2e` still works for a plain `npm run test:e2e:app`; rebuild
+without the flag for representative timings.
+
 ## Useful one-shots
 
 ```bash
