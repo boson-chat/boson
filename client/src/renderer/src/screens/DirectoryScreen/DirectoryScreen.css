@@ -823,6 +823,11 @@
   flex-shrink: 0;
 }
 
+.directory-bouncer-search {
+  flex: none;
+  width: 100%;
+  min-width: 0;
+}
 .directory-bouncer-discover {
   display: flex;
   align-items: center;

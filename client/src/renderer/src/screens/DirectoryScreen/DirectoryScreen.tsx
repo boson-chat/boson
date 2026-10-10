@@ -532,11 +532,23 @@ export function BouncerNetworksPanel({ bloc, connections }: {
   const [discovering, setDiscovering] = useState(false);
   const [discovered, setDiscovered] = useState<string[] | null>(null);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
+  // Filters both the discovered list and the saved networks below. Big
+  // bouncers (public BNC services) carry hundreds of networks, so scrolling
+  // to find one isn't workable.
+  const [search, setSearch] = useState('');
 
   const networks = bloc.bouncerNetworks();
   const connById = new Map(connections.map((c) => [c.serverId, c]));
   const haveNetwork = (n: string): boolean =>
     networks.some((s) => (s.bouncer?.network ?? '').toLowerCase() === n.toLowerCase());
+
+  const needle = search.trim().toLowerCase();
+  const matches = (...fields: (string | undefined)[]): boolean =>
+    !needle || fields.some((f) => (f ?? '').toLowerCase().includes(needle));
+  const visibleDiscovered = discovered?.filter((n) => matches(n)) ?? null;
+  const visibleNetworks = networks.filter((s) => matches(s.name, s.bouncer?.network));
+  const newDiscovered = visibleDiscovered?.filter((n) => !haveNetwork(n)) ?? [];
+  const showSearch = (discovered?.length ?? 0) > 0 || networks.length > 0;
 
   const add = (e: Event): void => {
     e.preventDefault();
@@ -606,28 +618,48 @@ export function BouncerNetworksPanel({ bloc, connections }: {
         <WarningBanner tone="danger" title="Couldn't reach your bouncer">{discoverError}</WarningBanner>
       )}
 
-      {discovered && (
+      {showSearch && (
+        <input
+          type="search"
+          class="directory-search directory-bouncer-search"
+          placeholder="Search networks…"
+          value={search}
+          onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch(''); } }}
+          aria-label="Search networks"
+          autoComplete="off"
+          spellcheck={false}
+        />
+      )}
+
+      {discovered && visibleDiscovered && (
         discovered.length === 0 ? (
           <div class="directory-empty">No networks found on your bouncer.</div>
         ) : (
           <div class="directory-bouncer-discovered">
             <div class="directory-bouncer-discovered-head">
               <span class="directory-list-tag" style="text-transform: none;">
-                Found on your bouncer:
+                {needle
+                  ? `Found on your bouncer: ${visibleDiscovered.length} of ${discovered.length}`
+                  : 'Found on your bouncer:'}
               </span>
-              {discovered.some((n) => !haveNetwork(n)) && (
+              {newDiscovered.length > 0 && (
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    for (const n of discovered) if (!haveNetwork(n)) bloc.addBouncerNetwork({ name: n, network: n });
+                    // While searching, only add what's on screen.
+                    for (const n of newDiscovered) bloc.addBouncerNetwork({ name: n, network: n });
                   }}
                 >
-                  Add all new
+                  {needle ? `Add ${newDiscovered.length} matching` : 'Add all new'}
                 </Button>
               )}
             </div>
+            {visibleDiscovered.length === 0 && (
+              <div class="directory-empty">No networks match “{search.trim()}”.</div>
+            )}
             <div class="directory-bouncer-list" role="list">
-              {discovered.map((n) => (
+              {visibleDiscovered.map((n) => (
                 <div key={n} class="directory-bouncer-row" role="listitem">
                   <div class="directory-bouncer-name">{n}</div>
                   {haveNetwork(n) ? (
@@ -646,9 +678,11 @@ export function BouncerNetworksPanel({ bloc, connections }: {
 
       {networks.length === 0 ? (
         <div class="directory-empty">No bouncer networks yet — add one above.</div>
+      ) : visibleNetworks.length === 0 ? (
+        <div class="directory-empty">None of your networks match “{search.trim()}”.</div>
       ) : (
         <div class="directory-bouncer-list" role="list">
-          {networks.map((s) => {
+          {visibleNetworks.map((s) => {
             const conn = connById.get(s.id);
             return (
               <div key={s.id} class="directory-bouncer-row" role="listitem">
