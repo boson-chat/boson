@@ -23,7 +23,8 @@
 import { test as base, expect, _electron, type ElectronApplication, type Page, type Locator } from '@playwright/test';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { COVERAGE, ELECTRON_HOOK, RAW, RENDERER_CHUNK_URL, isPreloadUrl } from './coverage/config';
 import { APP_DIR, STACK } from './stack';
@@ -33,6 +34,9 @@ import { createConfirmedUser, deleteAuthUser, type AuthUser } from './helpers/su
 import { leaseZncUser, resetZncUser, type ZncUser } from './helpers/znc';
 
 export { APP_DIR, STACK };
+
+// Stubs the app's OS boson:// handler registration (see the file).
+const SANDBOX_HOOK = join(dirname(fileURLToPath(import.meta.url)), 'electron-sandbox-hook.cjs');
 
 // Test IRC infra (infra/e2e/docker-compose.yml). The app's engine and the
 // peer bot both reach ergo on the host port; ZNC reaches it as `ergo` on the
@@ -235,7 +239,7 @@ export const test = base.extend<Fixtures>({
         writeFileSync(join(RAW.launches, randomUUID()), '');
       }
 
-      const args = [APP_DIR, `--user-data-dir=${p.userData}`];
+      const args = ['-r', SANDBOX_HOOK, APP_DIR, `--user-data-dir=${p.userData}`];
       // Preloaded ahead of the app's main bundle so renderer coverage starts
       // before the first page script runs.
       if (COVERAGE) args.unshift('-r', ELECTRON_HOOK);
