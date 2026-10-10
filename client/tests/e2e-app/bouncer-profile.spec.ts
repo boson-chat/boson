@@ -40,6 +40,11 @@ function makeProfile(): Profile {
 
 interface BouncerDTO { ciphertext: string; updated_at: string }
 
+// Secure-store tag on disk: the OS keychain format ("ks1:") where one is
+// available (macOS, mock keychain), else the derived-key fallback ("fb1:") —
+// Linux CI has no keyring. Either way it's ciphertext, never plain text.
+const STORE_TAG = process.platform === 'darwin' ? /^ks1:/ : /^fb1:/;
+
 test.describe('bouncer profile', () => {
   test('validation, toggles, Clear, and persistence across a relaunch (encrypted at rest)', async ({ launchApp, profile }) => {
     const host = `znc-${uid()}.example.test`;
@@ -96,7 +101,7 @@ test.describe('bouncer profile', () => {
     const onDisk = readFileSync(join(profile.userData, 'identity-store.json'), 'utf8');
     expect(onDisk).not.toContain(password);
     expect(onDisk).not.toContain(host);
-    expect(JSON.parse(onDisk)['boson.bouncer.v1']).toMatch(/^ks1:/);
+    expect(JSON.parse(onDisk)['boson.bouncer.v1']).toMatch(STORE_TAG);
 
     // Relaunch: still there, trimmed values and toggles intact.
     await first.app.close();

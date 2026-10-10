@@ -49,6 +49,11 @@ async function connectDirect(page: Page, name: string): Promise<void> {
   await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
 }
 
+// Secure-store tag on disk: the OS keychain format ("ks1:") where one is
+// available (macOS, mock keychain), else the derived-key fallback ("fb1:") —
+// Linux CI has no keyring. Either way it's ciphertext, never plain text.
+const STORE_TAG = process.platform === 'darwin' ? /^ks1:/ : /^fb1:/;
+
 test.describe('app shell', () => {
   test('title bar and window controls over the bosonWindow IPC', async ({ launchApp }) => {
     const { app, page } = await launchApp();
@@ -370,11 +375,14 @@ test.describe('secure store', () => {
     await expect(field(dialog, 'Username')).toHaveValue('fbuser');
     await expect(field(dialog, 'Password')).toHaveValue('fbpass');
 
-    // Re-saving stores it with the keychain (preferred) format.
+    // Re-saving rewrites it in the preferred format for this platform.
+    const before = (JSON.parse(readFileSync(join(profile.userData, 'identity-store.json'), 'utf8')) as Record<string, unknown>)['boson.bouncer.v1'];
     await field(dialog, 'Port').fill('6502');
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => (JSON.parse(readFileSync(join(profile.userData, 'identity-store.json'), 'utf8')) as Record<string, unknown>)['boson.bouncer.v1'])
-      .toMatch(/^ks1:/);
+      .not.toBe(before);
+    expect((JSON.parse(readFileSync(join(profile.userData, 'identity-store.json'), 'utf8')) as Record<string, string>)['boson.bouncer.v1'])
+      .toMatch(STORE_TAG);
   });
 
   test('a corrupt store file is replaced on the next write; the IPC rejects malformed calls', async ({ launchApp, profile }) => {
@@ -396,7 +404,7 @@ test.describe('secure store', () => {
     await sec('set', 'e2e.probe', 'secret-value');
     expect(await sec('get', 'e2e.probe')).toBe('secret-value');
     const onDisk = JSON.parse(readFileSync(join(profile.userData, 'identity-store.json'), 'utf8')) as Record<string, string>;
-    expect(onDisk['e2e.probe']).toMatch(/^ks1:/);
+    expect(onDisk['e2e.probe']).toMatch(STORE_TAG);
     expect(JSON.stringify(onDisk)).not.toContain('secret-value');
     await sec('remove', 'e2e.probe');
     await sec('remove', 'e2e.never-set'); // no-op

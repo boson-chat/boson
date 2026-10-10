@@ -90,12 +90,16 @@ export async function submitLogin(page: Page, c: Credentials): Promise<void> {
 }
 
 // Signs in on the login screen. Resolves once the app left it: on the
-// first-sign-in handle setup (no /me yet) or the directory.
+// first-sign-in handle setup (no /me yet) → 'setup', otherwise 'directory',
+// meaning "signed in, past setup": the directory, OR the chat view when a
+// synced session restores straight into it (a second device can win that
+// race against the directory's first paint, as it does on Linux CI).
 export async function loginAs(page: Page, c: Credentials): Promise<'setup' | 'directory'> {
   await submitLogin(page, c);
   const setup = setupHeading(page);
   const directory = directoryHeading(page);
-  await expect(setup.or(directory).or(page.locator('.login-error'))).toBeVisible({ timeout: 30_000 });
+  const restoredChat = page.getByRole('navigation', { name: 'Servers' });
+  await expect(setup.or(directory).or(restoredChat).or(page.locator('.login-error'))).toBeVisible({ timeout: 30_000 });
   const err = page.locator('.login-error');
   if (await err.isVisible()) throw new Error(`sign-in failed: ${await err.innerText()}`);
   return (await setup.isVisible()) ? 'setup' : 'directory';

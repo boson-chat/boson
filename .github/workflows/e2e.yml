@@ -65,7 +65,11 @@ jobs:
       # its own browser, so no Playwright browser download.
       - name: Install Electron system dependencies
         working-directory: client
-        run: npx playwright install-deps chromium
+        # openbox: a minimal window manager, so minimize / maximize / restore
+        # behave like on a desktop (bare Xvfb has none and ignores them).
+        run: |
+          npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends openbox
 
       - name: Typecheck e2e suite
         working-directory: client
@@ -94,7 +98,9 @@ jobs:
         # stack. Specs are isolated per test (own users/channels/ZNC lease).
         env:
           E2E_WORKERS: '3'
-        run: xvfb-run -a --server-args="-screen 0 1440x900x24" npm run test:e2e:app:coverage
+        run: >-
+          xvfb-run -a --server-args="-screen 0 1440x900x24"
+          sh -c 'openbox & sleep 1; npm run test:e2e:app:coverage'
 
       - name: Coverage summary
         if: always()
