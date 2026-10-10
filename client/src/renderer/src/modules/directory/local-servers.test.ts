@@ -4,6 +4,7 @@ import {
   loadLocalServers,
   removeLocalServer,
   asDirectoryServer,
+  mergeWithLocal,
 } from './local-servers';
 
 const STORAGE_KEY = 'boson:local-servers:v1';
@@ -65,5 +66,24 @@ describe('local-servers', () => {
     const created = addLocalServer({ name: 'x', hostname: 'irc.h', port: 6697, tls: true, tlsInsecure: true });
     removeLocalServer(created.id);
     expect(loadLocalServers()).toHaveLength(0);
+  });
+
+  describe('mergeWithLocal', () => {
+    const backend = asDirectoryServer({ id: 'b1', name: 'Listed', hostname: 'IRC.Example.org', port: 6697, tls: true });
+
+    it('hides a local entry for the same hostname:port (backend wins)', () => {
+      const local = addLocalServer({ name: 'mine', hostname: 'irc.example.org', port: 6697, tls: true });
+      const merged = mergeWithLocal([backend], [local]);
+      expect(merged.map((s) => s.id)).toEqual(['b1']);
+    });
+
+    // Regression: the merge keyed on hostname alone, so a local entry for a
+    // different port on a listed host vanished from the directory — and a
+    // boson://join deep link to that port silently did nothing.
+    it('keeps a local entry for another port on a listed host', () => {
+      const local = addLocalServer({ name: 'plain', hostname: 'irc.example.org', port: 6667, tls: false });
+      const merged = mergeWithLocal([backend], [local]);
+      expect(merged.map((s) => s.id)).toEqual(['b1', local.id]);
+    });
   });
 });
