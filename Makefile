@@ -160,18 +160,18 @@ engine-build:
 	go build -o bin/engine ./engine/cmd/engine
 
 # Rebuild the sidecar engine binaries that `make client-dev` (and the
-# packaged app) spawn from `client/resources/engine/`. The binaries
-# here are committed so a clean checkout can `npm run dev` without a
-# Go toolchain, but they go stale whenever `engine/` source changes.
-# Run this after engine/ edits OR before testing renderer ↔ engine
-# IPC changes — `make client-dev` won't pick up engine changes
-# otherwise.
+# packaged app) spawn from `client/resources/engine/`. The directory is
+# gitignored, so a fresh checkout has none: without them the dev client
+# falls back to a separately running `make engine-serve`. They also go
+# stale whenever `engine/` source changes — rerun this after engine/
+# edits OR before testing renderer ↔ engine IPC changes.
 #
-# Both targets cross-compile via `GOOS=...` so a single dev machine
-# can rebuild the Windows binary too (Go cross-compiles cleanly
-# without cgo).
+# Every target cross-compiles via `GOOS=...` (no cgo), so one dev
+# machine can rebuild the binaries for all platforms.
 sidecar-build:
 	@echo "Building sidecar engine binaries for client/resources/engine/..."
+	GOOS=darwin  GOARCH=arm64 go build -o client/resources/engine/engine-darwin-arm64      ./engine/cmd/engine
+	GOOS=darwin  GOARCH=amd64 go build -o client/resources/engine/engine-darwin-amd64      ./engine/cmd/engine
 	GOOS=linux   GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64       ./engine/cmd/engine
 	GOOS=linux   GOARCH=arm64 go build -o client/resources/engine/engine-linux-arm64       ./engine/cmd/engine
 	GOOS=windows GOARCH=amd64 go build -o client/resources/engine/engine-windows-amd64.exe ./engine/cmd/engine
