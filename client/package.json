@@ -2,7 +2,7 @@
   "name": "boson-client",
   "version": "0.30.1",
   "private": true,
-  "description": "Boson — desktop IRC client.",
+  "description": "Boson \u2014 desktop IRC client.",
   "homepage": "https://boson.chat",
   "author": {
     "name": "Boson",
@@ -36,6 +36,7 @@
     "@preact/signals": "^2.9.1",
     "@supabase/supabase-js": "^2.45.0",
     "electron-updater": "^6.8.3",
+    "hash-wasm": "4.12.0",
     "lucide-preact": "^1.18.0",
     "preact": "^10.22.0"
   },

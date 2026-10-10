@@ -1,4 +1,4 @@
-import { argon2id } from '@noble/hashes/argon2.js';
+import { argon2idKey } from './argon2';
 
 // Encrypted user_secret blob format (binary, then base64 for transit):
 //   bytes 0..15   — Argon2id salt (16 bytes)
@@ -13,15 +13,15 @@ const USER_SECRET_LEN = 32;
 // Argon2id parameters — interactive profile from OWASP guidance, deliberately
 // not configurable from the app so a downgrade can't sneak in via env.
 // Tests should pass `argonOverride` to IdentityService instead of weakening
-// these. Roughly ~200ms in modern browsers.
+// these. ~0.7s with the WASM implementation (see ./argon2).
 export const ARGON2_PARAMS = { t: 3, m: 65536, p: 1, dkLen: 32 } as const;
 
 export interface ArgonFn {
-  (password: string, salt: Uint8Array): Uint8Array; // returns 32-byte raw key
+  // Returns the 32-byte raw key. May be async (the default runs in a worker).
+  (password: string, salt: Uint8Array): Uint8Array | Promise<Uint8Array>;
 }
 
-const defaultArgon: ArgonFn = (password, salt) =>
-  argon2id(password, salt, ARGON2_PARAMS);
+const defaultArgon: ArgonFn = (password, salt) => argon2idKey(password, salt, ARGON2_PARAMS);
 
 export function generateUserSecret(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(USER_SECRET_LEN));
@@ -37,7 +37,7 @@ export async function encryptUserSecret(
   }
   const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
   const iv = crypto.getRandomValues(new Uint8Array(IV_LEN));
-  const kek = await importAesKey(argon(password, salt));
+  const kek = await importAesKey(await argon(password, salt));
   const ciphertext = new Uint8Array(
     await crypto.subtle.encrypt({ name: 'AES-GCM', iv: asBuf(iv) }, kek, asBuf(secret)),
   );
@@ -59,7 +59,7 @@ export async function decryptUserSecret(
   const salt = blob.slice(0, SALT_LEN);
   const iv = blob.slice(SALT_LEN, HEADER_LEN);
   const ciphertext = blob.slice(HEADER_LEN);
-  const kek = await importAesKey(argon(password, salt));
+  const kek = await importAesKey(await argon(password, salt));
   // AES-GCM decrypt throws on tag mismatch — that's our wrong-password signal.
   const plain = new Uint8Array(
     await crypto.subtle.decrypt({ name: 'AES-GCM', iv: asBuf(iv) }, kek, asBuf(ciphertext)),
