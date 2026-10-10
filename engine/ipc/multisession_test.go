@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -353,4 +354,67 @@ func TestSession_DuplicateConnectForSameServerIDIsRejected(t *testing.T) {
 		return m.Type == MsgError && m.ServerID == "srv-x"
 	})
 	assert.NotEmpty(t, sawDup)
+}
+
+// Disconnect then immediately connect again under the same serverId (the
+// renderer's "Reconnect" on a live server): the disconnect is confirmed only
+// once the old IRC connection has ended, and nothing from the old connection
+// (its late "disconnected" / error) is reported against the new one.
+func TestSession_ReconnectSameServerID_NoStrayStatusFromOldConnection(t *testing.T) {
+	irc1 := newFakeIRCServer(t)
+
+	srv, wsURL := newTestServer(t)
+	c := dial(t, wsURL, srv.Token())
+	rdr := wrapConn(func(ctx context.Context) (ServerMessage, bool) {
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			return ServerMessage{}, false
+		}
+		var msg ServerMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return ServerMessage{}, false
+		}
+		return msg, true
+	})
+	connect := func() {
+		raw, _ := json.Marshal(ConnectParams{ServerID: "srv-a", Hostname: irc1.addr, Port: irc1.port, TLS: false, Nick: "bot"})
+		writeJSON(t, c, ClientMessage{Type: CmdConnect, Params: raw})
+	}
+	isStatus := func(m ServerMessage, state string) bool {
+		return m.Type == MsgStatus && m.ServerID == "srv-a" && m.State == state
+	}
+
+	connect()
+	readUntil(t, rdr, func(m ServerMessage) bool { return isStatus(m, StateConnected) })
+
+	raw, _ := json.Marshal(DisconnectParams{ServerID: "srv-a"})
+	writeJSON(t, c, ClientMessage{Type: CmdDisconnect, Params: raw})
+	readUntil(t, rdr, func(m ServerMessage) bool { return isStatus(m, StateDisconnected) })
+	// By the confirmation, the old connection is closed on the server side.
+	irc1.mu.Lock()
+	first := irc1.conns[0]
+	irc1.mu.Unlock()
+	_ = first.SetReadDeadline(time.Now().Add(time.Second))
+	_, err := first.Read(make([]byte, 1))
+	var ne net.Error
+	closed := err != nil && !(errors.As(err, &ne) && ne.Timeout())
+	assert.True(t, closed, "old IRC connection should be closed once the disconnect is confirmed (read: %v)", err)
+
+	// Reconnect: the new connection comes up, and nothing from the old one
+	// (a second "disconnected", an error) is reported after the confirmation.
+	connect()
+	reconnected := false
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		m, ok := rdr.readWithTimeout(t, 300*time.Millisecond)
+		if !ok {
+			continue
+		}
+		if isStatus(m, StateConnected) {
+			reconnected = true
+		}
+		assert.False(t, isStatus(m, StateDisconnected), "stray disconnected after the reconnect")
+		assert.False(t, m.Type == MsgError && m.ServerID == "srv-a", "stray error after the reconnect: %s", m.Error)
+	}
+	assert.True(t, reconnected, "the new connection should come up")
 }
