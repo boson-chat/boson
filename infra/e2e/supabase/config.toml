@@ -5,7 +5,7 @@
 #
 # A SEPARATE project from the dev stack in supabase/ (project_id "boson",
 # ports 5432x): own project_id → own containers (supabase_*_boson-e2e),
-# volumes and docker network; every port offset to 5532x. Boson only needs
+# volumes and docker network; every port moved to 553xx. Boson only needs
 # Auth, so this runs just Postgres + GoTrue + Kong (the /auth/v1 gateway the
 # client and the backend's JWKS fetch go through) + the bundled Mailpit that
 # catches auth emails (the "user's inbox" the tests read). Everything else is
@@ -20,8 +20,8 @@ extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 55322
-shadow_port = 55320
+port = 55332
+shadow_port = 55330
 major_version = 17
 
 [db.pooler]

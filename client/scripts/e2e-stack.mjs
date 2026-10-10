@@ -116,7 +116,16 @@ function supabaseStatus() {
 
 function supabaseUp() {
   if (!supabaseStatus()) {
-    run(SUPABASE, ['start', '--workdir', e2eDir, '-x', SUPABASE_EXCLUDE.join(',')]);
+    try {
+      run(SUPABASE, ['start', '--workdir', e2eDir, '-x', SUPABASE_EXCLUDE.join(',')]);
+    } catch (err) {
+      // Seen once on Docker Desktop (macOS): after a stop, its port forwarder
+      // kept one published port bound with no container — the host can bind
+      // it, docker can't. Only a Docker Desktop restart frees it.
+      throw new Error(`${err.message}. If it says a port is "already in use" but nothing listens on it, ` +
+        'Docker Desktop leaked the binding: restart Docker Desktop, or move that port in ' +
+        'infra/e2e/supabase/config.toml (+ infra/e2e/stack.json).');
+    }
   } else {
     log('Supabase project boson-e2e already running');
   }

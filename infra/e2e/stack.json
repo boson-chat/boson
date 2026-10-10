@@ -7,7 +7,7 @@
   "minio": { "endpoint": "http://127.0.0.1:19000", "accessKey": "minioadmin", "secretKey": "minioadmin", "bucket": "boson" },
   "supabase": {
     "apiUrl": "http://127.0.0.1:55321",
-    "dbPort": 55322,
+    "dbPort": 55332,
     "mailpitUrl": "http://127.0.0.1:55324",
     "publishableKey": "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH",
     "secretKey": ""
