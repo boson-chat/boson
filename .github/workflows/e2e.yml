@@ -4,6 +4,11 @@
 # Postgres or Supabase — the app runs in guest mode. Locally: `make
 # test-e2e-app`. The browser-only Playwright suite (client/tests/e2e/) still
 # needs the full dev stack and isn't run here.
+#
+# The suite always runs with code coverage (E2E_COVERAGE=1: renderer,
+# Electron main + preload, Go engine — ~10% slower than a plain run). The
+# per-layer summary lands in the job summary and the HTML/lcov reports are
+# uploaded as the `e2e-app-coverage` artifact.
 name: E2E (real app)
 
 on:
@@ -56,8 +61,11 @@ jobs:
 
       # Builds client/out-e2e (renderer/main/preload), the linux/amd64 engine
       # sidecar into out-e2e/resources/engine, and fetches the Electron binary.
+      # Coverage build: source maps + `go build -cover`.
       - name: Build app + engine sidecar
         working-directory: client
+        env:
+          E2E_COVERAGE: '1'
         run: npm run build:e2e-app
 
       - name: Wait for e2e IRC infra
@@ -65,9 +73,29 @@ jobs:
           docker compose -f infra/e2e/docker-compose.yml up -d --wait --wait-timeout 120
           docker compose -f infra/e2e/docker-compose.yml ps
 
-      - name: Run Electron e2e suite
+      - name: Run Electron e2e suite (with coverage)
         working-directory: client
-        run: xvfb-run -a --server-args="-screen 0 1440x900x24" npm run test:e2e:app
+        run: xvfb-run -a --server-args="-screen 0 1440x900x24" npm run test:e2e:app:coverage
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f client/coverage/e2e/summary.md ]; then
+            cat client/coverage/e2e/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No e2e coverage summary was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-app-coverage
+          path: |
+            client/coverage/e2e/
+            !client/coverage/e2e/.raw/
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Collect docker logs
         if: failure()
