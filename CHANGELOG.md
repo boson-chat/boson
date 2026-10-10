@@ -1,3 +1,9 @@
+## [0.31.0](https://github.com/boson-chat/boson/compare/v0.30.1...v0.31.0) (2026-10-10)
+
+### Features
+
+* bouncer network control, loaders & app icon, Electron 44, review fixes ([#3](https://github.com/boson-chat/boson/issues/3)) ([0ab1e9e](https://github.com/boson-chat/boson/commit/0ab1e9e4d2027f307dbeea414664e98fd27df4c8))
+
 ## [0.30.1](https://github.com/boson-chat/boson/compare/v0.30.0...v0.30.1) (2026-07-05)
 
 ### Bug Fixes
