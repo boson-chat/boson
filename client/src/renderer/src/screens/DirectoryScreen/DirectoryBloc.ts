@@ -8,11 +8,11 @@ import { getNotifier } from '../../modules/ui/notifier';
 import { getWindowBridge } from '../../shared/window-controls';
 import { parseZncNetworks } from '../../modules/chat/znc.parse';
 import type { DirectoryService, Server, User } from '../../modules/directory';
-import type { EngineClient, EngineState, ServerSession } from '../../modules/engine';
+import type { BouncerUpstreamState, EngineClient, EngineState, ServerSession } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
-import { SessionStore, type SavedServer, type SavedSession } from '../../modules/session';
+import { SessionStore, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
 import {
   addLocalServer,
   loadLocalServers,
@@ -43,6 +43,11 @@ export interface DirectoryConnection {
   // false when (a) we reach `connected`, (b) the user clicks Cancel, or
   // (c) the user disconnects explicitly.
   reconnect: { active: boolean };
+  // Bouncer upstream state: whether the bouncer (ZNC) is itself connected
+  // to the real IRC network. `engineState === 'connected'` only means the
+  // link to the bouncer is up. Null for direct connections / until the
+  // engine reports.
+  bouncerUpstream: BouncerUpstreamState | null;
 }
 
 interface Connection {
@@ -52,7 +57,9 @@ interface Connection {
   session: ServerSession;
   engineState: EngineState;
   error: string | null;
+  bouncerUpstream: BouncerUpstreamState | null;
   unsubscribeState: () => void;
+  unsubscribeBouncerUpstream: () => void;
   unsubscribeChat: () => void;
   unsubscribePresence: () => void;
 }
@@ -83,6 +90,9 @@ export interface DirectoryState {
   language: string;
   showNsfw: boolean;
   error: string | null;
+  // True while a search / refresh refetch of the list is in flight. The
+  // initial load is covered by `servers === null`.
+  searching: boolean;
   // All currently-open connections, ordered by insertion. The active one is
   // identified by `activeServerId`.
   connections: ReadonlyArray<DirectoryConnection>;
@@ -157,6 +167,7 @@ export class DirectoryBloc {
 
   private me: User | null | undefined = undefined;
   private servers: Server[] | null = null;
+  private searching = false;
   private query = '';
   // One bouncer network-discovery probe at a time.
   private bouncerProbeInFlight = false;
@@ -269,6 +280,7 @@ export class DirectoryBloc {
       language: this.language,
       showNsfw: this.showNsfw,
       error: this.error,
+      searching: this.searching,
       connections: this.snapshotConnections(),
       activeServerId: this.activeServerId,
       showChat,
@@ -332,6 +344,11 @@ export class DirectoryBloc {
     if (this.showNsfw === v) return;
     this.showNsfw = v;
     this.emit();
+    // The backend leaves NSFW rows out unless asked (`nsfw=true`), so
+    // turning the toggle on must refetch — filtering the rows we already
+    // have could never reveal one. Turning it off refetches too, so the
+    // page of results is filled with SFW rows again.
+    if (this.servers !== null) this.refreshDirectory();
   }
 
   setMe(u: User): void {
@@ -399,12 +416,23 @@ export class DirectoryBloc {
   // Per-server bouncer routing (read/write the saved-session row). Takes
   // effect on the next (re)connect — connectWith reads it from the session
   // store by serverId.
-  getServerBouncer(serverId: string): { route: boolean; network: string } | undefined {
+  getServerBouncer(serverId: string): SavedServerBouncer | undefined {
     return this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.server.bouncer;
   }
 
-  setServerBouncer(serverId: string, route: { route: boolean; network: string }): void {
+  setServerBouncer(serverId: string, route: SavedServerBouncer): void {
     this.sessionStore.setServerBouncer(serverId, route);
+  }
+
+  // Ask a live bouncer connection to connect / disconnect its upstream IRC
+  // network (ZNC `*status connect` / `disconnect`, sent by the engine).
+  // No-op when the server isn't a live connection.
+  bouncerConnect(serverId: string): void {
+    this.connections.get(serverId)?.chat.bouncerConnect();
+  }
+
+  bouncerDisconnect(serverId: string): void {
+    this.connections.get(serverId)?.chat.bouncerDisconnect();
   }
 
   // Open a conversation surfaced from the Inbox: focus its server (and show
@@ -513,7 +541,9 @@ export class DirectoryBloc {
 
   // ---- Connect / disconnect ----
 
-  async connect(server: Server): Promise<void> {
+  // `focus: false` connects without making the server the active one (a
+  // background auto-reconnect must not yank the user to that server).
+  async connect(server: Server, opts: { focus?: boolean } = {}): Promise<void> {
     const existing = this.connections.get(server.id);
     if (existing) {
       // Same-server guard generalised: if a connection already exists in
@@ -553,7 +583,7 @@ export class DirectoryBloc {
       this.teardownConnection(existing, { sendDisconnect: false });
       this.connections.delete(server.id);
     }
-    await this.connectWith(server);
+    await this.connectWith(server, opts);
     if (this.serverBrowserOpen) {
       this.serverBrowserOpen = false;
       this.emit();
@@ -644,10 +674,38 @@ export class DirectoryBloc {
       }
       ar.cancelled = false;
     }
+    // A live (connected / connecting) connection must really be rebuilt —
+    // connect() alone would just re-select it. That's what "Reconnect"
+    // promises, and what applies per-server settings that only take effect
+    // on a new IRC session (e.g. a changed bouncer route).
+    if (conn.engineState === 'connected' || conn.engineState === 'connecting') {
+      await this.restartLiveConnection(conn);
+    }
     // Server records carry the same shape whether they came from the live
     // directory list (`Server`) or a saved session (`SavedServer`); connect()
     // accepts either via its Server-typed parameter.
     await this.connect(conn.server as Server);
+  }
+
+  // Disconnects a live connection without the user-level side effects of
+  // disconnect() (the saved row and channels stay; no auto-reconnect is
+  // armed), and waits for the engine to drop the session — the engine
+  // client hands back the SAME session to a connect() for a serverId it
+  // still holds. Saved channels are queued to re-join on the new session.
+  private async restartLiveConnection(conn: Connection): Promise<void> {
+    const channels = this.sessionStore.load()?.servers.find((s) => s.server.id === conn.serverId)?.channels ?? [];
+    if (channels.length > 0) this.pendingJoins.set(conn.serverId, channels.slice());
+    this.teardownConnection(conn, { sendDisconnect: false });
+    if (!conn.session.isDisposed()) {
+      await new Promise<void>((resolve) => {
+        let off: () => void = () => {};
+        const done = (): void => { clearTimeout(timer); off(); resolve(); };
+        const timer = setTimeout(done, 5000);
+        off = conn.session.onState((s) => { if (s === 'disconnected') done(); });
+        conn.session.disconnect();
+      });
+    }
+    this.connections.delete(conn.serverId);
   }
 
   // Stop the auto-reconnect cycle for the active connection. The next
@@ -689,7 +747,7 @@ export class DirectoryBloc {
       // connect() routes through the existing wedge → teardown →
       // connectWith path, which seeds pendingJoins from sessionStore
       // so channels are rejoined on the fresh session.
-      void this.connect(conn.server as Server);
+      void this.connect(conn.server as Server, { focus: false });
     }, delayMs);
     this.emit();
   }
@@ -777,6 +835,7 @@ export class DirectoryBloc {
       engineState: c.engineState,
       error: c.error,
       reconnect: { active: this.isAutoReconnectActive(c.serverId) },
+      bouncerUpstream: c.bouncerUpstream,
     }));
   }
 
@@ -1098,7 +1157,19 @@ export class DirectoryBloc {
       // call. The id `__guest__` is stable across reloads so chat-history
       // scoping has a consistent key for the guest's local-only logs.
       if (this.guestNick) {
-        const list = await this.directory.listServers();
+        // The public directory is optional for a guest: with the backend
+        // unreachable (offline, self-hosted setup, outage) they must still
+        // see + connect to their locally-added servers and get their saved
+        // session restored. Surface the error but carry on with an empty
+        // public list instead of leaving `servers` null (an endless
+        // "Loading directory…" that hides local entries and blocks restore).
+        let list: Server[] = [];
+        try {
+          list = await this.directory.listServers();
+        } catch (e) {
+          if (this.disposed) return;
+          this.error = e instanceof Error ? e.message : String(e);
+        }
         if (this.disposed) return;
         this.me = {
           id: '__guest__',
@@ -1156,15 +1227,27 @@ export class DirectoryBloc {
   }
 
   private async runSearch(token: number): Promise<void> {
+    this.searching = true;
+    this.emit();
     try {
-      const list = await this.directory.listServers({ q: this.query || undefined });
-      // If a newer search started while we were in flight, drop this result.
+      const list = await this.directory.listServers({
+        q: this.query || undefined,
+        nsfw: this.showNsfw || undefined,
+      });
+      // If a newer search started while we were in flight, drop this result
+      // (that search owns `searching` now).
       if (this.disposed || token !== this.listToken) return;
       this.servers = list;
+      // The backend answered: an earlier list failure is resolved. Not when
+      // the initial load never got `me` (account mode) — that error still
+      // explains why nothing can connect.
+      if (this.me !== undefined) this.error = null;
+      this.searching = false;
       this.emit();
     } catch (e) {
       if (this.disposed || token !== this.listToken) return;
       this.error = e instanceof Error ? e.message : String(e);
+      this.searching = false;
       this.emit();
     }
   }
@@ -1218,15 +1301,16 @@ export class DirectoryBloc {
       : saved.servers[0]!.server.id;
     this.activeServerId = restoreActive;
     this.applyForegroundState();
-    // Spin up every saved server's IRC session in parallel.
+    // Spin up every saved server's IRC session in parallel — without each
+    // one grabbing focus as it comes up (the restored active one above wins).
     for (const s of saved.servers) {
-      void this.connectWith(s.server);
+      void this.connectWith(s.server, { focus: false });
     }
   }
 
   // Build a brand-new connection (ServerSession + ChatService + listeners) for
   // the given server, store it in the map, and fire off the engine connect.
-  private async connectWith(server: Server | SavedServer): Promise<void> {
+  private async connectWith(server: Server | SavedServer, opts: { focus?: boolean } = {}): Promise<void> {
     if (!this.engine || !this.me?.handle) return;
     // Already have a live Connection record for this server? Skip — caller
     // paths overlap (user-initiated connect, saved-session restore, and the
@@ -1279,8 +1363,11 @@ export class DirectoryBloc {
     // We only touch the (keychain-backed) bouncer profile store when a route
     // is actually configured, so the common no-bouncer path never pays its
     // hydration cost.
-    const route = (server as SavedServer).bouncer
-      ?? this.sessionStore.load()?.servers.find((s) => s.server.id === server.id)?.server.bouncer;
+    // The saved row wins over the object passed in: a live connection holds
+    // a snapshot of its row from connect time, which a later Server settings
+    // → Bouncer save doesn't update.
+    const route = this.sessionStore.load()?.servers.find((s) => s.server.id === server.id)?.server.bouncer
+      ?? (server as SavedServer).bouncer;
     let host = server.hostname, port = server.port, tls = server.tls;
     // Direct-connection defaults from the manually-added server: the PASS
     // line + SASL come from the (keychain-backed) credentials store; the
@@ -1291,6 +1378,9 @@ export class DirectoryBloc {
     let sasl: { user: string; password: string } | undefined = storedCreds?.sasl;
     let tlsInsecure: boolean | undefined =
       loadLocalServers().find((s) => s.id === server.id)?.tlsInsecure || undefined;
+    // True only when the bouncer branch below actually swaps the target —
+    // a route on a disabled profile connects directly.
+    let viaBouncer = false;
     if (route?.route) {
       const bouncerStore = getBouncerStore();
       await bouncerStore.whenHydrated?.();
@@ -1306,6 +1396,7 @@ export class DirectoryBloc {
         // The PASS line authenticates us to the bouncer; the server's own
         // SASL creds don't apply to that hop, so don't forward them.
         sasl = undefined;
+        viaBouncer = true;
       }
     }
 
@@ -1319,6 +1410,10 @@ export class DirectoryBloc {
       nickservPassword: storedCreds?.nickservPassword,
       serverPass,
       tlsInsecure,
+      // Bouncer hints for the engine: treat this as a bouncer link from the
+      // start, and (unless the user opted out per server) ask the bouncer to
+      // connect its upstream network when it attaches disconnected.
+      ...(viaBouncer ? { bouncer: true, bouncerAutoConnect: route?.autoConnect ?? true } : {}),
     });
     // Pass the nick-claim API so signed-in users get the automated
     // claim flow. The interface is the minimal subset of
@@ -1334,6 +1429,10 @@ export class DirectoryBloc {
       // serverPass, not the route toggle: if the route is on but the bouncer
       // profile is disabled we connect directly, so it's not really a bouncer.
       bouncer: !!serverPass,
+      // Server identity for notifications + Inbox attribution. Signed-in users
+      // also get it via the persistence scope; guests (no persistence) only
+      // have this, so without it their notifications carry no server name.
+      server: { serverId: server.id, serverName: server.name },
     });
     chat.attach();
     chat.setNotifier((ev) => getNotifier().notify(ev));
@@ -1345,7 +1444,9 @@ export class DirectoryBloc {
       session,
       engineState: session.state(),
       error: null,
+      bouncerUpstream: session.bouncerUpstream?.() ?? null,
       unsubscribeState: () => {},
+      unsubscribeBouncerUpstream: () => {},
       unsubscribeChat: () => {},
       unsubscribePresence: () => {},
     };
@@ -1412,6 +1513,14 @@ export class DirectoryBloc {
       this.emit();
     });
 
+    // Bouncer upstream state → connection snapshot (drives the Bouncer tab's
+    // per-network badges). Sticky: replays synchronously if already known.
+    conn.unsubscribeBouncerUpstream = session.onBouncerUpstream?.((upstream) => {
+      if (conn.bouncerUpstream === upstream) return;
+      conn.bouncerUpstream = upstream;
+      this.emit();
+    }) ?? (() => {});
+
     // Persist this connection into the saved-session set. SessionStore v2
     // keeps one record per server so a multi-server session round-trips
     // across launches. `upsertServer` refreshes name/host details too.
@@ -1467,7 +1576,12 @@ export class DirectoryBloc {
     };
 
     this.connections.set(server.id, conn);
-    this.activeServerId = server.id;
+    if (opts.focus !== false || this.activeServerId === null) {
+      this.activeServerId = server.id;
+      // Remembered like a rail click, so a relaunch restores this server as
+      // the active one.
+      this.sessionStore.setActiveServer(server.id);
+    }
     this.applyForegroundState();
 
     // Pre-emit so subscribers see the new connection immediately, even
@@ -1478,6 +1592,7 @@ export class DirectoryBloc {
   // Drop listeners + (optionally) send a per-server disconnect to the engine.
   private teardownConnection(c: Connection, opts: { sendDisconnect: boolean }): void {
     c.unsubscribeState();
+    c.unsubscribeBouncerUpstream();
     c.unsubscribeChat();
     c.unsubscribePresence();
     c.chat.detach();

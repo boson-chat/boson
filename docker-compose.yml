@@ -209,8 +209,13 @@ services:
   # made anonymously readable below.
   #
   # Activated via:  make minio-up  (folded into `make dev-up`)
+  #
+  # MinIO no longer publishes images to Docker Hub or quay.io, so we use
+  # Chainguard's builds. The server image runs as uid 65532; `user: root`
+  # keeps it able to write the named volume (dev only).
   minio:
-    image: minio/minio:latest
+    image: cgr.dev/chainguard/minio:latest
+    user: root
     profiles:
       - dev-storage
     command: server /data --console-address ":9001"
@@ -227,8 +232,15 @@ services:
 
   # One-shot: create the `boson` bucket + make it anonymously readable so
   # avatar URLs load directly in the client. Exits 0 once done.
+  #
+  # Chainguard's minio-client image has no shell, so copy its `mc` onto
+  # wolfi-base (glibc + sh) to keep the wait-loop script below working.
   minio-setup:
-    image: minio/mc:latest
+    build:
+      dockerfile_inline: |
+        FROM cgr.dev/chainguard/minio-client:latest AS mc
+        FROM cgr.dev/chainguard/wolfi-base:latest
+        COPY --from=mc /usr/bin/mc /usr/bin/mc
     profiles:
       - dev-storage
     depends_on:

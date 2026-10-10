@@ -24,6 +24,15 @@ export interface ConnectParams {
   // Skip TLS certificate verification (self-signed bouncer certs only).
   // Footgun; only honoured when tls is true.
   tlsInsecure?: boolean;
+  // The renderer routed this connection through the user's bouncer profile.
+  // Lets the engine treat it as a bouncer link from the start (before any
+  // ZNC fingerprint is seen) and emit `bouncer-upstream` frames.
+  bouncer?: boolean;
+  // When the bouncer reports its upstream network disconnected at attach
+  // time, the engine asks it to connect (`PRIVMSG *status :connect`)
+  // automatically. At most once per engine connection; never after an
+  // explicit `bouncer-disconnect`.
+  bouncerAutoConnect?: boolean;
 }
 
 export interface JoinParams { serverId: string; channel: string }
@@ -41,10 +50,12 @@ export interface NickservIdentifyParams { serverId: string; password: string }
 // LINKS, MODE …). The engine doesn't parse — the daemon's reply
 // arrives through the normal event stream.
 export interface RawParams { serverId: string; line: string }
+// Ask the bouncer to connect / disconnect its upstream IRC network.
+export interface BouncerUpstreamParams { serverId: string }
 
 export interface ClientCommand {
-  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickserv-identify' | 'raw';
-  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams | NickParams | NickservIdentifyParams | RawParams;
+  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickserv-identify' | 'raw' | 'bouncer-connect' | 'bouncer-disconnect';
+  params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams | NickParams | NickservIdentifyParams | RawParams | BouncerUpstreamParams;
 }
 
 export type PartParams = JoinParams;
@@ -71,6 +82,12 @@ export interface IrcEvent {
 
 export type EngineState = 'idle' | 'connecting' | 'connected' | 'disconnected';
 
+// Whether a bouncer (ZNC) is itself connected to the real IRC network
+// ("upstream"). The engine's EngineState only describes the client <->
+// bouncer link; this is the bouncer <-> network link. Only reported for
+// bouncer connections.
+export type BouncerUpstreamState = 'connected' | 'disconnected' | 'connecting';
+
 // One row from the server's LIST reply, delivered as a finished block when
 // the engine sees RPL_LISTEND (323). The renderer never sees the
 // per-line 322 events — the engine accumulates and ships once.
@@ -94,7 +111,7 @@ export interface ChannelDirectoryEntry {
 export type ServicesFramework = 'atheme' | 'anope' | 'ergo' | 'unknown' | '';
 
 export interface ServerMessage {
-  type: 'event' | 'status' | 'error' | 'channel-directory' | 'services-framework';
+  type: 'event' | 'status' | 'error' | 'channel-directory' | 'services-framework' | 'bouncer-upstream';
   serverId?: string;       // empty for transport-level errors
   event?: IrcEvent;
   state?: EngineState;
@@ -104,4 +121,6 @@ export interface ServerMessage {
   // never sent on the wire (engine omits the field); narrowed here to
   // the real values consumers care about.
   framework?: 'atheme' | 'anope' | 'ergo' | 'unknown';
+  // Populated only when type === 'bouncer-upstream'.
+  upstream?: BouncerUpstreamState;
 }

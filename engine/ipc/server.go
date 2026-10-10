@@ -107,10 +107,17 @@ func stripBearer(h string) string {
 
 // engineClient is the per-server bundle the session map stores. cancel kills
 // the IRC client's context — triggered on disconnect or session shutdown.
+// done is closed once the client's Connect goroutine has returned (its
+// connection is closed).
 type engineClient struct {
 	client *irc.Client
 	cancel context.CancelFunc
+	done   chan struct{}
 }
+
+// disconnectWait bounds how long a disconnect waits for the IRC connection
+// to actually close (QUIT sent, socket shut) before confirming it.
+const disconnectWait = 5 * time.Second
 
 type session struct {
 	ws *websocket.Conn
@@ -225,8 +232,20 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 			s.send(ServerMessage{Type: MsgError, Error: "disconnect: serverId is required"})
 			return
 		}
-		s.shutdownIRC(p.ServerID)
-		s.send(ServerMessage{Type: MsgStatus, ServerID: p.ServerID, State: StateDisconnected})
+		// Confirm only once the IRC connection is really gone, so a
+		// reconnect the renderer sends on this confirmation doesn't overlap
+		// the old connection (whose nick would still be taken).
+		done := s.shutdownIRC(p.ServerID)
+		go func() {
+			if done != nil {
+				select {
+				case <-done:
+				case <-time.After(disconnectWait):
+				case <-s.ctx.Done():
+				}
+			}
+			s.send(ServerMessage{Type: MsgStatus, ServerID: p.ServerID, State: StateDisconnected})
+		}()
 	case CmdJoin:
 		var p JoinParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
@@ -317,6 +336,21 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 		if c := s.clientFor(p.ServerID); c != nil {
 			c.SendRaw(p.Line)
 		}
+	case CmdBouncerConnect, CmdBouncerDisconnect:
+		var p BouncerParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			s.send(ServerMessage{Type: MsgError, Error: "bad " + msg.Type + " params: " + err.Error()})
+			return
+		}
+		if c := s.clientFor(p.ServerID); c != nil {
+			// The resulting state change comes back as a bouncer-upstream
+			// message via OnBouncerUpstream; no direct reply here.
+			if msg.Type == CmdBouncerConnect {
+				c.BouncerConnect()
+			} else {
+				c.BouncerDisconnect()
+			}
+		}
 	default:
 		s.send(ServerMessage{Type: MsgError, Error: "unknown command: " + msg.Type})
 	}
@@ -340,13 +374,15 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 	s.mu.Unlock()
 
 	cfg := irc.Config{
-		Hostname:         p.Hostname,
-		Port:             p.Port,
-		TLS:              p.TLS,
-		Nick:             p.Nick,
-		NickservPassword: p.NickservPassword,
-		ServerPass:       p.ServerPass,
-		TLSInsecure:      p.TLSInsecure,
+		Hostname:           p.Hostname,
+		Port:               p.Port,
+		TLS:                p.TLS,
+		Nick:               p.Nick,
+		NickservPassword:   p.NickservPassword,
+		ServerPass:         p.ServerPass,
+		TLSInsecure:        p.TLSInsecure,
+		Bouncer:            p.Bouncer,
+		BouncerAutoConnect: p.BouncerAutoConnect,
 	}
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}
@@ -374,6 +410,15 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 			Framework: string(fw),
 		})
 	})
+	// Bouncer upstream state (connected/disconnected/connecting). Only fires
+	// for bouncer connections; sticky on the renderer like the framework.
+	client.OnBouncerUpstream(func(u irc.BouncerUpstream) {
+		s.send(ServerMessage{
+			Type:     MsgBouncerUpstream,
+			ServerID: serverID,
+			Upstream: string(u),
+		})
+	})
 	client.OnEvent(func(e irc.Event) {
 		ev := e
 		s.send(ServerMessage{Type: MsgEvent, ServerID: serverID, Event: &ev})
@@ -385,7 +430,9 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 		// a session error so the renderer surfaces a real reason instead of
 		// sitting on "connecting...". Common: 432 ERR_ERRONEUSNICKNAME,
 		// 433 ERR_NICKNAMEINUSE, 464 ERR_PASSWDMISMATCH, 465 YOUREBANNEDCREEP.
-		if len(e.Kind) == 3 && (e.Kind[0] == '4' || e.Kind[0] == '5') {
+		// 422 ERR_NOMOTD is informational (the server just has no MOTD), not
+		// a failure, so it stays a plain event.
+		if len(e.Kind) == 3 && (e.Kind[0] == '4' || e.Kind[0] == '5') && e.Kind != "422" {
 			msg := e.Message
 			if msg == "" {
 				msg = "IRC error " + e.Kind
@@ -410,7 +457,8 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 		})
 		return
 	}
-	s.clients[serverID] = &engineClient{client: client, cancel: cancel}
+	done := make(chan struct{})
+	s.clients[serverID] = &engineClient{client: client, cancel: cancel, done: done}
 	s.mu.Unlock()
 
 	log.Printf("[engine] connect serverID=%s host=%s port=%d tls=%t nick=%s",
@@ -418,20 +466,33 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 	s.send(ServerMessage{Type: MsgStatus, ServerID: serverID, State: StateConnecting})
 
 	go func() {
+		defer close(done)
 		err := client.Connect(ircCtx)
 		if err != nil {
 			log.Printf("[engine] connect serverID=%s ended with error: %v", serverID, err)
-			s.send(ServerMessage{Type: MsgError, ServerID: serverID, Error: err.Error()})
 		} else {
 			log.Printf("[engine] connect serverID=%s ended cleanly (no error)", serverID)
 		}
 		// Mark the slot empty BEFORE emitting disconnected so a follow-up
 		// connect for the same serverId from the renderer doesn't collide.
 		s.mu.Lock()
+		owned := false
 		if ec, ok := s.clients[serverID]; ok && ec.client == client {
 			delete(s.clients, serverID)
+			owned = true
 		}
 		s.mu.Unlock()
+		// Only report the end of a connection that still owned the slot. An
+		// explicit disconnect (or session shutdown) already removed it — the
+		// disconnect handler confirms that one — and by now the renderer may
+		// have a NEW connection under the same serverId, which a late
+		// "disconnected" / error from this old one would tear down.
+		if !owned {
+			return
+		}
+		if err != nil {
+			s.send(ServerMessage{Type: MsgError, ServerID: serverID, Error: err.Error()})
+		}
 		s.send(ServerMessage{Type: MsgStatus, ServerID: serverID, State: StateDisconnected})
 	}()
 }
@@ -450,18 +511,24 @@ func (s *session) clientFor(serverID string) *irc.Client {
 }
 
 // shutdownIRC tears down a single named IRC client and removes it from the
-// session map. The Connect goroutine emits the StateDisconnected after the
-// context is cancelled — disconnect itself just kicks the context.
-func (s *session) shutdownIRC(serverID string) {
+// session map: it cancels the client's context, which makes it QUIT and close.
+// Returns a channel closed once that connection has ended (nil when there
+// was no such client). The caller reports the disconnect — the Connect
+// goroutine stays quiet for a client that no longer owns its slot.
+func (s *session) shutdownIRC(serverID string) <-chan struct{} {
 	s.mu.Lock()
 	ec, ok := s.clients[serverID]
 	if ok {
 		delete(s.clients, serverID)
 	}
 	s.mu.Unlock()
-	if ok && ec.cancel != nil {
+	if !ok {
+		return nil
+	}
+	if ec.cancel != nil {
 		ec.cancel()
 	}
+	return ec.done
 }
 
 // shutdownAll tears down every IRC client owned by this session. Called when

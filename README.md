@@ -18,8 +18,8 @@ website/            Public marketing site (Preact + Vite)
 
 ### Prerequisites
 
-- **Go** ≥ 1.22
-- **Node** ≥ 20 + npm
+- **Go** ≥ 1.27
+- **Node** ≥ 22.12 + npm (required by Electron 44)
 - **Docker** + `docker compose` (Postgres + Supabase Auth + ergo IRCd run in containers)
 - **Supabase CLI** — `brew install supabase/tap/supabase` or `npm i -g supabase`
 
@@ -128,7 +128,114 @@ make test               # Go + TS unit tests (requires Postgres up)
 make test-go            # Just Go
 make test-client        # Just renderer (vitest)
 make test-e2e           # Playwright E2E (needs the full dev stack + engine built)
+make test-e2e-app       # Real Electron app E2E (needs only Docker — see below)
 ```
+
+### End-to-end tests (real app)
+
+`client/tests/e2e-app/` drives the **built Electron app** — main process,
+preload, renderer and its own Go engine sidecar — with Playwright's
+`_electron` API. Guest specs: manually added server → chat with a raw IRC
+peer bot, restore-on-relaunch, the ZNC bouncer flow (auto-connect,
+disconnect, reconnect), navigation-guard smoke tests. Account specs: sign-up
+→ confirmation email → `boson://auth/confirmed` deep link → sign-in → handle
+setup → a seeded directory server → chat → relaunch restores the session.
+Fixtures and helpers for writing more: `client/tests/e2e-app/README.md`.
+
+```bash
+make test-e2e-app        # stack up + build app/engine + run the suite
+make test-e2e-app-down   # stop the whole e2e stack and drop its state
+
+# Iterating (stack already up):
+cd client
+npm run build:e2e-app    # → client/out-e2e (+ host engine sidecar); rerun after code changes
+npm run test:e2e:app     # add e.g. `-- bouncer` to run one spec file
+node scripts/e2e-stack.mjs status            # what's running where
+node scripts/e2e-stack.mjs restart-backend   # after backend code changes
+```
+
+Needs docker, Go and the Supabase CLI. `make test-e2e-app-up`
+(`client/scripts/e2e-stack.mjs up`, ~10s warm, idempotent) brings up the
+isolated stack; endpoints are in `infra/e2e/stack.json`:
+
+| Piece | Where | Notes |
+| --- | --- | --- |
+| ergo | `127.0.0.1:16667` | NickServ registration mails the catch-all Mailpit |
+| ZNC 1.9 | `127.0.0.1:16501` | users `tester1`..`tester8` / `pw`, network `ergo`; leased one per test |
+| Postgres | `127.0.0.1:16432` | the backend's DB (`boson`/`boson`), migrated on `up` |
+| Mailpit (catch-all) | SMTP `:11025`, POP3 `:11110`, UI `http://127.0.0.1:18025` | boson.chat catch-all: ergo writes, the backend's nick-claim worker drains |
+| MinIO | `http://127.0.0.1:19000` (console `:19001`) | R2 stand-in, bucket `boson` (public read) |
+| Supabase Auth | `http://127.0.0.1:55321` | CLI project `boson-e2e` (`infra/e2e/supabase/`): Postgres + GoTrue + Kong only; email confirmation on |
+| Mailpit (auth) | `http://127.0.0.1:55324` | the users' inboxes: Supabase confirmation / recovery mail |
+| Backend | `http://127.0.0.1:13000` | built from this checkout (`boson_dev`, `SKIP_DNS_VERIFY`), run on the host |
+
+Isolation, so it can run next to a live dev stack:
+
+- Compose project `boson-e2e` and Supabase project `boson-e2e` (own
+  containers, volumes, network, ports) — the dev `boson-*` containers and
+  the `supabase/` project are never touched. Compose state is tmpfs;
+  `down` stops Supabase with `--no-backup`.
+- The backend runs from `infra/e2e/.run/` (binary, pid, log) with all config
+  from env, so a local `backend/config/config.dev.json` (which may hold real
+  mail credentials) is never loaded; `down` only kills the PID it started.
+- The app is built into `client/out-e2e/` (`E2E_OUT_DIR` to change; not
+  `client/out/`, which `electron-vite dev` owns) with the backend/Supabase
+  URLs pinned to the e2e stack, so a local `client/.env` can't leak in.
+  Guest specs pass without the stack's account half running.
+- Every test launches the app with a throwaway `HOME`, `XDG_RUNTIME_DIR` and
+  `--user-data-dir`, plus `--use-mock-keychain` on macOS — your
+  `~/.boson/engine.json`, real app profile and keychain are left alone.
+  `shell.openExternal` is stubbed so nothing opens in your browser.
+- Tests use random channels, nicks, emails and handles and lease their own
+  ZNC user, so they run in parallel: 4 workers locally, 1 in CI
+  (`E2E_WORKERS` overrides). Several people can share one stack with their
+  own `E2E_OUT_DIR` / `E2E_RESULTS_DIR` / `E2E_COVERAGE_DIR`.
+
+Failures leave a screenshot, a Playwright trace and the main-process +
+engine log in `client/test-results/e2e-app/` (`npx playwright show-trace
+<zip>`); the backend logs to `infra/e2e/.run/backend.log`. CI runs the same
+suite on Linux under Xvfb (`.github/workflows/e2e.yml`).
+
+#### Coverage
+
+```bash
+make test-e2e-app-coverage   # coverage stack + build + run → client/coverage/e2e/
+
+# Iterating (stack already up with E2E_COVERAGE=1):
+cd client
+E2E_COVERAGE=1 npm run build:e2e-app
+npm run test:e2e:app:coverage
+```
+
+`E2E_COVERAGE=1` builds the bundles with source maps (renderer unminified),
+the engine with `go build -cover` and (on `e2e-stack.mjs up`) the backend
+with `go build -cover`, then measures all four layers across every launch
+in the run (relaunches included):
+
+- **Renderer** — V8 precise coverage, started on each window before its first
+  script runs (`tests/e2e-app/coverage/electron-hook.cjs`, preloaded into the
+  main process with `-r`) and taken just before the app closes.
+- **Main + preload** — `NODE_V8_COVERAGE` for the main process (flushed on a
+  graceful quit); the sandboxed preload runs in the renderer's V8 and comes
+  with the renderer data.
+- **Engine** — `GOCOVERDIR`, inherited by the sidecar; counters are written
+  when it exits on the app's SIGTERM.
+- **Backend** — the stack's backend runs for the whole session, so the report
+  sends it SIGUSR1 and it writes a counter snapshot
+  (`backend/cmd/server/coverflush_e2e.go`, `boson_e2ecover` builds only).
+  Counters span the backend's lifetime — `make test-e2e-app-coverage`
+  restarts it so they cover just that run (plus `migrate up`). Skipped with a
+  warning when the backend isn't a coverage build.
+
+Reports are mapped back to `client/src/…`, `engine/…` and `backend/…`
+(node_modules, tests and the shared workspace package are excluded):
+`renderer/`, `main/`, `engine/` and `backend/` each hold an `index.html` and
+`lcov.info`, and `summary.md` has
+per-layer totals plus the least-covered files. Expect about 10% overhead.
+CI runs with coverage on, adds `summary.md` to the job summary and uploads
+the reports as the `e2e-app-coverage` artifact. A coverage build left in
+`client/out-e2e` still works for a plain `npm run test:e2e:app`; rebuild
+without the flag for representative timings.
 
 ## Useful one-shots
 

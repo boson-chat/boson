@@ -1,0 +1,138 @@
+# Isolated infra for the real-app Electron e2e suite (client/tests/e2e-app/).
+#
+#   node client/scripts/e2e-stack.mjs up     # this file + Supabase + backend
+#   node client/scripts/e2e-stack.mjs down
+#
+# (or `make test-e2e-app-up` / `make test-e2e-app-down`). The guest-only
+# specs need just ergo + ZNC; account-mode specs also need Postgres, the
+# catch-all Mailpit, MinIO, the e2e Supabase project (infra/e2e/supabase/)
+# and the Go backend, which e2e-stack.mjs runs on the host.
+#
+# Deliberately a separate compose PROJECT (`name: boson-e2e`) with its own
+# network, no named volumes and non-default host ports, so it can run next to
+# the dev stack (boson-ergo-1 on :6667, boson-postgres-1 on :5432, …) without
+# touching it. Every service keeps its state in tmpfs: every
+# `up --force-recreate` is fresh.
+#
+#   ergo      127.0.0.1:16667  IRC (plain)
+#   znc       127.0.0.1:16501  bouncer, users tester1..tester8 (pw `pw`)
+#   postgres  127.0.0.1:16432  backend DB (boson/boson/boson)
+#   mailpit   127.0.0.1:11025  SMTP  ← ergo's NickServ mailto callback
+#             127.0.0.1:11110  POP3  → backend nick-claim worker (e2e/e2e)
+#             127.0.0.1:18025  HTTP API / UI
+#   minio     127.0.0.1:19000  S3 API (minioadmin/minioadmin, bucket `boson`)
+#             127.0.0.1:19001  console
+name: boson-e2e
+
+services:
+  ergo:
+    image: ghcr.io/ergochat/ergo:v2.19.1
+    ports:
+      - '127.0.0.1:16667:6667'
+    tmpfs:
+      - /ircd
+    volumes:
+      - ./ergo.yaml:/ircd/ircd.yaml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 6667']
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  znc:
+    image: znc:1.9.1
+    ports:
+      - '127.0.0.1:16501:6501'
+    # The image chowns /znc-data to the znc user at startup, so seed the
+    # config from a read-only mount into tmpfs, then hand over to the stock
+    # entrypoint (which drops privileges and launches ZNC).
+    entrypoint:
+      - /bin/sh
+      - -c
+      - mkdir -p /znc-data/configs && cp /seed/znc.conf /znc-data/configs/znc.conf && exec /entrypoint.sh
+    tmpfs:
+      - /znc-data
+    volumes:
+      - ./znc.conf:/seed/znc.conf:ro
+    depends_on:
+      ergo:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 6501']
+      interval: 1s
+      timeout: 2s
+      retries: 30
+
+  # The backend's own database (Supabase's Postgres only backs Auth, as in
+  # production). Migrated by e2e-stack.mjs (`server migrate up`).
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - '127.0.0.1:16432:5432'
+    environment:
+      POSTGRES_USER: boson
+      POSTGRES_PASSWORD: boson
+      POSTGRES_DB: boson
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U boson -d boson']
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  # The boson.chat catch-all mailbox (PurelyMail in production): ergo's
+  # NickServ verification mails land here and the backend's nick-claim POP3
+  # worker drains it. That worker DELEs every message it can't route, so the
+  # users' own inbox (Supabase auth mails) is a different Mailpit — the one
+  # bundled with the e2e Supabase project (127.0.0.1:55324).
+  mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - '127.0.0.1:11025:1025'
+      - '127.0.0.1:11110:1110'
+      - '127.0.0.1:18025:8025'
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+      MP_POP3_AUTH: 'e2e:e2e'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  # S3 stand-in for Cloudflare R2 (avatars, server icons/banners), as in the
+  # dev stack's `minio` service. Chainguard builds (MinIO no longer
+  # publishes images to Docker Hub / quay.io).
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    user: root
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '127.0.0.1:19000:9000'
+      - '127.0.0.1:19001:9001'
+    tmpfs:
+      - /data
+
+  # One-shot: create the `boson` bucket and make it anonymously readable so
+  # avatar URLs load straight into the app. Chainguard's minio-client image
+  # has no shell, so its `mc` is copied onto wolfi-base.
+  minio-setup:
+    build:
+      dockerfile_inline: |
+        FROM cgr.dev/chainguard/minio-client:latest AS mc
+        FROM cgr.dev/chainguard/wolfi-base:latest
+        COPY --from=mc /usr/bin/mc /usr/bin/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do echo 'waiting for minio'; sleep 1; done;
+      mc mb --ignore-existing local/boson;
+      mc anonymous set download local/boson;
+      echo 'minio bucket ready';
+      "

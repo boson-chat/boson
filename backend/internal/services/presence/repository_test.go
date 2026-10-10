@@ -100,3 +100,81 @@ func TestPresenceRepository_LookupOtherNetworkIsolated(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, matches)
 }
+
+func TestPresenceRepository_LookupExcludesNonDiscoverable(t *testing.T) {
+	database := testutil.SetupDB(t)
+	repo := presence.NewRepository(database)
+	userRepo := user.NewUserRepository(database)
+
+	hidden := uuid.New()
+	require.NoError(t, userRepo.Create(testutil.Ctx(), &user.User{
+		ID: hidden, Handle: "hidden", EncryptedUserSecret: []byte("x"), IsDiscoverable: false,
+	}))
+	_, err := repo.Upsert(testutil.Ctx(), hidden, "Libera", "Hidden", "h", "hiddenacct")
+	require.NoError(t, err)
+
+	matches, err := repo.Lookup(testutil.Ctx(), "Libera", []presence.LookupItem{
+		{Nick: "Hidden", Host: "h", Account: "hiddenacct"},
+		{Nick: "Hidden", Host: "h"},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, matches, "users who opted out of discovery must not be identifiable")
+}
+
+// A second user self-reporting an account someone else already published
+// must not be able to put their profile on that account's nick. Contested
+// keys resolve to nobody, deterministically, regardless of row order.
+func TestPresenceRepository_LookupContestedAccountMatchesNobody(t *testing.T) {
+	database := testutil.SetupDB(t)
+	repo := presence.NewRepository(database)
+	userRepo := user.NewUserRepository(database)
+
+	victim := uuid.New()
+	squatter := uuid.New()
+	require.NoError(t, userRepo.Create(testutil.Ctx(), &user.User{
+		ID: victim, Handle: "victim", EncryptedUserSecret: []byte("x"), IsDiscoverable: true,
+	}))
+	require.NoError(t, userRepo.Create(testutil.Ctx(), &user.User{
+		ID: squatter, Handle: "squatter", EncryptedUserSecret: []byte("x"), IsDiscoverable: true,
+	}))
+	_, err := repo.Upsert(testutil.Ctx(), victim, "Libera", "Victim", "user/victim", "VictimAcct")
+	require.NoError(t, err)
+	_, err = repo.Upsert(testutil.Ctx(), squatter, "Libera", "Squatter", "1.2.3.4", "victimacct")
+	require.NoError(t, err)
+
+	for i := 0; i < 5; i++ {
+		matches, err := repo.Lookup(testutil.Ctx(), "Libera", []presence.LookupItem{
+			// Contested account, host that matches neither row.
+			{Nick: "Victim", Host: "elsewhere", Account: "VictimAcct"},
+		})
+		require.NoError(t, err)
+		assert.Empty(t, matches)
+	}
+
+	// The uncontested nick+host fallback still identifies the real member.
+	matches, err := repo.Lookup(testutil.Ctx(), "Libera", []presence.LookupItem{
+		{Nick: "Victim", Host: "user/victim", Account: "VictimAcct"},
+	})
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	assert.Equal(t, "victim", matches[0].Handle)
+}
+
+func TestPresenceRepository_LookupContestedNickHostMatchesNobody(t *testing.T) {
+	database := testutil.SetupDB(t)
+	repo := presence.NewRepository(database)
+	userRepo := user.NewUserRepository(database)
+
+	for _, h := range []string{"one", "two"} {
+		id := uuid.New()
+		require.NoError(t, userRepo.Create(testutil.Ctx(), &user.User{
+			ID: id, Handle: h, EncryptedUserSecret: []byte("x"), IsDiscoverable: true,
+		}))
+		_, err := repo.Upsert(testutil.Ctx(), id, "Libera", "Same", "same.host", "")
+		require.NoError(t, err)
+	}
+
+	matches, err := repo.Lookup(testutil.Ctx(), "Libera", []presence.LookupItem{{Nick: "same", Host: "same.host"}})
+	require.NoError(t, err)
+	assert.Empty(t, matches)
+}

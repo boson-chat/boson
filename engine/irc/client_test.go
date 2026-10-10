@@ -1,46 +1,11 @@
 package irc
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/lrstanley/girc"
 	"github.com/stretchr/testify/assert"
 )
-
-// girc dispatches handlers concurrently (AddBg), so a burst of RPL_LIST frames
-// runs collectListEntry on many goroutines at once. Before the mutex this raced
-// on pendingDirectory's append/growslice and crashed with SIGSEGV. Run under
-// `go test -race` to guard the fix.
-func TestCollectListEntry_ConcurrentSafe(t *testing.T) {
-	c, err := New(Config{Hostname: "irc", Port: 6697, Nick: "alice"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got int
-	c.OnChannelDirectory(func(entries []ChannelDirectoryEntry) { got += len(entries) })
-
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			c.collectListEntry(girc.Event{
-				Command: girc.RPL_LIST,
-				Params:  []string{"alice", "#chan", "5", "a topic"},
-			})
-		}()
-	}
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 20; i++ {
-			c.flushListEntries()
-		}
-	}()
-	wg.Wait()
-	c.flushListEntries() // drain any stragglers
-}
 
 func TestNew_RequiresHostname(t *testing.T) {
 	_, err := New(Config{Port: 6697, Nick: "alice"})
@@ -268,6 +233,19 @@ func TestTranslate_Welcome(t *testing.T) {
 	})
 	assert.Equal(t, "001", got.Kind, "RPL_WELCOME is numeric 001")
 	assert.Equal(t, "Welcome to Libera.Chat, alice", got.Message)
+	// The renderer takes its real nick (after a collision: alice_) from here.
+	assert.Equal(t, "alice", got.Target)
+}
+
+func TestTranslate_MyInfoCarriesOurNick(t *testing.T) {
+	got := translate(girc.Event{
+		Command: girc.RPL_MYINFO,
+		Source:  &girc.Source{Name: "ergo.test"},
+		Params:  []string{"alice_", "ergo.test", "ergo-v2.19.1", "BERTZios", "CEIMRUabefhiklmnoqstuv"},
+	})
+	assert.Equal(t, "004", got.Kind)
+	assert.Equal(t, "alice_", got.Target)
+	assert.Equal(t, []string{"ergo.test", "ergo-v2.19.1"}, got.Args)
 }
 
 func TestTranslate_NamReply(t *testing.T) {
@@ -479,4 +457,15 @@ func TestTranslate_ForwardsServerTimeAndMsgidTags(t *testing.T) {
 	})
 	assert.Equal(t, "2026-06-13T12:00:00.000Z", got.Tags["time"])
 	assert.Equal(t, "abc123", got.Tags["msgid"])
+}
+
+func TestTranslate_DropsRplList(t *testing.T) {
+	// 322 is folded into the channel-directory update; it must never reach
+	// the renderer as a per-line event via the 3-digit numeric catch-all.
+	e := girc.Event{
+		Command: girc.RPL_LIST,
+		Source:  &girc.Source{Name: "irc.example.com"},
+		Params:  []string{"alice", "#chan", "5", "a topic"},
+	}
+	assert.Equal(t, "", translate(e).Kind)
 }

@@ -2,7 +2,7 @@
 # Mirrors the backend Dockerfile at the repo root for consistency: same Go
 # version, same distroless runtime, same build flags. Differences live in
 # the binary path (./engine/cmd/engine) and the exposed port (8080).
-FROM golang:1.24 AS builder
+FROM golang:1.27 AS builder
 
 WORKDIR /app
 

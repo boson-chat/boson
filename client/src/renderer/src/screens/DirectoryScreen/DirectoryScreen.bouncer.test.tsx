@@ -68,3 +68,118 @@ describe('BouncerNetworksPanel — discovery', () => {
     await waitFor(() => expect(screen.getByText(/Bouncer did not respond/)).toBeInTheDocument());
   });
 });
+
+describe('BouncerNetworksPanel — search', () => {
+  const saved = (id: string, name: string, network: string) =>
+    ({ id, name, hostname: 'znc.host', port: 6697, tls: true, bouncer: { route: true, network } }) as SavedServer;
+
+  async function pullWith(found: string[], over: Partial<DirectoryBloc> = {}) {
+    const bloc = stubBloc({ discoverBouncerNetworks: vi.fn(async () => found), ...over });
+    render(<BouncerNetworksPanel bloc={bloc} connections={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: /Pull from bouncer/ }));
+    await waitFor(() => expect(screen.getByText(found[0]!)).toBeInTheDocument());
+    return bloc;
+  }
+
+  const search = () => screen.getByRole('searchbox', { name: 'Search networks' });
+
+  it('is hidden until there is something to filter', () => {
+    render(<BouncerNetworksPanel bloc={stubBloc()} connections={[]} />);
+    expect(screen.queryByRole('searchbox', { name: 'Search networks' })).toBeNull();
+  });
+
+  it('filters discovered networks case-insensitively and shows a count', async () => {
+    await pullWith(['libera', 'oftc', 'LiberaTest', '2600net']);
+    fireEvent.input(search(), { target: { value: 'LIB' } });
+
+    expect(screen.getByText('libera')).toBeInTheDocument();
+    expect(screen.getByText('LiberaTest')).toBeInTheDocument();
+    expect(screen.queryByText('oftc')).toBeNull();
+    expect(screen.queryByText('2600net')).toBeNull();
+    expect(screen.getByText('Found on your bouncer: 2 of 4')).toBeInTheDocument();
+  });
+
+  it('"Add N matching" adds only the visible, not-yet-added networks', async () => {
+    const addBouncerNetwork = vi.fn();
+    await pullWith(['libera', 'oftc', 'liberachat'], {
+      addBouncerNetwork,
+      bouncerNetworks: () => [saved('b1', 'libera', 'libera')],
+    });
+    fireEvent.input(search(), { target: { value: 'libera' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 matching' }));
+    expect(addBouncerNetwork).toHaveBeenCalledTimes(1);
+    expect(addBouncerNetwork).toHaveBeenCalledWith({ name: 'liberachat', network: 'liberachat' });
+  });
+
+  it('filters saved networks by display name or ZNC network', () => {
+    const bloc = stubBloc({
+      bouncerNetworks: () => [saved('b1', 'Libera Chat', 'libera'), saved('b2', 'My OFTC', 'oftc')],
+    });
+    render(<BouncerNetworksPanel bloc={bloc} connections={[]} />);
+
+    fireEvent.input(search(), { target: { value: 'oftc' } });
+    expect(screen.getByText('My OFTC')).toBeInTheDocument();
+    expect(screen.queryByText('Libera Chat')).toBeNull();
+
+    fireEvent.input(search(), { target: { value: 'nomatch' } });
+    expect(screen.getByText(/None of your networks match/)).toBeInTheDocument();
+  });
+
+  it('Escape clears the search', async () => {
+    await pullWith(['libera', 'oftc']);
+    fireEvent.input(search(), { target: { value: 'oftc' } });
+    expect(screen.queryByText('libera')).toBeNull();
+
+    fireEvent.keyDown(search(), { key: 'Escape' });
+    expect(screen.getByText('libera')).toBeInTheDocument();
+  });
+});
+
+describe('BouncerNetworksPanel — saved network status', () => {
+  const saved = { id: 'b1', name: 'Libera', hostname: 'znc.host', port: 6697, tls: true,
+    bouncer: { route: true, network: 'libera' } } as SavedServer;
+  type Conn = Parameters<typeof BouncerNetworksPanel>[0]['connections'][number];
+  const conn = (over: Partial<Conn>): Conn => ({
+    serverId: 'b1', server: saved, chat: {} as Conn['chat'], engineState: 'connected',
+    error: null, reconnect: { active: false }, bouncerUpstream: null, ...over,
+  });
+  const row = () => screen.getByText('Libera').closest('.directory-bouncer-row') as HTMLElement;
+
+  it('not connected: shows Connect (connects through the bouncer)', () => {
+    const connectBouncerNetwork = vi.fn();
+    render(<BouncerNetworksPanel bloc={stubBloc({ bouncerNetworks: () => [saved], connectBouncerNetwork })} connections={[]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+    expect(connectBouncerNetwork).toHaveBeenCalledWith('b1');
+  });
+
+  it('bouncer attached but upstream offline: "Network offline" + Connect network', () => {
+    const bouncerConnect = vi.fn();
+    render(<BouncerNetworksPanel
+      bloc={stubBloc({ bouncerNetworks: () => [saved], bouncerConnect })}
+      connections={[conn({ bouncerUpstream: 'disconnected' })]}
+    />);
+    expect(row()).toHaveTextContent('Network offline');
+    expect(row()).not.toHaveTextContent(/^Connected$/);
+    fireEvent.click(screen.getByRole('button', { name: 'Connect network' }));
+    expect(bouncerConnect).toHaveBeenCalledWith('b1');
+  });
+
+  it('upstream connecting: "Connecting…", no connect buttons', () => {
+    render(<BouncerNetworksPanel
+      bloc={stubBloc({ bouncerNetworks: () => [saved] })}
+      connections={[conn({ bouncerUpstream: 'connecting' })]}
+    />);
+    expect(row()).toHaveTextContent('Connecting…');
+    expect(screen.queryByRole('button', { name: /^Connect/ })).toBeNull();
+  });
+
+  it('upstream connected: "Connected"', () => {
+    render(<BouncerNetworksPanel
+      bloc={stubBloc({ bouncerNetworks: () => [saved] })}
+      connections={[conn({ bouncerUpstream: 'connected' })]}
+    />);
+    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Connect/ })).toBeNull();
+  });
+});

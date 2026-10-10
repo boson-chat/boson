@@ -666,6 +666,32 @@ describe('ServerSettings — Identity (account UI)', () => {
     resolveProbe?.();
   });
 
+  it('keeps the claim card while the claim runs (spinner + Cancel) and its "copy your password" outcome after the status flips', async () => {
+    // Regression (seen in the real-app e2e): a successful claim writes
+    // status=identified, which hides the Claim card — and with it the
+    // one-time "Generated password is shown below — copy it" message.
+    // Same for the pending state: the claim writes status=registering
+    // right away, which used to hide the "Claiming…" spinner + Cancel.
+    getServiceCredentialsStore().set('libera', { accountName: 'alice', status: 'no-account' });
+    let finishClaim: (() => void) | undefined;
+    const onClaimNick = vi.fn(async () => {
+      getServiceCredentialsStore().set('libera', { accountName: 'alice', status: 'registering' });
+      await new Promise<void>((res) => { finishClaim = res; });
+      getServiceCredentialsStore().set('libera', {
+        accountName: 'alice', nickservPassword: 'generated-pw', status: 'identified',
+      });
+      return { kind: 'claimed' as const };
+    });
+    render(<ServerSettings {...baseProps({ signedIn: true, onClaimNick })} />);
+    switchToIdentity();
+    fireEvent.click(await screen.findByRole('button', { name: /Claim alice on this network/ }));
+    expect(await screen.findByRole('button', { name: 'Claiming alice on this network…' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+    await act(async () => { finishClaim?.(); });
+    expect(await screen.findByRole('status')).toHaveTextContent(/Claimed alice\. Generated password is shown below/);
+    expect(screen.queryByText(/Boson can register/i)).toBeNull();
+  });
+
   it('hides the Claim CTA when not signed in', () => {
     render(<ServerSettings {...baseProps({
       signedIn: false,

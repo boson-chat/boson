@@ -112,6 +112,11 @@ export class ChatInputBloc {
   private historyDraft = '';
   private static readonly HISTORY_MAX = 100;
 
+  // Whether we've told the channel we're typing (an 'active' went out) and
+  // haven't sent the matching 'done' yet. Keeps slash commands — which never
+  // signal 'active' — from broadcasting a stray +typing=done TAGMSG on send.
+  private typingSignalled = false;
+
   private readonly listeners = new Set<ChatInputListener>();
 
   constructor(private readonly deps: ChatInputBlocDeps) {}
@@ -187,8 +192,12 @@ export class ChatInputBloc {
     // clear). Slash-command input is excluded — broadcasting typing tags
     // for "/help" makes no sense.
     if (this.deps.onTyping && !value.startsWith('/')) {
-      if (!isEmpty) this.deps.onTyping('active');
-      else if (!wasEmpty) this.deps.onTyping('done');
+      if (!isEmpty) {
+        this.deps.onTyping('active');
+        this.typingSignalled = true;
+      } else if (!wasEmpty) {
+        this.signalTypingDone();
+      }
     }
     this.emit();
   }
@@ -408,10 +417,10 @@ export class ChatInputBloc {
     const members = this.deps.getMembers() as { nick: string }[];
     const stripped = lines.map((l) => stripMentionAts(l, members));
     this.deps.onSend(stripped);
-    // Hitting Send is an explicit stop — clear our typing indicator before
-    // the message actually goes out so receivers don't see a phantom
-    // "still typing" for the throttle window.
-    this.deps.onTyping?.('done');
+    // Hitting Send is an explicit stop — clear our typing indicator so
+    // receivers don't see a phantom "still typing" for the throttle window.
+    // Only when we actually announced typing: a slash command never did.
+    this.signalTypingDone();
     this.input = '';
     this.slashDismissed = false;
     this.nickCycle = null;
@@ -419,6 +428,12 @@ export class ChatInputBloc {
     this.channelCycle = null;
     this.commandCycle = null;
     this.emit();
+  }
+
+  private signalTypingDone(): void {
+    if (!this.typingSignalled) return;
+    this.typingSignalled = false;
+    this.deps.onTyping?.('done');
   }
 
   // Internal: popup keydown branches ------------------------------------

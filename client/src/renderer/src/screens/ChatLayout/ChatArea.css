@@ -819,6 +819,57 @@
   background: color-mix(in oklab, var(--warn, #f5a524), transparent 70%);
 }
 
+/* Bouncer upstream strip — same geometry as the pending-confirmation
+   banner. Warn tint while the bouncer is offline from the network, a
+   calmer info tint while it is (re)connecting. */
+.chat-bouncer-upstream-banner {
+  --bouncer-tone: var(--warn, #f5a524);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  background: color-mix(in oklab, var(--bouncer-tone), transparent 85%);
+  border-bottom: 1px solid color-mix(in oklab, var(--bouncer-tone), transparent 60%);
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  animation: chat-banner-slide-in 180ms var(--ease-standard);
+}
+.chat-bouncer-upstream-banner[data-state='connecting'] {
+  --bouncer-tone: var(--info, #3b82f6);
+}
+/* Shimmer along the strip's bottom edge while the bouncer connects. */
+.chat-bouncer-upstream-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  color: var(--bouncer-tone);
+}
+.chat-bouncer-upstream-icon {
+  flex: none;
+  color: var(--bouncer-tone);
+}
+.chat-bouncer-upstream-text {
+  flex: 1;
+}
+.chat-bouncer-upstream-action {
+  background: transparent;
+  border: 1px solid color-mix(in oklab, var(--bouncer-tone), transparent 50%);
+  color: var(--fg);
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard);
+}
+.chat-bouncer-upstream-action:hover {
+  background: color-mix(in oklab, var(--bouncer-tone), transparent 70%);
+}
+
 .chat-input-wrap {
   display: flex;
   align-items: center;
@@ -1211,6 +1262,17 @@
   transition: all var(--motion-fast) var(--ease-standard);
 }
 .chat-load-older-btn:hover { color: var(--fg); border-color: var(--fg-3); }
+/* Shimmer across the top edge of the message list while older history
+   loads (it's only ever triggered from the top of the scrollback). */
+.chat-load-older-bar {
+  margin-top: calc(-1 * var(--space-2));
+  margin-bottom: var(--space-2);
+}
+.chat-load-older:has(.chat-load-older-bar) {
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+}
 .chat-load-older-loading {
   font-size: var(--text-xs);
   color: var(--fg-3);

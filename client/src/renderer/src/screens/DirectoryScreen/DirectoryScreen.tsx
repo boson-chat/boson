@@ -13,7 +13,7 @@ import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
 import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
-import { AtomLoader, Badge, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
+import { AtomLoader, Badge, BarLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { HostServerModal } from './HostServerModal';
 import './DirectoryScreen.css';
@@ -140,6 +140,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
                 serverId: c.serverId,
                 name: c.server.name,
                 engineState: c.engineState,
+                bouncerUpstream: c.bouncerUpstream,
                 unread,
                 mentions,
                 iconUrl: resolveServerImages(c, state.servers).iconUrl,
@@ -155,6 +156,8 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onBrowseServers={() => bloc.openServerBrowser()}
             // Right-click on another tile switches the settings page to it.
             onOpenServerSettings={(id) => setServerSettingsForId(id)}
+            onBouncerConnect={(id) => bloc.bouncerConnect(id)}
+            onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
           />
           <ServerSettings
             serverDisplayName={target.server.name}
@@ -180,6 +183,11 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             bouncerRoute={bloc.getServerBouncer(target.serverId)}
             bouncerGloballyEnabled={getBouncerStore().get()?.enabled ?? false}
             onSaveBouncerRoute={(route) => bloc.setServerBouncer(target.serverId, route)}
+            // Only meaningful while attached via the bouncer — a stale value
+            // from a dropped link would misreport the network state.
+            bouncerUpstream={target.engineState === 'connected' ? target.bouncerUpstream : null}
+            onBouncerConnect={() => bloc.bouncerConnect(target.serverId)}
+            onBouncerDisconnect={() => bloc.bouncerDisconnect(target.serverId)}
             onTriggerAutoIdentify={() => target.chat.triggerAutoIdentify()}
             onRunCommand={(line) => target.chat.input(line)}
             onDropAccount={(acct, pw) => target.chat.dropAccount(acct, pw)}
@@ -191,7 +199,9 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onClaimNick={(acct, opts) => target.chat.claimNick(acct, opts)}
             onDetectAccountState={(acct) => target.chat.detectAccountState(acct)}
             onResumeConfirmation={(acct, opts) => target.chat.resumePendingConfirmation(acct, opts)}
-            signedIn={Boolean(me)}
+            // Guests get a synthetic `me` (id __guest__) but no Boson account: no
+            // backend nick-claim, no E2E-encrypted password sync.
+            signedIn={Boolean(me) && !guestNick}
             // Ownership check: render the Edit tab only when the signed-in
             // account owns the row. The connection may hold a cold-start
             // SavedServer snapshot (no profile fields); buildEditableProps
@@ -225,6 +235,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
               serverId: c.serverId,
               name: c.server.name,
               engineState: c.engineState,
+              bouncerUpstream: c.bouncerUpstream,
               unread,
               mentions,
               iconUrl: resolveServerImages(c, state.servers).iconUrl,
@@ -241,6 +252,8 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
           connectionError={active.error}
           onOpenServerSettings={(id) => setServerSettingsForId(id)}
           onLeaveServer={(id) => bloc.disconnect(id)}
+          onBouncerConnect={(id) => bloc.bouncerConnect(id)}
+          onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
         />
         <Modal
           open={serverBrowserOpen}
@@ -326,7 +339,7 @@ interface DirectoryBodyProps {
 // "browsing to switch servers mid-chat").
 function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBodyProps) {
   const {
-    me, servers, filteredServers, query, language, showNsfw, error, connections,
+    me, servers, filteredServers, query, language, showNsfw, error, connections, searching,
   } = state;
   // First-launch-after-confirmation: the user has a session but no row
   // in /me yet — they need to pick a handle before anything else makes
@@ -481,6 +494,11 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
         directory={directory}
       />
 
+      {/* Refetch (search / filters / Refresh) while results are on screen:
+          a shimmer above the list instead of swapping it for a spinner. */}
+      {searching && filteredServers !== null && (
+        <BarLoader class="directory-refetch-bar" label="Updating results" />
+      )}
       {filteredServers === null ? (
         <div class="directory-loading">
           <AtomLoader size={32} />
@@ -520,6 +538,43 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
 // / remove, plus a one-field add form. Networks added here sync across devices
 // via the session payload. When no global bouncer is configured it nudges the
 // user to User Settings → Bouncer.
+// Status + primary action for one saved bouncer network. "Connected" must
+// mean the bouncer is on the real network, not merely that we reached the
+// bouncer: an attached-but-offline bouncer reads "Network offline" with a
+// Connect network action.
+function BouncerNetworkStatus({ conn, onConnect, onConnectUpstream }: {
+  conn: DirectoryState['connections'][number] | undefined;
+  onConnect: () => void;
+  onConnectUpstream: () => void;
+}) {
+  if (conn?.engineState === 'connecting') {
+    return <Badge tone="info">Connecting…</Badge>;
+  }
+  if (conn?.engineState !== 'connected') {
+    return (
+      <Button variant="primary" onClick={onConnect}>
+        Connect
+      </Button>
+    );
+  }
+  switch (conn.bouncerUpstream) {
+    case 'disconnected':
+      return (
+        <>
+          <Badge tone="warn">Network offline</Badge>
+          <Button variant="primary" onClick={onConnectUpstream}>
+            Connect network
+          </Button>
+        </>
+      );
+    case 'connecting':
+      return <Badge tone="info">Connecting…</Badge>;
+    default:
+      // 'connected', or not reported (an engine without upstream tracking).
+      return <Badge tone="success">Connected</Badge>;
+  }
+}
+
 export function BouncerNetworksPanel({ bloc, connections }: {
   bloc: DirectoryBloc;
   connections: DirectoryState['connections'];
@@ -532,11 +587,23 @@ export function BouncerNetworksPanel({ bloc, connections }: {
   const [discovering, setDiscovering] = useState(false);
   const [discovered, setDiscovered] = useState<string[] | null>(null);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
+  // Filters both the discovered list and the saved networks below. Big
+  // bouncers (public BNC services) carry hundreds of networks, so scrolling
+  // to find one isn't workable.
+  const [search, setSearch] = useState('');
 
   const networks = bloc.bouncerNetworks();
   const connById = new Map(connections.map((c) => [c.serverId, c]));
   const haveNetwork = (n: string): boolean =>
     networks.some((s) => (s.bouncer?.network ?? '').toLowerCase() === n.toLowerCase());
+
+  const needle = search.trim().toLowerCase();
+  const matches = (...fields: (string | undefined)[]): boolean =>
+    !needle || fields.some((f) => (f ?? '').toLowerCase().includes(needle));
+  const visibleDiscovered = discovered?.filter((n) => matches(n)) ?? null;
+  const visibleNetworks = networks.filter((s) => matches(s.name, s.bouncer?.network));
+  const newDiscovered = visibleDiscovered?.filter((n) => !haveNetwork(n)) ?? [];
+  const showSearch = (discovered?.length ?? 0) > 0 || networks.length > 0;
 
   const add = (e: Event): void => {
     e.preventDefault();
@@ -606,28 +673,48 @@ export function BouncerNetworksPanel({ bloc, connections }: {
         <WarningBanner tone="danger" title="Couldn't reach your bouncer">{discoverError}</WarningBanner>
       )}
 
-      {discovered && (
+      {showSearch && (
+        <input
+          type="search"
+          class="directory-search directory-bouncer-search"
+          placeholder="Search networks…"
+          value={search}
+          onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch(''); } }}
+          aria-label="Search networks"
+          autoComplete="off"
+          spellcheck={false}
+        />
+      )}
+
+      {discovered && visibleDiscovered && (
         discovered.length === 0 ? (
           <div class="directory-empty">No networks found on your bouncer.</div>
         ) : (
           <div class="directory-bouncer-discovered">
             <div class="directory-bouncer-discovered-head">
               <span class="directory-list-tag" style="text-transform: none;">
-                Found on your bouncer:
+                {needle
+                  ? `Found on your bouncer: ${visibleDiscovered.length} of ${discovered.length}`
+                  : 'Found on your bouncer:'}
               </span>
-              {discovered.some((n) => !haveNetwork(n)) && (
+              {newDiscovered.length > 0 && (
                 <Button
                   variant="secondary"
                   onClick={() => {
-                    for (const n of discovered) if (!haveNetwork(n)) bloc.addBouncerNetwork({ name: n, network: n });
+                    // While searching, only add what's on screen.
+                    for (const n of newDiscovered) bloc.addBouncerNetwork({ name: n, network: n });
                   }}
                 >
-                  Add all new
+                  {needle ? `Add ${newDiscovered.length} matching` : 'Add all new'}
                 </Button>
               )}
             </div>
+            {visibleDiscovered.length === 0 && (
+              <div class="directory-empty">No networks match “{search.trim()}”.</div>
+            )}
             <div class="directory-bouncer-list" role="list">
-              {discovered.map((n) => (
+              {visibleDiscovered.map((n) => (
                 <div key={n} class="directory-bouncer-row" role="listitem">
                   <div class="directory-bouncer-name">{n}</div>
                   {haveNetwork(n) ? (
@@ -646,9 +733,11 @@ export function BouncerNetworksPanel({ bloc, connections }: {
 
       {networks.length === 0 ? (
         <div class="directory-empty">No bouncer networks yet — add one above.</div>
+      ) : visibleNetworks.length === 0 ? (
+        <div class="directory-empty">None of your networks match “{search.trim()}”.</div>
       ) : (
         <div class="directory-bouncer-list" role="list">
-          {networks.map((s) => {
+          {visibleNetworks.map((s) => {
             const conn = connById.get(s.id);
             return (
               <div key={s.id} class="directory-bouncer-row" role="listitem">
@@ -659,13 +748,11 @@ export function BouncerNetworksPanel({ bloc, connections }: {
                   </div>
                 </div>
                 <div class="directory-bouncer-actions">
-                  {conn?.engineState === 'connected' ? (
-                    <Badge tone="success">Connected</Badge>
-                  ) : (
-                    <Button variant="primary" onClick={() => bloc.connectBouncerNetwork(s.id)}>
-                      Connect
-                    </Button>
-                  )}
+                  <BouncerNetworkStatus
+                    conn={conn}
+                    onConnect={() => bloc.connectBouncerNetwork(s.id)}
+                    onConnectUpstream={() => bloc.bouncerConnect(s.id)}
+                  />
                   <Button variant="ghost" onClick={() => bloc.removeBouncerNetwork(s.id)}>Remove</Button>
                 </div>
               </div>

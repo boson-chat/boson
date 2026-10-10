@@ -85,6 +85,10 @@ class FakeServerSession {
   private channelDirectoryListeners = new Set<(entries: { name: string; userCount: number; topic: string }[]) => void>();
   private servicesListeners = new Set<(fw: 'atheme' | 'anope' | 'ergo' | 'unknown') => void>();
   private servicesFramework_: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
+  private bouncerUpstreamListeners = new Set<(s: 'connected' | 'disconnected' | 'connecting') => void>();
+  private bouncerUpstream_: 'connected' | 'disconnected' | 'connecting' | null = null;
+  bouncerConnectCalls = 0;
+  bouncerDisconnectCalls = 0;
 
   constructor(public readonly serverId: string) {}
 
@@ -108,6 +112,14 @@ class FakeServerSession {
     return () => { this.servicesListeners.delete(fn); };
   }
   servicesFramework(): 'atheme' | 'anope' | 'ergo' | 'unknown' | null { return this.servicesFramework_; }
+  onBouncerUpstream(fn: (s: 'connected' | 'disconnected' | 'connecting') => void): () => void {
+    this.bouncerUpstreamListeners.add(fn);
+    if (this.bouncerUpstream_ !== null) fn(this.bouncerUpstream_);
+    return () => { this.bouncerUpstreamListeners.delete(fn); };
+  }
+  bouncerUpstream(): 'connected' | 'disconnected' | 'connecting' | null { return this.bouncerUpstream_; }
+  bouncerConnect(): void { this.bouncerConnectCalls++; }
+  bouncerDisconnect(): void { this.bouncerDisconnectCalls++; }
   join(channel: string): void { this.joinCalls.push(channel); }
   part(channel: string): void { this.partCalls.push(channel); }
   privmsg(target: string, message: string): void { this.privmsgCalls.push({ target, message }); }
@@ -132,6 +144,10 @@ class FakeServerSession {
   _emitServicesFramework(fw: 'atheme' | 'anope' | 'ergo' | 'unknown'): void {
     this.servicesFramework_ = fw;
     this.servicesListeners.forEach((fn) => fn(fw));
+  }
+  _emitBouncerUpstream(s: 'connected' | 'disconnected' | 'connecting'): void {
+    this.bouncerUpstream_ = s;
+    this.bouncerUpstreamListeners.forEach((fn) => fn(s));
   }
   _dispose(): void {
     this.disposed_ = true;
@@ -366,6 +382,34 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('flags `searching` while a refetch is in flight', async () => {
+    let resolve!: (v: Awaited<ReturnType<DirectoryService['listServers']>>) => void;
+    const listServers = vi.fn(async () => [fakeServer('libera')]) as unknown as DirectoryService['listServers'];
+    const directory = fakeDirectory({ user: fakeUser(), list: listServers });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises();
+    expect(bloc.getState().searching).toBe(false);
+
+    (listServers as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise((r) => { resolve = r; }),
+    );
+    bloc.refreshDirectory();
+    expect(bloc.getState().searching).toBe(true);
+    // Existing results stay on screen during the refetch.
+    expect(bloc.getState().servers).not.toBeNull();
+
+    resolve([fakeServer('oftc')]);
+    await flushPromises();
+    expect(bloc.getState().searching).toBe(false);
+    bloc.dispose();
+  });
+
   it('setQuery coalesces rapid typing into a single search', async () => {
     vi.useFakeTimers();
     const listServers = vi.fn(async () => [fakeServer('a')]) as unknown as DirectoryService['listServers'];
@@ -433,6 +477,55 @@ describe('DirectoryBloc', () => {
 
     bloc.setShowNsfw(true);
     expect(bloc.getState().filteredServers?.map((s) => s.id)).toEqual(['safe', 'naughty']);
+    bloc.dispose();
+  });
+
+  it('setShowNsfw refetches with nsfw=true (the backend omits NSFW rows otherwise)', async () => {
+    const safe = fakeServer('safe', { is_nsfw: false });
+    const naughty = fakeServer('naughty', { is_nsfw: true });
+    // Like the real backend: NSFW rows only when asked for.
+    const listServers = vi.fn(async (p?: { nsfw?: boolean }) => (p?.nsfw ? [safe, naughty] : [safe]));
+    const directory = fakeDirectory({ user: fakeUser(), list: listServers as unknown as DirectoryService['listServers'] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises(4);
+    bloc.setQuery('x');
+    bloc.setShowNsfw(true);
+    await flushPromises(4);
+    expect(listServers.mock.calls.at(-1)?.[0]).toEqual({ q: 'x', nsfw: true });
+    expect(bloc.getState().filteredServers?.map((s) => s.id)).toEqual(['safe', 'naughty']);
+
+    bloc.setShowNsfw(false);
+    await flushPromises(4);
+    expect(listServers.mock.calls.at(-1)?.[0]).toEqual({ q: 'x' });
+    expect(bloc.getState().filteredServers?.map((s) => s.id)).toEqual(['safe']);
+    bloc.dispose();
+  });
+
+  it('a successful refetch clears an earlier list error', async () => {
+    const listServers = vi.fn(async () => { throw new Error('backend down'); });
+    const directory = fakeDirectory({ user: fakeUser(), list: listServers as unknown as DirectoryService['listServers'] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+      guestNick: 'guest',
+    });
+    await flushPromises(4);
+    expect(bloc.getState().error).toBe('backend down');
+
+    listServers.mockImplementation(async () => [fakeServer('libera')] as never);
+    bloc.refreshDirectory();
+    await flushPromises(4);
+    expect(bloc.getState().servers?.map((s) => s.id)).toEqual(['libera']);
+    expect(bloc.getState().error).toBeNull();
     bloc.dispose();
   });
 
@@ -539,6 +632,28 @@ describe('DirectoryBloc', () => {
       const rec = loadLocalServers().find((s) => s.id === created.id);
       expect(rec?.tlsInsecure).toBe(true);
       expect((rec as Record<string, unknown> | undefined)?.serverPass).toBeUndefined();
+      bloc.dispose();
+    });
+
+    it('guest mode with the backend unreachable still lists locally-added servers', async () => {
+      const directory = fakeDirectory({
+        list: vi.fn(async () => { throw new TypeError('fetch failed'); }),
+      });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: false }),
+        engine: fakeEngine().client, sessionStore: new SessionStore(memoryStorage()),
+        guestNick: 'offline-guest',
+      });
+      await flushPromises(4);
+
+      // The error is surfaced, but the directory isn't stuck "loading" and the
+      // guest identity is synthesised (session restore needs me.handle).
+      expect(bloc.getState().error).toBe('fetch failed');
+      expect(bloc.getState().filteredServers).toEqual([]);
+      expect(bloc.getState().me?.handle).toBe('offline-guest');
+
+      const created = bloc.addLocalServer({ name: 'LAN', hostname: '192.168.1.42', port: 6667, tls: false });
+      expect(bloc.getState().filteredServers?.map((s) => s.id)).toEqual([created.id]);
       bloc.dispose();
     });
 
@@ -850,6 +965,119 @@ describe('DirectoryBloc', () => {
     expect(reconnectSession.joinCalls).toContain('#general');
     expect(reconnectSession.joinCalls).toContain('#help');
     bloc.dispose();
+  });
+
+  // Server settings → Actions → Reconnect on a LIVE connection used to be a
+  // no-op: connect()'s same-server guard just switched to it.
+  it('reconnectActive() on a connected server quits it and rejoins on a fresh session', async () => {
+    const sessionStore = new SessionStore(memoryStorage());
+    const engine = fakeEngine();
+    const server = fakeServer('libera');
+    const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore,
+    });
+    await flushPromises(4);
+    await bloc.connect(server);
+    await flushPromises(2);
+    const first = engine.sessionFor('libera');
+    first._setState('connected');
+    await flushPromises(2);
+    sessionStore.addChannel('libera', '#general');
+
+    const done = bloc.reconnectActive();
+    await flushPromises(4);
+    expect(first.disconnectCalls).toBe(1);
+    // Like the real engine client: the old session is only dropped once the
+    // engine echoes `disconnected`; until then no new connect goes out.
+    expect(engine.connectCalls).toHaveLength(1);
+    first._setState('disconnected');
+    engine.sessions.delete('libera');
+    first._dispose();
+    await done;
+
+    expect(engine.connectCalls).toHaveLength(2);
+    const fresh = engine.sessionFor('libera');
+    expect(fresh).not.toBe(first);
+    expect(bloc.getState().connections.map((c) => c.serverId)).toEqual(['libera']);
+    fresh._setState('connected');
+    await flushPromises(4);
+    expect(fresh.joinCalls).toContain('#general');
+    // The deliberate quit didn't arm auto-reconnect.
+    expect(bloc.getState().connections[0]?.reconnect.active).toBe(false);
+    bloc.dispose();
+  });
+
+  describe('active server', () => {
+    function twoServers() {
+      const sessionStore = new SessionStore(memoryStorage());
+      const engine = fakeEngine();
+      const a = fakeServer('a');
+      const b = fakeServer('b');
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [a, b] });
+      return { sessionStore, engine, a, b, directory };
+    }
+
+    it('restoring several servers keeps the saved active one (the last to connect does not steal it)', async () => {
+      const { sessionStore, engine, directory } = twoServers();
+      sessionStore.save({
+        servers: [
+          { server: { id: 'a', name: 'a', hostname: 'irc.a', port: 6697, tls: true }, channels: [], activeChannel: null },
+          { server: { id: 'b', name: 'b', hostname: 'irc.b', port: 6697, tls: true }, channels: [], activeChannel: null },
+        ],
+        activeServerId: 'a',
+      });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }), engine: engine.client, sessionStore,
+      });
+      await flushPromises(20);
+      expect(engine.connectCalls.map((c) => c.serverId)).toEqual(['a', 'b']);
+      expect(bloc.getState().activeServerId).toBe('a');
+      expect(sessionStore.load()?.activeServerId).toBe('a');
+      bloc.dispose();
+    });
+
+    it('connecting a server makes it the active one, also for the next launch', async () => {
+      const { sessionStore, engine, directory, a, b } = twoServers();
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }), engine: engine.client, sessionStore,
+      });
+      await flushPromises(4);
+      await bloc.connect(a);
+      await bloc.connect(b);
+      expect(bloc.getState().activeServerId).toBe('b');
+      expect(sessionStore.load()?.activeServerId).toBe('b');
+      bloc.dispose();
+    });
+
+    it('a background server auto-reconnecting does not take focus', async () => {
+      vi.useFakeTimers();
+      const { sessionStore, engine, directory, a, b } = twoServers();
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }), engine: engine.client, sessionStore,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      await bloc.connect(a);
+      engine.sessionFor('a')._setState('connected');
+      await bloc.connect(b);
+      engine.sessionFor('b')._setState('connected');
+      bloc.setActiveServer('b');
+      await vi.advanceTimersByTimeAsync(0);
+
+      // A drops in the background and auto-reconnects after the backoff.
+      const calls = engine.connectCalls.length;
+      engine.sessionFor('a')._setState('disconnected');
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(engine.connectCalls.length).toBe(calls + 1);
+      expect(bloc.getState().activeServerId).toBe('b');
+      expect(sessionStore.load()?.activeServerId).toBe('b');
+      bloc.dispose();
+      vi.useRealTimers();
+    });
   });
 
   describe('auto-reconnect', () => {
@@ -1422,7 +1650,7 @@ describe('DirectoryBloc', () => {
     };
 
     async function connectWithRoute(
-      route: { route: boolean; network: string } | null,
+      route: { route: boolean; network: string; autoConnect?: boolean } | null,
       bouncer: BouncerProfile | null,
     ) {
       const storage = memoryStorage();
@@ -1451,6 +1679,15 @@ describe('DirectoryBloc', () => {
       expect(call.tls).toBe(true);
       expect(call.tlsInsecure).toBe(true);
       expect(call.serverPass).toBe('me/libera:pw');
+      // Flags the connection as a bouncer link; auto-connect defaults ON.
+      expect(call.bouncer).toBe(true);
+      expect(call.bouncerAutoConnect).toBe(true);
+    });
+
+    it('passes bouncerAutoConnect=false when the server opted out', async () => {
+      const call = await connectWithRoute({ route: true, network: 'libera', autoConnect: false }, profile);
+      expect(call.bouncer).toBe(true);
+      expect(call.bouncerAutoConnect).toBe(false);
     });
 
     it('omits the /network when the network name is blank', async () => {
@@ -1463,12 +1700,64 @@ describe('DirectoryBloc', () => {
       expect(call.hostname).toBe('irc.libera.chat');
       expect(call.serverPass).toBeUndefined();
       expect(call.tlsInsecure).toBeUndefined();
+      expect(call.bouncer).toBeUndefined();
+      expect(call.bouncerAutoConnect).toBeUndefined();
     });
 
     it('connects directly when the global profile is disabled', async () => {
       const call = await connectWithRoute({ route: true, network: 'libera' }, { ...profile, enabled: false });
       expect(call.hostname).toBe('irc.libera.chat');
       expect(call.serverPass).toBeUndefined();
+      expect(call.bouncer).toBeUndefined();
+    });
+
+    // Server settings → Bouncer says "reconnect to apply" — so Reconnect on
+    // a LIVE connection must rebuild the IRC session (it used to just
+    // re-select it) and pick up the route saved since, even though the
+    // connection holds a snapshot of its saved row from connect time.
+    it('reconnectActive() on a live connection rebuilds it with the route saved since', async () => {
+      const sessionStore = new SessionStore(memoryStorage());
+      setBouncerStore(await fastBouncerStore(profile));
+      const engine = fakeEngine();
+      const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore,
+      });
+      await flushPromises(4);
+      await bloc.connect(server);
+      await flushPromises(2);
+      engine.sessionFor('libera')._setState('connected');
+      await flushPromises(2);
+      sessionStore.addChannel('libera', '#general');
+      expect(engine.connectCalls[0]!.bouncer).toBeUndefined();
+
+      // Route it through the bouncer with auto-connect off, then Reconnect.
+      bloc.setServerBouncer('libera', { route: true, network: 'libera', autoConnect: false });
+      const reconnect = bloc.reconnectActive();
+      await flushPromises(2);
+      const old = engine.sessionFor('libera');
+      expect(old.disconnectCalls).toBe(1);
+      // Waits for the engine to drop the old session before connecting.
+      expect(engine.connectCalls).toHaveLength(1);
+      old._setState('disconnected');
+      await reconnect;
+      await flushPromises(2);
+
+      expect(engine.connectCalls).toHaveLength(2);
+      const call = engine.connectCalls[1]!;
+      expect(call.hostname).toBe('znc.host');
+      expect(call.serverPass).toBe('me/libera:pw');
+      expect(call.bouncer).toBe(true);
+      expect(call.bouncerAutoConnect).toBe(false);
+      // The tear-down was not a user disconnect: no auto-reconnect cycle,
+      // the saved row stays, and its channels re-join on the new session.
+      expect(bloc.getServerBouncer('libera')?.autoConnect).toBe(false);
+      engine.sessionFor('libera')._setState('connected');
+      await flushPromises(4);
+      expect(engine.sessionFor('libera').joinCalls).toContain('#general');
+      expect(engine.connectCalls).toHaveLength(2);
+      bloc.dispose();
     });
   });
 
@@ -1515,6 +1804,43 @@ describe('DirectoryBloc', () => {
       const call = engine.connectCalls[0]!;
       expect(call.hostname).toBe('znc.host');
       expect(call.serverPass).toBe('me/libera:pw');
+      bloc.dispose();
+    });
+
+    it('surfaces bouncer upstream state on the connection + chat serverInfo', async () => {
+      const { bloc, engine } = await makeBloc();
+      bloc.addBouncerNetwork({ name: 'Libera', network: 'libera' });
+      const id = bloc.bouncerNetworks()[0]!.id;
+      bloc.connectBouncerNetwork(id);
+      await flushPromises(2);
+      const conn = () => bloc.getState().connections.find((c) => c.serverId === id)!;
+      expect(conn().bouncerUpstream).toBeNull();
+
+      const session = engine.sessionFor(id);
+      session._setState('connected');
+      session._emitBouncerUpstream('disconnected');
+      expect(conn().bouncerUpstream).toBe('disconnected');
+      expect(conn().chat.getState().serverInfo.bouncerUpstream).toBe('disconnected');
+      expect(conn().chat.getState().serverInfo.bouncer).toBe(true);
+
+      session._emitBouncerUpstream('connected');
+      expect(conn().bouncerUpstream).toBe('connected');
+      expect(conn().chat.getState().serverInfo.bouncerUpstream).toBe('connected');
+      bloc.dispose();
+    });
+
+    it('bouncerConnect / bouncerDisconnect drive the live session; no-op for unknown ids', async () => {
+      const { bloc, engine } = await makeBloc();
+      bloc.addBouncerNetwork({ name: 'Libera', network: 'libera' });
+      const id = bloc.bouncerNetworks()[0]!.id;
+      bloc.connectBouncerNetwork(id);
+      await flushPromises(2);
+      const session = engine.sessionFor(id);
+      bloc.bouncerConnect(id);
+      bloc.bouncerDisconnect(id);
+      expect(session.bouncerConnectCalls).toBe(1);
+      expect(session.bouncerDisconnectCalls).toBe(1);
+      expect(() => bloc.bouncerConnect('nope')).not.toThrow();
       bloc.dispose();
     });
 

@@ -101,16 +101,20 @@ export function asDirectoryServer(s: LocalServer): Server {
   };
 }
 
-// Merge: backend list first, then local-only entries whose hostname isn't
-// already present in the backend list. Per spec, backend wins on collision.
+// Merge: backend list first, then local-only entries whose hostname:port
+// isn't already present in the backend list. Per spec, backend wins on
+// collision. Keyed on hostname AND port — the same identity addLocalServer
+// and joinFromDeepLink use — so a local entry for another port on a listed
+// host (e.g. a TLS port, or a bouncer next to the IRCd) isn't hidden.
 export function mergeWithLocal(
   backend: ReadonlyArray<Server>,
   local: ReadonlyArray<LocalServer>,
 ): Server[] {
-  const seen = new Set(backend.map((s) => s.hostname.toLowerCase()));
+  const key = (s: { hostname: string; port: number }): string => `${s.hostname.toLowerCase()}:${s.port}`;
+  const seen = new Set(backend.map(key));
   const merged: Server[] = backend.slice();
   for (const l of local) {
-    if (seen.has(l.hostname.toLowerCase())) continue;
+    if (seen.has(key(l))) continue;
     merged.push(asDirectoryServer(l));
   }
   return merged;

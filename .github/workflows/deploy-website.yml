@@ -1,7 +1,16 @@
-# Builds the marketing site (website/) and deploys it to the existing
-# Cloudflare Worker `boson-chat` using the Workers Static Assets feature
-# (configured in website/wrangler.toml). The custom domain attached to
-# that Worker stays in place — no DNS changes required between releases.
+# Builds the marketing site (website/) and ships it to the Cloudflare Worker
+# `boson-chat` (Workers Static Assets, configured in website/wrangler.toml).
+# The custom domain attached to that Worker stays in place — no DNS changes
+# required between releases.
+#
+#   push to main   → `wrangler deploy`: the new version takes production
+#                    traffic on boson.chat.
+#   pull request   → `wrangler versions upload --preview-alias pr-<n>`: an
+#                    immutable version with its own preview URL. It is NOT
+#                    deployed, so production keeps serving main. (A plain
+#                    `wrangler deploy` here used to replace the live site
+#                    with every PR's code.)
+#   PR from a fork → build only: forks get no secrets.
 #
 # Required secrets:
 #   - CLOUDFLARE_API_TOKEN  : API token with "Workers Scripts — Edit"
@@ -21,36 +30,92 @@ on:
 
 permissions:
   contents: read
-  # wrangler's preview-deploy comment needs write access on PRs.
-  deployments: write
-  pull-requests: write
 
 concurrency:
   group: deploy-website-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Pinned so preview behaviour (--preview-alias) doesn't drift with the
+  # action's bundled default.
+  WRANGLER_VERSION: '4.135.0'
+
 jobs:
-  deploy:
-    name: Build + deploy to Cloudflare Pages
+  build:
+    name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '20'
+          node-version: '24'
           cache: npm
       - run: npm ci
       - name: build
         working-directory: website
         run: npm run build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: website-dist
+          path: website/dist
+          retention-days: 7
+
+  production:
+    name: Deploy to boson.chat
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://boson.chat
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: website-dist
+          path: website/dist
       - name: Deploy
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
           workingDirectory: website
-          # `wrangler deploy` (no subcommand) uploads the Worker described
-          # by website/wrangler.toml — for us that's a Workers Static
-          # Assets bundle pointing at website/dist. Non-main branches
-          # land as preview-version deployments under boson-chat-<hash>.
           command: deploy
+
+  preview:
+    name: Upload PR preview (not deployed)
+    needs: build
+    # Same-repo PRs only: forks don't receive the Cloudflare secrets.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: website-dist
+          path: website/dist
+      - name: Upload preview version
+        id: upload
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3.14.1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          workingDirectory: website
+          command: >-
+            versions upload
+            --preview-alias pr-${{ github.event.pull_request.number }}
+            --message "PR #${{ github.event.pull_request.number }}"
+      - name: Preview URL
+        env:
+          OUTPUT: ${{ steps.upload.outputs.command-output }}
+        run: |
+          {
+            echo "### Website preview (not deployed to boson.chat)"
+            echo '```'
+            printf '%s\n' "$OUTPUT" | grep -iE 'preview|version id|https://' || printf '%s\n' "$OUTPUT"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

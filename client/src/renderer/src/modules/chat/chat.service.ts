@@ -325,6 +325,7 @@ export class ChatService {
   // has classified.
   private servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
   private unsubscribeServices: (() => void) | null = null;
+  private unsubscribeBouncerUpstream: (() => void) | null = null;
 
   // Optional backend API for the automated nick-claim flow. When
   // present, claimNick() orchestrates the full mint-email →
@@ -342,13 +343,30 @@ export class ChatService {
   // persistence scope; only message store + hydrate are skipped.
   private readonly bouncerConn: boolean;
 
+  // Which server this connection is, for everything keyed per server that is
+  // NOT chat history: the NickServ credentials store (account status badge,
+  // claim, auto-identify), MemoServ → Inbox, notifications. Taken from the
+  // persistence scope when there is one, else from deps.server, else the
+  // session's own serverId — guests have no persistence (no userId) but still
+  // have a stable server id, and without it every NickServ reply and memo was
+  // silently dropped for them.
+  private readonly serverScope: { serverId: string; serverName?: string } | null;
+  // Unsubscribes the credentials-store watch that identifies with a NickServ
+  // password arriving after connect (see watchLatePassword).
+  private unsubscribeCreds: (() => void) | null = null;
+  // Whether the engine got a NickServ password at connect time (and so will
+  // auto-IDENTIFY on welcome by itself). Snapshot taken in attach().
+  private passwordAtConnect = false;
+
   constructor(
     private readonly session: ServerSession,
     private myNick: string,
     persistence?: ChatPersistence,
-    deps?: { nickClaimAPI?: NickClaimAPI; bouncer?: boolean },
+    deps?: { nickClaimAPI?: NickClaimAPI; bouncer?: boolean; server?: { serverId: string; serverName?: string } },
   ) {
     this.persistence = persistence ?? null;
+    const sid = (session as Partial<ServerSession>).serverId;
+    this.serverScope = persistence?.scope ?? deps?.server ?? (sid ? { serverId: sid } : null);
     this.nickClaimAPI = deps?.nickClaimAPI ?? null;
     this.bouncerConn = deps?.bouncer ?? false;
     // Per-server config flag: surface "via bouncer" in the server-info badge.
@@ -387,11 +405,60 @@ export class ChatService {
       this.servicesFramework = fw;
       this.emit();
     });
+    // Bouncer upstream state (is ZNC connected to the real network?).
+    // Sticky on the session, so a late attach replays the current value.
+    // Optional-call: lightweight test fakes may not implement it.
+    this.unsubscribeBouncerUpstream = this.session.onBouncerUpstream?.((upstream) => {
+      if (this.serverInfo.bouncerUpstream === upstream) return;
+      // Only bouncer connections report upstream state, so this also
+      // latches the "via bouncer" flag.
+      this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerUpstream: upstream };
+      this.emit();
+    }) ?? null;
+    this.watchLatePassword();
+  }
+
+  // A NickServ password that reaches the credentials store only AFTER this
+  // connection started — typically the E2E-encrypted copy pulled from the
+  // backend on a fresh device, whose session restore connects before that
+  // pull lands — would otherwise sit unused until the next connect: the
+  // engine only auto-IDENTIFYs with the password it was given at connect.
+  // So identify with it ourselves, either right away (already welcomed) or
+  // on 001. Only when nothing has happened account-wise yet (status unset)
+  // and no password was there at connect; flows that write a password with
+  // a status (claim, register) drive identify themselves.
+  private watchLatePassword(): void {
+    const serverId = this.serverScope?.serverId;
+    if (!serverId || this.unsubscribeCreds) return;
+    const store = getServiceCredentialsStore();
+    this.passwordAtConnect = Boolean(store.get(serverId)?.nickservPassword);
+    let hadPassword = this.passwordAtConnect;
+    this.unsubscribeCreds = store.subscribe(serverId, (creds) => {
+      const pw = creds?.nickservPassword;
+      const arrived = !hadPassword && Boolean(pw);
+      hadPassword = Boolean(pw);
+      if (arrived && pw && creds?.status === undefined && this.welcomed) this.identifyNickserv(pw);
+    });
+  }
+
+  // True once RPL_WELCOME arrived on this connection.
+  private welcomed = false;
+
+  // Ask the bouncer to connect / disconnect its upstream IRC network.
+  // The engine reports the resulting state via `bouncer-upstream`.
+  bouncerConnect(): void {
+    this.session.bouncerConnect();
+  }
+
+  bouncerDisconnect(): void {
+    this.session.bouncerDisconnect();
   }
 
   detach(): void {
     this.unsubscribeEngine?.();
     this.unsubscribeEngine = null;
+    this.unsubscribeCreds?.();
+    this.unsubscribeCreds = null;
     this.unsubscribeChannelDirectory?.();
     this.unsubscribeChannelDirectory = null;
     // Clear any pending typing-expiry timers so we don't fire emit() into a
@@ -409,6 +476,8 @@ export class ChatService {
     // a torn-down chat service.
     this.unsubscribeServices?.();
     this.unsubscribeServices = null;
+    this.unsubscribeBouncerUpstream?.();
+    this.unsubscribeBouncerUpstream = null;
   }
 
   // Ask the engine to refresh the channel directory. The engine handles
@@ -561,7 +630,7 @@ export class ChatService {
   // localStorage entries keyed by serverId). Used by the Advanced
   // panel's "Identify now" button.
   triggerAutoIdentify(): void {
-    const serverId = this.persistence?.scope.serverId;
+    const serverId = this.serverScope?.serverId;
     if (!serverId) return;
     const creds = getServiceCredentialsStore().get(serverId);
     if (!creds?.nickservPassword) return;
@@ -634,7 +703,7 @@ export class ChatService {
   // this store.set lands AFTER the passive classifier (which also sees
   // those NOTICEs) — detection is the last writer and wins.
   async detectAccountState(accountName?: string): Promise<AccountStatus | undefined> {
-    const serverId = this.persistence?.scope.serverId;
+    const serverId = this.serverScope?.serverId;
     if (!serverId) return undefined;
 
     const store = getServiceCredentialsStore();
@@ -680,7 +749,7 @@ export class ChatService {
     accountName?: string,
     opts?: { signal?: AbortSignal },
   ): Promise<ResumeConfirmResult> {
-    const serverId = this.persistence?.scope.serverId;
+    const serverId = this.serverScope?.serverId;
     if (!serverId) return { kind: 'unavailable', reason: 'no-server-id' };
     if (!this.nickClaimAPI) return { kind: 'unavailable', reason: 'no backend api' };
 
@@ -771,7 +840,7 @@ export class ChatService {
     }
     if (signal?.aborted) return { kind: 'cancelled' };
 
-    const serverId = this.persistence?.scope.serverId;
+    const serverId = this.serverScope?.serverId;
     if (!serverId) {
       return { kind: 'failed', reason: 'no-server-id' };
     }
@@ -959,15 +1028,23 @@ export class ChatService {
   // default to the Anope shape (same fallback adapters.ts uses).
   async dropAccount(accountName: string, password: string): Promise<DropResult> {
     const fw = this.servicesFramework;
-    if (fw === 'atheme') {
-      return this.getAthemeAccountService().drop(accountName, password);
+    const result = fw === 'atheme'
+      ? await this.getAthemeAccountService().drop(accountName, password)
+      : fw === 'ergo'
+        ? await this.getErgoAccountService().drop(accountName, password)
+        // Anope + null + 'unknown' all route to the Anope impl as the
+        // safe default.
+        : await this.getAnopeAccountService().drop(accountName, password);
+    // The account is gone: forget its password so the next connect doesn't
+    // auto-IDENTIFY into a void. The passive classifier does the same on a
+    // "has been dropped" NOTICE, but not every drop ends with one (ergo
+    // disconnects a client that unregisters the account it's logged into).
+    const serverId = this.serverScope?.serverId;
+    if (result.kind === 'dropped' && serverId) {
+      const store = getServiceCredentialsStore();
+      store.set(serverId, { accountName: store.get(serverId)?.accountName, status: 'no-account' });
     }
-    if (fw === 'ergo') {
-      return this.getErgoAccountService().drop(accountName, password);
-    }
-    // Anope + null + 'unknown' all route to the Anope impl as the
-    // safe default.
-    return this.getAnopeAccountService().drop(accountName, password);
+    return result;
   }
 
   private anopeAccountService: AnopeAccountService | null = null;
@@ -1037,12 +1114,12 @@ export class ChatService {
   // verbatim keeps the surface forward-compatible.
   private storeInboxEntry(from: string, body: string, kind: MemoKind, channel?: string): void {
     if (!body) return;
-    const serverId = this.persistence?.scope.serverId ?? '';
+    const serverId = this.serverScope?.serverId ?? '';
     getMemoStore().append({
       serverId,
       // Prefer the human server name (passed in the persistence scope);
       // fall back to the serverId so an entry is never unattributed.
-      serverName: this.persistence?.scope.serverName || serverId,
+      serverName: this.serverScope?.serverName || this.serverInfo.network || serverId,
       sender: from,
       kind,
       channel,
@@ -1077,7 +1154,7 @@ export class ChatService {
   }
 
   private handleMemoServ(body: string): void {
-    const serverId = this.persistence?.scope.serverId;
+    const serverId = this.serverScope?.serverId;
     if (!serverId) return;
     const store = getMemoStore();
     const now = Date.now();
@@ -1117,7 +1194,7 @@ export class ChatService {
     if (row) {
       store.upsertMemo({
         serverId,
-        serverName: this.persistence?.scope.serverName || serverId,
+        serverName: this.serverScope?.serverName || this.serverInfo.network || serverId,
         sender: row.sender,
         kind: 'memo',
         text: '',
@@ -1154,7 +1231,7 @@ export class ChatService {
   private maybeUpdateAccountStatus(body: string): boolean {
     const kind = classifyNickServReply(body);
     if (!kind) return false;
-    const serverId = this.persistence?.scope.serverId;
+    const serverId = this.serverScope?.serverId;
     if (!serverId) return true;
 
     // Side-effect-only kinds run BEFORE we filter on "did we get a
@@ -1603,7 +1680,7 @@ export class ChatService {
     // focus, so a mention in the channel you're viewing still alerts you when
     // the window is in the background.
     if (this.notifier) {
-      const scope = this.persistence?.scope;
+      const scope = this.serverScope;
       this.notifier({
         serverId: scope?.serverId ?? '',
         serverName: scope?.serverName,
@@ -2060,6 +2137,22 @@ export class ChatService {
         }
         break;
       }
+      case '471':   // ERR_CHANNELISFULL  (+l)
+      case '473':   // ERR_INVITEONLYCHAN (+i)
+      case '474':   // ERR_BANNEDFROMCHAN (+b)
+      case '475': { // ERR_BADCHANNELKEY  (+k)
+        // A /join the server refused. join() already created (and switched
+        // to) the channel optimistically; drop that placeholder so it doesn't
+        // sit in the sidebar as an empty channel we're not in, and tell the
+        // user why. The engine passes numerics through as Args = [channel],
+        // Message = the server's reason.
+        const chan = e.Args?.[0] ?? e.Target ?? '';
+        if (!chan.startsWith('#') && !chan.startsWith('&')) break;
+        const ch = this.channels.get(this.channelKey(chan));
+        if (ch && !ch.joined) this.removeChannel(chan);
+        this.emitFeedback({ kind: 'error', text: `Cannot join ${chan}: ${e.Message || 'refused by the server'}` });
+        break;
+      }
       case '421': {
         // ERR_UNKNOWNCOMMAND. If it's for CHATHISTORY, the server advertised
         // the cap but doesn't implement the command (e.g. ZNC < 1.8 relaying
@@ -2385,6 +2478,14 @@ export class ChatService {
         // connection silently drops every service reply (memos never fill,
         // DMs never mirror). See also the 004 sync below as a backstop.
         this.syncMyNickFromNumeric(e.Target);
+        this.welcomed = true;
+        // A password that arrived between connect and welcome (see
+        // watchLatePassword) — the engine wasn't given it, so send it now.
+        if (!this.passwordAtConnect) {
+          const serverId = this.serverScope?.serverId;
+          const creds = serverId ? getServiceCredentialsStore().get(serverId) : undefined;
+          if (creds?.nickservPassword && creds.status === undefined) this.identifyNickserv(creds.nickservPassword);
+        }
         break;
       }
       case '004': {
@@ -2410,7 +2511,7 @@ export class ChatService {
         // the persisted status immediately — no NickServ NOTICE
         // round-trip needed. Account name lives in Args[2] on
         // engines that split params; fall back to e.Message tail.
-        const serverId = this.persistence?.scope.serverId;
+        const serverId = this.serverScope?.serverId;
         if (!serverId) break;
         const store = getServiceCredentialsStore();
         const existing = store.get(serverId) ?? {};
@@ -2637,7 +2738,10 @@ export class ChatService {
       this.pendingHistoryKind.delete(key);
       this.clearLoadOlderTimeout(key);
       if (this.activeChannel === key) {
-        this.activeChannel = this.channels.size > 0 ? this.channels.keys().next().value! : null;
+        // Fall back to another conversation the user can see — never the
+        // hidden ~server log (it isn't in the sidebar, and its composer
+        // would PRIVMSG a "~server" target).
+        this.activeChannel = Array.from(this.channels.keys()).find((k) => k !== SERVICE_CHANNEL) ?? null;
       }
       this.emit();
     }
@@ -2676,7 +2780,9 @@ export class ChatService {
     const isZncBot = /^\*[a-zA-Z]/.test(from); // *status, *controlpanel, …
     const fromZncHost = from.includes('znc.in');
     const capText = e.Kind === 'CAP' ? `${e.Message ?? ''} ${(e.Args ?? []).join(' ')}` : '';
-    const advertisesZnc = /(^|\s)znc\.in\//.test(capText);
+    // znc.in/self-message is not a ZNC signal: plain IRCds (ergo, …)
+    // advertise it too.
+    const advertisesZnc = /(^|\s)znc\.in\/(?!self-message(\s|=|$))/.test(capText);
     if (isZncBot || fromZncHost || advertisesZnc) {
       this.zncDetected = true;
       if (!this.serverInfo.bouncer) {

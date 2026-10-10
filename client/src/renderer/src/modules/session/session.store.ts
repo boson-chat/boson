@@ -10,6 +10,15 @@
 //   `boson:session:v2` — multi-server `{ servers: SavedServerSession[], activeServerId }`.
 // load() reads v2 first; if absent, reads v1 and migrates it forward.
 
+// Per-server bouncer settings. `autoConnect` (default true when absent):
+// when the bouncer isn't connected to the network at attach time, ask it to
+// connect automatically.
+export interface SavedServerBouncer {
+  route: boolean;
+  network: string;
+  autoConnect?: boolean;
+}
+
 export interface SavedServer {
   id: string;
   name: string;
@@ -21,7 +30,7 @@ export interface SavedServer {
   // server's host/port and authenticates as `username[/network]:password`.
   // Non-secret (the network name is just a ZNC label) — synced via the
   // session payload. Absent on servers never configured for a bouncer.
-  bouncer?: { route: boolean; network: string };
+  bouncer?: SavedServerBouncer;
 }
 
 export interface SavedServerSession {
@@ -128,7 +137,7 @@ export class SessionStore {
   // Set (or update) the per-server bouncer routing. Upserts a bare saved-server
   // row if one doesn't exist yet, so the setting can be configured before the
   // first connect. Fires onChange → backend session sync.
-  setServerBouncer(serverId: string, bouncer: { route: boolean; network: string }): void {
+  setServerBouncer(serverId: string, bouncer: SavedServerBouncer): void {
     const current = this.load();
     if (!current) return;
     const target = current.servers.find((s) => s.server.id === serverId);
@@ -243,6 +252,7 @@ function isSavedServer(v: unknown): v is SavedServer {
     const b = s.bouncer as Record<string, unknown> | null;
     if (!b || typeof b !== 'object'
       || typeof b.route !== 'boolean' || typeof b.network !== 'string') return false;
+    if (b.autoConnect !== undefined && typeof b.autoConnect !== 'boolean') return false;
   }
   return true;
 }

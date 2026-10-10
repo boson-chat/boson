@@ -1,3 +1,5 @@
+import type { BouncerUpstreamState } from '../engine/engine.types';
+
 export type ChatMessageKind = 'message' | 'notice' | 'join' | 'part' | 'quit' | 'kick' | 'system' | 'action';
 
 export interface ChatMessage {
@@ -151,6 +153,10 @@ export interface ServerInfo {
   // detected ZNC at runtime. Shown in the server-info badge so the user can
   // confirm they're attached via their bouncer rather than direct.
   bouncer?: boolean;
+  // Whether the bouncer itself is connected to the real IRC network
+  // ("upstream"), as reported by the engine's `bouncer-upstream` frames.
+  // Undefined for direct connections and until the engine reports.
+  bouncerUpstream?: BouncerUpstreamState;
   // Parsed from RPL_ISUPPORT PREFIX= e.g. "(qaohv)~&@%+". `modes`/`sigils` are
   // positionally aligned, highest-rank first. Undefined → use the built-in
   // default ladder. Used to decide whether to offer owner/admin (+q/+a) grants.

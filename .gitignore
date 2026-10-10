@@ -70,3 +70,6 @@ client/resources/engine/
 
 # Release tooling
 CHANGELOG.md.bak
+
+# Real-app e2e stack runtime (backend binary, pid, logs, coverage counters)
+infra/e2e/.run/

@@ -188,3 +188,20 @@ func TestUserRepository_UpdateHandle_NoOpSameHandle(t *testing.T) {
 	require.NoError(t, db.DB.Model(&user.HandleChange{}).Where("user_id = ?", id).Count(&count).Error)
 	assert.EqualValues(t, 0, count, "no audit row for no-op rename")
 }
+
+func TestUserRepository_Create_PersistsNonDiscoverable(t *testing.T) {
+	db := testutil.SetupDB(t)
+	repo := user.NewUserRepository(db)
+
+	id := uuid.New()
+	require.NoError(t, repo.Create(testutil.Ctx(), &user.User{
+		ID:                  id,
+		Handle:              "hidden",
+		EncryptedUserSecret: []byte("x"),
+		IsDiscoverable:      false,
+	}))
+
+	got, err := repo.FindByID(testutil.Ctx(), id)
+	require.NoError(t, err)
+	assert.False(t, got.IsDiscoverable, "an explicit false must not be replaced by the column default")
+}

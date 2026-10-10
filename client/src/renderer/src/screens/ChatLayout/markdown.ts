@@ -140,3 +140,13 @@ export function isPreformattedLine(text: string): boolean {
   if (/^\|.*\|.*\|$/.test(t)) return true;
   return false;
 }
+
+// mIRC-style formatting control codes other IRC clients embed in messages:
+// bold \x02, color \x03[fg[,bg]], hex color \x04RRGGBB[,RRGGBB], monospace
+// \x11, reverse \x16, italic \x1D, strikethrough \x1E, underline \x1F, reset
+// \x0F. We don't render them; strip them (color digits included) so a line
+// like "\x0304,01red" reads "red" rather than "04,01red" with raw controls.
+const IRC_FORMAT_RE = /\x03(?:\d{1,2}(?:,\d{1,2})?)?|\x04(?:[0-9a-fA-F]{6}(?:,[0-9a-fA-F]{6})?)?|[\x02\x0F\x11\x16\x1D\x1E\x1F]/g;
+export function stripIrcFormatting(text: string): string {
+  return text.replace(IRC_FORMAT_RE, '');
+}

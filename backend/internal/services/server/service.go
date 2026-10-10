@@ -188,7 +188,10 @@ func (s *ServerService) RegenerateToken(ctx context.Context, serverID, principal
 	// Clear the last-checked timestamp so the UI doesn't show stale
 	// "verified at <timestamp>" copy after a regenerate.
 	srv.VerificationLastCheckedAt = nil
-	if err := s.Repository.Update(ctx, srv); err != nil {
+	if err := s.Repository.UpdateColumns(ctx, srv,
+		"verification_token", "verification_token_issued_at",
+		"verification_status", "verification_last_checked_at",
+	); err != nil {
 		return nil, err
 	}
 	return srv, nil
@@ -203,12 +206,17 @@ func (s *ServerService) UpdateProfile(ctx context.Context, serverID, principalID
 		return nil, ErrNotOwner
 	}
 
+	// Track exactly which columns the caller asked to change so the
+	// write leaves every other column (including ones the cron owns)
+	// untouched.
+	var cols []string
 	if in.Name != nil {
 		name := strings.TrimSpace(*in.Name)
 		if name == "" {
 			return nil, ErrInvalidInput
 		}
 		srv.Name = name
+		cols = append(cols, "name")
 	}
 	if in.Description != nil {
 		// Empty string clears the field; nil leaves it alone. Pointer
@@ -219,18 +227,22 @@ func (s *ServerService) UpdateProfile(ctx context.Context, serverID, principalID
 		} else {
 			srv.Description = &trimmed
 		}
+		cols = append(cols, "description")
 	}
 	if in.Tags != nil {
 		srv.Tags = pq.StringArray(*in.Tags)
+		cols = append(cols, "tags")
 	}
 	if in.Languages != nil {
 		srv.Languages = pq.StringArray(*in.Languages)
+		cols = append(cols, "languages")
 	}
 	if in.IsNSFW != nil {
 		srv.IsNSFW = *in.IsNSFW
+		cols = append(cols, "is_nsfw")
 	}
 
-	if err := s.Repository.Update(ctx, srv); err != nil {
+	if err := s.Repository.UpdateColumns(ctx, srv, cols...); err != nil {
 		return nil, err
 	}
 	return srv, nil
@@ -244,15 +256,18 @@ func (s *ServerService) SetImageKey(ctx context.Context, serverID, principalID u
 	if srv.RegisteredBy == nil || *srv.RegisteredBy != principalID {
 		return nil, ErrNotOwner
 	}
+	var col string
 	switch which {
 	case "icon":
 		srv.IconStorageKey = key
+		col = "icon_storage_key"
 	case "banner":
 		srv.BannerStorageKey = key
+		col = "banner_storage_key"
 	default:
 		return nil, ErrInvalidInput
 	}
-	if err := s.Repository.Update(ctx, srv); err != nil {
+	if err := s.Repository.UpdateColumns(ctx, srv, col); err != nil {
 		return nil, err
 	}
 	return srv, nil
@@ -294,7 +309,9 @@ func (s *ServerService) Verify(ctx context.Context, serverID, principalID uuid.U
 		// on the time since the last successful match (see phase 3).
 	}
 
-	if err := s.Repository.Update(ctx, srv); err != nil {
+	if err := s.Repository.UpdateColumns(ctx, srv,
+		"verification_status", "verification_last_checked_at",
+	); err != nil {
 		return srv, report, err
 	}
 	return srv, report, nil

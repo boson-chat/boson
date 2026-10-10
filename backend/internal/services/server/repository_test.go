@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/boson-chat/boson/backend/internal/services/server"
 	"github.com/boson-chat/boson/backend/internal/services/user"
@@ -284,4 +285,146 @@ func nameList(servers []*server.Server) []string {
 		out[i] = s.Name
 	}
 	return out
+}
+
+// Regression: Update used gorm Save (every column), so a stale row held
+// by the cron or an HTTP handler reverted concurrent edits. UpdateColumns
+// must leave unnamed columns alone.
+func TestServerRepository_UpdateColumns_DoesNotRevertOtherColumns(t *testing.T) {
+	db := testutil.SetupDB(t)
+	ur := user.NewUserRepository(db)
+	sr := server.NewServerRepository(db)
+	uid := seedUser(t, ur)
+	s := seedServer(t, sr, uid, "Original", nil, nil, false)
+
+	// Writer A holds a stale copy.
+	stale, err := sr.FindByID(testutil.Ctx(), s.ID)
+	require.NoError(t, err)
+
+	// Writer B (owner) renames + sets an icon in the meantime.
+	fresh, err := sr.FindByID(testutil.Ctx(), s.ID)
+	require.NoError(t, err)
+	fresh.Name = "Renamed"
+	icon := "servers/icon/x.png"
+	fresh.IconStorageKey = &icon
+	require.NoError(t, sr.UpdateColumns(testutil.Ctx(), fresh, "name", "icon_storage_key"))
+
+	// Writer A records a health result from its stale copy.
+	stale.HealthStatus = "up"
+	require.NoError(t, sr.UpdateColumns(testutil.Ctx(), stale, "health_status"))
+
+	got, err := sr.FindByID(testutil.Ctx(), s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "Renamed", got.Name)
+	require.NotNil(t, got.IconStorageKey)
+	assert.Equal(t, icon, *got.IconStorageKey)
+	assert.Equal(t, "up", got.HealthStatus)
+}
+
+func TestServerRepository_UpdateColumns_WritesZeroValues(t *testing.T) {
+	db := testutil.SetupDB(t)
+	ur := user.NewUserRepository(db)
+	sr := server.NewServerRepository(db)
+	uid := seedUser(t, ur)
+	s := seedServer(t, sr, uid, "Zero", []string{"a"}, nil, true)
+
+	s.Description = nil
+	s.IsNSFW = false
+	s.Tags = pq.StringArray{}
+	require.NoError(t, sr.UpdateColumns(testutil.Ctx(), s, "description", "is_nsfw", "tags"))
+
+	got, err := sr.FindByID(testutil.Ctx(), s.ID)
+	require.NoError(t, err)
+	assert.Nil(t, got.Description)
+	assert.False(t, got.IsNSFW)
+	assert.Empty(t, []string(got.Tags))
+}
+
+func TestServerRepository_ListBatchForCron_CoversEverythingIncludingNSFW(t *testing.T) {
+	db := testutil.SetupDB(t)
+	ur := user.NewUserRepository(db)
+	sr := server.NewServerRepository(db)
+	uid := seedUser(t, ur)
+
+	// More rows than List's 25-row clamp, a third of them NSFW, plus a
+	// lapsed row that must be excluded by the status filter.
+	want := map[uuid.UUID]bool{}
+	for i := 0; i < 60; i++ {
+		s := seedServer(t, sr, uid, "S", nil, nil, i%3 == 0)
+		s.VerificationStatus = "verified"
+		require.NoError(t, sr.UpdateColumns(testutil.Ctx(), s, "verification_status"))
+		want[s.ID] = true
+	}
+	lapsed := seedServer(t, sr, uid, "Lapsed", nil, nil, false)
+	lapsed.VerificationStatus = "lapsed"
+	require.NoError(t, sr.UpdateColumns(testutil.Ctx(), lapsed, "verification_status"))
+
+	got := map[uuid.UUID]bool{}
+	after := uuid.Nil
+	pages := 0
+	for {
+		batch, err := sr.ListBatchForCron(testutil.Ctx(), []string{"verified"}, after, 25)
+		require.NoError(t, err)
+		pages++
+		for _, s := range batch {
+			assert.False(t, got[s.ID], "keyset pagination must not repeat rows")
+			got[s.ID] = true
+		}
+		if len(batch) < 25 {
+			break
+		}
+		after = batch[len(batch)-1].ID
+	}
+	assert.Equal(t, want, got)
+	assert.Equal(t, 3, pages)
+}
+
+func TestServerRepository_RecordVerifyResult_GuardsOnToken(t *testing.T) {
+	db := testutil.SetupDB(t)
+	ur := user.NewUserRepository(db)
+	sr := server.NewServerRepository(db)
+	uid := seedUser(t, ur)
+	s := seedServer(t, sr, uid, "Guarded", nil, nil, false)
+	tok := "current-token"
+	s.VerificationToken = &tok
+	require.NoError(t, sr.UpdateColumns(testutil.Ctx(), s, "verification_token"))
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	// Stale token (owner regenerated mid-run) → nothing written.
+	applied, err := sr.RecordVerifyResult(testutil.Ctx(), s.ID, "old-token", "verified", now)
+	require.NoError(t, err)
+	assert.False(t, applied)
+	got, err := sr.FindByID(testutil.Ctx(), s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "pending", got.VerificationStatus)
+	assert.Nil(t, got.VerificationLastCheckedAt)
+
+	// Matching token → status + timestamp written, profile untouched.
+	applied, err = sr.RecordVerifyResult(testutil.Ctx(), s.ID, tok, "verified", now)
+	require.NoError(t, err)
+	assert.True(t, applied)
+	got, err = sr.FindByID(testutil.Ctx(), s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "verified", got.VerificationStatus)
+	require.NotNil(t, got.VerificationLastCheckedAt)
+	assert.True(t, now.Equal(*got.VerificationLastCheckedAt))
+	assert.Equal(t, "Guarded", got.Name)
+}
+
+func TestServerRepository_RecordHealthResult(t *testing.T) {
+	db := testutil.SetupDB(t)
+	ur := user.NewUserRepository(db)
+	sr := server.NewServerRepository(db)
+	uid := seedUser(t, ur)
+	s := seedServer(t, sr, uid, "Health", nil, nil, false)
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	require.NoError(t, sr.RecordHealthResult(testutil.Ctx(), s.ID, "down", now))
+
+	got, err := sr.FindByID(testutil.Ctx(), s.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "down", got.HealthStatus)
+	require.NotNil(t, got.HealthLastCheckedAt)
+	assert.True(t, now.Equal(*got.HealthLastCheckedAt))
 }

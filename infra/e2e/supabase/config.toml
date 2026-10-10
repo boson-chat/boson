@@ -1,0 +1,105 @@
+# Supabase CLI project for the real-app e2e suite (client/tests/e2e-app/).
+#
+#   supabase start --workdir infra/e2e -x <services>   (see client/scripts/e2e-stack.mjs)
+#   supabase stop  --workdir infra/e2e --no-backup
+#
+# A SEPARATE project from the dev stack in supabase/ (project_id "boson",
+# ports 5432x): own project_id → own containers (supabase_*_boson-e2e),
+# volumes and docker network; every port moved to 553xx. Boson only needs
+# Auth, so this runs just Postgres + GoTrue + Kong (the /auth/v1 gateway the
+# client and the backend's JWKS fetch go through) + the bundled Mailpit that
+# catches auth emails (the "user's inbox" the tests read). Everything else is
+# disabled here and excluded on `supabase start`.
+project_id = "boson-e2e"
+
+[api]
+enabled = true
+port = 55321
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 55332
+shadow_port = 55330
+major_version = 17
+
+[db.pooler]
+enabled = false
+port = 55329
+
+[db.migrations]
+enabled = false
+
+[db.seed]
+enabled = false
+
+[realtime]
+enabled = false
+
+[studio]
+enabled = false
+port = 55323
+
+# Auth emails (signup confirmation, recovery, …) land here. HTTP API + UI on
+# http://127.0.0.1:55324 — client/tests/e2e-app/helpers/mailpit.ts reads it.
+[local_smtp]
+enabled = true
+port = 55324
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[analytics]
+enabled = false
+port = 55327
+
+[auth]
+enabled = true
+# The confirmation email links to GoTrue's /verify, which redirects to the
+# marketing site's /auth/confirmed page (AuthService.signUp's
+# emailRedirectTo); that page forwards the tokens to boson://auth/confirmed.
+# The redirect has to be allow-listed or GoTrue falls back to site_url and
+# drops the state nonce.
+site_url = "https://boson.chat"
+additional_redirect_urls = ["https://boson.chat/auth/confirmed", "https://boson.chat/auth/confirmed?**"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
+enable_anonymous_sign_ins = false
+enable_manual_linking = false
+minimum_password_length = 6
+
+# Many users sign up / sign in from one IP within seconds; keep GoTrue's
+# per-IP limits out of the way.
+[auth.rate_limit]
+email_sent = 1000
+sms_sent = 30
+anonymous_users = 30
+token_refresh = 1000
+sign_in_sign_ups = 1000
+token_verifications = 1000
+web3 = 30
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+# As in production: sign-up sends a confirmation link and no session is
+# issued until it's clicked (LoginBloc's "Check your email" path).
+enable_confirmations = true
+secure_password_change = false
+max_frequency = "1s"
+otp_length = 6
+otp_expiry = 3600
+
+[auth.sms]
+enable_signup = false
+enable_confirmations = false
+
+[auth.mfa.totp]
+enroll_enabled = false
+verify_enabled = false

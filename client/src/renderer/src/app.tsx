@@ -1,6 +1,8 @@
 import type preact from 'preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { AuthProvider, AuthService, useAuthState } from './modules/auth';
+import { signOutAndForget } from './modules/auth/sign-out';
+import { SessionStore } from './modules/session';
 import { DirectoryService } from './modules/directory';
 import { EngineClient } from './modules/engine';
 import { IDBChatHistoryStore, type ChatHistoryStore } from './modules/history';
@@ -85,7 +87,10 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         onClose={() => setSettingsOpen(false)}
         authedHandle={authedHandle}
         authedEmail={session?.user?.email ?? null}
-        onSignOut={() => { void auth.signOut(); }}
+        // Same device cleanup as the directory's Sign out button: a bare
+        // auth.signOut() would leave the identity secret in the keychain
+        // and the saved session + scrollback behind for the next account.
+        onSignOut={() => { void signOutAndForget({ auth, identity, history, sessionStore: new SessionStore() }); }}
         directory={directory}
         identity={identity}
         auth={auth}
@@ -132,6 +137,14 @@ function Router({ directory, engine, identity, history }: {
   // restore the `useIdentityUnlocked` hook flips the route automatically.
   const userId = session?.user?.id ?? null;
   const restored = useIdentityRestore(identity, userId);
+  // The route rendered last time. When the login screen is already up, the
+  // session it's waiting for (sign-in, or the email-confirmation deep link)
+  // must not swap it for the restore shim: that unmounts LoginScreen and its
+  // LoginBloc mid-sign-in, losing the unlock outcome — the error and the
+  // recovery-code offer after a password reset.
+  const lastKey = useRef<RouteKey | null>(null);
+  // 'idle' with a user is the render before the restore effect has started.
+  const restoring = restored === 'pending' || (restored === 'idle' && userId !== null);
 
   let key: RouteKey;
   let content: preact.ComponentChildren;
@@ -147,7 +160,7 @@ function Router({ directory, engine, identity, history }: {
     // ever calling the backend's /me endpoint.
     key = 'guest';
     content = <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} guestNick={guest.nick} />;
-  } else if (session && !identityUnlocked && restored === 'pending') {
+  } else if (session && !identityUnlocked && restoring && lastKey.current !== 'login') {
     // Supabase may auto-restore a session from localStorage. If the keychain
     // has the user_secret too, we'll have unlocked the identity above. If not,
     // fall through to LoginScreen — the user needs to type their password.
@@ -161,6 +174,7 @@ function Router({ directory, engine, identity, history }: {
     content = <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} />;
   }
 
+  lastKey.current = key;
   return (
     <div class="route-content" key={key}>
       {content}

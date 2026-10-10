@@ -1,0 +1,92 @@
+# Ergo config for the real-app e2e suite (client/tests/e2e-app/). Brought up
+# by infra/e2e/docker-compose.yml — never the dev `ergo` service. Differs from
+# infra/ergo/ircd.yaml in that every throttle / limit that could trip repeated
+# test runs from one (NATed) IP is off. Like dev, NickServ registration mails
+# its verification code to the compose `mailpit` (the boson.chat catch-all
+# the backend's nick-claim worker drains); ergo doesn't need mailpit to start.
+network:
+  name: BosonE2E
+
+server:
+  name: ergo.e2e
+  listeners:
+    ":6667":
+      tls:
+        cert: ""
+        key: ""
+      proxy: false
+  max-sendq: 96k
+  ip-cloaking:
+    enabled: false
+  # Every client (the app's engine, the peer bot, ZNC) arrives from the docker
+  # gateway IP, so per-IP limits would make runs flaky.
+  ip-limits:
+    count: false
+    throttle: false
+  check-ident: false
+  lookup-hostnames: false
+  enforce-utf8: true
+
+accounts:
+  registration:
+    enabled: true
+    allow-before-connect: true
+    bcrypt-cost: 4
+    verify-timeout: "32h"
+    # Inline-MTA form (see infra/ergo/ircd.yaml for why not `mta:`).
+    email-verification:
+      enabled: true
+      sender: "noreply@boson.chat"
+      require-tls: false
+      helo-domain: "boson.chat"
+      timeout: 60s
+      server: "mailpit"
+      port: 1025
+      implicit-tls: false
+  authentication-enabled: true
+  require-sasl:
+    enabled: false
+  multiclient:
+    enabled: false
+  nick-reservation:
+    enabled: false
+  default-user-modes: ""
+  login-throttling:
+    enabled: false
+
+channels:
+  default-modes: ""
+  registration:
+    enabled: false
+  list-delay: 0s
+
+opers: {}
+
+limits:
+  nicklen: 32
+  identlen: 20
+  channellen: 64
+  awaylen: 390
+  kicklen: 390
+  topiclen: 390
+  monitor-entries: 100
+  whowas-entries: 100
+  chan-list-modes: 60
+  registration-messages: 1024
+  multiline:
+    max-bytes: 4096
+    max-lines: 100
+
+fakelag:
+  enabled: false
+
+history:
+  enabled: false
+
+logging:
+  - method: stderr
+    level: info
+    type: "* -userinput -useroutput"
+
+datastore:
+  path: /ircd/ircd.db

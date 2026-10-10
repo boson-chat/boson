@@ -41,10 +41,13 @@ type stubRepo struct {
 	list        func(ctx context.Context, f ListFilter) ([]*Server, error)
 	findByID    func(ctx context.Context, id uuid.UUID) (*Server, error)
 	create      func(ctx context.Context, s *Server) error
-	update      func(ctx context.Context, s *Server) error
+	update      func(ctx context.Context, s *Server, columns []string) error
 	listByOwner func(ctx context.Context, principalID uuid.UUID) ([]*Server, error)
 	createCalls []*Server
 	updateCalls []*Server
+	// updateCols records the column list of each UpdateColumns call so
+	// tests can assert writes stay scoped to what the method changed.
+	updateCols [][]string
 }
 
 func (s *stubRepo) List(ctx context.Context, f ListFilter) ([]*Server, error) {
@@ -60,11 +63,21 @@ func (s *stubRepo) Create(ctx context.Context, srv *Server) error {
 	}
 	return nil
 }
-func (s *stubRepo) Update(ctx context.Context, srv *Server) error {
+func (s *stubRepo) UpdateColumns(ctx context.Context, srv *Server, columns ...string) error {
 	s.updateCalls = append(s.updateCalls, srv)
+	s.updateCols = append(s.updateCols, columns)
 	if s.update != nil {
-		return s.update(ctx, srv)
+		return s.update(ctx, srv, columns)
 	}
+	return nil
+}
+func (s *stubRepo) ListBatchForCron(context.Context, []string, uuid.UUID, int) ([]*Server, error) {
+	return nil, nil
+}
+func (s *stubRepo) RecordVerifyResult(context.Context, uuid.UUID, string, string, time.Time) (bool, error) {
+	return true, nil
+}
+func (s *stubRepo) RecordHealthResult(context.Context, uuid.UUID, string, time.Time) error {
 	return nil
 }
 func (s *stubRepo) ListByOwner(ctx context.Context, principalID uuid.UUID) ([]*Server, error) {
@@ -207,6 +220,10 @@ func TestServerService_RegenerateToken_RotatesAndRewindsStatus(t *testing.T) {
 	assert.Equal(t, "pending", out.VerificationStatus, "should rewind to pending")
 	assert.Nil(t, out.VerificationLastCheckedAt, "should clear last-checked")
 	require.Len(t, repo.updateCalls, 1)
+	assert.ElementsMatch(t, []string{
+		"verification_token", "verification_token_issued_at",
+		"verification_status", "verification_last_checked_at",
+	}, repo.updateCols[0])
 }
 
 func TestServerService_RegenerateToken_RejectsNonOwner(t *testing.T) {
@@ -247,6 +264,9 @@ func TestServerService_Verify_SuccessTransitionsToVerified(t *testing.T) {
 	assert.Equal(t, "verified", srv.VerificationStatus)
 	require.NotNil(t, srv.VerificationLastCheckedAt)
 	assert.Equal(t, now, *srv.VerificationLastCheckedAt)
+	require.Len(t, repo.updateCols, 1)
+	assert.ElementsMatch(t, []string{"verification_status", "verification_last_checked_at"}, repo.updateCols[0],
+		"verify must only write the columns it owns")
 }
 
 func TestServerService_Verify_FailKeepsPending(t *testing.T) {
@@ -394,6 +414,8 @@ func TestServerService_UpdateProfile_OwnerOnlyUpdatesProvidedFields(t *testing.T
 	require.NotNil(t, out.Description)
 	assert.Equal(t, "old description", *out.Description)
 	require.Len(t, repo.updateCalls, 1)
+	assert.ElementsMatch(t, []string{"name", "tags", "languages"}, repo.updateCols[0],
+		"only the provided fields may be written; description / is_nsfw / cron-owned columns stay untouched")
 }
 
 func TestServerService_UpdateProfile_RejectsNonOwner(t *testing.T) {
@@ -463,4 +485,26 @@ func TestServer_ToOwnerView_IncludesTokenOnlyForPending(t *testing.T) {
 	view2 := verified.ToOwnerView()
 	_, isServer := view2.(*Server)
 	assert.True(t, isServer, "verified row should fall back to plain *Server (token redacted)")
+}
+
+func TestServerService_SetImageKey_WritesOnlyThatColumn(t *testing.T) {
+	owner := uuid.New()
+	stored := &Server{ID: uuid.New(), RegisteredBy: &owner, Name: "Test"}
+	repo := &stubRepo{
+		findByID: func(_ context.Context, _ uuid.UUID) (*Server, error) { return stored, nil },
+	}
+	svc := newServiceForTest(repo, time.Now(), &stubVerifier{})
+
+	key := "servers/icon/abc.png"
+	out, err := svc.SetImageKey(context.Background(), stored.ID, owner, "icon", &key)
+	require.NoError(t, err)
+	require.NotNil(t, out.IconStorageKey)
+	assert.Equal(t, key, *out.IconStorageKey)
+	require.Len(t, repo.updateCols, 1)
+	assert.Equal(t, []string{"icon_storage_key"}, repo.updateCols[0])
+
+	_, err = svc.SetImageKey(context.Background(), stored.ID, owner, "banner", nil)
+	require.NoError(t, err)
+	require.Len(t, repo.updateCols, 2)
+	assert.Equal(t, []string{"banner_storage_key"}, repo.updateCols[1])
 }

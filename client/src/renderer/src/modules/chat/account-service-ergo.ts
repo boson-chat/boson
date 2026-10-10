@@ -93,7 +93,20 @@ export class ErgoAccountService implements AccountService {
         this.opts.timeoutMs,
       );
 
+      // Set once the confirm token went out. Ergo then UNREGISTERs the
+      // account and — when this very connection is logged into it, i.e.
+      // the normal case — kills it before any success NOTICE: the client
+      // only gets `QUIT :You are no longer authorized to be on this
+      // server` + `ERROR`. (Captured from the e2e ergo.) After the replay,
+      // that disconnect IS the success signal; without this the drop
+      // always ended in a 10s "Server never replied".
+      let replaySent = false;
+
       unsubscribe = this.session.onEvent((e: IrcEvent) => {
+        if (replaySent && (e.Kind === 'ERROR' || (e.Kind === 'QUIT' && e.From === this.opts.myNick))) {
+          finish({ kind: 'dropped' });
+          return;
+        }
         if (e.Kind !== 'NOTICE') return;
         if (!isNickServSender(e.From)) return;
         if (e.Target !== this.opts.myNick) return;
@@ -108,6 +121,7 @@ export class ErgoAccountService implements AccountService {
         if (REPLAY_PHRASES.test(body)) {
           const cmd = extractInlineNickservCommand(body);
           if (cmd) {
+            replaySent = true;
             this.session.privmsg('NickServ', cmd);
             return;
           }

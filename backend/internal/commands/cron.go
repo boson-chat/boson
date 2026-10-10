@@ -15,6 +15,7 @@ import (
 	"github.com/boson-chat/boson/backend/internal/services/server"
 	"github.com/boson-chat/boson/backend/internal/services/server/dns"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 )
@@ -104,53 +105,66 @@ func runCron(_ *cobra.Command, _ []string) error {
 	}
 }
 
+// cronBatchSize bounds how many rows each cron holds in memory at a
+// time. Rows are paged by id (keyset), so the full directory is covered
+// regardless of size, and each row is read shortly before it's written.
+const cronBatchSize = 200
+
+// forEachServer pages through every server whose verification_status
+// is in statuses — NSFW included, no limit clamp — and calls fn on each.
+// Keyset pagination by id keeps the walk stable while other writers
+// (owners editing profiles, the API's /verify) touch rows mid-run.
+func forEachServer(ctx context.Context, repo server.ServerRepositoryImpl, statuses []string, fn func(*server.Server)) error {
+	after := uuid.Nil
+	for {
+		batch, err := repo.ListBatchForCron(ctx, statuses, after, cronBatchSize)
+		if err != nil {
+			return err
+		}
+		for _, s := range batch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			fn(s)
+		}
+		if len(batch) < cronBatchSize {
+			return nil
+		}
+		after = batch[len(batch)-1].ID
+	}
+}
+
 // runVerifyCron walks every server whose verification check is older
 // than 24h and re-runs the TXT lookup. Soft-mode lets resolver flakes
 // pass without changing status; a verified row only demotes to
 // "lapsed" when its last successful check is older than 14 days AND
 // the current check failed.
 func runVerifyCron(ctx context.Context, log *zerolog.Logger, repo server.ServerRepositoryImpl, verifier dns.Verifier) error {
-	// We pull every status≠"lapsed" row in one query rather than
-	// streaming — the directory will plausibly stay under low-thousands
-	// of rows for a long time, so the simplest implementation wins.
-	// Switch to OFFSET pagination if we ever cross 10k.
-	rows, err := selectVerifyCandidates(ctx, repo)
-	if err != nil {
-		return fmt.Errorf("select verify candidates: %w", err)
-	}
-
 	now := time.Now()
 	cutoff := now.Add(-24 * time.Hour)
 	const lapseAfter = 14 * 24 * time.Hour
-
-	// Capture each row's last_checked_at BEFORE the loop mutates it. The
-	// demote decision needs the timestamp of the previous successful
-	// check, but the loop overwrites s.VerificationLastCheckedAt with
-	// `now` before the demote block runs — reading it back afterwards
-	// (or scanning `rows`, which holds the same mutated pointers) always
-	// compares `now` to itself. Snapshotting here keeps the prior value.
-	priorChecked := make(map[string]*time.Time, len(rows))
-	for _, s := range rows {
-		priorChecked[s.ID.String()] = s.VerificationLastCheckedAt
-	}
 
 	var (
 		processed int
 		matched   int
 		demoted   int
+		skipped   int
 		errored   int
 	)
 
-	for _, s := range rows {
+	// Pull every non-lapsed status — verified rows are re-verified to
+	// catch lapses, pending rows are re-verified in case the operator
+	// added the TXT after the 72h initial window.
+	err := forEachServer(ctx, repo, []string{"pending", "verified"}, func(s *server.Server) {
 		// Skip rows checked recently. Keeping the cutoff in code (vs
 		// a SQL WHERE) so a manual run via `kubectl create job` can
 		// re-check everything on demand without us having to add a
 		// flag for "ignore the timestamp."
 		if s.VerificationLastCheckedAt != nil && s.VerificationLastCheckedAt.After(cutoff) {
-			continue
+			return
 		}
 		if s.VerificationToken == nil || *s.VerificationToken == "" {
-			continue
+			return
 		}
 		processed++
 
@@ -160,68 +174,57 @@ func runVerifyCron(ctx context.Context, log *zerolog.Logger, repo server.ServerR
 			if cronVerbose {
 				log.Warn().Str("server", s.Hostname).Err(verr).Msg("verify call failed")
 			}
-			continue
+			return
 		}
 
-		checkedAt := now
-		s.VerificationLastCheckedAt = &checkedAt
-
+		status := s.VerificationStatus
 		switch {
 		case report.Success:
-			if s.VerificationStatus != "verified" {
-				s.VerificationStatus = "verified"
-			}
+			status = "verified"
 			matched++
 		case s.VerificationStatus == "verified":
 			// Soft miss on a verified row — demote to "lapsed" only if
 			// the last successful check is already older than the grace
-			// window. `priorChecked` holds the pre-update timestamp; the
-			// live s.VerificationLastCheckedAt was just rewritten to now.
-			pre := priorChecked[s.ID.String()]
-			if pre != nil && pre.Before(now.Add(-lapseAfter)) {
-				s.VerificationStatus = "lapsed"
+			// window.
+			if pre := s.VerificationLastCheckedAt; pre != nil && pre.Before(now.Add(-lapseAfter)) {
+				status = "lapsed"
 				demoted++
 			}
 		}
 
-		if uerr := repo.Update(ctx, s); uerr != nil {
+		// Column-scoped and guarded on the token we just checked: if the
+		// owner regenerated mid-run, the verdict is for a stale token and
+		// is dropped rather than clobbering the fresh pending state.
+		applied, uerr := repo.RecordVerifyResult(ctx, s.ID, *s.VerificationToken, status, now)
+		switch {
+		case uerr != nil:
 			errored++
 			log.Warn().Str("server", s.Hostname).Err(uerr).Msg("update after verify failed")
-		} else if cronVerbose {
+		case !applied:
+			skipped++
+			if cronVerbose {
+				log.Info().Str("server", s.Hostname).Msg("token changed during verify; result dropped")
+			}
+		case cronVerbose:
 			log.Info().
 				Str("server", s.Hostname).
-				Str("status", s.VerificationStatus).
+				Str("status", status).
 				Bool("matched", report.Success).
 				Msg("verify result")
 		}
+	})
+	if err != nil {
+		return fmt.Errorf("walk verify candidates: %w", err)
 	}
 
 	log.Info().
 		Int("processed", processed).
 		Int("matched", matched).
 		Int("demoted_to_lapsed", demoted).
+		Int("skipped_token_changed", skipped).
 		Int("errored", errored).
 		Msg("verify cron complete")
 	return nil
-}
-
-// selectVerifyCandidates pulls every row that the verify cron might
-// touch in one query. We rely on the existing repository's List
-// method with no filters + a generous Limit. If the directory ever
-// crosses Limit, switch to OFFSET pagination.
-func selectVerifyCandidates(ctx context.Context, repo server.ServerRepositoryImpl) ([]*server.Server, error) {
-	// Pull every non-lapsed status — verified rows are re-verified to
-	// catch lapses, pending rows are re-verified in case the operator
-	// added the TXT after the 72h initial window.
-	all := make([]*server.Server, 0, 256)
-	for _, status := range []string{"pending", "verified"} {
-		batch, err := repo.List(ctx, server.ListFilter{Status: status, Limit: 100, Offset: 0})
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, batch...)
-	}
-	return all, nil
 }
 
 // runHealthCron TLS-dials each verified server, reads the welcome
@@ -230,18 +233,17 @@ func selectVerifyCandidates(ctx context.Context, repo server.ServerRepositoryImp
 // noticeable backend load — the dials are sequential here but could
 // fan out via errgroup once the directory grows.
 func runHealthCron(ctx context.Context, log *zerolog.Logger, repo server.ServerRepositoryImpl) error {
-	verified, err := repo.List(ctx, server.ListFilter{Status: "verified", Limit: 1000})
-	if err != nil {
-		return fmt.Errorf("select verified servers: %w", err)
-	}
+	return runHealthCronWith(ctx, log, repo, probeHealth)
+}
 
-	now := time.Now()
-	var up, down, unknown int
+// runHealthCronWith is runHealthCron with the probe injected so tests
+// can exercise the walk + write path without dialing the network.
+func runHealthCronWith(ctx context.Context, log *zerolog.Logger, repo server.ServerRepositoryImpl, probe func(context.Context, *server.Server) string) error {
+	var checked, up, down, unknown int
 
-	for _, s := range verified {
-		status := probeHealth(ctx, s)
-		s.HealthStatus = status
-		s.HealthLastCheckedAt = &now
+	err := forEachServer(ctx, repo, []string{"verified"}, func(s *server.Server) {
+		status := probe(ctx, s)
+		checked++
 		switch status {
 		case "up":
 			up++
@@ -251,17 +253,20 @@ func runHealthCron(ctx context.Context, log *zerolog.Logger, repo server.ServerR
 			unknown++
 		}
 
-		if uerr := repo.Update(ctx, s); uerr != nil {
+		if uerr := repo.RecordHealthResult(ctx, s.ID, status, time.Now()); uerr != nil {
 			log.Warn().Str("server", s.Hostname).Err(uerr).Msg("update after health probe failed")
-			continue
+			return
 		}
 		if cronVerbose {
 			log.Info().Str("server", s.Hostname).Str("health", status).Msg("health probe")
 		}
+	})
+	if err != nil {
+		return fmt.Errorf("walk verified servers: %w", err)
 	}
 
 	log.Info().
-		Int("checked", len(verified)).
+		Int("checked", checked).
 		Int("up", up).
 		Int("down", down).
 		Int("unknown", unknown).

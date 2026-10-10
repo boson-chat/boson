@@ -33,7 +33,75 @@ describe('ServerSettings — Bouncer tab', () => {
     fireEvent.input(network, { target: { value: 'libera' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    expect(onSaveBouncerRoute).toHaveBeenCalledWith({ route: true, network: 'libera' });
+    // Auto-connect defaults ON for a server that never set it.
+    expect(onSaveBouncerRoute).toHaveBeenCalledWith({ route: true, network: 'libera', autoConnect: true });
+  });
+
+  const AUTO = 'Automatically connect the network when the bouncer is disconnected';
+
+  it('auto-connect toggle defaults on and persists false when turned off', () => {
+    const onSaveBouncerRoute = vi.fn();
+    const p = baseProps({
+      bouncerGloballyEnabled: true,
+      bouncerRoute: { route: true, network: 'libera' },
+      onSaveBouncerRoute,
+    });
+    render(<ServerSettings {...p} />);
+    openBouncer();
+    const toggle = screen.getByLabelText(AUTO) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(onSaveBouncerRoute).toHaveBeenCalledWith({ route: true, network: 'libera', autoConnect: false });
+  });
+
+  it('reflects a saved autoConnect=false', () => {
+    const p = baseProps({
+      bouncerGloballyEnabled: true,
+      bouncerRoute: { route: true, network: 'libera', autoConnect: false },
+      onSaveBouncerRoute: vi.fn(),
+    });
+    render(<ServerSettings {...p} />);
+    openBouncer();
+    expect((screen.getByLabelText(AUTO) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('hides the network status card when not attached via the bouncer', () => {
+    render(<ServerSettings {...baseProps({ bouncerGloballyEnabled: true, bouncerUpstream: null })} />);
+    openBouncer();
+    expect(screen.queryByRole('button', { name: 'Connect network' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Disconnect network' })).toBeNull();
+  });
+
+  it('upstream disconnected: shows Network offline + Connect network', () => {
+    const onBouncerConnect = vi.fn();
+    render(<ServerSettings {...baseProps({
+      bouncerGloballyEnabled: true,
+      serverInfo: { bouncer: true, network: 'Libera.Chat' },
+      bouncerUpstream: 'disconnected',
+      onBouncerConnect,
+      onBouncerDisconnect: vi.fn(),
+    })} />);
+    openBouncer();
+    expect(screen.getByText('Network offline')).toBeInTheDocument();
+    expect(screen.getByText(/isn't connected to Libera\.Chat/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Connect network' }));
+    expect(onBouncerConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('upstream connected: shows Network connected + Disconnect network', () => {
+    const onBouncerDisconnect = vi.fn();
+    render(<ServerSettings {...baseProps({
+      bouncerGloballyEnabled: true,
+      bouncerUpstream: 'connected',
+      onBouncerConnect: vi.fn(),
+      onBouncerDisconnect,
+    })} />);
+    openBouncer();
+    expect(screen.getByText('Network connected')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Connect network' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect network' }));
+    expect(onBouncerDisconnect).toHaveBeenCalledTimes(1);
   });
 
   it('reflects an existing route', () => {

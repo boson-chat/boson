@@ -1,0 +1,15 @@
+{
+  "$comment": "Endpoints of the real-app e2e stack (client/scripts/e2e-stack.mjs, client/tests/e2e-app/stack.ts, client/scripts/build-e2e-app.mjs). Ports must match docker-compose.yml and supabase/config.toml next to this file. The publishable key is the Supabase CLI's fixed local-development key; e2e-stack.mjs checks the running project still reports it. The secret (service-role) key is deliberately not committed (GitHub push protection flags it): `up` writes the running project's key to infra/e2e/.run/supabase.json, which the tests read.",
+  "irc": { "host": "127.0.0.1", "port": 16667 },
+  "znc": { "host": "127.0.0.1", "port": 16501, "users": ["tester1", "tester2", "tester3", "tester4", "tester5", "tester6", "tester7", "tester8"], "password": "pw", "network": "ergo" },
+  "postgres": { "host": "127.0.0.1", "port": 16432, "database": "boson", "user": "boson", "password": "boson" },
+  "catchallMail": { "smtpPort": 11025, "pop3Port": 11110, "pop3User": "e2e", "pop3Password": "e2e", "apiUrl": "http://127.0.0.1:18025" },
+  "minio": { "endpoint": "http://127.0.0.1:19000", "accessKey": "minioadmin", "secretKey": "minioadmin", "bucket": "boson" },
+  "supabase": {
+    "apiUrl": "http://127.0.0.1:55321",
+    "dbPort": 55332,
+    "mailpitUrl": "http://127.0.0.1:55324",
+    "publishableKey": "sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH"
+  },
+  "backend": { "url": "http://127.0.0.1:13000", "port": 13000 }
+}

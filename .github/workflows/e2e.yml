@@ -1,0 +1,152 @@
+# Real-app e2e: builds the Electron app + its Go engine sidecar for
+# linux/amd64 and drives it with Playwright's _electron API (under Xvfb)
+# against the isolated e2e stack (client/scripts/e2e-stack.mjs): ergo + ZNC +
+# Postgres + Mailpit + MinIO (infra/e2e/docker-compose.yml), the boson-e2e
+# Supabase CLI project (Auth only, infra/e2e/supabase/) and the Go backend.
+# Guest specs and account (signed-in) specs both run. Locally: `make
+# test-e2e-app`. The browser-only Playwright suite (client/tests/e2e/) still
+# needs the full dev stack and isn't run here.
+#
+# The suite always runs with code coverage (E2E_COVERAGE=1: renderer,
+# Electron main + preload, Go engine, Go backend — ~10% slower than a plain
+# run). The per-layer summary lands in the job summary and the HTML/lcov
+# reports are uploaded as the `e2e-app-coverage` artifact.
+name: E2E (real app)
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  electron:
+    name: Electron app (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.27'
+          cache: true
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.120.0
+
+      # The whole stack (image pulls, Supabase, backend build + migrations)
+      # comes up in the background while we install + build the app; the
+      # "Wait for e2e stack" step below joins it. Coverage build of the
+      # backend (E2E_COVERAGE=1).
+      - name: Start e2e stack (background)
+        env:
+          E2E_COVERAGE: '1'
+        run: |
+          ( node client/scripts/e2e-stack.mjs up; echo $? > e2e-stack.exit ) > e2e-stack.log 2>&1 &
+
+      - run: npm ci
+
+      # Xvfb + the shared libraries Electron's Chromium needs. Electron ships
+      # its own browser, so no Playwright browser download.
+      - name: Install Electron system dependencies
+        working-directory: client
+        # openbox: a minimal window manager, so minimize / maximize / restore
+        # behave like on a desktop (bare Xvfb has none and ignores them).
+        run: |
+          npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends openbox
+
+      - name: Typecheck e2e suite
+        working-directory: client
+        run: npx tsc -p tests/e2e-app/tsconfig.json
+
+      # Builds client/out-e2e (renderer/main/preload), the linux/amd64 engine
+      # sidecar into out-e2e/resources/engine, and fetches the Electron binary.
+      # Coverage build: source maps + `go build -cover`.
+      - name: Build app + engine sidecar
+        working-directory: client
+        env:
+          E2E_COVERAGE: '1'
+        run: npm run build:e2e-app
+
+      - name: Wait for e2e stack
+        timeout-minutes: 8
+        run: |
+          while [ ! -f e2e-stack.exit ]; do sleep 2; done
+          cat e2e-stack.log
+          exit "$(cat e2e-stack.exit)"
+
+      - name: Run Electron e2e suite (with coverage)
+        working-directory: client
+        # ~100 specs with real IRC/ZNC round-trips: serial takes too long.
+        # ubuntu-latest has 4 vCPUs; 3 Electron workers leave room for the
+        # stack. Specs are isolated per test (own users/channels/ZNC lease).
+        env:
+          E2E_WORKERS: '3'
+        run: >-
+          xvfb-run -a --server-args="-screen 0 1440x900x24"
+          sh -c 'openbox & sleep 1; npm run test:e2e:app:coverage'
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f client/coverage/e2e/summary.md ]; then
+            cat client/coverage/e2e/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No e2e coverage summary was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-app-coverage
+          path: |
+            client/coverage/e2e/
+            !client/coverage/e2e/.raw/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Collect stack logs
+        if: failure()
+        run: |
+          mkdir -p e2e-docker-logs
+          cp e2e-stack.log infra/e2e/.run/backend.log e2e-docker-logs/ 2>/dev/null || true
+          docker compose -f infra/e2e/docker-compose.yml ps -a > e2e-docker-logs/ps.txt 2>&1 || true
+          for svc in ergo znc postgres mailpit minio; do
+            docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps "$svc" > "e2e-docker-logs/$svc.log" 2>&1 || true
+          done
+          for c in auth kong db; do
+            docker logs --timestamps "supabase_${c}_boson-e2e" > "e2e-docker-logs/supabase-$c.log" 2>&1 || true
+          done
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-app-results
+          path: |
+            client/test-results/e2e-app/
+            client/playwright-report/e2e-app/
+            e2e-docker-logs/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop e2e stack
+        if: always()
+        run: node client/scripts/e2e-stack.mjs down

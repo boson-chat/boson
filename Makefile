@@ -4,6 +4,7 @@
         client-install client-env client-dev client-build \
         engine-build engine-connect engine-serve engine-env sidecar-build \
         test test-go test-client test-e2e hooks-install \
+        test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage \
         test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme
 
 setup: tidy up
@@ -160,18 +161,18 @@ engine-build:
 	go build -o bin/engine ./engine/cmd/engine
 
 # Rebuild the sidecar engine binaries that `make client-dev` (and the
-# packaged app) spawn from `client/resources/engine/`. The binaries
-# here are committed so a clean checkout can `npm run dev` without a
-# Go toolchain, but they go stale whenever `engine/` source changes.
-# Run this after engine/ edits OR before testing renderer ↔ engine
-# IPC changes — `make client-dev` won't pick up engine changes
-# otherwise.
+# packaged app) spawn from `client/resources/engine/`. The directory is
+# gitignored, so a fresh checkout has none: without them the dev client
+# falls back to a separately running `make engine-serve`. They also go
+# stale whenever `engine/` source changes — rerun this after engine/
+# edits OR before testing renderer ↔ engine IPC changes.
 #
-# Both targets cross-compile via `GOOS=...` so a single dev machine
-# can rebuild the Windows binary too (Go cross-compiles cleanly
-# without cgo).
+# Every target cross-compiles via `GOOS=...` (no cgo), so one dev
+# machine can rebuild the binaries for all platforms.
 sidecar-build:
 	@echo "Building sidecar engine binaries for client/resources/engine/..."
+	GOOS=darwin  GOARCH=arm64 go build -o client/resources/engine/engine-darwin-arm64      ./engine/cmd/engine
+	GOOS=darwin  GOARCH=amd64 go build -o client/resources/engine/engine-darwin-amd64      ./engine/cmd/engine
 	GOOS=linux   GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64       ./engine/cmd/engine
 	GOOS=linux   GOARCH=arm64 go build -o client/resources/engine/engine-linux-arm64       ./engine/cmd/engine
 	GOOS=windows GOARCH=amd64 go build -o client/resources/engine/engine-windows-amd64.exe ./engine/cmd/engine
@@ -234,6 +235,47 @@ test-client:
 # without paying the `go run` compile cost on every test run.
 test-e2e: engine-build
 	cd client && npm run test:e2e
+
+# ----- Real-app e2e (built Electron app + its own engine sidecar) -----
+#
+# Drives the BUILT Electron app (client/out-e2e/, or $$E2E_OUT_DIR) with
+# Playwright's _electron API: guest flows (manual server add, chat with a raw
+# IRC peer, restore-on-relaunch, ZNC bouncer, navigation guards) and account
+# flows (sign-up + email confirmation, handle setup, the backend directory).
+#
+# test-e2e-app-up brings up the whole isolated e2e stack
+# (client/scripts/e2e-stack.mjs): compose project boson-e2e (ergo :16667,
+# ZNC :16501, Postgres :16432, catch-all Mailpit :11025/:11110/:18025, MinIO
+# :19000), the boson-e2e Supabase CLI project in infra/e2e/supabase (Auth +
+# Kong on :55321, auth Mailpit :55324) and the Go backend on :13000 (built
+# from this checkout, run on the host). None of it touches the dev stack's
+# containers, ports, volumes or Supabase project; endpoints are in
+# infra/e2e/stack.json. Each test runs the app with a throwaway HOME /
+# XDG_RUNTIME_DIR / userData, so ~/.boson and the real app profile are left
+# alone. The stack stays up afterwards for quick reruns
+# (`cd client && npm run test:e2e:app`); `make test-e2e-app-down` stops it
+# and drops its state.
+E2E_STACK := node client/scripts/e2e-stack.mjs
+
+test-e2e-app-up:
+	$(E2E_STACK) up
+
+test-e2e-app: test-e2e-app-up
+	cd client && npm run build:e2e-app
+	cd client && npm run test:e2e:app
+
+# Same suite with code coverage for all four layers (renderer, Electron main
+# + preload, Go engine, Go backend) → client/coverage/e2e/ (HTML + lcov per
+# layer, summary.md). Brings the stack up with a coverage-built backend (so
+# its counters cover just this run) and leaves a coverage build in out-e2e;
+# the next `make test-e2e-app` rebuilds both normally.
+test-e2e-app-coverage:
+	E2E_COVERAGE=1 $(E2E_STACK) up
+	cd client && E2E_COVERAGE=1 npm run build:e2e-app
+	cd client && npm run test:e2e:app:coverage
+
+test-e2e-app-down:
+	$(E2E_STACK) down
 
 # ----- Services e2e (live IRC services packages) -----
 #

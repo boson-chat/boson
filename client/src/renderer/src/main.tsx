@@ -1,12 +1,17 @@
 import { render } from 'preact';
 import { App, buildApp } from './app';
 import { initDeepLinkBridge, subscribeAuthConfirmed } from './modules/deep-link/deep-link';
+import { installDropGuard } from './shared/drop-guard';
 import './styles.css';
 
 // Attach to the main-process deep-link bridge before any UI mounts so
 // the module-level buffer in deep-link.ts captures any `boson://` URL
 // the OS hands us, even before the directory screen mounts.
 initDeepLinkBridge();
+
+// Keep files/links dropped onto the window from navigating it away from the
+// app (see shared/drop-guard.ts; main also guards will-navigate).
+installDropGuard();
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? 'http://localhost:54321';
 // Supabase migrated from "anon" to "publishable" keys (sb_publishable_...).

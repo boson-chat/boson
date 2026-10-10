@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/preact';
-import { ChatInputBar } from './ChatInputBar';
+import { ChatInputBar, autoResize } from './ChatInputBar';
 import { ChatInputBloc } from './ChatInputBloc';
 
 function setup(myNick?: string) {
@@ -43,5 +43,33 @@ describe('ChatInputBar', () => {
     fireEvent.input(screen.getByPlaceholderText('Search…'), { target: { value: 'fire' } });
     expect(screen.getByRole('button', { name: ':fire:' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: ':tada:' })).toBeNull();
+  });
+});
+
+describe('autoResize', () => {
+  const textarea = (value: string, scrollHeight: number) => {
+    const el = document.createElement('textarea');
+    el.value = value;
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, get: () => scrollHeight });
+    return el;
+  };
+
+  it('ignores the placeholder: an empty textarea falls back to its CSS min-height', () => {
+    // A stale measurement taken while the column was still narrow (the
+    // placeholder wrapped per character) must not stick.
+    const el = textarea('', 378);
+    el.style.height = '160px';
+    autoResize(el);
+    expect(el.style.height).toBe('');
+  });
+
+  it('sizes to the content, capped at 160px', () => {
+    const el = textarea('hello\nworld', 48);
+    autoResize(el);
+    expect(el.style.height).toBe('48px');
+
+    const tall = textarea('x\n'.repeat(40), 900);
+    autoResize(tall);
+    expect(tall.style.height).toBe('160px');
   });
 });

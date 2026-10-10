@@ -56,12 +56,16 @@ interface Props {
   // "Leave server" handler — disconnects + drops the server from the saved
   // session set. Wired into the right-click menu on each server-rail tile.
   onLeaveServer?: (serverId: string) => void;
+  // Bouncer upstream controls for a rail tile's server (right-click menu).
+  // The active server's in-chat strip uses `chat.bouncerConnect()` directly.
+  onBouncerConnect?: (serverId: string) => void;
+  onBouncerDisconnect?: (serverId: string) => void;
 }
 
 export function ChatLayout({
   chat, serverName, bannerUrl, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
-  connectionError, onOpenServerSettings, onLeaveServer,
+  connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -134,6 +138,8 @@ export function ChatLayout({
         onBrowseServers={onBrowseServers}
         onOpenServerSettings={onOpenServerSettings}
         onLeaveServer={onLeaveServer}
+        onBouncerConnect={onBouncerConnect}
+        onBouncerDisconnect={onBouncerDisconnect}
       />
       <ChannelSidebar
         serverName={serverName}
@@ -207,6 +213,8 @@ export function ChatLayout({
           active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
         }
         onOpenChannelSettings={isChannel ? () => setChannelSettingsOpen(true) : undefined}
+        // `typeof` guard: hand-rolled test fakes have no bouncerConnect.
+        onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
       />
       <ResizeHandle
         side="right"

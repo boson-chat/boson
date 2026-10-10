@@ -10,10 +10,11 @@ interface AtomLoaderProps {
 }
 
 /**
- * Animated three-orbit atom — same silhouette as the BosonGlyph mark
- * the rest of the app uses for branding, so the loader feels native to
- * the design language. The nucleus pulses, each orbit rotates at a
- * different rate to suggest motion without being dizzying.
+ * Draw-on atom loader: the BosonGlyph mark draws itself orbit by orbit,
+ * the nucleus pops in, it holds, then clears and repeats. Same silhouette
+ * as the brand mark, so it feels native to the design language. Best for
+ * indeterminate waits on a spot (a screen, a card, a button); for progress
+ * along a strip use BarLoader instead.
  *
  * Pure SVG + CSS animation; no JS, no canvas, no rAF. Inherits
  * `currentColor` so callers can colour it by setting `color` on a
@@ -27,11 +28,11 @@ export function AtomLoader({ size = 32, class: className, label = 'Loading' }: A
       aria-label={label}
       style={`width: ${size}px; height: ${size}px;`}
     >
-      <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <ellipse class="bds-atom-orbit bds-atom-orbit-1" pathLength="100" cx="12" cy="12" rx="10" ry="4" />
+        <ellipse class="bds-atom-orbit bds-atom-orbit-2" pathLength="100" cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" />
+        <ellipse class="bds-atom-orbit bds-atom-orbit-3" pathLength="100" cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" />
         <circle class="bds-atom-nucleus" cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
-        <ellipse class="bds-atom-orbit bds-atom-orbit-1" cx="12" cy="12" rx="10" ry="4" />
-        <ellipse class="bds-atom-orbit bds-atom-orbit-2" cx="12" cy="12" rx="10" ry="4" />
-        <ellipse class="bds-atom-orbit bds-atom-orbit-3" cx="12" cy="12" rx="10" ry="4" />
       </svg>
     </span>
   );

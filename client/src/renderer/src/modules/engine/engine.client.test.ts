@@ -360,3 +360,93 @@ describe('EngineClient', () => {
 
 // Silence unused-import linter — vi is referenced for the type narrowing above.
 void vi;
+
+describe('EngineClient — bouncer upstream', () => {
+  beforeEach(() => { FakeWS.last = null; });
+
+  async function openClient(): Promise<EngineClient> {
+    const client = new EngineClient({ url: 'ws://x', token: 't' }, Ctor);
+    const p = client.open();
+    FakeWS.last!.simulateOpen();
+    await p;
+    return client;
+  }
+
+  it('connect() forwards bouncer + bouncerAutoConnect in the connect params', async () => {
+    const client = await openClient();
+    client.connect({
+      serverId: 'b', hostname: 'znc', port: 6697, tls: true, nick: 'me',
+      serverPass: 'u/libera:pw', bouncer: true, bouncerAutoConnect: false,
+    });
+    const cmd = JSON.parse(FakeWS.last!.sent[0]!);
+    expect(cmd.type).toBe('connect');
+    expect(cmd.params.bouncer).toBe(true);
+    expect(cmd.params.bouncerAutoConnect).toBe(false);
+  });
+
+  it('routes bouncer-upstream frames to the matching session only', async () => {
+    const client = await openClient();
+    const a = client.connect({ serverId: 'a', hostname: 'znc', port: 6697, tls: true, nick: 'me' });
+    const b = client.connect({ serverId: 'b', hostname: 'znc', port: 6697, tls: true, nick: 'me' });
+    const aSeen: string[] = [];
+    const bSeen: string[] = [];
+    a.onBouncerUpstream((s) => aSeen.push(s));
+    b.onBouncerUpstream((s) => bSeen.push(s));
+    expect(a.bouncerUpstream()).toBeNull();
+
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a', upstream: 'disconnected' });
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a', upstream: 'connecting' });
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a', upstream: 'connected' });
+
+    expect(aSeen).toEqual(['disconnected', 'connecting', 'connected']);
+    expect(bSeen).toEqual([]);
+    expect(a.bouncerUpstream()).toBe('connected');
+    expect(b.bouncerUpstream()).toBeNull();
+  });
+
+  it('is sticky: a late subscriber gets the current value synchronously; duplicates are deduped', async () => {
+    const client = await openClient();
+    const s = client.connect({ serverId: 'a', hostname: 'znc', port: 6697, tls: true, nick: 'me' });
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a', upstream: 'disconnected' });
+
+    const seen: string[] = [];
+    s.onBouncerUpstream((st) => seen.push(st));
+    expect(seen).toEqual(['disconnected']);
+
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a', upstream: 'disconnected' });
+    expect(seen).toEqual(['disconnected']);
+  });
+
+  it('ignores frames with a missing or unknown upstream value', async () => {
+    const client = await openClient();
+    const s = client.connect({ serverId: 'a', hostname: 'znc', port: 6697, tls: true, nick: 'me' });
+    const seen: string[] = [];
+    s.onBouncerUpstream((st) => seen.push(st));
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a' });
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a', upstream: 'bogus' });
+    expect(seen).toEqual([]);
+    expect(s.bouncerUpstream()).toBeNull();
+  });
+
+  it('unsubscribe stops delivery', async () => {
+    const client = await openClient();
+    const s = client.connect({ serverId: 'a', hostname: 'znc', port: 6697, tls: true, nick: 'me' });
+    const seen: string[] = [];
+    const off = s.onBouncerUpstream((st) => seen.push(st));
+    off();
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 'a', upstream: 'connected' });
+    expect(seen).toEqual([]);
+  });
+
+  it('bouncerConnect / bouncerDisconnect send the commands tagged with the serverId', async () => {
+    const client = await openClient();
+    const s = client.connect({ serverId: 'a', hostname: 'znc', port: 6697, tls: true, nick: 'me' });
+    s.bouncerConnect();
+    s.bouncerDisconnect();
+    const sent = FakeWS.last!.sent.slice(1).map((x) => JSON.parse(x));
+    expect(sent).toEqual([
+      { type: 'bouncer-connect', params: { serverId: 'a' } },
+      { type: 'bouncer-disconnect', params: { serverId: 'a' } },
+    ]);
+  });
+});

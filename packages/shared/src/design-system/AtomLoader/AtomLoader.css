@@ -1,65 +1,50 @@
-/* Animated atom loader. Three orbits spin at different speeds + axes
-   for a slightly chaotic-but-controlled motion. Nucleus pulses on the
-   beat so the centre never feels static. All animation is CSS-only:
-   no JS, no rAF, no measurable runtime cost. */
+/* Draw-on atom loader. The Boson mark draws itself orbit by orbit, the
+   nucleus pops in, the whole mark holds for a beat, then the orbits sweep
+   away and it starts over. All animation is CSS-only: no JS, no rAF, no
+   measurable runtime cost.
+
+   The NON-animated styles are the fully drawn mark on purpose: the global
+   prefers-reduced-motion rule in tokens.css cuts every animation to a
+   single ~0ms run, after which elements fall back to these base styles —
+   so reduced-motion users see the static logo rather than an empty box. */
 
 .bds-atom-loader {
   display: inline-block;
   position: relative;
   color: var(--accent);
   vertical-align: middle;
+  flex: none;
 }
 
 .bds-atom-loader > svg {
   display: block;
-  /* The SVG itself spins slowly on top of the per-orbit rotations
-     below — gives the whole assembly a sense of holding together
-     rather than just having internal pieces twitching. */
-  animation: bds-atom-spin 4s linear infinite;
+  overflow: visible;
 }
 
-/* Each orbit rotates around a different axis at a slightly different
-   rate so the silhouette never repeats exactly. We rotate the
-   ellipse element via SVG `transform-origin: center`; setting it on
-   the CSS box would need vector-effect tricks. */
+/* Each orbit is normalised to pathLength=100, so a 100-unit dash covers
+   it exactly: offset 100 = hidden, 0 = drawn, -100 = swept off the far
+   end. Staggered starts make the three orbits draw in sequence. */
 .bds-atom-orbit {
-  transform-origin: 12px 12px;
-  /* Slight base rotation so the three orbits aren't all starting at
-     the same angle on first paint. */
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  animation: bds-atom-draw 2.4s cubic-bezier(0.65, 0, 0.35, 1) infinite;
 }
-.bds-atom-orbit-1 { animation: bds-atom-tilt-a 1.6s linear infinite; }
-.bds-atom-orbit-2 { animation: bds-atom-tilt-b 2.0s linear infinite; }
-.bds-atom-orbit-3 { animation: bds-atom-tilt-c 2.4s linear infinite; }
+.bds-atom-orbit-2 { animation-delay: 0.18s; }
+.bds-atom-orbit-3 { animation-delay: 0.36s; }
 
 .bds-atom-nucleus {
   transform-origin: 12px 12px;
-  animation: bds-atom-pulse 1.2s ease-in-out infinite;
+  animation: bds-atom-pop 2.4s cubic-bezier(0.34, 1.56, 0.64, 1) infinite;
 }
 
-@keyframes bds-atom-spin {
-  to { transform: rotate(360deg); }
+@keyframes bds-atom-draw {
+  0%       { stroke-dashoffset: 100; }
+  45%, 60% { stroke-dashoffset: 0; }
+  100%     { stroke-dashoffset: -100; }
 }
 
-@keyframes bds-atom-tilt-a {
-  0%   { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+@keyframes bds-atom-pop {
+  0%, 15%  { transform: scale(0); }
+  35%, 75% { transform: scale(1); }
+  95%, 100% { transform: scale(0); }
 }
-@keyframes bds-atom-tilt-b {
-  0%   { transform: rotate(60deg); }
-  100% { transform: rotate(420deg); }
-}
-@keyframes bds-atom-tilt-c {
-  0%   { transform: rotate(120deg); }
-  100% { transform: rotate(480deg); }
-}
-
-@keyframes bds-atom-pulse {
-  0%, 100% { transform: scale(1); opacity: 0.9; }
-  50%      { transform: scale(1.35); opacity: 1; }
-}
-
-/* prefers-reduced-motion is handled globally in tokens.css — every
-   animation in the app is short-circuited to 0.01ms there. The local
-   block this file used to carry was the only such guard in the design
-   system; folding it up into one place keeps the contract consistent
-   for every new component. */

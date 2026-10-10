@@ -154,6 +154,32 @@ describe('ErgoAccountService.drop', () => {
     // Initial UNREGISTER only — no false-positive replays.
     expect(sent).toEqual([{ target: 'NickServ', message: 'UNREGISTER Nyan' }]);
   });
+
+  it('resolves dropped when ergo kills the (logged-in) connection after the token replay', async () => {
+    // Captured from the e2e ergo: unregistering the account this client is
+    // logged into gets no success NOTICE — just QUIT + ERROR for ourselves.
+    const { session, sent, pushEvent } = makeFakeSession();
+    const svc = new ErgoAccountService(session, { myNick: 'Nyan' });
+    const promise = svc.drop('Nyan', 'hunter2');
+    await Promise.resolve();
+    pushEvent({ Message: 'To confirm, run this command: /NS UNREGISTER Nyan eueau' });
+    expect(sent[1]).toEqual({ target: 'NickServ', message: 'UNREGISTER Nyan eueau' });
+    pushEvent({ Kind: 'QUIT', From: 'Nyan', Target: '', Message: 'You are no longer authorized to be on this server' });
+    expect(await promise).toEqual({ kind: 'dropped' });
+  });
+
+  it('does not treat a disconnect before the token replay as a drop', async () => {
+    vi.useFakeTimers();
+    const { session, pushEvent } = makeFakeSession();
+    const svc = new ErgoAccountService(session, { myNick: 'Nyan', timeoutMs: 3_000 });
+    const promise = svc.drop('Nyan', 'hunter2');
+    await Promise.resolve();
+    pushEvent({ Kind: 'ERROR', From: '', Target: '', Message: 'Closing link' });
+    pushEvent({ Kind: 'QUIT', From: 'someoneElse', Target: '', Message: 'bye' });
+    vi.advanceTimersByTime(3_000);
+    expect(await promise).toEqual({ kind: 'failed', reason: 'timeout' });
+    vi.useRealTimers();
+  });
 });
 
 describe('ErgoAccountService capabilities', () => {
