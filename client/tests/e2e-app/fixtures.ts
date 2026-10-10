@@ -125,7 +125,9 @@ export interface CreateAccountOptions {
 
 interface Fixtures {
   profile: Profile;
-  launchApp: (opts?: { profile?: Profile }) => Promise<LaunchedApp>;
+  // `args`: extra command-line arguments for this launch (e.g. a boson://
+  // URL, as the OS passes one on a cold start from a link click).
+  launchApp: (opts?: { profile?: Profile; args?: string[] }) => Promise<LaunchedApp>;
   // A ZNC user (tester1..8) leased for this test and reset to its initial
   // state: network `ergo` disconnected upstream, no channels.
   zncUser: ZncUser;
@@ -216,7 +218,7 @@ export const test = base.extend<Fixtures>({
     }
     const launched: Array<{ app: ElectronApplication; logs: string[]; n: number }> = [];
 
-    const launch = async (opts: { profile?: Profile } = {}): Promise<LaunchedApp> => {
+    const launch = async (opts: { profile?: Profile; args?: string[] } = {}): Promise<LaunchedApp> => {
       const p = opts.profile ?? profile;
       const env: Record<string, string> = {};
       for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
@@ -248,6 +250,7 @@ export const test = base.extend<Fixtures>({
         // CI containers lack the setuid sandbox helper + a keyring daemon.
         args.push('--no-sandbox', '--password-store=basic', '--disable-gpu');
       }
+      if (opts.args) args.push(...opts.args);
 
       const app = await _electron.launch({ args, env, timeout: 60_000 });
       if (COVERAGE) {
