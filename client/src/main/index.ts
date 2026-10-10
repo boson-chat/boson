@@ -134,6 +134,15 @@ class BosonApp {
     const argvDeepLink = process.argv.find((a) => a.startsWith(`${DEEP_LINK_SCHEME}://`));
     if (argvDeepLink) this.pendingDeepLink = { url: argvDeepLink };
 
+    // Registered before any window exists. The one-time file:// storage
+    // migration below opens and destroys hidden windows before the main
+    // window is created; with no listener, Electron's default is to quit as
+    // soon as the last window closes, so a fresh install exited on its very
+    // first launch. Only quit once the main window has existed.
+    app.on('window-all-closed', () => {
+      if (process.platform !== 'darwin' && this.mainWindow) app.quit();
+    });
+
     await app.whenReady();
     // Packaged builds get the icon baked in by electron-builder (from
     // build/icon.png). In `npm run dev` the Dock would show Electron's
@@ -180,9 +189,6 @@ class BosonApp {
       if (BrowserWindow.getAllWindows().length === 0) this.createWindow();
     });
 
-    app.on('window-all-closed', () => {
-      if (process.platform !== 'darwin') app.quit();
-    });
     // Kill the engine child cleanly when the app is asked to quit so we
     // don't leak a Go process. `before-quit` fires for every shutdown
     // path (window close on Win/Linux, Cmd+Q on macOS, SIGTERM).
