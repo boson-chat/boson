@@ -38,8 +38,9 @@ test('sign up, confirm by email, set a handle, chat on a directory server, and s
     expect((await findAuthUserByEmail(email))!.email_confirmed_at).not.toBeNull();
     // The deep link hands the app a session, but the identity key can only
     // be created / unlocked with the password: the app asks to sign in.
-    await expect(page.getByRole('tab', { name: 'Login' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole('tab', { name: 'Login', selected: true })).toBeVisible({ timeout: 20_000 });
     await expect(page.getByRole('heading', { name: 'Check your email.' })).toBeHidden();
+    await expect(page.getByPlaceholder('email', { exact: true })).toHaveValue(email);
 
     // ---- sign in → first-sign-in handle setup → directory ----
     expect(await loginAs(page, { email, password })).toBe('setup');

@@ -435,7 +435,9 @@ export { BackendApi, backendSql, provisionIdentity, randomHandle, seedServer } f
 export type { DirectoryServer, SeedServerInput } from './helpers/backend';
 export { Mailpit, extractCode, extractLinks } from './helpers/mailpit';
 export type { MailMessage, MailSummary } from './helpers/mailpit';
-export { createConfirmedUser, deleteAuthUser, findAuthUserByEmail, randomEmail, randomPassword, signInWithPassword } from './helpers/supabase';
+export {
+  createConfirmedUser, deleteAuthUser, findAuthUserByEmail, randomEmail, randomPassword, setAuthPassword, signInWithPassword,
+} from './helpers/supabase';
 export type { AuthUser, AuthSession } from './helpers/supabase';
 export { leaseZncUser, resetZncUser } from './helpers/znc';
 export type { ZncLease, ZncUser } from './helpers/znc';

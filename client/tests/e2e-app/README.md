@@ -50,6 +50,7 @@ UI flows (`helpers/account.ts`):
 | `confirmationDeepLink(email)` | Just the `boson://auth/confirmed?…` URL (to tamper with / replay). |
 | `deliverDeepLink(app, url)` | Any `boson://` URL, as the OS would (`open-url` on macOS, second-instance argv elsewhere). |
 | `loginAs(page, { email, password })` | Login tab → Sign in (unlocks the identity with the password) → `'setup' \| 'directory'`. Throws with the on-screen error if sign-in fails. |
+| `submitLogin(page, { email, password })` | Just fills + submits the login form, for specs expecting a failure. |
 | `completeHandleSetup(page, handle)` | First-sign-in handle prompt → acknowledges the recovery code → directory. Returns the recovery code. |
 | `recoverWithCode(page, code)` | The recovery-code unlock offered when the password no longer decrypts the identity (e.g. after a password reset). |
 | `signOut(page)` | Directory top bar → Sign out → login screen. |
@@ -63,7 +64,7 @@ Backend + data (`helpers/backend.ts`, `helpers/supabase.ts`):
 | `provisionIdentity(user, handle?)` | `POST /me` with a real secret wrapped under the user's password + a recovery code (the app's own crypto). → `{ handle, recoveryCode }`. |
 | `BackendApi.as(user)` / `.anonymous()` | `get/post/put/patch/delete` (throw on non-2xx), `request` (returns `{ status, ok, body }`). |
 | `backendSql(sql)` | psql against the backend's Postgres (unaligned, tuples-only output). Prefer the API. |
-| `createConfirmedUser(opts?)`, `deleteAuthUser(id)`, `findAuthUserByEmail(email)`, `signInWithPassword(email, password)` | Supabase admin / auth API. |
+| `createConfirmedUser(opts?)`, `deleteAuthUser(id)`, `findAuthUserByEmail(email)`, `setAuthPassword(id, pw)`, `signInWithPassword(email, password)` | Supabase admin / auth API (`setAuthPassword` = the outcome of a password reset). |
 | `randomEmail()`, `randomPassword()`, `randomHandle()`, `randomChannel()`, `randomNick()`, `uid()` | Unique names. |
 
 Mail (`helpers/mailpit.ts`): `Mailpit.users()` / `Mailpit.catchall()` with

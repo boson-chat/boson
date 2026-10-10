@@ -61,6 +61,12 @@ export async function deleteAuthUser(id: string): Promise<void> {
   });
 }
 
+// What a password reset ends with, minus the email round-trip: the user's
+// login password changes, the identity's password wrap goes stale.
+export async function setAuthPassword(id: string, password: string): Promise<void> {
+  await gotrue(`/admin/users/${id}`, { method: 'PUT', admin: true, body: JSON.stringify({ password }) });
+}
+
 export async function findAuthUserByEmail(email: string): Promise<{ id: string; email_confirmed_at: string | null } | null> {
   // The local admin API has no email filter; the e2e project only ever holds
   // test users, so a page of 1000 is plenty.

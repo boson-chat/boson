@@ -5,7 +5,8 @@
 //                        boson://auth/confirmed deep link the website's
 //                        /auth/confirmed page would hand the OS → the app
 //   loginAs              Login tab → email + password → Sign in (unlocks
-//                        the identity with the password)
+//                        the identity with the password); submitLogin
+//                        just submits (for expected failures)
 //   completeHandleSetup  first-sign-in "Finish setting up your account" →
 //                        recovery code reveal → directory
 //   recoverWithCode      the recovery-code unlock offered when the password
@@ -79,13 +80,19 @@ export async function confirmSignup(app: ElectronApplication, email: string): Pr
   await deliverDeepLink(app, await confirmationDeepLink(email));
 }
 
-// Signs in on the login screen. Resolves once the app left it: on the
-// first-sign-in handle setup (no /me yet) or the directory.
-export async function loginAs(page: Page, c: Credentials): Promise<'setup' | 'directory'> {
+// Fills + submits the login form without waiting for the outcome (for
+// specs that expect a failure). Most specs want loginAs().
+export async function submitLogin(page: Page, c: Credentials): Promise<void> {
   await page.getByRole('tab', { name: 'Login' }).click();
   await page.getByPlaceholder('email', { exact: true }).fill(c.email);
   await page.getByPlaceholder('password', { exact: true }).fill(c.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+}
+
+// Signs in on the login screen. Resolves once the app left it: on the
+// first-sign-in handle setup (no /me yet) or the directory.
+export async function loginAs(page: Page, c: Credentials): Promise<'setup' | 'directory'> {
+  await submitLogin(page, c);
   const setup = setupHeading(page);
   const directory = directoryHeading(page);
   await expect(setup.or(directory).or(page.locator('.login-error'))).toBeVisible({ timeout: 30_000 });
