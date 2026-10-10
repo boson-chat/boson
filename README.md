@@ -18,7 +18,7 @@ website/            Public marketing site (Preact + Vite)
 
 ### Prerequisites
 
-- **Go** ≥ 1.22
+- **Go** ≥ 1.27
 - **Node** ≥ 20 + npm
 - **Docker** + `docker compose` (Postgres + Supabase Auth + ergo IRCd run in containers)
 - **Supabase CLI** — `brew install supabase/tap/supabase` or `npm i -g supabase`
