@@ -1,14 +1,16 @@
 # Real-app e2e: builds the Electron app + its Go engine sidecar for
 # linux/amd64 and drives it with Playwright's _electron API (under Xvfb)
-# against an isolated ergo + ZNC (infra/e2e/docker-compose.yml). No backend,
-# Postgres or Supabase — the app runs in guest mode. Locally: `make
+# against the isolated e2e stack (client/scripts/e2e-stack.mjs): ergo + ZNC +
+# Postgres + Mailpit + MinIO (infra/e2e/docker-compose.yml), the boson-e2e
+# Supabase CLI project (Auth only, infra/e2e/supabase/) and the Go backend.
+# Guest specs and account (signed-in) specs both run. Locally: `make
 # test-e2e-app`. The browser-only Playwright suite (client/tests/e2e/) still
 # needs the full dev stack and isn't run here.
 #
 # The suite always runs with code coverage (E2E_COVERAGE=1: renderer,
-# Electron main + preload, Go engine — ~10% slower than a plain run). The
-# per-layer summary lands in the job summary and the HTML/lcov reports are
-# uploaded as the `e2e-app-coverage` artifact.
+# Electron main + preload, Go engine, Go backend — ~10% slower than a plain
+# run). The per-layer summary lands in the job summary and the HTML/lcov
+# reports are uploaded as the `e2e-app-coverage` artifact.
 name: E2E (real app)
 
 on:
@@ -29,7 +31,7 @@ jobs:
   electron:
     name: Electron app (Playwright)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -43,9 +45,19 @@ jobs:
           node-version: '24'
           cache: npm
 
-      # Pull + start the IRC infra first; it comes up while we build.
-      - name: Start e2e IRC infra (ergo + ZNC)
-        run: docker compose -f infra/e2e/docker-compose.yml up -d
+      - uses: supabase/setup-cli@45a513f8c64c0bc8e0e3dfe572b5c95be85f6359 # v3.0.1
+        with:
+          version: 2.120.0
+
+      # The whole stack (image pulls, Supabase, backend build + migrations)
+      # comes up in the background while we install + build the app; the
+      # "Wait for e2e stack" step below joins it. Coverage build of the
+      # backend (E2E_COVERAGE=1).
+      - name: Start e2e stack (background)
+        env:
+          E2E_COVERAGE: '1'
+        run: |
+          ( node client/scripts/e2e-stack.mjs up; echo $? > e2e-stack.exit ) > e2e-stack.log 2>&1 &
 
       - run: npm ci
 
@@ -68,10 +80,12 @@ jobs:
           E2E_COVERAGE: '1'
         run: npm run build:e2e-app
 
-      - name: Wait for e2e IRC infra
+      - name: Wait for e2e stack
+        timeout-minutes: 8
         run: |
-          docker compose -f infra/e2e/docker-compose.yml up -d --wait --wait-timeout 120
-          docker compose -f infra/e2e/docker-compose.yml ps
+          while [ ! -f e2e-stack.exit ]; do sleep 2; done
+          cat e2e-stack.log
+          exit "$(cat e2e-stack.exit)"
 
       - name: Run Electron e2e suite (with coverage)
         working-directory: client
@@ -97,13 +111,18 @@ jobs:
           retention-days: 14
           if-no-files-found: warn
 
-      - name: Collect docker logs
+      - name: Collect stack logs
         if: failure()
         run: |
           mkdir -p e2e-docker-logs
+          cp e2e-stack.log infra/e2e/.run/backend.log e2e-docker-logs/ 2>/dev/null || true
           docker compose -f infra/e2e/docker-compose.yml ps -a > e2e-docker-logs/ps.txt 2>&1 || true
-          docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps ergo > e2e-docker-logs/ergo.log 2>&1 || true
-          docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps znc > e2e-docker-logs/znc.log 2>&1 || true
+          for svc in ergo znc postgres mailpit minio; do
+            docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps "$svc" > "e2e-docker-logs/$svc.log" 2>&1 || true
+          done
+          for c in auth kong db; do
+            docker logs --timestamps "supabase_${c}_boson-e2e" > "e2e-docker-logs/supabase-$c.log" 2>&1 || true
+          done
 
       - name: Upload test artifacts
         if: failure()
@@ -117,6 +136,6 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
-      - name: Stop e2e IRC infra
+      - name: Stop e2e stack
         if: always()
-        run: docker compose -f infra/e2e/docker-compose.yml down -v --remove-orphans
+        run: node client/scripts/e2e-stack.mjs down
