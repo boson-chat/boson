@@ -302,6 +302,11 @@ export function classifyConfirmReply(body: string): ConfirmResult | null {
   if (/\bhas now been verified\b/i.test(s)) return { kind: 'confirmed' };
   if (/\bthank you for verifying\b/i.test(s)) return { kind: 'confirmed' };
   if (/\baccount successfully (?:verified|registered)\b/i.test(s)) return { kind: 'confirmed' };
+  // Ergo (irc/nickserv.go nsVerifyHandler → sendSuccessfulRegResponse), as
+  // captured from the e2e ergo: VERIFY answers "Account created" + "You're
+  // now logged in as <acct>". Exclude REGISTER's own "Account created,
+  // pending verification; …" so a late REGISTER reply can't confirm.
+  if (/^account created\.?$/i.test(s.trim())) return { kind: 'confirmed' };
 
   // ---- wrong-code -----------------------------------------------
   //
@@ -313,6 +318,8 @@ export function classifyConfirmReply(body: string): ConfirmResult | null {
   if (/\bincorrect (?:passcode|verification|code)\b/i.test(s)) return { kind: 'wrong-code' };
   if (/\bverification failed\b/i.test(s)) return { kind: 'wrong-code' };
   if (/\bcode mismatch\b/i.test(s)) return { kind: 'wrong-code' };
+  // Ergo, captured live: "Invalid account verification code".
+  if (/\binvalid account verification code\b/i.test(s)) return { kind: 'wrong-code' };
 
   // ---- expired / not-pending ------------------------------------
   //

@@ -45,6 +45,8 @@ describe('classifyConfirmReply — package-agnostic reply table', () => {
     { body: 'Nyan has now been verified.', label: 'atheme has-been-verified' },
     { body: 'Account successfully registered.', label: 'ergo successfully-registered' },
     { body: 'Account successfully verified.', label: 'ergo successfully-verified' },
+    // Real ergo VERIFY success, captured from the e2e ergo.
+    { body: 'Account created', label: 'ergo account-created (VERIFY success)' },
   ];
   for (const tc of confirmedCases) {
     it(`${tc.label} → confirmed`, () => {
@@ -58,6 +60,8 @@ describe('classifyConfirmReply — package-agnostic reply table', () => {
     { body: 'Incorrect passcode.', label: 'generic incorrect-passcode' },
     { body: 'Invalid verification code.', label: 'generic invalid-code' },
     { body: 'Account verification failed: code mismatch', label: 'ergo code-mismatch' },
+    // Real ergo VERIFY with a wrong code, captured from the e2e ergo.
+    { body: 'Invalid account verification code', label: 'ergo invalid-account-verification-code' },
   ];
   for (const tc of wrongCodeCases) {
     it(`${tc.label} → wrong-code`, () => {
@@ -79,6 +83,8 @@ describe('classifyConfirmReply — package-agnostic reply table', () => {
 
   it('returns null for non-terminal replies', () => {
     expect(classifyConfirmReply('Welcome to the network.')).toBeNull();
+    // ergo's REGISTER reply must not count as a VERIFY success.
+    expect(classifyConfirmReply('Account created, pending verification; verification code has been sent to a@b.test')).toBeNull();
     expect(classifyConfirmReply('')).toBeNull();
   });
 });
