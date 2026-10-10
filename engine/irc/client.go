@@ -969,10 +969,20 @@ func translate(e girc.Event) Event {
 		}
 	case girc.RPL_WELCOME, girc.RPL_MOTD, girc.RPL_ENDOFMOTD:
 		out.Message = e.Last()
+		// 001 mynick :Welcome… — the nick the server actually registered
+		// us under (a collision gets the client a suffixed one). The
+		// renderer adopts it as its own nick from Target.
+		if e.Command == girc.RPL_WELCOME && len(e.Params) >= 2 {
+			out.Target = e.Params[0]
+		}
 	case girc.RPL_MYINFO:
 		// 004 mynick <servername> <version> <usermodes> <chanmodes>
 		// Send the server's hostname + version as Args so the renderer can
-		// show "Solanum 1.0-dev" next to the connection status.
+		// show "Solanum 1.0-dev" next to the connection status. Target is
+		// our nick (the renderer's backstop for the 001 sync).
+		if len(e.Params) >= 1 {
+			out.Target = e.Params[0]
+		}
 		if len(e.Params) >= 3 {
 			out.Args = []string{e.Params[1], e.Params[2]}
 		}

@@ -233,6 +233,19 @@ func TestTranslate_Welcome(t *testing.T) {
 	})
 	assert.Equal(t, "001", got.Kind, "RPL_WELCOME is numeric 001")
 	assert.Equal(t, "Welcome to Libera.Chat, alice", got.Message)
+	// The renderer takes its real nick (after a collision: alice_) from here.
+	assert.Equal(t, "alice", got.Target)
+}
+
+func TestTranslate_MyInfoCarriesOurNick(t *testing.T) {
+	got := translate(girc.Event{
+		Command: girc.RPL_MYINFO,
+		Source:  &girc.Source{Name: "ergo.test"},
+		Params:  []string{"alice_", "ergo.test", "ergo-v2.19.1", "BERTZios", "CEIMRUabefhiklmnoqstuv"},
+	})
+	assert.Equal(t, "004", got.Kind)
+	assert.Equal(t, "alice_", got.Target)
+	assert.Equal(t, []string{"ergo.test", "ergo-v2.19.1"}, got.Args)
 }
 
 func TestTranslate_NamReply(t *testing.T) {
