@@ -967,6 +967,51 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  // Server settings → Actions → Reconnect on a LIVE connection used to be a
+  // no-op: connect()'s same-server guard just switched to it.
+  it('reconnectActive() on a connected server quits it and rejoins on a fresh session', async () => {
+    const sessionStore = new SessionStore(memoryStorage());
+    const engine = fakeEngine();
+    const server = fakeServer('libera');
+    const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory,
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore,
+    });
+    await flushPromises(4);
+    await bloc.connect(server);
+    await flushPromises(2);
+    const first = engine.sessionFor('libera');
+    first._setState('connected');
+    await flushPromises(2);
+    sessionStore.addChannel('libera', '#general');
+
+    const done = bloc.reconnectActive();
+    await flushPromises(4);
+    expect(first.disconnectCalls).toBe(1);
+    // Like the real engine client: the old session is only dropped once the
+    // engine echoes `disconnected`; until then no new connect goes out.
+    expect(engine.connectCalls).toHaveLength(1);
+    first._setState('disconnected');
+    engine.sessions.delete('libera');
+    first._dispose();
+    await done;
+
+    expect(engine.connectCalls).toHaveLength(2);
+    const fresh = engine.sessionFor('libera');
+    expect(fresh).not.toBe(first);
+    expect(bloc.getState().connections.map((c) => c.serverId)).toEqual(['libera']);
+    fresh._setState('connected');
+    await flushPromises(4);
+    expect(fresh.joinCalls).toContain('#general');
+    // The deliberate quit didn't arm auto-reconnect.
+    expect(bloc.getState().connections[0]?.reconnect.active).toBe(false);
+    bloc.dispose();
+  });
+
   describe('active server', () => {
     function twoServers() {
       const sessionStore = new SessionStore(memoryStorage());
