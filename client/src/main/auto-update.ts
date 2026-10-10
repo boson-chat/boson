@@ -102,6 +102,18 @@ export function onUpdateState(fn: (s: UpdateState) => void): () => void {
 // calls (e.g. multiple windows during dev) are no-ops after the first.
 export function startAutoUpdater(win: BrowserWindow): void {
   if (updaterStarted) return;
+  updaterStarted = true;
+
+  // Push every state change to the renderer too. We keep an internal
+  // copy in `currentState` so the renderer's initial `getState` IPC
+  // call gets the latest verdict even if the listener is attached
+  // after the event fired. Attached before the dev-mode bail-out below:
+  // there, a manual check still answers "up to date" and the About panel
+  // must hear it.
+  onUpdateState((s) => {
+    if (!win.isDestroyed()) win.webContents.send('updater:state', s);
+  });
+
   // Dev mode: electron-updater needs a packaged app to read its own
   // app-update.yml. There's no point trying in `npm run dev` — the
   // module just throws every check. Bail before importing it so we
@@ -109,7 +121,6 @@ export function startAutoUpdater(win: BrowserWindow): void {
   if (process.defaultApp || !app.isPackaged) {
     return;
   }
-  updaterStarted = true;
 
   // Require lazily so the heavy dependency only loads in packaged builds.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -168,14 +179,6 @@ export function startAutoUpdater(win: BrowserWindow): void {
       return;
     }
     setState({ kind: 'error', message: verdict.userMessage });
-  });
-
-  // Push every state change to the renderer too. We keep an internal
-  // copy in `currentState` so the renderer's initial `getState` IPC
-  // call gets the latest verdict even if the listener is attached
-  // after the event fired.
-  onUpdateState((s) => {
-    if (!win.isDestroyed()) win.webContents.send('updater:state', s);
   });
 
   // First check on a short delay; periodic re-checks every 6h while
