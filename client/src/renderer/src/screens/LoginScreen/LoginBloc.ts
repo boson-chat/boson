@@ -224,6 +224,14 @@ export class LoginBloc {
     }
   }
 
+  // The confirmation link was clicked: a session exists now, but the
+  // identity can only be created / unlocked with the password, so go to the
+  // sign-in form (email kept).
+  confirmationCompleted(): void {
+    if (!this.state.awaitingConfirmation) return;
+    this.setState({ ...this.state, awaitingConfirmation: null, mode: 'login', error: null });
+  }
+
   // View-driven exit from the "Check your email" panel. The user might
   // have typed the wrong address or want to try a different account —
   // reset back to the form without nuking what they typed for `email`

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { useAuthService } from '../../modules/auth';
+import { useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { Button, Card, Field, Input, Logo, Tabs, WarningBanner } from '@boson/shared';
@@ -20,6 +20,12 @@ export function LoginScreen({ directory, identity }: Props) {
   useEffect(() => bloc.subscribe(setState), [bloc]);
 
   const { mode, email, password, confirmPassword, error, unrecoverable, recoverable, busy, awaitingConfirmation } = state;
+  // A session showing up while we wait on "Check your email" means the
+  // confirmation link was clicked (boson://auth/confirmed).
+  const hasSession = !!useAuthState().session;
+  useEffect(() => {
+    if (hasSession && awaitingConfirmation) bloc.confirmationCompleted();
+  }, [bloc, hasSession, awaitingConfirmation]);
   const [recoveryInput, setRecoveryInput] = useState('');
 
   // Guest-mode local state. The user clicks "Continue as guest" to reveal a
