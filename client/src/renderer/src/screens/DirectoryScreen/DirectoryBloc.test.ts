@@ -1665,6 +1665,55 @@ describe('DirectoryBloc', () => {
       expect(call.serverPass).toBeUndefined();
       expect(call.bouncer).toBeUndefined();
     });
+
+    // Server settings → Bouncer says "reconnect to apply" — so Reconnect on
+    // a LIVE connection must rebuild the IRC session (it used to just
+    // re-select it) and pick up the route saved since, even though the
+    // connection holds a snapshot of its saved row from connect time.
+    it('reconnectActive() on a live connection rebuilds it with the route saved since', async () => {
+      const sessionStore = new SessionStore(memoryStorage());
+      setBouncerStore(await fastBouncerStore(profile));
+      const engine = fakeEngine();
+      const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+      const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore,
+      });
+      await flushPromises(4);
+      await bloc.connect(server);
+      await flushPromises(2);
+      engine.sessionFor('libera')._setState('connected');
+      await flushPromises(2);
+      sessionStore.addChannel('libera', '#general');
+      expect(engine.connectCalls[0]!.bouncer).toBeUndefined();
+
+      // Route it through the bouncer with auto-connect off, then Reconnect.
+      bloc.setServerBouncer('libera', { route: true, network: 'libera', autoConnect: false });
+      const reconnect = bloc.reconnectActive();
+      await flushPromises(2);
+      const old = engine.sessionFor('libera');
+      expect(old.disconnectCalls).toBe(1);
+      // Waits for the engine to drop the old session before connecting.
+      expect(engine.connectCalls).toHaveLength(1);
+      old._setState('disconnected');
+      await reconnect;
+      await flushPromises(2);
+
+      expect(engine.connectCalls).toHaveLength(2);
+      const call = engine.connectCalls[1]!;
+      expect(call.hostname).toBe('znc.host');
+      expect(call.serverPass).toBe('me/libera:pw');
+      expect(call.bouncer).toBe(true);
+      expect(call.bouncerAutoConnect).toBe(false);
+      // The tear-down was not a user disconnect: no auto-reconnect cycle,
+      // the saved row stays, and its channels re-join on the new session.
+      expect(bloc.getServerBouncer('libera')?.autoConnect).toBe(false);
+      engine.sessionFor('libera')._setState('connected');
+      await flushPromises(4);
+      expect(engine.sessionFor('libera').joinCalls).toContain('#general');
+      expect(engine.connectCalls).toHaveLength(2);
+      bloc.dispose();
+    });
   });
 
   describe('bouncer networks', () => {

@@ -674,10 +674,38 @@ export class DirectoryBloc {
       }
       ar.cancelled = false;
     }
+    // A live (connected / connecting) connection must really be rebuilt —
+    // connect() alone would just re-select it. That's what "Reconnect"
+    // promises, and what applies per-server settings that only take effect
+    // on a new IRC session (e.g. a changed bouncer route).
+    if (conn.engineState === 'connected' || conn.engineState === 'connecting') {
+      await this.restartLiveConnection(conn);
+    }
     // Server records carry the same shape whether they came from the live
     // directory list (`Server`) or a saved session (`SavedServer`); connect()
     // accepts either via its Server-typed parameter.
     await this.connect(conn.server as Server);
+  }
+
+  // Disconnects a live connection without the user-level side effects of
+  // disconnect() (the saved row and channels stay; no auto-reconnect is
+  // armed), and waits for the engine to drop the session — the engine
+  // client hands back the SAME session to a connect() for a serverId it
+  // still holds. Saved channels are queued to re-join on the new session.
+  private async restartLiveConnection(conn: Connection): Promise<void> {
+    const channels = this.sessionStore.load()?.servers.find((s) => s.server.id === conn.serverId)?.channels ?? [];
+    if (channels.length > 0) this.pendingJoins.set(conn.serverId, channels.slice());
+    this.teardownConnection(conn, { sendDisconnect: false });
+    if (!conn.session.isDisposed()) {
+      await new Promise<void>((resolve) => {
+        let off: () => void = () => {};
+        const done = (): void => { clearTimeout(timer); off(); resolve(); };
+        const timer = setTimeout(done, 5000);
+        off = conn.session.onState((s) => { if (s === 'disconnected') done(); });
+        conn.session.disconnect();
+      });
+    }
+    this.connections.delete(conn.serverId);
   }
 
   // Stop the auto-reconnect cycle for the active connection. The next
@@ -1335,8 +1363,11 @@ export class DirectoryBloc {
     // We only touch the (keychain-backed) bouncer profile store when a route
     // is actually configured, so the common no-bouncer path never pays its
     // hydration cost.
-    const route = (server as SavedServer).bouncer
-      ?? this.sessionStore.load()?.servers.find((s) => s.server.id === server.id)?.server.bouncer;
+    // The saved row wins over the object passed in: a live connection holds
+    // a snapshot of its row from connect time, which a later Server settings
+    // → Bouncer save doesn't update.
+    const route = this.sessionStore.load()?.servers.find((s) => s.server.id === server.id)?.server.bouncer
+      ?? (server as SavedServer).bouncer;
     let host = server.hostname, port = server.port, tls = server.tls;
     // Direct-connection defaults from the manually-added server: the PASS
     // line + SASL come from the (keychain-backed) credentials store; the
