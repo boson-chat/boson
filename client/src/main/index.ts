@@ -135,6 +135,13 @@ class BosonApp {
     if (argvDeepLink) this.pendingDeepLink = { url: argvDeepLink };
 
     await app.whenReady();
+    // Packaged builds get the icon baked in by electron-builder (from
+    // build/icon.png). In `npm run dev` the Dock would show Electron's
+    // default, so point it at the same artwork.
+    if (process.platform === 'darwin' && !app.isPackaged) {
+      const devIcon = join(__dirname, '../../build/icon.png');
+      if (existsSync(devIcon)) app.dock?.setIcon(devIcon);
+    }
     // Production: serve the renderer over loopback http so it has a real origin
     // (embeds need it; API calls go through the main-process proxy to dodge
     // CORS). Dev uses the Vite server.

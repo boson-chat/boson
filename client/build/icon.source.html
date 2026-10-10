@@ -1,0 +1,36 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; width: 1024px; height: 1024px; background: transparent; }
+  /* Apple macOS icon grid: 824×824 artwork at a 100px inset, ~185px corners. */
+  .tile {
+    position: absolute; left: 100px; top: 100px; width: 824px; height: 824px;
+    border-radius: 185px;
+    background:
+      radial-gradient(120% 90% at 50% 0%, #1E1E26 0%, #0D0D11 62%, #08080B 100%);
+    box-shadow:
+      inset 0 0 0 2px rgba(255,255,255,0.06),
+      inset 0 2px 0 0 rgba(255,255,255,0.07),
+      0 18px 40px rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  /* Faint accent glow behind the mark. */
+  .tile::before {
+    content: ""; position: absolute; width: 640px; height: 640px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(217,119,6,0.22) 0%, rgba(217,119,6,0) 65%);
+  }
+  svg { position: relative; width: 600px; height: 600px; color: #D97706;
+        filter: drop-shadow(0 0 18px rgba(217,119,6,0.35)); }
+</style></head><body>
+<div class="tile">
+  <!-- BosonGlyph (packages/shared/src/design-system/BosonGlyph). Render:
+       chrome --headless=new --force-device-scale-factor=1 --default-background-color=00000000
+              --window-size=1024,1024 --screenshot=icon.png icon.source.html -->
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none"/>
+    <ellipse cx="12" cy="12" rx="10" ry="4"/>
+    <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)"/>
+    <ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)"/>
+  </svg>
+</div>
+</body></html>

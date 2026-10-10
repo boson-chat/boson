@@ -23,6 +23,9 @@ protocols:
       - boson
 
 # electron-vite builds main + preload + renderer into out/.
+# build/icon.png (1024×1024) is the app icon; electron-builder derives the
+# macOS .icns and Windows .ico from it. Regenerate it from
+# build/icon.source.html (headless Chrome screenshot, transparent bg).
 directories:
   buildResources: build
   output: dist
