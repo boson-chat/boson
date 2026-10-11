@@ -24,9 +24,17 @@ export interface EngineDiscovery {
   token: string;
 }
 
+// Restart delays after the engine dies unexpectedly (a crash, an OOM kill):
+// 0.5s, 1s, 2s, 4s, then every 10s. Reset once a run has lasted RESTART_RESET_MS.
+const RESTART_BACKOFF_MS = [500, 1000, 2000, 4000, 10000];
+const RESTART_RESET_MS = 30_000;
+
 class EngineSupervisor {
   private child: ChildProcess | null = null;
   private discovery: EngineDiscovery | null = null;
+  private stopping = false;
+  private restarts = 0;
+  private restartTimer: ReturnType<typeof setTimeout> | null = null;
 
   async start(): Promise<EngineDiscovery | null> {
     if (this.discovery) return this.discovery;
@@ -45,12 +53,24 @@ class EngineSupervisor {
     const token = randomBytes(24).toString('base64url');
     const addr = `127.0.0.1:${port}`;
 
+    this.stopping = false;
+    this.spawnChild(binary, addr, token);
+    this.discovery = { url: `ws://${addr}/ws`, token };
+    return this.discovery;
+  }
+
+  // Runs the engine. If it exits without stop() having been called, it's
+  // started again on the SAME address and token: the renderer's engine
+  // client keeps retrying that URL, so it reattaches by itself and each
+  // server's auto-reconnect brings its IRC connection back.
+  private spawnChild(binary: string, addr: string, token: string): void {
     console.log(`[engine] spawning ${binary} serve --addr ${addr}`);
+    const startedAt = Date.now();
     // --token-from-env tells the engine to use BOSON_ENGINE_TOKEN from the
     // environment instead of generating its own random token. Without it
     // the engine ignores the env var and the renderer's token won't
     // match → HTTP Auth failed on every WebSocket connection attempt.
-    this.child = spawn(binary, ['serve', '--addr', addr, '--token-from-env'], {
+    const child = spawn(binary, ['serve', '--addr', addr, '--token-from-env'], {
       env: { ...process.env, BOSON_ENGINE_TOKEN: token },
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
@@ -59,18 +79,37 @@ class EngineSupervisor {
     // visible alongside everything else (Electron's stderr ends up in
     // the system log on macOS, the launching terminal on Linux, and
     // the user-data dir on Windows).
-    this.child.stdout?.on('data', (b: Buffer) => process.stdout.write(`[engine] ${b}`));
-    this.child.stderr?.on('data', (b: Buffer) => process.stderr.write(`[engine] ${b}`));
-    this.child.on('exit', (code, signal) => {
-      console.log(`[engine] exited code=${code} signal=${signal}`);
-      this.child = null;
-    });
-
-    this.discovery = { url: `ws://${addr}/ws`, token };
-    return this.discovery;
+    this.child = child;
+    child.stdout?.on('data', (b: Buffer) => process.stdout.write(`[engine] ${b}`));
+    child.stderr?.on('data', (b: Buffer) => process.stderr.write(`[engine] ${b}`));
+    // A spawn failure (binary gone, EACCES) arrives as 'error' and may come
+    // without 'exit'; treat both as the end of this run, once.
+    let ended = false;
+    const onEnd = (why: string): void => {
+      if (ended) return;
+      ended = true;
+      console.log(`[engine] exited ${why}`);
+      if (this.child === child) this.child = null;
+      if (this.stopping) return;
+      if (Date.now() - startedAt >= RESTART_RESET_MS) this.restarts = 0;
+      const delay = RESTART_BACKOFF_MS[Math.min(this.restarts, RESTART_BACKOFF_MS.length - 1)]!;
+      this.restarts += 1;
+      console.log(`[engine] restarting in ${delay}ms`);
+      this.restartTimer = setTimeout(() => {
+        this.restartTimer = null;
+        if (!this.stopping) this.spawnChild(binary, addr, token);
+      }, delay);
+    };
+    child.on('exit', (code, signal) => onEnd(`code=${code} signal=${signal}`));
+    child.on('error', (err) => onEnd(`error=${err.message}`));
   }
 
   stop(): void {
+    this.stopping = true;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
     if (!this.child) return;
     console.log('[engine] stopping');
     this.child.kill();

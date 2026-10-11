@@ -418,3 +418,49 @@ func TestSession_ReconnectSameServerID_NoStrayStatusFromOldConnection(t *testing
 	}
 	assert.True(t, reconnected, "the new connection should come up")
 }
+
+// A connect sent right behind a disconnect for the same serverId (the
+// renderer's Reconnect after a route change) must not overtake it: the old
+// connection's "disconnected" is reported first, exactly once, and only then
+// does the new connection start. Messages carry just the serverId, so the
+// renderer relies on this order to tell the two connections apart.
+func TestSession_ConnectRightAfterDisconnect_ConfirmsOldFirst(t *testing.T) {
+	irc1 := newFakeIRCServer(t)
+
+	srv, wsURL := newTestServer(t)
+	c := dial(t, wsURL, srv.Token())
+	rdr := wrapConn(func(ctx context.Context) (ServerMessage, bool) {
+		_, data, err := c.Read(ctx)
+		if err != nil {
+			return ServerMessage{}, false
+		}
+		var msg ServerMessage
+		if err := json.Unmarshal(data, &msg); err != nil {
+			return ServerMessage{}, false
+		}
+		return msg, true
+	})
+	connect := func() {
+		raw, _ := json.Marshal(ConnectParams{ServerID: "srv-a", Hostname: irc1.addr, Port: irc1.port, TLS: false, Nick: "bot"})
+		writeJSON(t, c, ClientMessage{Type: CmdConnect, Params: raw})
+	}
+	isStatus := func(m ServerMessage, state string) bool {
+		return m.Type == MsgStatus && m.ServerID == "srv-a" && m.State == state
+	}
+
+	connect()
+	readUntil(t, rdr, func(m ServerMessage) bool { return isStatus(m, StateConnected) })
+
+	raw, _ := json.Marshal(DisconnectParams{ServerID: "srv-a"})
+	writeJSON(t, c, ClientMessage{Type: CmdDisconnect, Params: raw})
+	connect()
+
+	var states []string
+	for _, m := range readUntil(t, rdr, func(m ServerMessage) bool { return isStatus(m, StateConnected) }) {
+		assert.False(t, m.Type == MsgError && m.ServerID == "srv-a", "unexpected error: %s", m.Error)
+		if m.Type == MsgStatus && m.ServerID == "srv-a" {
+			states = append(states, m.State)
+		}
+	}
+	assert.Equal(t, []string{StateDisconnected, StateConnecting, StateConnected}, states)
+}

@@ -225,8 +225,27 @@ interface ChannelRowProps {
   onPart: (name: string) => void;
 }
 
+// How far a channel has got since we asked to be in it: `joining` until the
+// server confirms the JOIN, `loading` until the member list and members' away
+// status have arrived, then `ready`. DMs are always ready.
+export type ChannelSync = 'joining' | 'loading' | 'ready';
+
+export function channelSync(channel: ChatChannel): ChannelSync {
+  if (!/^[#&]/.test(channel.name)) return 'ready';
+  if (!channel.joined) return 'joining';
+  if (channel.namesLoaded === false || channel.whoLoaded === false) return 'loading';
+  return 'ready';
+}
+
+const SYNC_TITLE: Record<ChannelSync, string | undefined> = {
+  joining: 'Joining…',
+  loading: 'Loading members…',
+  ready: undefined,
+};
+
 function ChannelRow({ channel, active, prefix, onSelect, onPart }: ChannelRowProps) {
   const display = channel.name.replace(/^[#&]/, '');
+  const sync = channelSync(channel);
   // Unread badge: hidden when active (counters get cleared anyway) or when
   // the count is 0. `mentions` is a subset of `unread`; if any mention sits
   // unread, the badge takes the accent (amber) treatment.
@@ -235,12 +254,17 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart }: ChannelRowPro
   return (
     <div
       class={`channel-item ${active ? 'channel-item-active' : ''} ${showBadge ? 'channel-item-unread' : ''} ${hasMention ? 'channel-item-mention' : ''}`}
+      data-sync={sync}
+      title={SYNC_TITLE[sync]}
+      aria-busy={sync === 'ready' ? undefined : true}
       onClick={() => onSelect(channel.name)}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(channel.name); }}
     >
-      <span class="channel-hash">{prefix}</span>
+      <span class="channel-hash">
+        {sync === 'ready' ? prefix : <span class="channel-sync-spinner" data-sync={sync} aria-hidden="true" />}
+      </span>
       <span class="channel-name">{display}</span>
       {hasMention ? (
         <span

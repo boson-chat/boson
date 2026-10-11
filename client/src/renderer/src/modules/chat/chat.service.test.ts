@@ -1367,3 +1367,29 @@ describe('ChatService identity (host + account) population', () => {
     expect(member(chat, '#a', 'bob')?.account).toBe('bobacct');
   });
 });
+
+describe('ChatService join progress', () => {
+  const state = (chat: ChatService, name: string) => chat.getState().channels.find((c) => c.name === name)!;
+
+  it('tracks a channel from join request to fully loaded', () => {
+    const { chat, engine } = makeChat('me');
+    chat.join('#ai');
+    expect(state(chat, '#ai').joined).toBe(false);
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#ai' }));
+    expect(state(chat, '#ai')).toMatchObject({ joined: true, namesLoaded: false, whoLoaded: false });
+    engine.emit(makeEvent({ Kind: '353', Target: '#ai', Message: 'me lynx' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#ai' }));
+    expect(state(chat, '#ai')).toMatchObject({ namesLoaded: true, whoLoaded: false });
+    engine.emit(makeEvent({ Kind: '315', Target: '#ai' }));
+    expect(state(chat, '#ai')).toMatchObject({ namesLoaded: true, whoLoaded: true });
+  });
+
+  it('starts over on a rejoin', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#ai' }));
+    engine.emit(makeEvent({ Kind: '366', Target: '#ai' }));
+    engine.emit(makeEvent({ Kind: '315', Target: '#ai' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#ai' }));
+    expect(state(chat, '#ai')).toMatchObject({ namesLoaded: false, whoLoaded: false });
+  });
+});

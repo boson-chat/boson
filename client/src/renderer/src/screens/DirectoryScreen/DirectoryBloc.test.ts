@@ -1718,6 +1718,7 @@ describe('DirectoryBloc', () => {
     it('reconnectActive() on a live connection rebuilds it with the route saved since', async () => {
       const sessionStore = new SessionStore(memoryStorage());
       setBouncerStore(await fastBouncerStore(profile));
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const engine = fakeEngine();
       const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
       const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
@@ -1730,6 +1731,7 @@ describe('DirectoryBloc', () => {
       engine.sessionFor('libera')._setState('connected');
       await flushPromises(2);
       sessionStore.addChannel('libera', '#general');
+      sessionStore.addChannel('libera', '#random');
       expect(engine.connectCalls[0]!.bouncer).toBeUndefined();
 
       // Route it through the bouncer with auto-connect off, then Reconnect.
@@ -1753,9 +1755,24 @@ describe('DirectoryBloc', () => {
       // The tear-down was not a user disconnect: no auto-reconnect cycle,
       // the saved row stays, and its channels re-join on the new session.
       expect(bloc.getServerBouncer('libera')?.autoConnect).toBe(false);
-      engine.sessionFor('libera')._setState('connected');
-      await flushPromises(4);
-      expect(engine.sessionFor('libera').joinCalls).toContain('#general');
+      try {
+        const fresh = engine.sessionFor('libera');
+        fresh._setState('connected');
+        await flushPromises(4);
+        // Through a bouncer the restore waits until it is on the network…
+        expect(fresh.joinCalls).toEqual([]);
+        fresh._emitBouncerUpstream('connected');
+        // …which replays the channels it is already in…
+        fresh._emitEvent({ Kind: 'JOIN', From: call.nick, Target: '#general', Message: '', Raw: '' });
+        await flushPromises(2);
+        vi.advanceTimersByTime(3_000);
+        expect(fresh.joinCalls).toEqual([]);
+        // …and once its JOINs go quiet, joins only what is missing.
+        vi.advanceTimersByTime(1_000);
+        expect(fresh.joinCalls).toEqual(['#random']);
+      } finally {
+        vi.useRealTimers();
+      }
       expect(engine.connectCalls).toHaveLength(2);
       bloc.dispose();
     });

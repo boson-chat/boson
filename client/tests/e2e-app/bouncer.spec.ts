@@ -90,6 +90,10 @@ test('bouncer network auto-connects upstream, relays messages, and can be discon
       (l) => l.command === 'QUIT' && l.prefix.split('!')[0] === upstreamNick,
       30_000, `${upstreamNick} QUIT upstream`, quitMark,
     );
+    // Unlike closing the app or leaving the server (bouncer-persistence
+    // .spec), this one really takes ZNC off the network.
+    expect((await peer.whois(upstreamNick)).online).toBe(false);
+    expect(await peer.names(channel)).not.toContain(upstreamNick.toLowerCase());
 
     // ---- Reconnect from the strip ----
     const rejoinMark = peer.mark();

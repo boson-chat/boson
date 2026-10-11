@@ -605,9 +605,12 @@ export function BouncerNetworksPanel({ bloc, connections }: {
   const newDiscovered = visibleDiscovered?.filter((n) => !haveNetwork(n)) ?? [];
   const showSearch = (discovered?.length ?? 0) > 0 || networks.length > 0;
 
+  // Two rows for one ZNC network would be two attaches to the same thing:
+  // one's Disconnect network or closed channel hits the other too.
+  const duplicate = (name.trim() !== '' || network.trim() !== '') && haveNetwork(network.trim());
   const add = (e: Event): void => {
     e.preventDefault();
-    if (!name.trim() && !network.trim()) return;
+    if ((!name.trim() && !network.trim()) || duplicate) return;
     bloc.addBouncerNetwork({ name, network });
     setName('');
     setNetwork('');
@@ -655,10 +658,15 @@ export function BouncerNetworksPanel({ bloc, connections }: {
           autoComplete="off"
           spellcheck={false}
         />
-        <Button type="submit" variant="secondary" disabled={!name.trim() && !network.trim()}>
+        <Button type="submit" variant="secondary" disabled={(!name.trim() && !network.trim()) || duplicate}>
           Add network
         </Button>
       </form>
+      {duplicate && (
+        <WarningBanner tone="warn" title="Already added">
+          {network.trim() ? <>The network <strong>{network.trim()}</strong> is</> : <>Your bouncer's default network is</>} already in your list below.
+        </WarningBanner>
+      )}
 
       {profile?.enabled && (
         <div class="directory-bouncer-discover">

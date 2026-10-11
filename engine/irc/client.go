@@ -226,6 +226,7 @@ func New(cfg Config) (*Client, error) {
 		dispatch:      newDispatchQueue(),
 	}
 	c.sendq = newSendQueue(c.pacing)
+	c.sendq.unpaced = c.bouncerLocal
 	c.installCTCPReplies()
 	c.services.setNickservPassword(cfg.NickservPassword)
 	c.bouncer.send = c.sendRawLine
@@ -374,6 +375,8 @@ func (c *Client) OnEvent(fn EventHandler) {
 			// only wire signal that a bouncer's upstream went away.
 			if e.Source != nil && isStatusSource(e.Source.Ident, e.Source.Host) {
 				c.bouncer.onStatusMessage(e.Source.Name, e.Last())
+			} else if isLiveUpstreamTraffic(e, c.girc.GetNick()) {
+				c.bouncer.onUpstreamTraffic()
 			}
 			// Feed service-sourced messages into the framework classifier.
 			// A hit on "atheme" / "anope" anywhere in the body settles
@@ -415,15 +418,19 @@ func (c *Client) OnEvent(fn EventHandler) {
 			// we issue a plain WHO ourselves and accept the duplicate
 			// round-trip. Background class: it can wait behind anything
 			// the user types. Enqueueing never blocks, so it's fine on the
-			// exec loop. girc's handler has already written its WHO + MODE
-			// straight to the wire (outside our queue), so charge those
-			// two lines to the bucket to keep the server-side rate honest.
+			// exec loop. girc's WHOX + MODE never reach the wire (the
+			// conn's autoQueryFilter drops them), so the MODE that fills
+			// in the channel's modes is queued here too — except through
+			// a bouncer, where every line costs 2s of ZNC's flood allowance
+			// and Channel settings fetches the modes itself when opened.
 			if e.Source != nil &&
 				girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(c.girc.GetNick()) &&
 				len(e.Params) >= 1 {
 				slog.Info("irc: sending plain WHO on self-join",
 					"channel", e.Params[0], "nick", c.girc.GetNick())
-				c.sendq.charge(2)
+				if !c.bouncer.isBouncer() {
+					c.send(&girc.Event{Command: girc.MODE, Params: []string{e.Params[0]}}, classBackground)
+				}
 				c.send(&girc.Event{Command: girc.WHO, Params: []string{e.Params[0]}}, classBackground)
 			} else if e.Source != nil {
 				slog.Debug("irc: JOIN echo not self",
@@ -600,6 +607,12 @@ func (c *Client) scheduleListRetry() {
 	})
 }
 
+// quitGrace is how long Connect waits, after its context is cancelled, for
+// the QUIT to go out and the server to close the link before closing the
+// socket itself. Well inside ipc's disconnectWait, so a disconnect's
+// confirmation always means the connection is really gone.
+const quitGrace = 2 * time.Second
+
 // Connect blocks until the context is cancelled or the underlying
 // connection ends. Returns nil on context cancellation (graceful shutdown)
 // and non-nil on transport errors.
@@ -640,9 +653,18 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		c.girc.Quit("shutting down")
-		// Drain so the goroutine exits before we return.
-		<-errCh
+		// girc closes the link once its send loop has written the QUIT, but
+		// a stalled peer (full TCP window, half-dead link) can hold that
+		// write for its 30s timeout. Send it off this goroutine and give it
+		// quitGrace; then close the socket ourselves. A bouncer treats
+		// either as a detach.
+		go c.girc.Quit("shutting down")
+		select {
+		case <-errCh:
+		case <-time.After(quitGrace):
+			c.girc.Close()
+			<-errCh
+		}
 		return nil
 	case err := <-errCh:
 		return err
@@ -1077,4 +1099,19 @@ func translate(e girc.Event) Event {
 		return Event{}
 	}
 	return out
+}
+
+// isLiveUpstreamTraffic reports a PRIVMSG/NOTICE that only the real network
+// could have sent through a bouncer right now: from another user (a full
+// nick!user@host that isn't a bouncer module on znc.in, nor us) and not part
+// of a batch (ZNC wraps buffer playback in one).
+func isLiveUpstreamTraffic(e girc.Event, self string) bool {
+	if e.Source == nil || e.Source.Ident == "" || e.Source.Host == "" {
+		return false
+	}
+	if strings.EqualFold(e.Source.Host, zncStatusHost) || girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(self) {
+		return false
+	}
+	_, batched := e.Tags.Get("batch")
+	return !batched
 }

@@ -107,6 +107,18 @@ const CHATHISTORY_REQUEST_LIMIT = 50;
 // doesn't mark channels unread / notify / hit the Inbox. Live messages are
 // stamped within network latency (sub-second), so the window is generous.
 const BACKLOG_AGE_MS = 30_000;
+// Server clock skew estimation. A bouncer stamps server-time with its OWN
+// clock; when that clock runs minutes slow, live messages from others sort
+// above lines we just sent (stamped locally) and look like backlog (no unread
+// or mention). Each un-batched non-message event (JOIN, numerics, PING…,
+// which are never replayed) gives a sample `server − local`; the max over a
+// recent window tracks the skew, since delays only push a sample lower.
+// Corrections under SKEW_MIN_MS are jitter; over SKEW_MAX_MS, implausible.
+const SKEW_WINDOW_MS = 10 * 60_000;
+const SKEW_MAX_SAMPLES = 64;
+const SKEW_MIN_MS = 1_500;
+const SKEW_MAX_MS = 60 * 60_000;
+const SKEW_SKIP_KINDS = new Set(['PRIVMSG', 'NOTICE', 'TAGMSG']);
 
 // Hard ceiling on messages held in memory per channel. Bouncer reconnects
 // replay the whole buffer each time, so without a bound a long session with
@@ -247,6 +259,9 @@ export class ChatService {
   // same numeric ids the persisted ones already had.
   private nextId = 1;
   private readonly idSalt = makeIdSalt();
+  // Recent `server-time − local` samples from live events (see SKEW_*).
+  private clockSamples: Array<{ at: number; off: number }> = [];
+  private clockOffset = 0;
   // ---- Chathistory (IRCv3 backlog/scrollback) -------------------------
   // Active BATCH refs → buffered history messages, keyed by the batch ref.
   private readonly batches = new Map<string, { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] }>();
@@ -342,6 +357,7 @@ export class ChatService {
   // and can resurrect stale DM/service tabs. Inbox attribution still uses the
   // persistence scope; only message store + hydrate are skipped.
   private readonly bouncerConn: boolean;
+  private readonly onBouncerUpstreamWanted: ((wanted: boolean) => void) | null;
 
   // Which server this connection is, for everything keyed per server that is
   // NOT chat history: the NickServ credentials store (account status badge,
@@ -362,13 +378,21 @@ export class ChatService {
     private readonly session: ServerSession,
     private myNick: string,
     persistence?: ChatPersistence,
-    deps?: { nickClaimAPI?: NickClaimAPI; bouncer?: boolean; server?: { serverId: string; serverName?: string } },
+    deps?: {
+      nickClaimAPI?: NickClaimAPI;
+      bouncer?: boolean;
+      server?: { serverId: string; serverName?: string };
+      // Told when the user asks the bouncer to connect (true) or disconnect
+      // (false) its network, so the choice can outlive this connection.
+      onBouncerUpstreamWanted?: (wanted: boolean) => void;
+    },
   ) {
     this.persistence = persistence ?? null;
     const sid = (session as Partial<ServerSession>).serverId;
     this.serverScope = persistence?.scope ?? deps?.server ?? (sid ? { serverId: sid } : null);
     this.nickClaimAPI = deps?.nickClaimAPI ?? null;
     this.bouncerConn = deps?.bouncer ?? false;
+    this.onBouncerUpstreamWanted = deps?.onBouncerUpstreamWanted ?? null;
     // Per-server config flag: surface "via bouncer" in the server-info badge.
     // (Scroll-back itself is gated on the chathistory / playback capability,
     // not on this — a bouncer with neither offers no scroll-back.)
@@ -447,10 +471,12 @@ export class ChatService {
   // Ask the bouncer to connect / disconnect its upstream IRC network.
   // The engine reports the resulting state via `bouncer-upstream`.
   bouncerConnect(): void {
+    this.onBouncerUpstreamWanted?.(true);
     this.session.bouncerConnect();
   }
 
   bouncerDisconnect(): void {
+    this.onBouncerUpstreamWanted?.(false);
     this.session.bouncerDisconnect();
   }
 
@@ -585,7 +611,9 @@ export class ChatService {
 
   // Actions -----------------------------------------------------------------
 
-  join(channel: string): void {
+  // `focus: false` joins without switching to the channel (a background
+  // restore must not yank the user out of the one they're reading).
+  join(channel: string, opts: { focus?: boolean } = {}): void {
     const name = normaliseChannel(channel);
     if (!name) return;
     const key = this.channelKey(name);
@@ -596,7 +624,7 @@ export class ChatService {
     }
     // Auto-switch to the channel we just asked to join so the user sees it
     // immediately, even before the server's JOIN echo arrives.
-    this.activeChannel = key;
+    if (opts.focus !== false || !this.activeChannel) this.activeChannel = key;
     this.emit();
     this.session.join(key);
   }
@@ -1928,6 +1956,7 @@ export class ChatService {
     // buffered and inserted as a group on BATCH end — routed away from the
     // live path (no serverLog flood, no unread bump, no inbox mirror).
     const batchRef = e.Tags?.batch;
+    if (!batchRef) this.noteServerClock(e);
     if (batchRef) {
       const batch = this.batches.get(batchRef);
       if (batch) { this.bufferHistoryMessage(batch, e); return; }
@@ -2032,7 +2061,7 @@ export class ChatService {
         // arrival. Don't mark it unread, don't notify, don't mirror to the
         // Inbox — just show it in the channel with its original timestamp.
         // Only triggers when the server actually stamped a `time` tag.
-        const ts = eventTimestamp(e);
+        const ts = this.timestampOf(e);
         const isBacklog = !!e.Tags?.time && ts < Date.now() - BACKLOG_AGE_MS;
         // Bump unread counters BEFORE appendMessage — appendMessage emits to
         // subscribers, and we want them to see the fresh counter state in
@@ -2069,7 +2098,9 @@ export class ChatService {
           // We just joined a channel. Fire the self-membership event so the
           // persistence layer can add this channel to the saved set — even
           // if the channel record already existed locally (idempotent).
-          this.ensureChannel(e.Target, true);
+          const joinedCh = this.ensureChannel(e.Target, true);
+          joinedCh.namesLoaded = false;
+          joinedCh.whoLoaded = false;
           this.emitSelfMembership({ kind: 'join', channel: key });
           // extended-join echoes our own host + account on self-join — the
           // most reliable way to learn our cloak/account for presence.
@@ -2331,6 +2362,7 @@ export class ChatService {
         const ch = this.channels.get(key);
         if (ch) {
           ch.members = dedupeMembers(pending);
+          ch.namesLoaded = true;
           const pendingFlags = this.pendingAwayFlags.get(key);
           if (pendingFlags && pendingFlags.size > 0) {
             this.applyAwayFlags(ch, pendingFlags);
@@ -2447,6 +2479,17 @@ export class ChatService {
         const ch = this.channels.get(key);
         if (ch && ch.members.length > 0) {
           if (this.applyAwayFlags(ch, pending)) this.emit();
+        }
+        break;
+      }
+      case '315': {
+        // RPL_ENDOFWHO — the WHO the engine sends on self-join is done, so
+        // members' away status is known: the channel is fully loaded.
+        if (!e.Target) return;
+        const ch = this.channels.get(this.channelKey(e.Target));
+        if (ch && ch.joined && !ch.whoLoaded) {
+          ch.whoLoaded = true;
+          this.emit();
         }
         break;
       }
@@ -2878,9 +2921,29 @@ export class ChatService {
       kind,
       from: e.From,
       text,
-      timestamp: eventTimestamp(e),
+      timestamp: this.timestampOf(e),
       msgid: e.Tags?.msgid,
     });
+  }
+
+  // Record how far the server's clock is from ours, from a live event.
+  private noteServerClock(e: IrcEvent): void {
+    const t = e.Tags?.time;
+    if (!t || SKEW_SKIP_KINDS.has(e.Kind)) return;
+    const ms = Date.parse(t);
+    if (Number.isNaN(ms)) return;
+    const now = Date.now();
+    const samples = this.clockSamples.filter((x) => now - x.at < SKEW_WINDOW_MS);
+    samples.push({ at: now, off: ms - now });
+    this.clockSamples = samples.slice(-SKEW_MAX_SAMPLES);
+    const off = Math.max(...this.clockSamples.map((x) => x.off));
+    this.clockOffset = Math.abs(off) < SKEW_MIN_MS || Math.abs(off) > SKEW_MAX_MS ? 0 : off;
+  }
+
+  // A message's time on OUR clock: server-time corrected for the server's
+  // measured skew, or now when the server didn't stamp it.
+  private timestampOf(e: IrcEvent): number {
+    return e.Tags?.time ? eventTimestamp(e) - this.clockOffset : eventTimestamp(e);
   }
 
   // Flush a completed chathistory batch: sort, dedupe by msgid, prepend to the

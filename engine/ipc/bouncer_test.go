@@ -128,12 +128,14 @@ func TestSession_BouncerUpstreamOverWebsocket(t *testing.T) {
 			assert.True(t, sawStatus, "bouncer-upstream overtook status=connected")
 			m := frames[len(frames)-1]
 			assert.Equal(t, "znc", m.ServerID)
-			assert.Equal(t, "disconnected", m.Upstream)
-
-			if !tc.autoConnect {
+			if tc.autoConnect {
+				// The held auto-connect reads "connecting" from the start.
+				assert.Equal(t, "connecting", m.Upstream)
+			} else {
+				assert.Equal(t, "disconnected", m.Upstream)
 				writeJSON(t, c, ClientMessage{Type: "bouncer-connect", Params: json.RawMessage(`{"serverId":"znc"}`)})
+				assert.Equal(t, "connecting", readUpstream(t, rdr).Upstream)
 			}
-			assert.Equal(t, "connecting", readUpstream(t, rdr).Upstream)
 			// The upstream burst's 422 ERR_NOMOTD is informational: forwarded
 			// as an event, never as a session error. "connected" is emitted on
 			// the 001, so the 422 may still be in flight behind it — wait for

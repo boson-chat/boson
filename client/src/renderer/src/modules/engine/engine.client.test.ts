@@ -156,18 +156,19 @@ describe('EngineClient', () => {
     expect(sessionErrors).toEqual([]);
   });
 
-  it('send before open notifies any open ServerSession with an error (no throw)', () => {
+  it('connect() before open ends the attempt as disconnected instead of hanging on connecting', () => {
     const client = new EngineClient({ url: 'ws://x', token: 't' }, Ctor);
-    // We can construct a session via the public surface only by calling
-    // connect(); but connect itself routes through the not-open path. So
-    // build one indirectly: open() not called, then connect() tries to send
-    // and we observe the surfaced error on its onState listener.
-    let observed: string | undefined;
+    // open() not called: the connect can't reach the engine.
     const session = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
-    session.onState((_s, err) => { if (err) observed = err; });
-    // Subsequent commands also fail loudly.
+    const states: EngineState[] = [];
+    session.onState((st) => states.push(st)); // replays the current state
+    expect(states).toEqual(['disconnected']);
+    expect(session.isDisposed()).toBe(true);
+    expect(client.getSession('s')).toBeNull();
+    // Commands on it don't throw.
     expect(() => session.privmsg('#x', 'hi')).not.toThrow();
-    expect(observed).toBe('engine: not connected');
+    // A later connect (e.g. auto-reconnect) gets a fresh session.
+    expect(client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' })).not.toBe(session);
   });
 
   it('open() failure marks sessions disconnected with the transport error', async () => {
@@ -310,6 +311,76 @@ describe('EngineClient', () => {
     const a1 = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
     const a2 = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
     expect(a1).toBe(a2);
+  });
+
+  // Reconnect with new settings (e.g. a bouncer route turned off) while the
+  // engine hasn't yet confirmed the disconnect: the caller must get a NEW
+  // session and a real connect command, never the closing one with its
+  // stale bouncer state.
+  it('connect() after disconnect() but before the confirmation mints a fresh session', async () => {
+    const client = new EngineClient({ url: 'ws://x', token: 't' }, Ctor);
+    const p = client.open();
+    FakeWS.last!.simulateOpen();
+    await p;
+
+    const old = client.connect({ serverId: 's', hostname: 'znc', port: 6697, tls: true, nick: 'me', bouncer: true });
+    FakeWS.last!.simulateMessage({ type: 'status', serverId: 's', state: 'connected' });
+    FakeWS.last!.simulateMessage({ type: 'bouncer-upstream', serverId: 's', upstream: 'connecting' });
+    old.disconnect();
+    expect(old.isClosing()).toBe(true);
+
+    FakeWS.last!.sent.length = 0;
+    const fresh = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
+    expect(fresh).not.toBe(old);
+    expect(fresh.bouncerUpstream()).toBeNull();
+    expect(fresh.state()).toBe('connecting');
+    expect(JSON.parse(FakeWS.last!.sent[0]!)).toMatchObject({ type: 'connect', params: { serverId: 's', hostname: 'irc' } });
+    expect(client.getSession('s')).toBe(fresh);
+
+    // The engine confirms the OLD connection first; that lands on the old
+    // session only. Frames after it belong to the new one.
+    const oldStates: EngineState[] = [];
+    const freshStates: EngineState[] = [];
+    old.onState((st) => oldStates.push(st));
+    fresh.onState((st) => freshStates.push(st));
+    oldStates.length = 0;
+    freshStates.length = 0;
+    FakeWS.last!.simulateMessage({ type: 'status', serverId: 's', state: 'disconnected' });
+    expect(old.isDisposed()).toBe(true);
+    expect(oldStates).toEqual(['disconnected']);
+    expect(fresh.isDisposed()).toBe(false);
+    expect(freshStates).toEqual([]);
+
+    FakeWS.last!.simulateMessage({ type: 'status', serverId: 's', state: 'connected' });
+    expect(fresh.state()).toBe('connected');
+    expect(client.getSession('s')).toBe(fresh);
+  });
+
+  it('a disconnect() that never reached the engine does not make the session replaceable', async () => {
+    const client = new EngineClient({ url: 'ws://x', token: 't' }, Ctor);
+    const p = client.open();
+    FakeWS.last!.simulateOpen();
+    await p;
+    const s1 = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
+    // The socket is going away: the disconnect can't go out, so no
+    // confirmation will ever come for it.
+    FakeWS.last!.readyState = 2;
+    s1.disconnect();
+    expect(s1.isClosing()).toBe(false);
+    expect(client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' })).toBe(s1);
+  });
+
+  it('losing the engine socket disposes closing sessions too', async () => {
+    const client = new EngineClient({ url: 'ws://x', token: 't' }, Ctor);
+    const p = client.open();
+    FakeWS.last!.simulateOpen();
+    await p;
+    const old = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
+    old.disconnect();
+    const fresh = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
+    client.close();
+    expect(old.isDisposed()).toBe(true);
+    expect(fresh.isDisposed()).toBe(true);
   });
 
   // Adoption path: when a session for the serverId is already live (e.g. the

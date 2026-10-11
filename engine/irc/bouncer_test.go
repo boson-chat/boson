@@ -221,6 +221,9 @@ func startBouncerClient(t *testing.T, mutate func(*Config)) (*Client, *scriptedI
 	// girc paces outbound lines (flood protection); the welcome work alone
 	// is ~8 lines, which would make every step here take seconds.
 	c.girc.Config.AllowFlood = true
+	// Likewise the engine's own queue: bouncer pacing (ZNC's 2s a line) is
+	// covered by the send-queue tests, not the upstream state machine.
+	c.sendq.pacing = func() pacing { return pacing{} }
 	c.autoListDelay = 10 * time.Millisecond
 	c.bouncer.probeDelay = 30 * time.Millisecond
 	c.bouncer.probeTimeout = 250 * time.Millisecond
@@ -253,7 +256,9 @@ func TestBouncer_AttachWhileUpstreamDisconnected(t *testing.T) {
 		wantConnects int
 	}{
 		{"no auto-connect", false, []BouncerUpstream{UpstreamDisconnected}, 0},
-		{"auto-connect", true, []BouncerUpstream{UpstreamDisconnected, UpstreamConnecting}, 1},
+		// A held auto-connect reads "connecting" from the start: no Connect
+		// button for the second before it is sent.
+		{"auto-connect", true, []BouncerUpstream{UpstreamConnecting}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -285,26 +290,26 @@ func TestBouncer_UpstreamLifecycle(t *testing.T) {
 	// 1. Attach while ZNC has no upstream.
 	srv.send(zncWelcome, zncCurrentlyDown)
 	srv.waitCount(lineConnect, 1)
-	rec.waitStates(t, UpstreamDisconnected, UpstreamConnecting)
+	rec.waitStates(t, UpstreamConnecting)
 	assert.Zero(t, srv.count(lineIdentify))
 
 	// 2. The upstream comes up: ZNC's "Connecting to"/"Connected!" then the
 	// live upstream burst with a second 001 from the real server name.
 	srv.send(zncConnectingTo, zncConnected)
 	srv.send(upstreamBurst...)
-	rec.waitStates(t, UpstreamDisconnected, UpstreamConnecting, UpstreamConnected)
+	rec.waitStates(t, UpstreamConnecting, UpstreamConnected)
 	srv.waitCount(lineIdentify, 1)
 	srv.waitCount(lineVersion, 1)
 	srv.waitCount(lineList, 1)
 
 	// 3. The upstream drops; ZNC retries on its own.
 	srv.send(zncDroppedRetrying, zncConnRefused)
-	rec.waitStates(t, UpstreamDisconnected, UpstreamConnecting, UpstreamConnected, UpstreamDisconnected)
+	rec.waitStates(t, UpstreamConnecting, UpstreamConnected, UpstreamDisconnected)
 
 	// ...and reconnects: everything per-session fires again.
 	srv.send(zncConnected)
 	srv.send(upstreamBurst...)
-	rec.waitStates(t, UpstreamDisconnected, UpstreamConnecting, UpstreamConnected,
+	rec.waitStates(t, UpstreamConnecting, UpstreamConnected,
 		UpstreamDisconnected, UpstreamConnecting, UpstreamConnected)
 	srv.waitCount(lineIdentify, 2)
 	srv.waitCount(lineList, 2)
@@ -400,7 +405,7 @@ func TestBouncer_CustomStatusPrefix(t *testing.T) {
 	c, srv, rec := startBouncerClient(t, func(c *Config) { c.BouncerAutoConnect = true })
 	srv.send(welcome, down)
 	srv.waitCount("PRIVMSG -status connect", 1)
-	rec.waitStates(t, UpstreamDisconnected, UpstreamConnecting)
+	rec.waitStates(t, UpstreamConnecting)
 	assert.Zero(t, srv.count(lineConnect), "addressed the default *status")
 
 	c.BouncerDisconnect()
@@ -412,9 +417,22 @@ func TestBouncer_AutoConnectFallsBackWithoutStatusLine(t *testing.T) {
 	// after the grace window, to the default status nick.
 	_, srv, rec := startBouncerClient(t, func(c *Config) { c.BouncerAutoConnect = true })
 	srv.send(zncWelcome)
-	rec.waitStates(t, UpstreamDisconnected)
+	rec.waitStates(t, UpstreamConnecting)
 	srv.waitCount(lineConnect, 1)
-	rec.waitStates(t, UpstreamDisconnected, UpstreamConnecting)
+	settle()
+	assert.Equal(t, []BouncerUpstream{UpstreamConnecting}, rec.snapshot())
+}
+
+func TestBouncer_DisconnectDuringHeldAutoConnectReportsDisconnected(t *testing.T) {
+	// The user hits Disconnect network in the second before the held
+	// auto-connect is sent: it is called off and the state reads offline.
+	c, srv, rec := startBouncerClient(t, func(c *Config) { c.BouncerAutoConnect = true })
+	srv.send(zncWelcome)
+	rec.waitStates(t, UpstreamConnecting)
+	c.BouncerDisconnect()
+	rec.waitStates(t, UpstreamConnecting, UpstreamDisconnected)
+	settle()
+	assert.Zero(t, srv.count(lineConnect))
 }
 
 func TestBouncer_LocalizedStatusUsesUserhostProbe(t *testing.T) {
@@ -606,4 +624,27 @@ func countStr(xs []string, x string) int {
 		}
 	}
 	return n
+}
+
+func TestBouncerState_LiveTrafficProvesUpstream(t *testing.T) {
+	b := newBouncerState(true, false)
+	var got []BouncerUpstream
+	b.setOnChange(func(s BouncerUpstream) { got = append(got, s) })
+	b.onUpstreamTraffic() // state unknown: no guess
+	assert.Empty(t, got)
+	b.onWelcome("irc.example.com")
+	b.mu.Lock()
+	b.enterDisconnectedLocked(&bouncerPost{}) // e.g. a probe that timed out
+	b.mu.Unlock()
+	b.onUpstreamTraffic()
+	assert.Equal(t, []BouncerUpstream{UpstreamConnected, UpstreamDisconnected, UpstreamConnected}, got)
+}
+
+func TestIsLiveUpstreamTraffic(t *testing.T) {
+	ev := func(raw string) girc.Event { return *girc.ParseEvent(raw) }
+	assert.True(t, isLiveUpstreamTraffic(ev(":bob!b@host PRIVMSG #a :hi"), "me"))
+	assert.False(t, isLiveUpstreamTraffic(ev(":*status!status@znc.in PRIVMSG me :hi"), "me"), "bouncer module")
+	assert.False(t, isLiveUpstreamTraffic(ev(":Me!m@host PRIVMSG #a :hi"), "me"), "our own line (another client)")
+	assert.False(t, isLiveUpstreamTraffic(ev("@batch=p :bob!b@host PRIVMSG #a :hi"), "me"), "buffer playback")
+	assert.False(t, isLiveUpstreamTraffic(ev(":irc.example.com NOTICE me :hi"), "me"), "server, not a user")
 }

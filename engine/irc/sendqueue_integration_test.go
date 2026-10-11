@@ -201,21 +201,36 @@ func TestSendQueue_Integration_UserBurstInOrder(t *testing.T) {
 	}
 }
 
-func TestSendQueue_Integration_BouncerUnthrottled(t *testing.T) {
+func TestSendQueue_Integration_BouncerPacedLikeZNC(t *testing.T) {
+	// A bouncer relays upstream at its own flood rate (ZNC: burst 9, then 2s
+	// a line) from ONE FIFO. Automatic traffic must stay in our queue, paced
+	// at that rate, so a line the user types reaches the network at once
+	// instead of after everything already handed to the bouncer.
 	srv := newTimedIRCServer(t, "irc.example.com")
-	c, disconnect := connectTimed(t, srv, true)
+	c, disconnect := connectTimed(t, srv, true, quietWelcome)
 	defer disconnect()
+	// Registration may have spent a few tokens; the user's line only needs
+	// the interactive reserve to be there.
+	require.Eventually(t, func() bool { return c.sendq.available() >= interactiveReserve+1 },
+		10*time.Second, 10*time.Millisecond)
 
-	start := time.Now()
 	for i := 0; i < 30; i++ {
-		c.Privmsg("#chan", fmt.Sprintf("b%d", i))
+		c.Names(fmt.Sprintf("#c%d", i))
 	}
-	last := waitArrival(t, srv, "PRIVMSG #chan b29", 10*time.Second)
-	t.Logf("bouncer: 30 lines delivered in %s", last.Sub(start))
-	require.Less(t, last.Sub(start), 500*time.Millisecond)
-	got := srv.linesWithPrefix("PRIVMSG #chan ")
-	require.Len(t, got, 30)
-	for i, l := range got {
-		require.Equal(t, fmt.Sprintf("PRIVMSG #chan b%d", i), l.line)
+	time.Sleep(300 * time.Millisecond)
+	start := time.Now()
+	c.Privmsg("#chan", "typed")
+	got := waitArrival(t, srv, "PRIVMSG #chan typed", 2*time.Second)
+	require.Less(t, got.Sub(start), 500*time.Millisecond)
+	// Only the burst (minus the interactive reserve) of background lines went
+	// out ahead of it — the rest are still queued here, not at the bouncer.
+	require.LessOrEqual(t, len(srv.linesWithPrefix("NAMES ")), int(bouncerPacing.burst)-interactiveReserve)
+
+	// Bouncer-local commands never wait for a token.
+	start = time.Now()
+	for i := 0; i < 20; i++ {
+		c.Privmsg("*playback", fmt.Sprintf("PLAY #c%d 0", i))
 	}
+	got = waitArrival(t, srv, "PRIVMSG *playback :PLAY #c19 0", 2*time.Second)
+	require.Less(t, got.Sub(start), 500*time.Millisecond)
 }

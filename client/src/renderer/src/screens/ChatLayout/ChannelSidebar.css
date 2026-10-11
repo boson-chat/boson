@@ -429,6 +429,40 @@
 }
 
 .channel-item:hover .channel-leave { opacity: 1; }
+
+/* Join progress. Not yet joined: faint name, a dashed ring in place of the
+   #. Joined but the member list / away status still arriving: dimmed name,
+   a spinning ring. Ready: the # comes back and the name fades up to full
+   strength. Dimming (not colour) carries this, since a bright name already
+   means unread. */
+.channel-item .channel-name {
+  transition: opacity var(--motion-base) var(--ease-standard);
+}
+.channel-item[data-sync='joining'] .channel-name { opacity: 0.35; }
+.channel-item[data-sync='loading'] .channel-name { opacity: 0.5; }
+.channel-sync-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+  vertical-align: middle;
+}
+.channel-sync-spinner[data-sync='joining'] {
+  border-style: dashed;
+  opacity: 0.6;
+}
+.channel-sync-spinner[data-sync='loading'] {
+  border-color: var(--border-soft, var(--muted));
+  border-top-color: var(--accent);
+  animation: channel-sync-spin 0.9s linear infinite;
+}
+@keyframes channel-sync-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .channel-sync-spinner[data-sync='loading'] { animation: none; }
+}
 .channel-leave:hover { color: var(--danger); background: var(--surface-hover); }
 
 /* Unread / mention indicators.

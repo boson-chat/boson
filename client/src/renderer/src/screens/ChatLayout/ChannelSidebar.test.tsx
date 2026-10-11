@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/preact';
-import { ChannelSidebar, cssUrl } from './ChannelSidebar';
+import { ChannelSidebar, channelSync, cssUrl } from './ChannelSidebar';
+import type { ChatChannel } from '../../modules/chat';
 
 const baseProps = {
   serverName: 'boson',
@@ -78,5 +79,45 @@ describe('ChannelSidebar bouncer upstream meta', () => {
   it('bouncer link down: engine state wins over a stale upstream', () => {
     render(<ChannelSidebar {...baseProps} engineState="disconnected" serverInfo={{ bouncer: true, bouncerUpstream: 'connected' }} />);
     expect(dot().dataset.state).toBe('disconnected');
+  });
+});
+
+describe('channel join progress', () => {
+  const chan = (over: Partial<ChatChannel>): ChatChannel => ({
+    name: '#ai', messages: [], joined: true, members: [], typing: [], unread: 0, mentions: 0, topic: '', ...over,
+  });
+
+  it('is joining until the server confirms the JOIN', () => {
+    expect(channelSync(chan({ joined: false }))).toBe('joining');
+  });
+
+  it('is loading until both the member list and away status have arrived', () => {
+    expect(channelSync(chan({ namesLoaded: false, whoLoaded: false }))).toBe('loading');
+    expect(channelSync(chan({ namesLoaded: true, whoLoaded: false }))).toBe('loading');
+    expect(channelSync(chan({ namesLoaded: true, whoLoaded: true }))).toBe('ready');
+  });
+
+  it('treats DMs as ready', () => {
+    expect(channelSync(chan({ name: 'lynx', joined: false }))).toBe('ready');
+  });
+
+  it('marks each row with its state', () => {
+    render(
+      <ChannelSidebar
+        {...baseProps}
+        channels={[
+          chan({ name: '#a', joined: false }),
+          chan({ name: '#b', namesLoaded: true, whoLoaded: false }),
+          chan({ name: '#c', namesLoaded: true, whoLoaded: true }),
+        ]}
+      />,
+    );
+    const row = (n: string) => screen.getByText(n).closest('.channel-item') as HTMLElement;
+    expect(row('a').dataset.sync).toBe('joining');
+    expect(row('a').getAttribute('title')).toBe('Joining…');
+    expect(row('b').dataset.sync).toBe('loading');
+    expect(row('b').getAttribute('aria-busy')).toBe('true');
+    expect(row('c').dataset.sync).toBe('ready');
+    expect(row('c').getAttribute('title')).toBeNull();
   });
 });

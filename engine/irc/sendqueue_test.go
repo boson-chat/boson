@@ -270,8 +270,8 @@ func TestSendQueue_PacingSwitchesAtRuntime(t *testing.T) {
 	mu.Lock()
 	p = bouncerPacing
 	mu.Unlock()
-	clk.Advance(time.Second) // 20 lines/s
-	assert.Len(t, drain(q), 20)
+	clk.Advance(10 * time.Second) // 0.5 lines/s
+	assert.Len(t, drain(q), 5)
 }
 
 func TestSendQueue_InactiveDropsEnqueue(t *testing.T) {
@@ -420,7 +420,7 @@ func TestClient_SendClasses(t *testing.T) {
 	assert.Equal(t, []string{"TAGMSG"}, lines(classDroppable))
 }
 
-func TestClient_SelfJoinWHOIsBackgroundAndCharged(t *testing.T) {
+func TestClient_SelfJoinQueriesAreBackground(t *testing.T) {
 	c := newTestClient(t)
 	c.OnEvent(func(Event) {})
 	c.sendq.begin()
@@ -433,10 +433,12 @@ func TestClient_SelfJoinWHOIsBackgroundAndCharged(t *testing.T) {
 	c.sendq.mu.Lock()
 	bg := c.sendq.queues[classBackground]
 	c.sendq.mu.Unlock()
-	require.Len(t, bg, 1)
-	assert.Equal(t, "WHO #chan", bg[0].ev.String())
-	// girc's own WHO + MODE for the join are charged to the bucket.
-	assert.InDelta(t, before-2, c.sendq.available(), 0.1)
+	require.Len(t, bg, 2)
+	assert.Equal(t, "MODE #chan", bg[0].ev.String())
+	assert.Equal(t, "WHO #chan", bg[1].ev.String())
+	// girc's own WHOX + MODE never reach the wire (autoQueryFilter), so
+	// nothing is charged for them.
+	assert.InDelta(t, before, c.sendq.available(), 0.1)
 }
 
 func TestClient_CTCPRepliesQueuedAndCoalesced(t *testing.T) {
@@ -465,4 +467,23 @@ func TestClient_CTCPRepliesQueuedAndCoalesced(t *testing.T) {
 	assert.Equal(t, "bob", d[0].ev.Params[0])
 	assert.Contains(t, d[0].ev.Params[1], "\x01VERSION ")
 	assert.Empty(t, c.sendq.queues[classInteractive])
+}
+
+func TestClient_SelfJoinThroughBouncerSkipsMODE(t *testing.T) {
+	// Through a bouncer every line costs ZNC flood allowance; Channel
+	// settings fetches modes itself, so only the WHO is queued.
+	c := newTestClient(t)
+	c.bouncer.declared = true
+	c.OnEvent(func(Event) {})
+	c.sendq.begin()
+	c.girc.RunHandlers(&girc.Event{
+		Command: girc.JOIN,
+		Source:  &girc.Source{Name: c.girc.GetNick(), Ident: "u", Host: "h"},
+		Params:  []string{"#chan"},
+	})
+	c.sendq.mu.Lock()
+	bg := c.sendq.queues[classBackground]
+	c.sendq.mu.Unlock()
+	require.Len(t, bg, 1)
+	assert.Equal(t, "WHO #chan", bg[0].ev.String())
 }
