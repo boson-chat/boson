@@ -188,6 +188,42 @@ export class IrcPeer {
     );
   }
 
+  // WHOIS `nick` as the network sees it: whether it's online, and the
+  // channels it's in (RPL_WHOISCHANNELS, status prefixes stripped,
+  // lowercased).
+  async whois(nick: string, timeoutMs = 15_000): Promise<{ online: boolean; channels: string[] }> {
+    const from = this.mark();
+    const lc = nick.toLowerCase();
+    const about = (l: IrcLine): boolean => (l.params[1] ?? '').toLowerCase() === lc;
+    this.send(`WHOIS ${nick}`);
+    await this.waitFor((l) => l.command === '318' && about(l), timeoutMs, `end of WHOIS ${nick}`, from);
+    const replies = this.lines.slice(from).filter(about);
+    return {
+      online: replies.some((l) => l.command === '311') && !replies.some((l) => l.command === '401'),
+      channels: replies
+        .filter((l) => l.command === '319')
+        .flatMap((l) => (l.params[2] ?? '').split(' '))
+        .filter(Boolean)
+        .map((c) => c.replace(/^[~&@%+]+/, '').toLowerCase()),
+    };
+  }
+
+  // The nicks in `channel` per NAMES (status prefixes stripped, lowercased).
+  async names(channel: string, timeoutMs = 15_000): Promise<string[]> {
+    const from = this.mark();
+    const lc = channel.toLowerCase();
+    this.send(`NAMES ${channel}`);
+    await this.waitFor(
+      (l) => l.command === '366' && (l.params[1] ?? '').toLowerCase() === lc,
+      timeoutMs, `end of NAMES ${channel}`, from,
+    );
+    return this.lines.slice(from)
+      .filter((l) => l.command === '353' && (l.params[2] ?? '').toLowerCase() === lc)
+      .flatMap((l) => (l.params[3] ?? '').split(' '))
+      .filter(Boolean)
+      .map((n) => n.replace(/^[~&@%+]+/, '').split('!')[0]!.toLowerCase());
+  }
+
   async quit(msg = 'bye'): Promise<void> {
     const s = this.socket;
     if (!s || s.destroyed) return;
