@@ -129,6 +129,12 @@ type session struct {
 
 	mu      sync.Mutex
 	clients map[string]*engineClient
+	// closing holds, per serverId, a channel closed once a disconnect's
+	// "disconnected" confirmation has been sent. A connect for that serverId
+	// waits for it, so the old connection's confirmation always reaches the
+	// renderer before anything from the new one (messages carry only the
+	// serverId, so the renderer can't tell them apart otherwise).
+	closing map[string]chan struct{}
 	out     chan ServerMessage
 }
 
@@ -139,6 +145,7 @@ func newSession(ws *websocket.Conn) *session {
 	return &session{
 		ws:      ws,
 		clients: make(map[string]*engineClient),
+		closing: make(map[string]chan struct{}),
 		out:     make(chan ServerMessage, 1024),
 	}
 }
@@ -236,7 +243,19 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 		// reconnect the renderer sends on this confirmation doesn't overlap
 		// the old connection (whose nick would still be taken).
 		done := s.shutdownIRC(p.ServerID)
+		confirmed := make(chan struct{})
+		s.mu.Lock()
+		prev := s.closing[p.ServerID]
+		s.closing[p.ServerID] = confirmed
+		s.mu.Unlock()
 		go func() {
+			// A second disconnect while the first is pending confirms after it.
+			if prev != nil {
+				select {
+				case <-prev:
+				case <-s.ctx.Done():
+				}
+			}
 			if done != nil {
 				select {
 				case <-done:
@@ -245,6 +264,12 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 				}
 			}
 			s.send(ServerMessage{Type: MsgStatus, ServerID: p.ServerID, State: StateDisconnected})
+			s.mu.Lock()
+			if s.closing[p.ServerID] == confirmed {
+				delete(s.closing, p.ServerID)
+			}
+			s.mu.Unlock()
+			close(confirmed)
 		}()
 	case CmdJoin:
 		var p JoinParams
@@ -357,6 +382,22 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 }
 
 func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
+	// A disconnect for this serverId is still being confirmed: start the new
+	// connection once it has been (off the command loop, which must not block).
+	s.mu.Lock()
+	pending := s.closing[p.ServerID]
+	s.mu.Unlock()
+	if pending != nil {
+		go func() {
+			select {
+			case <-pending:
+				s.handleConnect(ctx, p)
+			case <-ctx.Done():
+			}
+		}()
+		return
+	}
+
 	// Idempotent at the engine layer: if the renderer already has a client
 	// for this serverId, reject the duplicate. The renderer owns the
 	// "already-connected, just reuse it" path locally; the engine guards

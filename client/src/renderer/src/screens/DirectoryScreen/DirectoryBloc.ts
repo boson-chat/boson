@@ -689,9 +689,10 @@ export class DirectoryBloc {
 
   // Disconnects a live connection without the user-level side effects of
   // disconnect() (the saved row and channels stay; no auto-reconnect is
-  // armed), and waits for the engine to drop the session — the engine
-  // client hands back the SAME session to a connect() for a serverId it
-  // still holds. Saved channels are queued to re-join on the new session.
+  // armed), and waits (bounded) for the engine to confirm. A connect() that
+  // runs before the confirmation still gets a fresh session: the engine
+  // client never reuses one that's closing. Saved channels are queued to
+  // re-join on the new session.
   private async restartLiveConnection(conn: Connection): Promise<void> {
     const channels = this.sessionStore.load()?.servers.find((s) => s.server.id === conn.serverId)?.channels ?? [];
     if (channels.length > 0) this.pendingJoins.set(conn.serverId, channels.slice());

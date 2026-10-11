@@ -600,6 +600,12 @@ func (c *Client) scheduleListRetry() {
 	})
 }
 
+// quitGrace is how long Connect waits, after its context is cancelled, for
+// the QUIT to go out and the server to close the link before closing the
+// socket itself. Well inside ipc's disconnectWait, so a disconnect's
+// confirmation always means the connection is really gone.
+const quitGrace = 2 * time.Second
+
 // Connect blocks until the context is cancelled or the underlying
 // connection ends. Returns nil on context cancellation (graceful shutdown)
 // and non-nil on transport errors.
@@ -640,9 +646,18 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
-		c.girc.Quit("shutting down")
-		// Drain so the goroutine exits before we return.
-		<-errCh
+		// girc closes the link once its send loop has written the QUIT, but
+		// a stalled peer (full TCP window, half-dead link) can hold that
+		// write for its 30s timeout. Send it off this goroutine and give it
+		// quitGrace; then close the socket ourselves. A bouncer treats
+		// either as a detach.
+		go c.girc.Quit("shutting down")
+		select {
+		case <-errCh:
+		case <-time.After(quitGrace):
+			c.girc.Close()
+			<-errCh
+		}
 		return nil
 	case err := <-errCh:
 		return err

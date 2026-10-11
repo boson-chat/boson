@@ -88,6 +88,8 @@ export class ServerSession {
   private readonly bouncerUpstreamListeners = new Set<(s: BouncerUpstreamState) => void>();
   private bouncerUpstream_: BouncerUpstreamState | null = null;
   private disposed_ = false;
+  // A disconnect went out and the engine hasn't confirmed it yet.
+  private closing_ = false;
 
   constructor(
     public readonly serverId: string,
@@ -272,13 +274,18 @@ export class ServerSession {
   // instance stays alive until the engine echoes back state=disconnected,
   // which triggers _dispose() from the EngineClient routing layer.
   disconnect(): void {
-    this.engine._sendForSession({
+    const sent = this.engine._sendForSession({
       type: 'disconnect',
       params: { serverId: this.serverId },
     });
+    if (sent) this.closing_ = true;
   }
 
   isDisposed(): boolean { return this.disposed_; }
+
+  // True between a disconnect() that reached the engine and its
+  // confirmation. A connect() for this serverId meanwhile gets a new session.
+  isClosing(): boolean { return this.closing_; }
 
   // --- internal hooks called by EngineClient ---
 
@@ -341,6 +348,12 @@ export class ServerSession {
 export class EngineClient {
   private ws: WebSocketLike | null = null;
   private readonly sessions_ = new Map<string, ServerSession>();
+  // Sessions replaced by a newer connect() while their disconnect was still
+  // unconfirmed, oldest first, per serverId. The engine reports the old
+  // connection's "disconnected" before anything from the new one (frames
+  // carry only the serverId), so until then every frame for that serverId
+  // belongs to the oldest of these.
+  private readonly closing_ = new Map<string, ServerSession[]>();
   private readonly reconnectListeners = new Set<ReconnectListener>();
   private readonly transportErrorListeners = new Set<TransportErrorListener>();
   // Commands issued before the WebSocket finishes its handshake are queued
@@ -468,7 +481,7 @@ export class EngineClient {
   }
 
   // Open (or re-use) a ServerSession for the given serverId and tell the
-  // engine to connect. If a session already exists for that id this returns
+  // engine to connect. If a live session already exists for that id this returns
   // the existing handle as-is and does NOT re-send a connect — the engine
   // rejects duplicate connects ("server <id> already connected") and a
   // stray re-issue here would re-set the renderer-side state to 'connecting'
@@ -482,9 +495,19 @@ export class EngineClient {
   // down). The new bloc calls connect() with the same serverIds and lands
   // here, picking up the existing live sessions instead of fighting the
   // engine for a duplicate.
+  //
+  // A session that's being disconnected is never handed back: that would
+  // keep a caller reconnecting with new settings (e.g. a bouncer route
+  // turned off) on the old connection. It moves to closing_ until the
+  // engine confirms, and a fresh session takes its place.
   connect(params: ConnectParams): ServerSession {
     const existing = this.sessions_.get(params.serverId);
-    if (existing) return existing;
+    if (existing && !existing.isClosing()) return existing;
+    if (existing) {
+      const queue = this.closing_.get(params.serverId) ?? [];
+      queue.push(existing);
+      this.closing_.set(params.serverId, queue);
+    }
 
     const session = new ServerSession(params.serverId, this);
     this.sessions_.set(params.serverId, session);
@@ -524,20 +547,22 @@ export class EngineClient {
   // Internal: ServerSession command surface. Same queue semantics as the
   // pre-refactor private send(): commands sent before the WS opens are
   // buffered and flushed on the next OPEN.
-  _sendForSession(cmd: ClientCommand): void {
+  // Returns whether the command was sent or queued.
+  _sendForSession(cmd: ClientCommand): boolean {
     if (!this.ws) {
       this.notifySendFailure('engine: not connected');
-      return;
+      return false;
     }
     if (this.ws.readyState === WS_CONNECTING) {
       this.pendingSends.push(cmd);
-      return;
+      return true;
     }
     if (this.ws.readyState !== WS_OPEN) {
       this.notifySendFailure('engine: socket not open');
-      return;
+      return false;
     }
     this.ws.send(JSON.stringify(cmd));
+    return true;
   }
 
   private notifySendFailure(error: string): void {
@@ -566,7 +591,9 @@ export class EngineClient {
     // exactly one open session (the common dev case), but make some noise so
     // the gap is obvious in the console. The fix is to restart `engine serve`
     // against the multi-server binary.
-    let session = msg.serverId ? this.sessions_.get(msg.serverId) : null;
+    let session = msg.serverId
+      ? this.closing_.get(msg.serverId)?.[0] ?? this.sessions_.get(msg.serverId)
+      : null;
     if (!session && !msg.serverId) {
       if (this.sessions_.size === 1) {
         const only = this.sessions_.values().next().value!;
@@ -606,7 +633,13 @@ export class EngineClient {
             // Tear down the session — its IRC client is gone on the engine
             // side. Future connect()s for the same serverId mint a fresh
             // ServerSession instance.
-            this.sessions_.delete(session.serverId);
+            const queue = this.closing_.get(session.serverId);
+            if (queue?.[0] === session) {
+              queue.shift();
+              if (queue.length === 0) this.closing_.delete(session.serverId);
+            } else if (this.sessions_.get(session.serverId) === session) {
+              this.sessions_.delete(session.serverId);
+            }
             session._dispose();
           }
         }
@@ -618,7 +651,8 @@ export class EngineClient {
   }
 
   private markAllSessionsDisconnected(error?: string): void {
-    const sessions = Array.from(this.sessions_.values());
+    const sessions = [...Array.from(this.closing_.values()).flat(), ...this.sessions_.values()];
+    this.closing_.clear();
     this.sessions_.clear();
     for (const s of sessions) {
       s._setState('disconnected', error);
