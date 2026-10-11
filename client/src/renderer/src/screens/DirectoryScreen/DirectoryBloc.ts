@@ -58,6 +58,10 @@ interface Connection {
   engineState: EngineState;
   error: string | null;
   bouncerUpstream: BouncerUpstreamState | null;
+  // How this connection reached its server: 'direct', or the bouncer
+  // settings it used (see bouncerTarget). In memory only — includes the
+  // bouncer password. A change re-routes the connection.
+  target: string;
   unsubscribeState: () => void;
   unsubscribeBouncerUpstream: () => void;
   unsubscribeChat: () => void;
@@ -75,12 +79,28 @@ interface AutoReconnectState {
   // actively running an attempt (engineState 'connecting') or after
   // we've reached 'connected' / been cancelled.
   nextAttemptTimer: ReturnType<typeof setTimeout> | null;
+  // Cancelled because the password was rejected, not by the user: lifted by
+  // the next successful connect (after they fixed it).
+  cancelledForAuth?: boolean;
 }
 
 // Backoff schedule: 1s, 2s, 4s, 8s, 15s, 15s, 15s, … capped so we
 // keep trying indefinitely without hammering the server. The user
 // can always click Reconnect to skip whatever delay is pending.
 const AUTO_RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+
+const BOUNCER_REROUTE_DEBOUNCE_MS = 500;
+
+// Identifies how a connection reaches its server: 'direct', or the bouncer
+// settings it was made with. `profile` is the usable (enabled) profile, or
+// null when the connection doesn't go through one.
+function bouncerTarget(
+  route: SavedServerBouncer | undefined,
+  profile: { host: string; port: number; tls: boolean; tlsInsecure?: boolean; username: string; password: string } | null,
+): string {
+  if (!route?.route || !profile) return 'direct';
+  return JSON.stringify([profile.host, profile.port, profile.tls, !!profile.tlsInsecure, profile.username, profile.password, (route.network ?? '').trim()]);
+}
 
 export interface DirectoryState {
   me: User | null | undefined;
@@ -256,7 +276,42 @@ export class DirectoryBloc {
     notifier.start();
     notifier.setOnActivate((serverId, channel) => this.activateFromNotification(serverId, channel));
 
+    // Bouncer profile changes (edited, turned off/on, or arriving late from
+    // another device) re-route the connections that use it.
+    this.unsubscribeBouncerProfile = getBouncerStore().subscribe(() => this.scheduleBouncerReroute());
+
     void this.loadInitial();
+  }
+
+  private unsubscribeBouncerProfile: (() => void) | null = null;
+  private bouncerRerouteTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Coalesces a burst of profile writes (a save + its sync echo).
+  private scheduleBouncerReroute(): void {
+    if (this.disposed || this.connections.size === 0) return;
+    if (this.bouncerRerouteTimer) clearTimeout(this.bouncerRerouteTimer);
+    this.bouncerRerouteTimer = setTimeout(() => {
+      this.bouncerRerouteTimer = null;
+      this.rerouteBouncerConnections();
+    }, BOUNCER_REROUTE_DEBOUNCE_MS);
+  }
+
+  // Reconnect every bouncer-routed server whose connection no longer matches
+  // the current profile: turned off (→ direct), turned on or arrived (→ via
+  // the bouncer), or host / port / TLS / login changed. Includes ones that
+  // gave up (e.g. a rejected password the user has now fixed).
+  private rerouteBouncerConnections(): void {
+    if (this.disposed) return;
+    const profile = getBouncerStore().get();
+    for (const conn of Array.from(this.connections.values())) {
+      const route = this.getServerBouncer(conn.serverId);
+      if (!route?.route) continue;
+      const usable = profile?.enabled && profile.host ? profile : null;
+      if (bouncerTarget(route, usable) === conn.target) continue;
+      const ar = this.autoReconnect.get(conn.serverId);
+      if (ar?.cancelledForAuth) { ar.cancelled = false; ar.cancelledForAuth = false; }
+      void this.reconnectServer(conn.serverId);
+    }
   }
 
   // A notification banner was clicked: surface the window and jump to the
@@ -298,6 +353,9 @@ export class DirectoryBloc {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.unsubscribeBouncerProfile?.();
+    this.unsubscribeBouncerProfile = null;
+    if (this.bouncerRerouteTimer) clearTimeout(this.bouncerRerouteTimer);
     if (this.searchTimer) {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
@@ -421,12 +479,28 @@ export class DirectoryBloc {
   }
 
   setServerBouncer(serverId: string, route: SavedServerBouncer): void {
+    // Settings saves don't carry upstreamOff; keep it while it's still about
+    // the same network.
+    const prev = this.getServerBouncer(serverId);
+    if (prev?.upstreamOff && !('upstreamOff' in route) && prev.network === route.network) {
+      route = { ...route, upstreamOff: true };
+    }
     this.sessionStore.setServerBouncer(serverId, route);
   }
 
   // Ask a live bouncer connection to connect / disconnect its upstream IRC
   // network (ZNC `*status connect` / `disconnect`, sent by the engine).
   // No-op when the server isn't a live connection.
+  // Persist the user's Connect / Disconnect network choice on the route (see
+  // SavedServerBouncer.upstreamOff).
+  private rememberUpstreamWanted(serverId: string, wanted: boolean): void {
+    const route = this.getServerBouncer(serverId);
+    if (!route || !!route.upstreamOff === !wanted) return;
+    const next: SavedServerBouncer = { ...route };
+    if (wanted) delete next.upstreamOff; else next.upstreamOff = true;
+    this.sessionStore.setServerBouncer(serverId, next);
+  }
+
   bouncerConnect(serverId: string): void {
     this.connections.get(serverId)?.chat.bouncerConnect();
   }
@@ -659,8 +733,13 @@ export class DirectoryBloc {
   // rather than re-implementing the teardown/replace dance — its
   // existing-but-disconnected branch already handles wedged sessions.
   async reconnectActive(): Promise<void> {
-    const activeId = this.activeServerId;
-    if (activeId === null) return;
+    if (this.activeServerId === null) return;
+    await this.reconnectServer(this.activeServerId);
+  }
+
+  // Rebuild one server's connection (see reconnectActive). Doesn't change
+  // which server is active.
+  private async reconnectServer(activeId: string): Promise<void> {
     const conn = this.connections.get(activeId);
     if (!conn) return;
     // Manual reconnect — clear any pending backoff timer + reset the
@@ -684,7 +763,7 @@ export class DirectoryBloc {
     // Server records carry the same shape whether they came from the live
     // directory list (`Server`) or a saved session (`SavedServer`); connect()
     // accepts either via its Server-typed parameter.
-    await this.connect(conn.server as Server);
+    await this.connect(conn.server as Server, { focus: activeId === this.activeServerId });
   }
 
   // Disconnects a live connection without the user-level side effects of
@@ -769,6 +848,7 @@ export class DirectoryBloc {
       ar.nextAttemptTimer = null;
     }
     ar.cancelled = true;
+    ar.cancelledForAuth = false;
     this.emit();
   }
 
@@ -786,6 +866,10 @@ export class DirectoryBloc {
       ar.nextAttemptTimer = null;
     }
     ar.attempts = 0;
+    if (ar.cancelledForAuth) {
+      ar.cancelled = false;
+      ar.cancelledForAuth = false;
+    }
   }
 
   // Is the auto-reconnect cycle currently running for this server?
@@ -1400,6 +1484,7 @@ export class DirectoryBloc {
         viaBouncer = true;
       }
     }
+    const target = bouncerTarget(route, viaBouncer ? getBouncerStore().get() : null);
 
     const session = this.engine.connect({
       serverId: server.id,
@@ -1414,7 +1499,7 @@ export class DirectoryBloc {
       // Bouncer hints for the engine: treat this as a bouncer link from the
       // start, and (unless the user opted out per server) ask the bouncer to
       // connect its upstream network when it attaches disconnected.
-      ...(viaBouncer ? { bouncer: true, bouncerAutoConnect: route?.autoConnect ?? true } : {}),
+      ...(viaBouncer ? { bouncer: true, bouncerAutoConnect: (route?.autoConnect ?? true) && !route?.upstreamOff } : {}),
     });
     // Pass the nick-claim API so signed-in users get the automated
     // claim flow. The interface is the minimal subset of
@@ -1434,6 +1519,7 @@ export class DirectoryBloc {
       // also get it via the persistence scope; guests (no persistence) only
       // have this, so without it their notifications carry no server name.
       server: { serverId: server.id, serverName: server.name },
+      onBouncerUpstreamWanted: (wanted) => this.rememberUpstreamWanted(server.id, wanted),
     });
     chat.attach();
     chat.setNotifier((ev) => getNotifier().notify(ev));
@@ -1446,6 +1532,7 @@ export class DirectoryBloc {
       engineState: session.state(),
       error: null,
       bouncerUpstream: session.bouncerUpstream?.() ?? null,
+      target,
       unsubscribeState: () => {},
       unsubscribeBouncerUpstream: () => {},
       unsubscribeChat: () => {},
@@ -1472,7 +1559,15 @@ export class DirectoryBloc {
     // notification fires synchronously with the current state ('connecting'
     // immediately after connect()); subsequent updates flow from incoming
     // status messages.
-    conn.unsubscribeState = session.onState((state, sessionError) => {
+    // A rejected password (464 ERR_PASSWDMISMATCH — ZNC's "Invalid
+    // Password" / "Password required", or a server's own PASS check) won't
+    // change on retry, and retrying a bouncer login every 15s can get the IP
+    // banned. Remember it so the drop that follows stops auto-reconnect.
+    let passwordRejected: string | null = null;
+    const unsubscribeAuth = session.onEvent((e) => {
+      if (e.Kind === '464') passwordRejected = e.Message || 'Password incorrect';
+    });
+    const unsubscribeStateOnly = session.onState((state, sessionError) => {
       conn.engineState = state;
       // Surface session-level errors (engine refused connect, IRC 4xx/5xx
       // numeric, etc.) on the connection itself — without this the splash
@@ -1507,12 +1602,24 @@ export class DirectoryBloc {
         // Schedule the next reconnect attempt (no-op if cancelled or
         // already-disposed). Idle is the pre-connect resting state and
         // not a drop, so we skip auto-reconnect for it.
-        if (state === 'disconnected') {
+        if (state === 'disconnected' && passwordRejected !== null) {
+          conn.error = viaBouncer
+            ? `Your bouncer rejected the login (${passwordRejected}). Check the username and password in User settings → Bouncer.`
+            : route?.route
+              // Routed, but no usable bouncer profile (turned off, or not on
+              // this device yet): a bouncer network's row points at the
+              // bouncer itself, which wants a login.
+              ? `This server is set to go through your bouncer, which is turned off or not set up on this device. Turn it on in User settings → Bouncer.`
+              : `The server rejected the password (${passwordRejected}). Check it in Server settings, then reconnect.`;
+          this.cancelAutoReconnect(server.id);
+          this.autoReconnect.get(server.id)!.cancelledForAuth = true;
+        } else if (state === 'disconnected') {
           this.scheduleAutoReconnect(server.id);
         }
       }
       this.emit();
     });
+    conn.unsubscribeState = () => { unsubscribeStateOnly(); unsubscribeAuth(); };
 
     // Bouncer upstream state → connection snapshot (drives the Bouncer tab's
     // per-network badges). Sticky: replays synchronously if already known.

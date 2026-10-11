@@ -17,6 +17,10 @@ export interface SavedServerBouncer {
   route: boolean;
   network: string;
   autoConnect?: boolean;
+  // The user took the network down with "Disconnect network". Auto-connect
+  // stays off on later attaches (relaunch, reconnect) until they connect it
+  // again, so the bouncer isn't put back on the network behind their back.
+  upstreamOff?: boolean;
 }
 
 export interface SavedServer {
@@ -253,6 +257,7 @@ function isSavedServer(v: unknown): v is SavedServer {
     if (!b || typeof b !== 'object'
       || typeof b.route !== 'boolean' || typeof b.network !== 'string') return false;
     if (b.autoConnect !== undefined && typeof b.autoConnect !== 'boolean') return false;
+    if (b.upstreamOff !== undefined && typeof b.upstreamOff !== 'boolean') return false;
   }
   return true;
 }

@@ -512,7 +512,14 @@ export class EngineClient {
     const session = new ServerSession(params.serverId, this);
     this.sessions_.set(params.serverId, session);
     session._setState('connecting');
-    this._sendForSession({ type: 'connect', params });
+    if (!this._sendForSession({ type: 'connect', params })) {
+      // Never reached the engine (no socket): end the attempt instead of
+      // leaving it on 'connecting' forever. The caller's onState() replays
+      // this, so its reconnect logic can take over.
+      this.sessions_.delete(params.serverId);
+      session._setState('disconnected', 'engine: not connected');
+      session._dispose();
+    }
     return session;
   }
 

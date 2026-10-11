@@ -134,6 +134,11 @@ func TestServer_ConnectWithBadParamsRepliesError(t *testing.T) {
 		got = readJSON(t, c)
 	}
 	assert.Equal(t, MsgError, got.Type)
+	// …and ends the attempt, so the renderer doesn't sit on "connecting".
+	got = readJSON(t, c)
+	assert.Equal(t, MsgStatus, got.Type)
+	assert.Equal(t, "s-1", got.ServerID)
+	assert.Equal(t, StateDisconnected, got.State)
 }
 
 func TestServer_ConnectWithoutServerIDRepliesError(t *testing.T) {

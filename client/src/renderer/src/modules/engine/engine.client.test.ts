@@ -156,18 +156,19 @@ describe('EngineClient', () => {
     expect(sessionErrors).toEqual([]);
   });
 
-  it('send before open notifies any open ServerSession with an error (no throw)', () => {
+  it('connect() before open ends the attempt as disconnected instead of hanging on connecting', () => {
     const client = new EngineClient({ url: 'ws://x', token: 't' }, Ctor);
-    // We can construct a session via the public surface only by calling
-    // connect(); but connect itself routes through the not-open path. So
-    // build one indirectly: open() not called, then connect() tries to send
-    // and we observe the surfaced error on its onState listener.
-    let observed: string | undefined;
+    // open() not called: the connect can't reach the engine.
     const session = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
-    session.onState((_s, err) => { if (err) observed = err; });
-    // Subsequent commands also fail loudly.
+    const states: EngineState[] = [];
+    session.onState((st) => states.push(st)); // replays the current state
+    expect(states).toEqual(['disconnected']);
+    expect(session.isDisposed()).toBe(true);
+    expect(client.getSession('s')).toBeNull();
+    // Commands on it don't throw.
     expect(() => session.privmsg('#x', 'hi')).not.toThrow();
-    expect(observed).toBe('engine: not connected');
+    // A later connect (e.g. auto-reconnect) gets a fresh session.
+    expect(client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' })).not.toBe(session);
   });
 
   it('open() failure marks sessions disconnected with the transport error', async () => {
@@ -355,11 +356,15 @@ describe('EngineClient', () => {
     expect(client.getSession('s')).toBe(fresh);
   });
 
-  it('a disconnect() that never reached the engine does not make the session replaceable', () => {
+  it('a disconnect() that never reached the engine does not make the session replaceable', async () => {
     const client = new EngineClient({ url: 'ws://x', token: 't' }, Ctor);
-    // No open(): there's no socket, so the disconnect can't go out and no
-    // confirmation will ever come.
+    const p = client.open();
+    FakeWS.last!.simulateOpen();
+    await p;
     const s1 = client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' });
+    // The socket is going away: the disconnect can't go out, so no
+    // confirmation will ever come for it.
+    FakeWS.last!.readyState = 2;
     s1.disconnect();
     expect(s1.isClosing()).toBe(false);
     expect(client.connect({ serverId: 's', hostname: 'irc', port: 6697, tls: true, nick: 'me' })).toBe(s1);

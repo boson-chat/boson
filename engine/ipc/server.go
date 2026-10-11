@@ -431,7 +431,10 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 
 	client, err := irc.New(cfg)
 	if err != nil {
+		// The renderer is waiting on this connect ("connecting"); end it so
+		// the attempt doesn't hang there.
 		s.send(ServerMessage{Type: MsgError, ServerID: p.ServerID, Error: err.Error()})
+		s.send(ServerMessage{Type: MsgStatus, ServerID: p.ServerID, State: StateDisconnected})
 		return
 	}
 	serverID := p.ServerID

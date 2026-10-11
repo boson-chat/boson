@@ -342,6 +342,7 @@ export class ChatService {
   // and can resurrect stale DM/service tabs. Inbox attribution still uses the
   // persistence scope; only message store + hydrate are skipped.
   private readonly bouncerConn: boolean;
+  private readonly onBouncerUpstreamWanted: ((wanted: boolean) => void) | null;
 
   // Which server this connection is, for everything keyed per server that is
   // NOT chat history: the NickServ credentials store (account status badge,
@@ -362,13 +363,21 @@ export class ChatService {
     private readonly session: ServerSession,
     private myNick: string,
     persistence?: ChatPersistence,
-    deps?: { nickClaimAPI?: NickClaimAPI; bouncer?: boolean; server?: { serverId: string; serverName?: string } },
+    deps?: {
+      nickClaimAPI?: NickClaimAPI;
+      bouncer?: boolean;
+      server?: { serverId: string; serverName?: string };
+      // Told when the user asks the bouncer to connect (true) or disconnect
+      // (false) its network, so the choice can outlive this connection.
+      onBouncerUpstreamWanted?: (wanted: boolean) => void;
+    },
   ) {
     this.persistence = persistence ?? null;
     const sid = (session as Partial<ServerSession>).serverId;
     this.serverScope = persistence?.scope ?? deps?.server ?? (sid ? { serverId: sid } : null);
     this.nickClaimAPI = deps?.nickClaimAPI ?? null;
     this.bouncerConn = deps?.bouncer ?? false;
+    this.onBouncerUpstreamWanted = deps?.onBouncerUpstreamWanted ?? null;
     // Per-server config flag: surface "via bouncer" in the server-info badge.
     // (Scroll-back itself is gated on the chathistory / playback capability,
     // not on this — a bouncer with neither offers no scroll-back.)
@@ -447,10 +456,12 @@ export class ChatService {
   // Ask the bouncer to connect / disconnect its upstream IRC network.
   // The engine reports the resulting state via `bouncer-upstream`.
   bouncerConnect(): void {
+    this.onBouncerUpstreamWanted?.(true);
     this.session.bouncerConnect();
   }
 
   bouncerDisconnect(): void {
+    this.onBouncerUpstreamWanted?.(false);
     this.session.bouncerDisconnect();
   }
 

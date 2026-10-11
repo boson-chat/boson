@@ -169,7 +169,7 @@ test.describe('bouncer keeps you on the network', () => {
   // itself stays on the network, as always. And back on again goes through
   // ZNC. Regression: Reconnect used to re-adopt the closing bouncer session
   // when the engine's confirmation came later than the app waited.
-  test('turning the bouncer off and reconnecting connects directly, and back on goes through ZNC', async ({ launchApp, zncUser }) => {
+  test('turning the bouncer off connects directly, and back on goes through ZNC', async ({ launchApp, zncUser }) => {
     const channel = `#e2e-route-${uid(8)}`;
     const serverName = `Route Ergo ${uid(4)}`;
     const guest = `rt${uid()}`;
@@ -222,19 +222,25 @@ test.describe('bouncer keeps you on the network', () => {
       await sendMessage(page, channel, back);
       expect(nickOf(await peer.waitForPrivmsg(channel, back))).toBe(viaZnc);
 
-      // Whole profile off → Reconnect (Actions): direct again.
+      // Whole profile off: the connection re-routes direct by itself (no
+      // Reconnect needed)…
       mark = peer.mark();
       await setBouncerEnabled(page, false);
-      const s2 = await openServerSettings(page, serverName);
-      await s2.getByRole('tab', { name: /^Actions/ }).click();
-      await s2.getByRole('button', { name: 'Reconnect' }).click();
-      await s2.getByRole('button', { name: 'Close settings' }).click();
       const direct2 = nickOf(await peer.waitFor(
         (l) => joined(channel)(l) && nickOf(l) !== viaZnc, 45_000, 'direct JOIN (profile off)', mark));
       expect(direct2.toLowerCase()).toContain(guest.toLowerCase());
       await expect(dot(page)).toHaveAttribute('data-state', 'connected');
       await expect(strip(page)).toHaveCount(0);
       await expectStillOnNetwork(peer, zncUser, viaZnc, channel, mark);
+
+      // …and back on: through ZNC again.
+      mark = peer.mark();
+      await setBouncerEnabled(page, true);
+      await peer.waitFor((l) => l.command === 'QUIT' && nickOf(l) === direct2, 45_000, 'direct QUIT (profile on)', mark);
+      await expect(dot(page)).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
+      const again = `profile back on ${uid()}`;
+      await sendMessage(page, channel, again);
+      expect(nickOf(await peer.waitForPrivmsg(channel, again))).toBe(viaZnc);
     } finally {
       await peer.quit();
     }
