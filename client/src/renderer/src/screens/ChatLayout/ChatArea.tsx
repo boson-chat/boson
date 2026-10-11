@@ -265,6 +265,9 @@ export function ChatArea({
 
   const display = channel.name.replace(/^[#&]/, '');
   const prefix = channel.name.startsWith('#') || channel.name.startsWith('&') ? '#' : '@';
+  // A channel stays listed while its JOIN is pending (restore, a bouncer
+  // still connecting): nothing typed there would reach it, so hold input.
+  const joining = prefix === '#' && !channel.joined;
 
   return (
     <main class="chat-area">
@@ -329,7 +332,8 @@ export function ChatArea({
       <ChatInputBar
         state={state}
         bloc={bloc}
-        placeholder={`Message ${prefix}${display}`}
+        placeholder={joining ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
+        disabled={joining}
         bannerError={bannerError}
         onDismissBanner={onDismissBanner}
         myNick={myNick}

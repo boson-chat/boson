@@ -1138,6 +1138,10 @@
 
 .chat-send-btn:hover:not(:disabled) { opacity: 0.9; }
 .chat-send-btn:disabled { opacity: 0.25; cursor: default; }
+/* Composer held while the channel's JOIN is pending: the placeholder says
+   "Joining #x…"; a kept draft is shown dimmed. */
+.chat-textarea:disabled { cursor: not-allowed; }
+.chat-textarea-wrap:has(.chat-textarea:disabled) .chat-textarea-overlay { opacity: 0.5; }
 /* Press cue on the Send button itself — fires on click. The Enter-to-
    send path in `ChatInputBar.tsx` doesn't trigger the button's :active,
    so the cue is click-only; we accept that asymmetry rather than wire a

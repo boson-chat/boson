@@ -17,6 +17,10 @@ interface ChatInputBarProps {
   // Our current nick, shown as a chip on the left of the composer so the user
   // can always see who they are. Optional for legacy fixtures.
   myNick?: string;
+  // Nothing can be sent yet (e.g. the channel's JOIN hasn't been confirmed):
+  // the textarea and Send are disabled and the placeholder says why. The
+  // draft is kept.
+  disabled?: boolean;
 }
 
 // The composer area below the message list. Renders the slash/mention/channel
@@ -30,6 +34,7 @@ export function ChatInputBar({
   bannerError,
   onDismissBanner,
   myNick,
+  disabled = false,
 }: ChatInputBarProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -204,6 +209,7 @@ export function ChatInputBar({
             ref={textareaRef}
             class="chat-textarea"
             placeholder={placeholder}
+            disabled={disabled}
             rows={1}
             value={state.input}
             onInput={(e) => bloc.setInput((e.target as HTMLTextAreaElement).value)}
@@ -227,7 +233,7 @@ export function ChatInputBar({
           class="chat-send-btn"
           type="button"
           onClick={() => bloc.send()}
-          disabled={!state.input.trim()}
+          disabled={disabled || !state.input.trim()}
         >
           Send
         </button>
