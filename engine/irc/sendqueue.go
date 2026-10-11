@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -47,6 +48,10 @@ type sendQueue struct {
 	// scheduling decision so a bouncer detected mid-connection switches
 	// profile without restarting the drainer. Called without mu held.
 	pacing func() pacing
+	// unpaced reports lines that cost nothing against the limit (bouncer-
+	// local commands); nil means every line is paced. Called at enqueue,
+	// without mu held.
+	unpaced func(*girc.Event) bool
 	// now and newTimer are the clock; tests substitute fakes.
 	now      func() time.Time
 	newTimer func(d time.Duration) (<-chan time.Time, func() bool)
@@ -78,6 +83,8 @@ type outbound struct {
 	// at is when the (latest coalesced) line was enqueued; droppable lines
 	// older than droppableTTL are discarded instead of sent.
 	at time.Time
+	// free: sent without spending a token (see sendQueue.unpaced).
+	free bool
 }
 
 // pacing is a token-bucket configuration. rate <= 0 means unlimited.
@@ -104,13 +111,16 @@ var (
 	// typist or a short paste actually experiences.
 	directPacing = pacing{burst: 6, rate: 1}
 
-	// bouncerPacing: burst 50, 20 lines/s — effectively no client-side
-	// throttling. ZNC paces the upstream itself (FloodRate ~2/s, FloodBurst
-	// 9 by default) and buffers whatever we send it, so pacing here too just
-	// doubles the delay (the original symptom). We still keep a very
-	// generous cap rather than none, so an engine bug or a pathological
-	// paste can't spin thousands of lines per second into the bouncer.
-	bouncerPacing = pacing{burst: 50, rate: 20}
+	// bouncerPacing: burst 9, then one line per 2s — ZNC's own upstream flood
+	// defaults (FloodBurst 9, FloodRate 2.00 seconds per line). ZNC queues
+	// whatever we send beyond that in ONE FIFO, where priority no longer
+	// exists: sending faster than ZNC drains just moved the backlog there,
+	// so after an attach (WHO + MODE per channel) the user's next message
+	// sat behind minutes of automatic lines. Pacing at ZNC's rate keeps its
+	// queue empty and the backlog here, where the user's lines jump it.
+	// Lines for the bouncer itself (*status, *playback) never reach the
+	// network and are not paced at all (see sendQueue.unpaced).
+	bouncerPacing = pacing{burst: 9, rate: 0.5}
 )
 
 // droppableMinTokens: a droppable line is sent only while at least this many
@@ -184,6 +194,7 @@ func (q *sendQueue) enqueue(ev *girc.Event, class sendClass, key string) {
 	if ev == nil {
 		return
 	}
+	free := q.unpaced != nil && q.unpaced(ev)
 	q.mu.Lock()
 	if !q.active {
 		q.mu.Unlock()
@@ -211,7 +222,7 @@ func (q *sendQueue) enqueue(ev *girc.Event, class sendClass, key string) {
 			q.removeStaleTypingLocked(typingKey(t))
 		}
 	}
-	q.queues[class] = append(q.queues[class], outbound{ev: ev, class: class, key: key, at: q.now()})
+	q.queues[class] = append(q.queues[class], outbound{ev: ev, class: class, key: key, at: q.now(), free: free})
 	q.mu.Unlock()
 	q.nudge()
 }
@@ -283,6 +294,9 @@ func (q *sendQueue) next() (*girc.Event, time.Duration) {
 		if sendClass(class) == classDroppable && q.now().Sub(q.queues[class][0].at) > droppableTTL {
 			q.popLocked(class) // stale: discard rather than send late
 			continue
+		}
+		if q.queues[class][0].free {
+			return q.popLocked(class).ev, 0
 		}
 		need := 1.0
 		switch sendClass(class) {
@@ -413,6 +427,16 @@ func (c *Client) sendRawLine(line string, class sendClass) {
 // pacing picks the token-bucket profile for this connection: generous for a
 // bouncer (declared by the renderer or detected on the wire), strict for a
 // direct server connection.
+// bouncerLocal reports a line addressed to one of the bouncer's own modules
+// (`*status`, `*playback`, …: ZNC's StatusPrefix, `*` by default), which the
+// bouncer answers itself instead of relaying upstream.
+func (c *Client) bouncerLocal(ev *girc.Event) bool {
+	if ev.Command != girc.PRIVMSG && ev.Command != girc.NOTICE || len(ev.Params) == 0 {
+		return false
+	}
+	return strings.HasPrefix(ev.Params[0], "*") && c.bouncer.isBouncer()
+}
+
 func (c *Client) pacing() pacing {
 	if c.bouncer.isBouncer() {
 		return bouncerPacing

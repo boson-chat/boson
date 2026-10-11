@@ -221,6 +221,9 @@ func startBouncerClient(t *testing.T, mutate func(*Config)) (*Client, *scriptedI
 	// girc paces outbound lines (flood protection); the welcome work alone
 	// is ~8 lines, which would make every step here take seconds.
 	c.girc.Config.AllowFlood = true
+	// Likewise the engine's own queue: bouncer pacing (ZNC's 2s a line) is
+	// covered by the send-queue tests, not the upstream state machine.
+	c.sendq.pacing = func() pacing { return pacing{} }
 	c.autoListDelay = 10 * time.Millisecond
 	c.bouncer.probeDelay = 30 * time.Millisecond
 	c.bouncer.probeTimeout = 250 * time.Millisecond
@@ -606,4 +609,27 @@ func countStr(xs []string, x string) int {
 		}
 	}
 	return n
+}
+
+func TestBouncerState_LiveTrafficProvesUpstream(t *testing.T) {
+	b := newBouncerState(true, false)
+	var got []BouncerUpstream
+	b.setOnChange(func(s BouncerUpstream) { got = append(got, s) })
+	b.onUpstreamTraffic() // state unknown: no guess
+	assert.Empty(t, got)
+	b.onWelcome("irc.example.com")
+	b.mu.Lock()
+	b.enterDisconnectedLocked(&bouncerPost{}) // e.g. a probe that timed out
+	b.mu.Unlock()
+	b.onUpstreamTraffic()
+	assert.Equal(t, []BouncerUpstream{UpstreamConnected, UpstreamDisconnected, UpstreamConnected}, got)
+}
+
+func TestIsLiveUpstreamTraffic(t *testing.T) {
+	ev := func(raw string) girc.Event { return *girc.ParseEvent(raw) }
+	assert.True(t, isLiveUpstreamTraffic(ev(":bob!b@host PRIVMSG #a :hi"), "me"))
+	assert.False(t, isLiveUpstreamTraffic(ev(":*status!status@znc.in PRIVMSG me :hi"), "me"), "bouncer module")
+	assert.False(t, isLiveUpstreamTraffic(ev(":Me!m@host PRIVMSG #a :hi"), "me"), "our own line (another client)")
+	assert.False(t, isLiveUpstreamTraffic(ev("@batch=p :bob!b@host PRIVMSG #a :hi"), "me"), "buffer playback")
+	assert.False(t, isLiveUpstreamTraffic(ev(":irc.example.com NOTICE me :hi"), "me"), "server, not a user")
 }

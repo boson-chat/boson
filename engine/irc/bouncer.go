@@ -17,6 +17,8 @@
 //   - 001 source `irc.znc.in` ⇒ upstream disconnected (hardcoded in ZNC,
 //     never translated).
 //   - 001 from any other source ⇒ a new upstream session (connected).
+//   - A live message from another user on the network ⇒ connected (ZNC
+//     relays nothing from the network while its upstream is down).
 //   - A message from `<prefix>status!status@znc.in` (the prefix is the
 //     user's StatusPrefix setting, default `*`) ⇒ "state may have changed".
 //     English text is matched as a fast path; anything unrecognised while
@@ -410,7 +412,9 @@ func (b *bouncerState) fireProbe(epoch uint64, timeout time.Duration) {
 	if b.selfNick != nil {
 		nick = b.selfNick()
 	}
-	b.sendLine("USERHOST "+nick, classBackground)
+	// Interactive, so the probe can't sit behind queued background lines
+	// past its own timeout and misreport a busy upstream as down.
+	b.sendLine("USERHOST "+nick, classInteractive)
 	b.schedule(timeout, func() {
 		b.mu.Lock()
 		var p bouncerPost
@@ -437,6 +441,19 @@ func (b *bouncerState) onUserhostReply() (consumed bool) {
 	// Only the upstream answers USERHOST, so a reply proves it's up.
 	b.setLocked(UpstreamConnected)
 	return true
+}
+
+// onUpstreamTraffic handles a live (un-batched) message from another user on
+// the network. ZNC relays those only while its upstream is up, so it proves
+// "connected" — recovering from a probe whose answer came too late, without
+// waiting for the next *status line.
+func (b *bouncerState) onUpstreamTraffic() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.isBouncerLocked() || b.state == UpstreamConnected || b.state == "" {
+		return
+	}
+	b.setLocked(UpstreamConnected)
 }
 
 // connect implements the bouncer-connect command: ask the status bot to
