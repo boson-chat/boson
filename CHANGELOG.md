@@ -1,3 +1,13 @@
+## [0.32.2](https://github.com/boson-chat/boson/compare/v0.32.1...v0.32.2) (2026-10-11)
+
+### Bug Fixes
+
+* **engine:** fast message sending — per-connection priority send queue ([#8](https://github.com/boson-chat/boson/issues/8)) ([3711b58](https://github.com/boson-chat/boson/commit/3711b5808b23a1aecf9827964340548b686d0395))
+
+### Documentation
+
+* **website:** macOS builds are signed + notarized; macOS 13+ ([#7](https://github.com/boson-chat/boson/issues/7)) ([e9c7b17](https://github.com/boson-chat/boson/commit/e9c7b17ac3d9a8a7d0df86faf16a431d1d4d4496))
+
 ## [0.32.1](https://github.com/boson-chat/boson/compare/v0.32.0...v0.32.1) (2026-10-10)
 
 ### Bug Fixes
