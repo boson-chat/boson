@@ -15,6 +15,13 @@ server:
         cert: ""
         key: ""
       proxy: false
+    # TLS with a self-signed certificate (the image's run.sh makes it with
+    # `ergo mkcerts` on start), for ZNC networks that must refuse it: the
+    # bouncer certificate-prompt specs. Container-internal only.
+    ":6697":
+      tls:
+        cert: /ircd/tls.crt
+        key: /ircd/tls.key
   max-sendq: 96k
   ip-cloaking:
     enabled: false

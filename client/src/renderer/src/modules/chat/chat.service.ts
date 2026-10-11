@@ -435,8 +435,10 @@ export class ChatService {
     this.unsubscribeBouncerUpstream = this.session.onBouncerUpstream?.((upstream) => {
       if (this.serverInfo.bouncerUpstream === upstream) return;
       // Only bouncer connections report upstream state, so this also
-      // latches the "via bouncer" flag.
+      // latches the "via bouncer" flag. Connected settles any certificate
+      // prompt: ZNC got through.
       this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerUpstream: upstream };
+      if (upstream === 'connected') this.clearBouncerCert();
       this.emit();
     }) ?? null;
     this.watchLatePassword();
@@ -478,6 +480,59 @@ export class ChatService {
   bouncerDisconnect(): void {
     this.onBouncerUpstreamWanted?.(false);
     this.session.bouncerDisconnect();
+  }
+
+  // Answer the bouncer's certificate prompt (serverInfo.bouncerCert). Trust
+  // pins that exact fingerprint on the ZNC network and connects; Don't trust
+  // stops ZNC's reconnect loop, which would otherwise re-dump the
+  // certificate into ~server every few seconds.
+  trustBouncerCert(): void {
+    const cert = this.serverInfo.bouncerCert;
+    if (!cert) return;
+    this.session.raw(`PRIVMSG ${this.statusBotNick} :AddTrustedServerFingerprint ${cert.fingerprint}`);
+    this.clearBouncerCert();
+    this.bouncerConnect();
+  }
+
+  rejectBouncerCert(): void {
+    if (!this.serverInfo.bouncerCert) return;
+    this.clearBouncerCert();
+    this.bouncerDisconnect();
+  }
+
+  private clearBouncerCert(): void {
+    this.bouncerCertReason = undefined;
+    if (!this.serverInfo.bouncerCert) return;
+    const { bouncerCert: _, ...rest } = this.serverInfo;
+    this.serverInfo = rest;
+    this.emit();
+  }
+
+  // ZNC's *status bot, when its upstream TLS handshake fails, says
+  // "Disconnected from IRC (Invalid SSL certificate: <why>). Reconnecting...",
+  // dumps the certificate, then "If you trust this certificate, do /znc
+  // AddTrustedServerFingerprint <sha256>". The command name isn't translated,
+  // so the fingerprint line is the signal; the reason is a bonus when English.
+  private statusBotNick = '*status';
+  private bouncerCertReason: string | undefined;
+  private noteBouncerStatus(e: IrcEvent): void {
+    // The bot's nick prefix is configurable (StatusPrefix); its host isn't.
+    const isStatusBot = /status$/i.test(e.From) && (e.Host === 'znc.in' || e.From.startsWith('*'));
+    if (!isStatusBot) return;
+    this.statusBotNick = e.From;
+    const text = e.Message ?? '';
+    const reason = /Invalid SSL certificate:\s*([^)]+)\)/i.exec(text);
+    if (reason) {
+      this.bouncerCertReason = reason[1].trim();
+      return;
+    }
+    const fp = /AddTrustedServerFingerprint\s+((?:[0-9a-f]{2}:){31}[0-9a-f]{2})\b/i.exec(text);
+    if (!fp) return;
+    const fingerprint = fp[1].toLowerCase();
+    const prev = this.serverInfo.bouncerCert;
+    if (prev?.fingerprint === fingerprint && prev.reason === this.bouncerCertReason) return;
+    this.serverInfo = { ...this.serverInfo, bouncerCert: { fingerprint, reason: this.bouncerCertReason } };
+    this.emit();
   }
 
   detach(): void {
@@ -2025,6 +2080,7 @@ export class ChatService {
         if (isNickServSender(e.From)) {
           this.maybeUpdateAccountStatus(e.Message);
         }
+        this.noteBouncerStatus(e);
         if (isMemoServSender(e.From)) {
           this.handleMemoServ(e.Message);
           // Fall through: the raw MemoServ line still lands in the quiet

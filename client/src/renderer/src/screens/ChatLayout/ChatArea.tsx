@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { PlugZap, Settings, Unplug } from 'lucide-preact';
+import { PlugZap, Settings, ShieldAlert, Unplug } from 'lucide-preact';
 import { BarLoader } from '@boson/shared';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
@@ -93,6 +93,10 @@ interface ChatAreaProps {
   // the bouncer-upstream strip's [Connect] button; when omitted the strip
   // still shows state but without the action.
   onBouncerConnect?: () => void;
+  // Answer the bouncer's "trust this certificate?" prompt
+  // (serverInfo.bouncerCert). Without them the strip shows no buttons.
+  onTrustBouncerCert?: () => void;
+  onRejectBouncerCert?: () => void;
 }
 
 export function ChatArea({
@@ -119,6 +123,8 @@ export function ChatArea({
   messagesSignal,
   onOpenChannelSettings,
   onBouncerConnect,
+  onTrustBouncerCert,
+  onRejectBouncerCert,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -255,6 +261,8 @@ export function ChatArea({
           serverInfo={serverInfo}
           serverName={serverName}
           onConnect={onBouncerConnect}
+          onTrustCert={onTrustBouncerCert}
+          onRejectCert={onRejectBouncerCert}
         />
         <div class="chat-area-empty-state">
           <p>Select a channel from the sidebar, or join one to start chatting.</p>
@@ -310,6 +318,8 @@ export function ChatArea({
         serverInfo={serverInfo}
         serverName={serverName}
         onConnect={onBouncerConnect}
+        onTrustCert={onTrustBouncerCert}
+        onRejectCert={onRejectBouncerCert}
       />
 
       <MessageList
@@ -476,6 +486,8 @@ interface BouncerUpstreamBannerProps {
   serverInfo?: ServerInfo;
   serverName?: string;
   onConnect?: () => void;
+  onTrustCert?: () => void;
+  onRejectCert?: () => void;
 }
 
 // Slim strip under the chat header for bouncer (ZNC) connections whose
@@ -484,9 +496,38 @@ interface BouncerUpstreamBannerProps {
 // user sends reaches the network until the bouncer reconnects upstream.
 //   disconnected → "Your bouncer isn't connected to X." + [Connect]
 //   connecting   → spinner + "Connecting to X…", no action
+//   certificate  → the bouncer won't accept X's TLS certificate until told
+//                  to: [Trust certificate] [Don't trust]. Takes precedence,
+//                  since connecting can't succeed until it's answered.
 // Renders nothing for direct connections, an unknown state, or connected.
-export function BouncerUpstreamBanner({ serverInfo, serverName, onConnect }: BouncerUpstreamBannerProps) {
+export function BouncerUpstreamBanner({ serverInfo, serverName, onConnect, onTrustCert, onRejectCert }: BouncerUpstreamBannerProps) {
   const upstream = serverInfo?.bouncerUpstream;
+  const cert = serverInfo?.bouncerCert;
+  if (serverInfo && cert) {
+    const network = serverInfo.network || serverName || 'the network';
+    return (
+      <div class="chat-bouncer-upstream-banner" data-state="certificate" role="alert">
+        <ShieldAlert size={14} class="chat-bouncer-upstream-icon" aria-hidden="true" />
+        <span class="chat-bouncer-upstream-text">
+          Your bouncer doesn't trust {network}'s certificate{cert.reason ? ` (${cert.reason})` : ''}.
+          {' '}Trust only if you expected this.
+          <span class="chat-bouncer-upstream-fingerprint" title={`SHA-256 ${cert.fingerprint}`}>
+            SHA-256 {cert.fingerprint}
+          </span>
+        </span>
+        {onRejectCert && (
+          <button type="button" class="chat-bouncer-upstream-action" data-variant="quiet" onClick={onRejectCert}>
+            Don't trust
+          </button>
+        )}
+        {onTrustCert && (
+          <button type="button" class="chat-bouncer-upstream-action" onClick={onTrustCert}>
+            Trust certificate
+          </button>
+        )}
+      </div>
+    );
+  }
   if (!serverInfo?.bouncer || (upstream !== 'disconnected' && upstream !== 'connecting')) return null;
   const network = serverInfo.network || serverName || 'the network';
   if (upstream === 'connecting') {

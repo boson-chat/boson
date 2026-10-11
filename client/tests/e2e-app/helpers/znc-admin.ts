@@ -89,3 +89,15 @@ export async function zncOnIrc(u: ZncUser): Promise<boolean> {
   const row = lines.find((l) => new RegExp(`^\\|\\s*${u.network}\\s*\\|`, 'i').test(l));
   return /^\|[^|]*\|\s*Yes\s*\|/i.test(row ?? '');
 }
+
+// Adds a network whose only server is ergo's TLS listener. Its certificate
+// is self-signed (infra/e2e/ergo.yaml), so ZNC refuses it and asks the user
+// to trust the fingerprint: the certificate-prompt specs.
+export async function addZncTlsNetwork(u: ZncUser, name: string): Promise<void> {
+  await withZncAdmin(u, async (run) => {
+    const added = (await run('*controlpanel', `AddNetwork ${u.username} ${name}`)).join(' ');
+    if (!/added|already exists/i.test(added)) throw new Error(`AddNetwork ${name}: ${added}`);
+    const server = (await run('*controlpanel', `AddServer ${u.username} ${name} ergo +6697`)).join(' ');
+    if (!/added/i.test(server)) throw new Error(`AddServer ${name}: ${server}`);
+  });
+}

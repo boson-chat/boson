@@ -839,6 +839,21 @@
 .chat-bouncer-upstream-banner[data-state='connecting'] {
   --bouncer-tone: var(--info, #3b82f6);
 }
+.chat-bouncer-upstream-banner[data-state='certificate'] {
+  --bouncer-tone: var(--danger);
+  flex-wrap: wrap;
+}
+.chat-bouncer-upstream-fingerprint {
+  display: block;
+  margin-top: 2px;
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.chat-bouncer-upstream-action[data-variant='quiet'] {
+  border-color: var(--border);
+  font-weight: 400;
+}
 /* Shimmer along the strip's bottom edge while the bouncer connects. */
 .chat-bouncer-upstream-bar {
   position: absolute;
