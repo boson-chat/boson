@@ -1,6 +1,6 @@
 {
   "name": "boson-monorepo",
-  "version": "0.32.3",
+  "version": "0.33.0",
   "private": true,
   "workspaces": [
     "client",

@@ -1,3 +1,9 @@
+## [0.33.0](https://github.com/boson-chat/boson/compare/v0.32.3...v0.33.0) (2026-10-11)
+
+### Features
+
+* **bouncer:** trust or reject a network certificate the bouncer refuses ([#10](https://github.com/boson-chat/boson/issues/10)) ([64b15d9](https://github.com/boson-chat/boson/commit/64b15d90c7ed6e0c33d6a2d20ca67ae29770c4e8))
+
 ## [0.32.3](https://github.com/boson-chat/boson/compare/v0.32.2...v0.32.3) (2026-10-11)
 
 ### Bug Fixes
