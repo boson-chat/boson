@@ -278,8 +278,12 @@ test.describe('composer', () => {
     await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'after the command', mark2);
     await waitCmd(peer, 'TAGMSG', nick, (l) => l.tags['+typing'] === 'done', mark2);
     const typings = peer.lines.slice(mark2).filter((l) => l.command === 'TAGMSG');
-    // Only the "after the command" line's active/done pair.
-    expect(typings.map((l) => l.tags['+typing'])).toEqual(['active', 'done']);
+    // Only the "after the command" line's typing states — none for /help. The
+    // engine may skip the "active" when the line is sent before the rate
+    // budget allows it (a queued "active" is superseded by the message itself;
+    // see engine/irc/sendqueue.go), so it's optional; "done" always follows.
+    const states = typings.map((l) => l.tags['+typing']);
+    expect([['active', 'done'], ['done']]).toContainEqual(states);
     await expect(conversation(page, channel)).toBeVisible();
   });
 });

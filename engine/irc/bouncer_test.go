@@ -488,7 +488,7 @@ type fakeBouncerEnv struct {
 func newFakeBouncer(declared, autoConnect bool) (*bouncerState, *fakeBouncerEnv) {
 	b := newBouncerState(declared, autoConnect)
 	env := &fakeBouncerEnv{}
-	b.send = func(l string) { env.mu.Lock(); env.sent = append(env.sent, l); env.mu.Unlock() }
+	b.send = func(l string, _ sendClass) { env.mu.Lock(); env.sent = append(env.sent, l); env.mu.Unlock() }
 	// Timers are captured and fired manually by the test.
 	b.after = func(_ time.Duration, fn func()) { env.mu.Lock(); env.timers = append(env.timers, fn); env.mu.Unlock() }
 	b.selfNick = func() string { return "tester" }

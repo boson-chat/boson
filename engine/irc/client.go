@@ -124,6 +124,9 @@ type Client struct {
 	// services verdicts) off girc's exec loop to a single ordered drainer.
 	// See dispatch.go.
 	dispatch *dispatchQueue
+	// sendq is the prioritised, paced outbound line queue every engine-
+	// originated send goes through. See sendqueue.go.
+	sendq *sendQueue
 }
 
 // ServicesHandler fires when the detected services package (Atheme /
@@ -161,7 +164,11 @@ func New(cfg Config) (*Client, error) {
 		TLSConfig: tlsConfigFor(cfg),
 		// Bouncer (ZNC) PASS line, e.g. "user/network:password". Empty for
 		// direct connections. girc sends it as PASS before registration.
-		ServerPass:  cfg.ServerPass,
+		ServerPass: cfg.ServerPass,
+		// girc's own flood control sleeps in the *caller* of Send (the IPC
+		// dispatch loop), stalling every command on the session; we pace
+		// in our own queue's drainer instead. See sendqueue.go.
+		AllowFlood:  true,
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
 		SASL:        saslConfig(cfg.SASL),
@@ -218,8 +225,10 @@ func New(cfg Config) (*Client, error) {
 		autoListDelay: initialAutoListDelay,
 		dispatch:      newDispatchQueue(),
 	}
+	c.sendq = newSendQueue(c.pacing)
+	c.installCTCPReplies()
 	c.services.setNickservPassword(cfg.NickservPassword)
-	c.bouncer.send = func(line string) { _ = c.girc.Cmd.SendRaw(line) }
+	c.bouncer.send = c.sendRawLine
 	c.bouncer.after = c.afterConnLifetime
 	c.bouncer.selfNick = c.girc.GetNick
 	c.bouncer.rearm = c.rearmUpstreamSession
@@ -283,7 +292,7 @@ func (c *Client) NickservIdentify(password string) {
 	if password == "" {
 		return
 	}
-	c.girc.Cmd.Message("NickServ", "IDENTIFY "+password)
+	c.send(&girc.Event{Command: girc.PRIVMSG, Params: []string{"NickServ", "IDENTIFY " + password}}, classInteractive)
 }
 
 func saslConfig(s *SASLPlain) girc.SASLMech {
@@ -404,17 +413,18 @@ func (c *Client) OnEvent(fn EventHandler) {
 			// uses WHOX format `%tacuhnr,1` (no flags field) and the
 			// server replies as 354 — useless for away detection. So
 			// we issue a plain WHO ourselves and accept the duplicate
-			// round-trip. SendRaw only enqueues onto girc's buffered tx
-			// channel — the same thing girc's own internal JOIN handler
-			// does from the exec loop — so it's fine to call inline.
+			// round-trip. Background class: it can wait behind anything
+			// the user types. Enqueueing never blocks, so it's fine on the
+			// exec loop. girc's handler has already written its WHO + MODE
+			// straight to the wire (outside our queue), so charge those
+			// two lines to the bucket to keep the server-side rate honest.
 			if e.Source != nil &&
 				girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(c.girc.GetNick()) &&
 				len(e.Params) >= 1 {
 				slog.Info("irc: sending plain WHO on self-join",
 					"channel", e.Params[0], "nick", c.girc.GetNick())
-				if err := c.girc.Cmd.SendRaw("WHO " + e.Params[0]); err != nil {
-					slog.Error("irc: WHO send failed", "channel", e.Params[0], "err", err)
-				}
+				c.sendq.charge(2)
+				c.send(&girc.Event{Command: girc.WHO, Params: []string{e.Params[0]}}, classBackground)
 			} else if e.Source != nil {
 				slog.Debug("irc: JOIN echo not self",
 					"source", e.Source.Name, "self", c.girc.GetNick())
@@ -506,12 +516,21 @@ func (c *Client) afterConnLifetime(d time.Duration, fn func()) {
 // auto-LIST, NickServ IDENTIFY (if configured) and the services VERSION
 // probes. All are latched; on a bouncer the latches are re-armed per
 // upstream session (rearmUpstreamSession). Safe on the exec loop: the sends
-// land in girc's buffered tx queue and the fallbacks run on their own timer
+// only enqueue (sendqueue.go) and the fallbacks run on their own timer
 // goroutines.
 func (c *Client) runWelcomeWork() {
 	c.scheduleAutoList()
 	c.services.onWelcome(
-		func(target, body string) { c.girc.Cmd.Message(target, body) },
+		func(target, body string) {
+			// IDENTIFY is what the user configured and is waiting on (it
+			// gates +R channels and cloaks); the VERSION/HELP probes are
+			// background classification.
+			class := classBackground
+			if strings.HasPrefix(strings.ToUpper(body), "IDENTIFY ") {
+				class = classInteractive
+			}
+			c.send(&girc.Event{Command: girc.PRIVMSG, Params: []string{target, body}}, class)
+		},
 		// Tie the probe-timeout fallbacks to the connection lifetime so they
 		// don't fire (and send on a dead client) after a disconnect within
 		// the window.
@@ -540,7 +559,7 @@ func (c *Client) scheduleAutoList() {
 	delay := c.autoListDelay
 	c.mu.Unlock()
 	c.afterConnLifetime(delay, func() {
-		_ = c.girc.Cmd.SendRaw("LIST")
+		c.send(&girc.Event{Command: girc.LIST}, classBackground)
 	})
 }
 
@@ -577,7 +596,7 @@ func (c *Client) scheduleListRetry() {
 	c.listRetryScheduled = true
 	c.mu.Unlock()
 	c.afterConnLifetime(listRetryDelay, func() {
-		_ = c.girc.Cmd.SendRaw("LIST")
+		c.send(&girc.Event{Command: girc.LIST}, classBackground)
 	})
 }
 
@@ -609,6 +628,13 @@ func (c *Client) Connect(ctx context.Context) error {
 	stopDispatch := c.startDispatch(ctx)
 	defer stopDispatch()
 
+	// Start the outbound line queue's drainer: a fresh queue per connection
+	// (anything left from a previous one was dropped when it ended). Its
+	// deferred stop runs before stopDispatch and drops unsent lines — the
+	// connection they were meant for is gone.
+	stopSend := c.startSendQueue(ctx)
+	defer stopSend()
+
 	errCh := make(chan error, 1)
 	go func() { errCh <- c.girc.MockConnect(conn) }()
 
@@ -623,19 +649,21 @@ func (c *Client) Connect(ctx context.Context) error {
 	}
 }
 
-// Join joins a channel. Safe to call before connect; girc queues it.
+// Join joins a channel. Lines sent while not connected are dropped.
 func (c *Client) Join(channel string) {
-	c.girc.Cmd.Join(channel)
+	c.send(&girc.Event{Command: girc.JOIN, Params: []string{channel}}, classInteractive)
 }
 
 // Part leaves a channel.
 func (c *Client) Part(channel string) {
-	c.girc.Cmd.Part(channel)
+	c.send(&girc.Event{Command: girc.PART, Params: []string{channel}}, classInteractive)
 }
 
-// Privmsg sends a message to a channel or user.
+// Privmsg sends a message to a channel or user. Never blocks: the line is
+// queued and paced by the send queue (sendqueue.go); lines to one target keep
+// their order.
 func (c *Client) Privmsg(target, message string) {
-	c.girc.Cmd.Message(target, message)
+	c.send(&girc.Event{Command: girc.PRIVMSG, Params: []string{target, message}}, classInteractive)
 }
 
 // Quit ends the IRC session with the given reason.
@@ -647,7 +675,7 @@ func (c *Client) Quit(reason string) {
 // more RPL_NAMREPLY (353) followed by RPL_ENDOFNAMES (366) — the renderer's
 // ChatService re-syncs the member list from those.
 func (c *Client) Names(channel string) {
-	c.girc.Cmd.SendRaw("NAMES " + channel)
+	c.send(&girc.Event{Command: girc.NAMES, Params: []string{channel}}, classBackground)
 }
 
 // List asks the server for its full channel directory. The reply is one
@@ -657,9 +685,10 @@ func (c *Client) Names(channel string) {
 // Heavy on big networks (Libera has ~50k channels), so callers should
 // throttle requests — the renderer's ChatService caches results and only
 // re-issues on user demand. Some servers also rate-limit LIST or require
-// a pattern; we issue a bare LIST which is the universal form.
+// a pattern; we issue a bare LIST which is the universal form. Background
+// class: a directory refresh can wait behind chat lines.
 func (c *Client) List() {
-	c.girc.Cmd.SendRaw("LIST")
+	c.send(&girc.Event{Command: girc.LIST}, classBackground)
 }
 
 // Away sets the user's IRC away status. Empty message clears it (the
@@ -667,9 +696,9 @@ func (c *Client) List() {
 // RPL_UNAWAY (305) which we translate in the event loop.
 func (c *Client) Away(message string) {
 	if message == "" {
-		c.girc.Cmd.SendRaw("AWAY")
+		c.send(&girc.Event{Command: girc.AWAY}, classInteractive)
 	} else {
-		c.girc.Cmd.SendRaw("AWAY :" + message)
+		c.send(&girc.Event{Command: girc.AWAY, Params: []string{message}}, classInteractive)
 	}
 }
 
@@ -686,7 +715,7 @@ func (c *Client) Nick(nick string) {
 	if nick == "" {
 		return
 	}
-	_ = c.girc.Cmd.SendRaw("NICK " + nick)
+	c.send(&girc.Event{Command: girc.NICK, Params: []string{nick}}, classInteractive)
 }
 
 // SendRaw forwards a raw IRC protocol line to the server unchanged
@@ -704,7 +733,7 @@ func (c *Client) SendRaw(line string) {
 	if line == "" {
 		return
 	}
-	_ = c.girc.Cmd.SendRaw(line)
+	c.sendRawLine(line, classInteractive)
 }
 
 // Tagmsg sends an IRCv3 TAGMSG to `target`, carrying only message tags (no
@@ -712,16 +741,25 @@ func (c *Client) SendRaw(line string) {
 // future client tags (read receipts, reactions) ride the same wire. Servers
 // that don't support `message-tags` drop the tags; servers that don't know
 // TAGMSG silently ignore the frame.
+//
+// A typing-only TAGMSG is droppable: queued per target with only the newest
+// state kept, superseded by a message to the same target, and dropped when
+// the send budget is low — typing must never delay a real line. Any other
+// tag set is treated as interactive.
 func (c *Client) Tagmsg(target string, tags map[string]string) {
 	if len(tags) == 0 {
 		return
 	}
-	t := girc.Tags(tags)
-	c.girc.Send(&girc.Event{
+	ev := &girc.Event{
 		Command: "TAGMSG",
 		Params:  []string{target},
-		Tags:    t,
-	})
+		Tags:    girc.Tags(tags),
+	}
+	if isTypingOnly(tags) {
+		c.sendq.enqueue(ev, classDroppable, typingKey(target))
+		return
+	}
+	c.send(ev, classInteractive)
 }
 
 func (c *Client) String() string {
