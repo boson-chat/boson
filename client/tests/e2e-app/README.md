@@ -8,6 +8,14 @@ Specs here drive the built Electron app against the e2e stack (endpoints:
 import { test, expect, loginAs, seedServer, randomChannel } from './fixtures';
 ```
 
+## Recording a run
+
+`E2E_VIDEO=1 npm run test:e2e:app` records every window of every launch,
+passing or failing, and attaches each as `video-launch-N` to the HTML report
+(`npx playwright show-report`). Needs `ffmpeg` on PATH; without it the tests
+run unrecorded. (Playwright's own `recordVideo` breaks the Electron renderer
+launch on macOS, so fixtures.ts screencasts over CDP and encodes with ffmpeg.)
+
 ## Rules for new specs
 
 - **Assume parallel.** Tests run fully parallel (4 workers locally) and

@@ -16,12 +16,16 @@
 // With E2E_COVERAGE=1 every launch also collects code coverage for the
 // renderer, main/preload and engine (see coverage/config.ts).
 //
+// With E2E_VIDEO=1 every window of every launch is recorded, passing or not,
+// and the videos are attached to the report (`npx playwright show-report`).
+//
 // Account-mode fixtures (createAccount / account / backendApi / mailpit)
 // need the full e2e stack (`make test-e2e-app-up`); zncUser leases one of
 // the ZNC users so tests can run in parallel. See README.md next to this
 // file for the whole fixture/helper API.
 import { test as base, expect, _electron, type ElectronApplication, type Page, type Locator } from '@playwright/test';
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +41,56 @@ export { APP_DIR, STACK };
 
 // Stubs the app's OS boson:// handler registration (see the file).
 const SANDBOX_HOOK = join(dirname(fileURLToPath(import.meta.url)), 'electron-sandbox-hook.cjs');
+// Record every window of every launch (see the header comment).
+const VIDEO = process.env['E2E_VIDEO'] === '1';
+
+// Window recording for E2E_VIDEO. Playwright's own recordVideo stops
+// Electron's renderer from starting on macOS, so frames come from Chromium's
+// screencast over CDP instead (sent only when the window changes), and ffmpeg
+// stitches them into an MP4 with their real timing when the launch ends.
+interface Recording { stop(): Promise<string | null> }
+
+let warnedNoFfmpeg = false;
+
+async function startRecording(page: Page, dir: string): Promise<Recording | null> {
+  if (spawnSync('ffmpeg', ['-version']).status !== 0) {
+    if (!warnedNoFfmpeg) console.warn('[e2e] E2E_VIDEO=1 needs ffmpeg on PATH; not recording');
+    warnedNoFfmpeg = true;
+    return null;
+  }
+  mkdirSync(dir, { recursive: true });
+  const frames: Array<{ file: string; t: number }> = [];
+  const cdp = await page.context().newCDPSession(page);
+  cdp.on('Page.screencastFrame', (f) => {
+    const file = join(dir, `${String(frames.length).padStart(6, '0')}.jpg`);
+    writeFileSync(file, Buffer.from(f.data, 'base64'));
+    frames.push({ file, t: f.metadata.timestamp ?? Date.now() / 1000 });
+    cdp.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {});
+  });
+  await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 70, maxWidth: 1280, maxHeight: 800 });
+  return {
+    async stop() {
+      // The window may already be gone (the test closed the app); the frames
+      // received so far still make the video.
+      await cdp.send('Page.stopScreencast').catch(() => {});
+      if (frames.length === 0) return null;
+      const list = frames.flatMap((f, i) => {
+        const next = frames[i + 1]?.t ?? f.t + 1;
+        return [`file '${f.file}'`, `duration ${Math.max(next - f.t, 0.01).toFixed(3)}`];
+      });
+      list.push(`file '${frames[frames.length - 1]!.file}'`);
+      const listFile = join(dir, 'frames.txt');
+      writeFileSync(listFile, list.join('\n'));
+      const out = `${dir}.mp4`;
+      const r = spawnSync('ffmpeg', [
+        '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', listFile,
+        '-vf', 'pad=ceil(iw/2)*2:ceil(ih/2)*2', '-pix_fmt', 'yuv420p', '-r', '30', out,
+      ]);
+      rmSync(dir, { recursive: true, force: true });
+      return r.status === 0 ? out : null;
+    },
+  };
+}
 
 // Test IRC infra (infra/e2e/docker-compose.yml). The app's engine and the
 // peer bot both reach ergo on the host port; ZNC reaches it as `ergo` on the
@@ -218,7 +272,7 @@ export const test = base.extend<Fixtures>({
     if (!existsSync(join(APP_DIR, 'package.json'))) {
       throw new Error(`${APP_DIR} is missing — run \`npm run build:e2e-app\` (or \`make test-e2e-app\`) first.`);
     }
-    const launched: Array<{ app: ElectronApplication; logs: string[]; n: number }> = [];
+    const launched: Array<{ app: ElectronApplication; logs: string[]; n: number; recording: Recording | null }> = [];
 
     const launch = async (opts: { profile?: Profile; args?: string[]; env?: Record<string, string> } = {}): Promise<LaunchedApp> => {
       const p = opts.profile ?? profile;
@@ -272,7 +326,8 @@ export const test = base.extend<Fixtures>({
       }
       const logs: string[] = [];
       const n = launched.length + 1;
-      launched.push({ app, logs, n });
+      const entry = { app, logs, n, recording: null as Recording | null };
+      launched.push(entry);
       const proc = app.process();
       proc.stdout?.on('data', (b: Buffer) => logs.push(b.toString()));
       proc.stderr?.on('data', (b: Buffer) => logs.push(b.toString()));
@@ -288,6 +343,7 @@ export const test = base.extend<Fixtures>({
 
       const page = await mainWindow(app);
       await page.waitForLoadState('domcontentloaded');
+      if (VIDEO) entry.recording = await startRecording(page, testInfo.outputPath(`video-launch-${n}`));
       await page.context().tracing.start({ screenshots: true, snapshots: true, title: `${testInfo.title} (launch ${n})` })
         .catch(() => { /* tracing already running for this context */ });
 
@@ -302,7 +358,7 @@ export const test = base.extend<Fixtures>({
     await use(launch);
 
     const failed = testInfo.status !== testInfo.expectedStatus;
-    for (const { app, logs, n } of launched) {
+    for (const { app, logs, n, recording } of launched) {
       const page = app.windows().find((w) => /\/index\.html/.test(w.url()));
       if (failed && page && !page.isClosed()) {
         const shot = await page.screenshot().catch(() => null);
@@ -312,6 +368,8 @@ export const test = base.extend<Fixtures>({
         if (existsSync(tracePath)) await testInfo.attach(`trace-launch-${n}`, { path: tracePath, contentType: 'application/zip' });
       }
       await app.close().catch(() => {});
+      const video = await recording?.stop();
+      if (video) await testInfo.attach(`video-launch-${n}`, { path: video, contentType: 'video/mp4' });
       if (failed) {
         const logPath = testInfo.outputPath(`main-process-launch-${n}.log`);
         writeFileSync(logPath, logs.join(''));
