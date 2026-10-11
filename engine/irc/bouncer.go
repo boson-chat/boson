@@ -169,7 +169,7 @@ func (b *bouncerState) snapshot() BouncerUpstream {
 	if !b.isBouncerLocked() {
 		return ""
 	}
-	return b.state
+	return b.reportedLocked()
 }
 
 func (b *bouncerState) isBouncerLocked() bool { return b.declared || b.detected }
@@ -178,6 +178,18 @@ func (b *bouncerState) isBouncerLocked() bool { return b.declared || b.detected 
 // whatever StatusPrefix the user configured.
 func isStatusSource(ident, host string) bool {
 	return ident == zncStatusIdent && strings.EqualFold(host, zncStatusHost)
+}
+
+// reportedLocked is the state the renderer sees. While the attach-time
+// auto-connect is held (waiting for the status bot to speak, up to
+// autoConnectGrace), the upstream is down but a connect is already on its
+// way: report "connecting", so the UI doesn't offer a Connect button for the
+// second or two before it is sent. Caller holds mu.
+func (b *bouncerState) reportedLocked() BouncerUpstream {
+	if b.state == UpstreamDisconnected && b.autoConnectPending {
+		return UpstreamConnecting
+	}
+	return b.state
 }
 
 // setLocked records a transition and emits it when this is a bouncer.
@@ -198,12 +210,13 @@ func (b *bouncerState) setLocked(s BouncerUpstream) bool {
 // last emission. Also called when detection flips on, so the renderer learns
 // the state we were already tracking silently. Caller holds mu.
 func (b *bouncerState) emitLocked() {
-	if !b.isBouncerLocked() || b.state == "" || b.state == b.emitted {
+	r := b.reportedLocked()
+	if !b.isBouncerLocked() || r == "" || r == b.emitted {
 		return
 	}
-	b.emitted = b.state
+	b.emitted = r
 	if b.onChange != nil {
-		b.onChange(b.state)
+		b.onChange(r)
 	}
 }
 
@@ -288,11 +301,16 @@ func (b *bouncerState) onWelcome(source string) (runWelcomeWork bool) {
 
 	if strings.EqualFold(source, zncServerName) {
 		b.detected = true
-		b.enterDisconnectedLocked(&post)
-		b.emitLocked() // in case state was already disconnected but unemitted
-		if b.autoConnect && !b.autoConnectFired && !b.userWantsDown {
+		// Decide the auto-connect first, so the state reported for this
+		// attach is "connecting" from the start when one is coming.
+		autoConnect := b.autoConnect && !b.autoConnectFired && !b.userWantsDown
+		if autoConnect {
 			b.autoConnectFired = true
 			b.autoConnectPending = true
+		}
+		b.enterDisconnectedLocked(&post)
+		b.emitLocked() // in case state was already disconnected but unemitted
+		if autoConnect {
 			grace := b.autoConnectGrace
 			post = append(post, func() {
 				b.schedule(grace, func() {
@@ -326,6 +344,7 @@ func (b *bouncerState) fireAutoConnectLocked(post *bouncerPost) {
 	}
 	b.autoConnectPending = false
 	if b.userWantsDown || b.state != UpstreamDisconnected {
+		b.emitLocked() // no longer "connecting" on the strength of the hold
 		return
 	}
 	line := "PRIVMSG " + b.statusNick + " :connect"
@@ -480,9 +499,11 @@ func (b *bouncerState) disconnect() {
 	var post bouncerPost
 	b.mu.Lock()
 	b.userWantsDown = true
+	b.autoConnectPending = false
 	line := "PRIVMSG " + b.statusNick + " :disconnect"
 	post = append(post, func() { b.sendLine(line, classInteractive) })
 	b.enterDisconnectedLocked(&post)
+	b.emitLocked() // already down while a held auto-connect read "connecting"
 	b.mu.Unlock()
 	post.run()
 }

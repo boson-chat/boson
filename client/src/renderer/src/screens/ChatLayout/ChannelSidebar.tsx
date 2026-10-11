@@ -262,7 +262,9 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart }: ChannelRowPro
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(channel.name); }}
     >
-      <span class="channel-hash">{prefix}</span>
+      <span class="channel-hash">
+        {sync === 'ready' ? prefix : <span class="channel-sync-spinner" data-sync={sync} aria-hidden="true" />}
+      </span>
       <span class="channel-name">{display}</span>
       {hasMention ? (
         <span

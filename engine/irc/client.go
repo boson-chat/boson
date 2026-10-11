@@ -420,13 +420,17 @@ func (c *Client) OnEvent(fn EventHandler) {
 			// the user types. Enqueueing never blocks, so it's fine on the
 			// exec loop. girc's WHOX + MODE never reach the wire (the
 			// conn's autoQueryFilter drops them), so the MODE that fills
-			// in the channel's modes is queued here too.
+			// in the channel's modes is queued here too — except through
+			// a bouncer, where every line costs 2s of ZNC's flood allowance
+			// and Channel settings fetches the modes itself when opened.
 			if e.Source != nil &&
 				girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(c.girc.GetNick()) &&
 				len(e.Params) >= 1 {
 				slog.Info("irc: sending plain WHO on self-join",
 					"channel", e.Params[0], "nick", c.girc.GetNick())
-				c.send(&girc.Event{Command: girc.MODE, Params: []string{e.Params[0]}}, classBackground)
+				if !c.bouncer.isBouncer() {
+					c.send(&girc.Event{Command: girc.MODE, Params: []string{e.Params[0]}}, classBackground)
+				}
 				c.send(&girc.Event{Command: girc.WHO, Params: []string{e.Params[0]}}, classBackground)
 			} else if e.Source != nil {
 				slog.Debug("irc: JOIN echo not self",

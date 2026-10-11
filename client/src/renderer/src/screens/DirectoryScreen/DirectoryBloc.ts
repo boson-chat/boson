@@ -91,6 +91,10 @@ interface AutoReconnectState {
 const AUTO_RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
 
 const BOUNCER_REROUTE_DEBOUNCE_MS = 500;
+// Restoring channels through a bouncer: once it is on the network, wait for
+// its channel JOINs to go quiet this long (capped) before joining the rest.
+const BOUNCER_REJOIN_QUIET_MS = 4_000;
+const BOUNCER_REJOIN_MAX_MS = 30_000;
 
 // Identifies how a connection reaches its server: 'direct', or the bouncer
 // settings it was made with. `profile` is the usable (enabled) profile, or
@@ -859,6 +863,46 @@ export class DirectoryBloc {
       void this.connect(conn.server as Server, { focus: false });
     }, delayMs);
     this.emit();
+  }
+
+  // Through a bouncer, ZNC owns channel membership: it replays the channels
+  // it is in right after attaching, and rejoins them itself whenever its own
+  // connection to the network comes up. Re-sending JOIN for those spent ZNC's
+  // flood allowance (one line every 2s) ahead of anything the user typed. So
+  // wait until the bouncer is on the network and its JOINs have gone quiet,
+  // then join only what is still missing, without switching channels.
+  private joinMissingViaBouncer(serverId: string, conn: Connection, channels: string[]): void {
+    let quiet: ReturnType<typeof setTimeout> | null = null;
+    let cap: ReturnType<typeof setTimeout> | null = null;
+    let joinedCount = -1;
+    let unsubscribe: (() => void) | null = null;
+    const stop = (): void => {
+      unsubscribe?.();
+      unsubscribe = null;
+      if (quiet) clearTimeout(quiet);
+      if (cap) clearTimeout(cap);
+      quiet = cap = null;
+    };
+    const live = (): boolean => !this.disposed && this.connections.get(serverId) === conn;
+    const joinRest = (): void => {
+      stop();
+      if (!live()) return;
+      const joined = new Set(conn.chat.getState().channels.filter((c) => c.joined).map((c) => c.name.toLowerCase()));
+      channels.filter((ch) => !joined.has(ch.toLowerCase())).forEach((ch) => conn.chat.join(ch, { focus: false }));
+    };
+    const check = (): void => {
+      if (!live()) { stop(); return; }
+      const state = conn.chat.getState();
+      if (state.serverInfo.bouncerUpstream !== 'connected') return;
+      cap ??= setTimeout(joinRest, BOUNCER_REJOIN_MAX_MS);
+      const n = state.channels.filter((c) => c.joined).length;
+      if (n === joinedCount) return;
+      joinedCount = n;
+      if (quiet) clearTimeout(quiet);
+      quiet = setTimeout(joinRest, BOUNCER_REJOIN_QUIET_MS);
+    };
+    unsubscribe = conn.chat.subscribe(check);
+    check();
   }
 
   // Stop the auto-reconnect cycle for `serverId`: clear the pending
@@ -1648,10 +1692,14 @@ export class DirectoryBloc {
           this.pendingJoins.delete(server.id);
           // Defer to the next microtask so subscribers see the connected
           // state before joins are issued.
-          queueMicrotask(() => {
-            if (this.disposed) return;
-            queued.forEach((ch) => conn.chat.join(ch));
-          });
+          if (viaBouncer) {
+            this.joinMissingViaBouncer(server.id, conn, queued);
+          } else {
+            queueMicrotask(() => {
+              if (this.disposed) return;
+              queued.forEach((ch) => conn.chat.join(ch));
+            });
+          }
         }
         if (this.restoring) this.restoring = false;
       }

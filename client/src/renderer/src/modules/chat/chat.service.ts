@@ -611,7 +611,9 @@ export class ChatService {
 
   // Actions -----------------------------------------------------------------
 
-  join(channel: string): void {
+  // `focus: false` joins without switching to the channel (a background
+  // restore must not yank the user out of the one they're reading).
+  join(channel: string, opts: { focus?: boolean } = {}): void {
     const name = normaliseChannel(channel);
     if (!name) return;
     const key = this.channelKey(name);
@@ -622,7 +624,7 @@ export class ChatService {
     }
     // Auto-switch to the channel we just asked to join so the user sees it
     // immediately, even before the server's JOIN echo arrives.
-    this.activeChannel = key;
+    if (opts.focus !== false || !this.activeChannel) this.activeChannel = key;
     this.emit();
     this.session.join(key);
   }
