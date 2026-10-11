@@ -162,6 +162,11 @@ export interface ServerInfo {
   // ("upstream"), as reported by the engine's `bouncer-upstream` frames.
   // Undefined for direct connections and until the engine reports.
   bouncerUpstream?: BouncerUpstreamState;
+  // The bouncer refused the network's TLS certificate and is asking whether
+  // to trust it (ZNC's `AddTrustedServerFingerprint` prompt). `reason` is
+  // ZNC's wording, when it was in English. Cleared once answered or once the
+  // upstream connects.
+  bouncerCert?: { fingerprint: string; reason?: string };
   // Parsed from RPL_ISUPPORT PREFIX= e.g. "(qaohv)~&@%+". `modes`/`sigils` are
   // positionally aligned, highest-rank first. Undefined → use the built-in
   // default ladder. Used to decide whether to offer owner/admin (+q/+a) grants.

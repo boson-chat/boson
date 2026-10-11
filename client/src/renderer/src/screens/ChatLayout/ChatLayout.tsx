@@ -215,6 +215,8 @@ export function ChatLayout({
         onOpenChannelSettings={isChannel ? () => setChannelSettingsOpen(true) : undefined}
         // `typeof` guard: hand-rolled test fakes have no bouncerConnect.
         onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
+        onTrustBouncerCert={typeof chat.trustBouncerCert === 'function' ? () => chat.trustBouncerCert() : undefined}
+        onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
       />
       <ResizeHandle
         side="right"

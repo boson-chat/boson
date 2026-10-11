@@ -73,3 +73,37 @@ describe('ChatArea — bouncer upstream strip', () => {
     expect(banner(container)).not.toBeNull();
   });
 });
+
+describe('ChatArea — bouncer certificate prompt', () => {
+  const FP = 'da:cb:07:eb:07:c9:34:7b:47:3e:95:a3:5e:85:b6:b2:aa:96:e2:f5:a7:4c:86:40:5e:4a:ee:5b:da:32:b4:d4';
+  const info: ServerInfo = {
+    bouncer: true, bouncerUpstream: 'disconnected',
+    bouncerCert: { fingerprint: FP, reason: "hostname doesn't match" },
+  };
+
+  it('replaces the Connect strip with Trust / Don\'t trust', () => {
+    const onTrust = vi.fn();
+    const onReject = vi.fn();
+    const { container } = render(
+      <ChatArea
+        channel={activeChannel()} myNick="alice" onSend={vi.fn()} serverName="Rizon"
+        serverInfo={info} onBouncerConnect={vi.fn()}
+        onTrustBouncerCert={onTrust} onRejectBouncerCert={onReject}
+      />,
+    );
+    const b = banner(container)!;
+    expect(b.dataset.state).toBe('certificate');
+    expect(b).toHaveTextContent("Your bouncer doesn't trust Rizon's certificate (hostname doesn't match).");
+    expect(b).toHaveTextContent(`SHA-256 ${FP}`);
+    expect(screen.queryByRole('button', { name: 'Connect' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Trust certificate' }));
+    fireEvent.click(screen.getByRole('button', { name: "Don't trust" }));
+    expect(onTrust).toHaveBeenCalledTimes(1);
+    expect(onReject).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows on the no-channel empty state too', () => {
+    const { container } = renderArea(info, { channel: null });
+    expect(banner(container)?.dataset.state).toBe('certificate');
+  });
+});

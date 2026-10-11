@@ -1104,12 +1104,18 @@ func translate(e girc.Event) Event {
 // isLiveUpstreamTraffic reports a PRIVMSG/NOTICE that only the real network
 // could have sent through a bouncer right now: from another user (a full
 // nick!user@host that isn't a bouncer module on znc.in, nor us) and not part
-// of a batch (ZNC wraps buffer playback in one).
+// of a batch (ZNC wraps buffer playback in one). Another client of the same
+// ZNC network talking to a module doesn't count: ZNC relays that line to us
+// as `:<its nick>!<user>@irc.znc.in PRIVMSG *status :…` even while offline.
 func isLiveUpstreamTraffic(e girc.Event, self string) bool {
 	if e.Source == nil || e.Source.Ident == "" || e.Source.Host == "" {
 		return false
 	}
-	if strings.EqualFold(e.Source.Host, zncStatusHost) || girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(self) {
+	if strings.EqualFold(e.Source.Host, zncStatusHost) || strings.EqualFold(e.Source.Host, zncServerName) ||
+		girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(self) {
+		return false
+	}
+	if len(e.Params) > 0 && strings.HasPrefix(e.Params[0], "*") {
 		return false
 	}
 	_, batched := e.Tags.Get("batch")

@@ -647,4 +647,7 @@ func TestIsLiveUpstreamTraffic(t *testing.T) {
 	assert.False(t, isLiveUpstreamTraffic(ev(":Me!m@host PRIVMSG #a :hi"), "me"), "our own line (another client)")
 	assert.False(t, isLiveUpstreamTraffic(ev("@batch=p :bob!b@host PRIVMSG #a :hi"), "me"), "buffer playback")
 	assert.False(t, isLiveUpstreamTraffic(ev(":irc.example.com NOTICE me :hi"), "me"), "server, not a user")
+	assert.False(t, isLiveUpstreamTraffic(ev(":other!tester8@irc.znc.in PRIVMSG *status :ListNetworks"), "me"),
+		"another client of the same ZNC network, relayed while offline")
+	assert.False(t, isLiveUpstreamTraffic(ev(":other!o@host PRIVMSG *status :ListNetworks"), "me"), "to a bouncer module")
 }
