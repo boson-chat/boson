@@ -1,3 +1,9 @@
+## [0.32.3](https://github.com/boson-chat/boson/compare/v0.32.2...v0.32.3) (2026-10-11)
+
+### Bug Fixes
+
+* **bouncer:** fast sending, no stuck states, join progress; stays on the network ([#9](https://github.com/boson-chat/boson/issues/9)) ([0e7ac92](https://github.com/boson-chat/boson/commit/0e7ac922c5a9558017e63d2e4c42a463f9985527))
+
 ## [0.32.2](https://github.com/boson-chat/boson/compare/v0.32.1...v0.32.2) (2026-10-11)
 
 ### Bug Fixes
