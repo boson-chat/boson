@@ -47,6 +47,11 @@ export interface ChatChannel {
   messages: ChatMessage[];
   joined: boolean;
   members: ChatMember[];
+  // Join progress, for the sidebar: the member list has arrived (366
+  // RPL_ENDOFNAMES) and members' away status has arrived (315 RPL_ENDOFWHO).
+  // Both reset on every self-JOIN; absent on DMs.
+  namesLoaded?: boolean;
+  whoLoaded?: boolean;
   // Nicks currently typing in this channel, per IRCv3 +typing client tag.
   // Populated by TAGMSG `+typing=active`; cleared by `+typing=done`/`paused`,
   // a PRIVMSG from the same nick, or an expiry timer (~6s, per spec).

@@ -2096,7 +2096,9 @@ export class ChatService {
           // We just joined a channel. Fire the self-membership event so the
           // persistence layer can add this channel to the saved set — even
           // if the channel record already existed locally (idempotent).
-          this.ensureChannel(e.Target, true);
+          const joinedCh = this.ensureChannel(e.Target, true);
+          joinedCh.namesLoaded = false;
+          joinedCh.whoLoaded = false;
           this.emitSelfMembership({ kind: 'join', channel: key });
           // extended-join echoes our own host + account on self-join — the
           // most reliable way to learn our cloak/account for presence.
@@ -2358,6 +2360,7 @@ export class ChatService {
         const ch = this.channels.get(key);
         if (ch) {
           ch.members = dedupeMembers(pending);
+          ch.namesLoaded = true;
           const pendingFlags = this.pendingAwayFlags.get(key);
           if (pendingFlags && pendingFlags.size > 0) {
             this.applyAwayFlags(ch, pendingFlags);
@@ -2474,6 +2477,17 @@ export class ChatService {
         const ch = this.channels.get(key);
         if (ch && ch.members.length > 0) {
           if (this.applyAwayFlags(ch, pending)) this.emit();
+        }
+        break;
+      }
+      case '315': {
+        // RPL_ENDOFWHO — the WHO the engine sends on self-join is done, so
+        // members' away status is known: the channel is fully loaded.
+        if (!e.Target) return;
+        const ch = this.channels.get(this.channelKey(e.Target));
+        if (ch && ch.joined && !ch.whoLoaded) {
+          ch.whoLoaded = true;
+          this.emit();
         }
         break;
       }
