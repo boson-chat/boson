@@ -35,6 +35,10 @@ export interface SavedServer {
   // Non-secret (the network name is just a ZNC label) — synced via the
   // session payload. Absent on servers never configured for a bouncer.
   bouncer?: SavedServerBouncer;
+  // Left (Leave server / Disconnect) but kept for its bouncer settings: not
+  // restored on launch, still listed under Directory → Bouncer, and routed
+  // the same way when connected again (which clears this).
+  parked?: boolean;
 }
 
 export interface SavedServerSession {
@@ -165,7 +169,20 @@ export class SessionStore {
     }
     current.servers = next;
     if (current.activeServerId === serverId) {
-      current.activeServerId = next[0]?.server.id ?? null;
+      current.activeServerId = next.find((s) => !s.server.parked)?.server.id ?? null;
+    }
+    this.save(current);
+  }
+
+  // Mark a server as left but keep its row (see SavedServer.parked).
+  parkServer(serverId: string): void {
+    const current = this.load();
+    if (!current) return;
+    const target = current.servers.find((s) => s.server.id === serverId);
+    if (!target) return;
+    target.server = { ...target.server, parked: true };
+    if (current.activeServerId === serverId) {
+      current.activeServerId = current.servers.find((s) => !s.server.parked)?.server.id ?? null;
     }
     this.save(current);
   }
@@ -259,6 +276,7 @@ function isSavedServer(v: unknown): v is SavedServer {
     if (b.autoConnect !== undefined && typeof b.autoConnect !== 'boolean') return false;
     if (b.upstreamOff !== undefined && typeof b.upstreamOff !== 'boolean') return false;
   }
+  if (s.parked !== undefined && typeof s.parked !== 'boolean') return false;
   return true;
 }
 

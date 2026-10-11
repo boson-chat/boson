@@ -79,9 +79,10 @@ interface AutoReconnectState {
   // actively running an attempt (engineState 'connecting') or after
   // we've reached 'connected' / been cancelled.
   nextAttemptTimer: ReturnType<typeof setTimeout> | null;
-  // Cancelled because the password was rejected, not by the user: lifted by
-  // the next successful connect (after they fixed it).
-  cancelledForAuth?: boolean;
+  // Cancelled because of a setup problem (password rejected, network not on
+  // the bouncer), not by the user: lifted by the next successful connect,
+  // i.e. once they've fixed it.
+  cancelledForError?: boolean;
 }
 
 // Backoff schedule: 1s, 2s, 4s, 8s, 15s, 15s, 15s, … capped so we
@@ -266,7 +267,7 @@ export class DirectoryBloc {
     // still pending. The maybeRestoreSession() flow will clear it if a
     // restore can't actually proceed. Guest sessions also restore their
     // saved server set; identity isn't required for IRC connections.
-    if (deps.engine && this.sessionStore.load()) {
+    if (deps.engine && this.sessionStore.load()?.servers.some((s) => !s.server.parked)) {
       if (this.guestNick || this.identity.isUnlocked()) this.restoring = true;
     }
 
@@ -309,7 +310,7 @@ export class DirectoryBloc {
       const usable = profile?.enabled && profile.host ? profile : null;
       if (bouncerTarget(route, usable) === conn.target) continue;
       const ar = this.autoReconnect.get(conn.serverId);
-      if (ar?.cancelledForAuth) { ar.cancelled = false; ar.cancelledForAuth = false; }
+      if (ar?.cancelledForError) { ar.cancelled = false; ar.cancelledForError = false; }
       void this.reconnectServer(conn.serverId);
     }
   }
@@ -469,6 +470,16 @@ export class DirectoryBloc {
     this.sessionStore.setActiveServer(serverId);
     this.applyForegroundState();
     this.emit();
+  }
+
+  // A server the user left. One with bouncer settings keeps its row, parked,
+  // so the setup isn't lost (a bouncer network would vanish from Directory →
+  // Bouncer; a routed server would come back direct while ZNC holds its
+  // nick). Anything else is dropped.
+  private forgetServer(serverId: string): void {
+    const row = this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.server;
+    if (row?.bouncer) this.sessionStore.parkServer(serverId);
+    else this.sessionStore.removeServer(serverId);
   }
 
   // Per-server bouncer routing (read/write the saved-session row). Takes
@@ -686,7 +697,7 @@ export class DirectoryBloc {
     }
     // Drop ONLY this server from the saved set. Other connections (if any)
     // remain restorable on next launch.
-    this.sessionStore.removeServer(serverId);
+    this.forgetServer(serverId);
     if (this.activeServerId !== null) {
       this.sessionStore.setActiveServer(this.activeServerId);
     }
@@ -708,7 +719,7 @@ export class DirectoryBloc {
       this.emit();
       return;
     }
-    this.sessionStore.removeServer(activeId);
+    this.forgetServer(activeId);
     this.pendingJoins.delete(activeId);
     this.restored = true;
     this.restoring = false;
@@ -848,7 +859,7 @@ export class DirectoryBloc {
       ar.nextAttemptTimer = null;
     }
     ar.cancelled = true;
-    ar.cancelledForAuth = false;
+    ar.cancelledForError = false;
     this.emit();
   }
 
@@ -866,9 +877,9 @@ export class DirectoryBloc {
       ar.nextAttemptTimer = null;
     }
     ar.attempts = 0;
-    if (ar.cancelledForAuth) {
+    if (ar.cancelledForError) {
       ar.cancelled = false;
-      ar.cancelledForAuth = false;
+      ar.cancelledForError = false;
     }
   }
 
@@ -1118,6 +1129,8 @@ export class DirectoryBloc {
   addBouncerNetwork(input: { name: string; network: string }): void {
     const profile = getBouncerStore().get();
     const network = input.network.trim();
+    // One row per ZNC network (see connectWith's same-network guard).
+    if (this.bouncerNetworks().some((s) => (s.bouncer?.network ?? '').trim().toLowerCase() === network.toLowerCase())) return;
     const id = `bouncer-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e6).toString(36)}`;
     this.sessionStore.upsertServer({
       id,
@@ -1140,7 +1153,7 @@ export class DirectoryBloc {
   // Remove a bouncer network: disconnect it if live (which also drops the
   // saved row), otherwise just drop the saved row.
   removeBouncerNetwork(serverId: string): void {
-    if (this.connections.has(serverId)) { this.disconnect(serverId); return; }
+    if (this.connections.has(serverId)) this.disconnect(serverId);
     this.sessionStore.removeServer(serverId);
     this.emit();
   }
@@ -1362,7 +1375,8 @@ export class DirectoryBloc {
     // Identity is only required for account mode (SASL key derivation, etc.).
     // Guests connect anonymously, so we still proceed when locked.
     if (!this.guestNick && !this.identity.isUnlocked()) return;
-    const saved = this.sessionStore.load();
+    const stored = this.sessionStore.load();
+    const saved = stored && { ...stored, servers: stored.servers.filter((s) => !s.server.parked) };
     if (!saved || saved.servers.length === 0) {
       if (this.restoring) {
         this.restoring = false;
@@ -1484,7 +1498,28 @@ export class DirectoryBloc {
         viaBouncer = true;
       }
     }
+    // Re-check after the awaits above: a concurrent connectWith for this
+    // server (restore + a click) may have registered it meanwhile, and a
+    // second ChatService on the same session would double every event.
+    if (this.disposed || this.connections.has(server.id)) return;
     const target = bouncerTarget(route, viaBouncer ? getBouncerStore().get() : null);
+    // Already attached to this ZNC network under another server (a routed
+    // directory server and a bouncer network row, say): a second attach
+    // would mirror the first, and its Disconnect network / closed channels
+    // would hit both. Use the one that's there.
+    if (viaBouncer) {
+      const twin = Array.from(this.connections.values())
+        .find((c) => c.serverId !== server.id && c.target === target && c.engineState !== 'disconnected');
+      if (twin) {
+        this.pendingJoins.delete(server.id);
+        if (opts.focus !== false || this.activeServerId === null) {
+          this.activeServerId = twin.serverId;
+          this.applyForegroundState();
+        }
+        this.emit();
+        return;
+      }
+    }
 
     const session = this.engine.connect({
       serverId: server.id,
@@ -1564,8 +1599,19 @@ export class DirectoryBloc {
     // change on retry, and retrying a bouncer login every 15s can get the IP
     // banned. Remember it so the drop that follows stops auto-reconnect.
     let passwordRejected: string | null = null;
+    // ZNC attached us to no network (the route's network name doesn't exist
+    // on the bouncer): nothing would ever work, and Connect network just
+    // gets "You must be connected with a network…". End it and say why.
+    let networkMissing: string | null = null;
     const unsubscribeAuth = session.onEvent((e) => {
       if (e.Kind === '464') passwordRejected = e.Message || 'Password incorrect';
+      if (viaBouncer && networkMissing === null && e.Kind === 'PRIVMSG' && /^\*.*status$/i.test(e.From ?? '')) {
+        const m = /^Network (\S+) doesn't exist/.exec(e.Message ?? '');
+        if (m || /^You must be connected with a network/.test(e.Message ?? '')) {
+          networkMissing = m?.[1] ?? (route?.network ?? '').trim();
+          session.disconnect();
+        }
+      }
     });
     const unsubscribeStateOnly = session.onState((state, sessionError) => {
       conn.engineState = state;
@@ -1602,7 +1648,11 @@ export class DirectoryBloc {
         // Schedule the next reconnect attempt (no-op if cancelled or
         // already-disposed). Idle is the pre-connect resting state and
         // not a drop, so we skip auto-reconnect for it.
-        if (state === 'disconnected' && passwordRejected !== null) {
+        if (state === 'disconnected' && networkMissing !== null) {
+          conn.error = `Your bouncer has no network named "${networkMissing}". Check the network name in this server's settings (Bouncer), or pull the list in Directory → Bouncer.`;
+          this.cancelAutoReconnect(server.id);
+          this.autoReconnect.get(server.id)!.cancelledForError = true;
+        } else if (state === 'disconnected' && passwordRejected !== null) {
           conn.error = viaBouncer
             ? `Your bouncer rejected the login (${passwordRejected}). Check the username and password in User settings → Bouncer.`
             : route?.route
@@ -1612,7 +1662,7 @@ export class DirectoryBloc {
               ? `This server is set to go through your bouncer, which is turned off or not set up on this device. Turn it on in User settings → Bouncer.`
               : `The server rejected the password (${passwordRejected}). Check it in Server settings, then reconnect.`;
           this.cancelAutoReconnect(server.id);
-          this.autoReconnect.get(server.id)!.cancelledForAuth = true;
+          this.autoReconnect.get(server.id)!.cancelledForError = true;
         } else if (state === 'disconnected') {
           this.scheduleAutoReconnect(server.id);
         }

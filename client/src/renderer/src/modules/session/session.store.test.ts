@@ -103,6 +103,36 @@ describe('SessionStore (v2 multi-server)', () => {
     expect(store.load()?.activeServerId).toBe('srv-a');
   });
 
+  it('parkServer keeps the row (and its bouncer route) but moves the active server on', () => {
+    store.save(sampleSession);
+    store.setServerBouncer('srv-a', { route: true, network: 'libera', upstreamOff: true });
+    store.parkServer('srv-a');
+    const loaded = new SessionStore(storage).load();
+    const a = loaded?.servers.find((s) => s.server.id === 'srv-a')?.server;
+    expect(a?.parked).toBe(true);
+    expect(a?.bouncer).toEqual({ route: true, network: 'libera', upstreamOff: true });
+    expect(loaded?.activeServerId).toBe('srv-b');
+  });
+
+  it('connecting a parked server again (upsertServer) un-parks it and keeps its route', () => {
+    store.save(sampleSession);
+    store.setServerBouncer('srv-a', { route: true, network: 'libera' });
+    store.parkServer('srv-a');
+    const { id, name, hostname, port, tls } = sampleSession.servers[0]!.server;
+    store.upsertServer({ id, name, hostname, port, tls });
+    const a = store.load()?.servers.find((s) => s.server.id === 'srv-a')?.server;
+    expect(a?.parked).toBeUndefined();
+    expect(a?.bouncer).toEqual({ route: true, network: 'libera' });
+  });
+
+  it('rejects a payload whose parked flag is not a boolean', () => {
+    storage.setItem('boson:session:v2', JSON.stringify({
+      servers: [{ server: { ...sampleSession.servers[0]!.server, parked: 'yes' }, channels: [], activeChannel: null }],
+      activeServerId: null,
+    }));
+    expect(store.load()).toBeNull();
+  });
+
   it('setChannels targets a specific server', () => {
     store.save(sampleSession);
     store.setChannels('srv-b', ['#new', '#chat']);

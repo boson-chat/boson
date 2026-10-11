@@ -4,12 +4,17 @@
 //  - A rejected bouncer login retried every 15s forever (fail2ban bait) with
 //    no reason shown; now it stops, says why, and fixing the password in
 //    User settings reconnects on its own.
+//  - A network name the bouncer doesn't have attached to nothing, and the
+//    Connect banner looped; now it stops with the reason.
+//  - Leave server deleted a bouncer network's row (and a routed server's
+//    route); now the row stays, listed and routed, just not restored.
+//  - The same ZNC network could be added twice.
 import type { Locator, Page } from '@playwright/test';
 import {
   test, expect, uid, type ZncUser,
   continueAsGuest, configureBouncerProfile,
 } from './fixtures';
-import { railContextMenu } from './helpers/directory';
+import { railContextMenu, railTile } from './helpers/directory';
 import { zncOnIrc, zncUpstream } from './helpers/znc-admin';
 
 const strip = (page: Page): Locator => page.locator('.chat-bouncer-upstream-banner');
@@ -18,10 +23,10 @@ const splashTitle = (page: Page): Locator => page.locator('.chat-engine-title');
 const splashReason = (page: Page): Locator => page.locator('.chat-engine-reason');
 
 // Directory → Bouncer tab → add the user's ZNC network → Connect.
-async function addAndConnectBouncerNetwork(page: Page, z: ZncUser, name: string): Promise<void> {
+async function addAndConnectBouncerNetwork(page: Page, z: ZncUser, name: string, network = z.network): Promise<void> {
   await page.getByRole('tab', { name: 'Bouncer' }).click();
   await page.getByPlaceholder('Display name').fill(name);
-  await page.getByPlaceholder('ZNC network, e.g. libera').fill(z.network);
+  await page.getByPlaceholder('ZNC network, e.g. libera').fill(network);
   await page.getByRole('button', { name: 'Add network' }).click();
   await page.locator('.directory-bouncer-row').filter({ hasText: name })
     .getByRole('button', { name: 'Connect', exact: true }).click();
@@ -90,5 +95,76 @@ test.describe('bouncer recovery', () => {
     });
     await expect(dot(page)).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
     await expect(splashReason(page)).toHaveCount(0);
+  });
+
+  test('a network name the bouncer does not have stops with the reason instead of looping', async ({ launchApp, zncUser }) => {
+    const name = `ZNC Nonet ${uid(4)}`;
+    const { page } = await launchApp();
+    await continueAsGuest(page, `nn${uid()}`);
+    await configureBouncerProfile(page, {
+      host: zncUser.host, port: zncUser.port, username: zncUser.username, password: zncUser.password, tls: false,
+    });
+    await addAndConnectBouncerNetwork(page, zncUser, name, 'nosuchnet');
+
+    await expect(splashReason(page)).toContainText('Your bouncer has no network named "nosuchnet"', { timeout: 30_000 });
+    await expect(splashTitle(page)).toHaveText(`Disconnected from ${name}`);
+    await page.waitForTimeout(6_000);
+    await expect(splashTitle(page)).toHaveText(`Disconnected from ${name}`);
+    // The user's real network was never touched.
+    expect(await zncOnIrc(zncUser)).toBe(false);
+  });
+
+  test('Leave server keeps a bouncer network listed; it is not restored, and Connect routes it again', async ({ launchApp, zncUser }) => {
+    const name = `ZNC Left ${uid(4)}`;
+    let { app, page } = await launchApp();
+    await continueAsGuest(page, `lv${uid()}`);
+    await configureBouncerProfile(page, {
+      host: zncUser.host, port: zncUser.port, username: zncUser.username, password: zncUser.password, tls: false,
+    });
+    await addAndConnectBouncerNetwork(page, zncUser, name);
+    await expect(dot(page)).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
+
+    await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
+    await expect(railTile(page, name)).toHaveCount(0);
+    const row = page.locator('.directory-bouncer-row').filter({ hasText: name });
+    await page.getByRole('tab', { name: 'Bouncer' }).click();
+    await expect(row.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    // ZNC stays on the network (a detach, not a disconnect).
+    expect(await zncOnIrc(zncUser)).toBe(true);
+
+    // Relaunch: not reconnected by itself, but still in the list.
+    await app.close();
+    ({ app, page } = await launchApp());
+    await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('tab', { name: 'Bouncer' }).click();
+    await expect(row.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
+    await expect(railTile(page, name)).toHaveCount(0);
+
+    // Connect: back through the bouncer.
+    await row.getByRole('button', { name: 'Connect', exact: true }).click();
+    await expect(page.locator('.sidebar-server-name')).toHaveText(name, { timeout: 30_000 });
+    await expect(dot(page)).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
+    await expect(page.getByRole('complementary', { name: 'Channels' }).getByLabel('via bouncer', { exact: true })).toBeVisible();
+  });
+
+  test('the same ZNC network cannot be added twice', async ({ launchApp, zncUser }) => {
+    const { page } = await launchApp();
+    await continueAsGuest(page, `dp${uid()}`);
+    await configureBouncerProfile(page, {
+      host: zncUser.host, port: zncUser.port, username: zncUser.username, password: zncUser.password, tls: false,
+    });
+    await page.getByRole('tab', { name: 'Bouncer' }).click();
+    await page.getByPlaceholder('Display name').fill(`First ${uid(4)}`);
+    await page.getByPlaceholder('ZNC network, e.g. libera').fill(zncUser.network);
+    await page.getByRole('button', { name: 'Add network' }).click();
+    await expect(page.locator('.directory-bouncer-row')).toHaveCount(1);
+
+    await page.getByPlaceholder('Display name').fill(`Second ${uid(4)}`);
+    await page.getByPlaceholder('ZNC network, e.g. libera').fill(zncUser.network.toUpperCase());
+    await expect(page.getByText('Already added')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Add network' })).toBeDisabled();
+    await page.getByPlaceholder('ZNC network, e.g. libera').fill(`other${uid(4)}`);
+    await expect(page.getByText('Already added')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Add network' })).toBeEnabled();
   });
 });

@@ -127,7 +127,7 @@ test.describe('bouncer keeps you on the network', () => {
     }
   });
 
-  test('the engine dying without a QUIT leaves ZNC on the network', async ({ launchApp, zncUser }) => {
+  test('the engine dying without a QUIT leaves ZNC on the network, and the app recovers', async ({ launchApp, zncUser }) => {
     const channel = `#e2e-crash-${uid(8)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
     try {
@@ -136,10 +136,21 @@ test.describe('bouncer keeps you on the network', () => {
       const nick = await joinViaBouncer(page, peer, zncUser, `ZNC Crash ${uid(4)}`, channel);
 
       const mark = peer.mark();
-      process.kill(enginePid(app), 'SIGKILL');
+      const killed = enginePid(app);
+      process.kill(killed, 'SIGKILL');
       // The app notices its engine is gone.
       await expect(page.locator('.sidebar-status-dot')).not.toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
       await expectStillOnNetwork(peer, zncUser, nick, channel, mark);
+
+      // The app restarts its engine and gets back on its own: same channel,
+      // messages flow again through ZNC.
+      await expect.poll(() => { try { return enginePid(app); } catch { return 0; } }, { timeout: 30_000 })
+        .not.toBe(0);
+      expect(enginePid(app)).not.toBe(killed);
+      await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 60_000 });
+      const back = `after the crash ${uid()}`;
+      await sendMessage(page, channel, back);
+      expect((await peer.waitForPrivmsg(channel, back, 30_000)).prefix.split('!')[0]).toBe(nick);
     } finally {
       await peer.quit();
     }
