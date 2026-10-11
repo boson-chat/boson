@@ -126,7 +126,7 @@ test.describe('bouncer recovery', () => {
 
     await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
     await expect(railTile(page, name)).toHaveCount(0);
-    const row = page.locator('.directory-bouncer-row').filter({ hasText: name });
+    let row = page.locator('.directory-bouncer-row').filter({ hasText: name });
     await page.getByRole('tab', { name: 'Bouncer' }).click();
     await expect(row.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
     // ZNC stays on the network (a detach, not a disconnect).
@@ -137,6 +137,7 @@ test.describe('bouncer recovery', () => {
     ({ app, page } = await launchApp());
     await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible({ timeout: 30_000 });
     await page.getByRole('tab', { name: 'Bouncer' }).click();
+    row = page.locator('.directory-bouncer-row').filter({ hasText: name }); // the new window
     await expect(row.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
     await expect(railTile(page, name)).toHaveCount(0);
 

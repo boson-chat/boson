@@ -280,11 +280,27 @@ export class DirectoryBloc {
     // Bouncer profile changes (edited, turned off/on, or arriving late from
     // another device) re-route the connections that use it.
     this.unsubscribeBouncerProfile = getBouncerStore().subscribe(() => this.scheduleBouncerReroute());
+    // The engine is back (its socket reopened — e.g. the sidecar restarted
+    // after a crash): bring dropped servers back now instead of waiting out
+    // their backoff.
+    this.unsubscribeEngineReconnect = this.engine?.onReconnect?.(() => this.reconnectDropped()) ?? null;
 
     void this.loadInitial();
   }
 
   private unsubscribeBouncerProfile: (() => void) | null = null;
+  private unsubscribeEngineReconnect: (() => void) | null = null;
+
+  private reconnectDropped(): void {
+    if (this.disposed) return;
+    for (const conn of Array.from(this.connections.values())) {
+      if (conn.engineState !== 'disconnected') continue;
+      const ar = this.autoReconnect.get(conn.serverId);
+      if (ar?.cancelled) continue;
+      if (ar?.nextAttemptTimer) { clearTimeout(ar.nextAttemptTimer); ar.nextAttemptTimer = null; }
+      void this.connect(conn.server as Server, { focus: false });
+    }
+  }
   private bouncerRerouteTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Coalesces a burst of profile writes (a save + its sync echo).
@@ -356,6 +372,8 @@ export class DirectoryBloc {
     this.disposed = true;
     this.unsubscribeBouncerProfile?.();
     this.unsubscribeBouncerProfile = null;
+    this.unsubscribeEngineReconnect?.();
+    this.unsubscribeEngineReconnect = null;
     if (this.bouncerRerouteTimer) clearTimeout(this.bouncerRerouteTimer);
     if (this.searchTimer) {
       clearTimeout(this.searchTimer);
@@ -1664,7 +1682,12 @@ export class DirectoryBloc {
           this.cancelAutoReconnect(server.id);
           this.autoReconnect.get(server.id)!.cancelledForError = true;
         } else if (state === 'disconnected') {
-          this.scheduleAutoReconnect(server.id);
+          // Deferred: a connect that fails outright (engine down) reports
+          // 'disconnected' synchronously, before this connection is in the
+          // map — scheduling now would find nothing and never retry.
+          queueMicrotask(() => {
+            if (this.connections.get(server.id) === conn) this.scheduleAutoReconnect(server.id);
+          });
         }
       }
       this.emit();
