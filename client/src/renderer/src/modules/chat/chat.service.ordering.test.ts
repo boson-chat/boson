@@ -56,3 +56,38 @@ describe('ChatService — message ordering', () => {
     expect(texts(chat, '#t')).toEqual(['a', 'b', 'c']);
   });
 });
+
+describe('ChatService — server clock skew', () => {
+  const at = (ms: number) => new Date(ms).toISOString();
+  const event = (Kind: string, time: string, extra: Partial<IrcEvent> = {}): IrcEvent => ({
+    Kind, From: 'jrmu', Target: '#t', Message: '', Tags: { time }, Raw: '', ...extra,
+  });
+  const messages = (chat: ChatService) =>
+    chat.getState().channels.find((c) => c.name === '#t')?.messages ?? [];
+
+  it('corrects a bouncer clock running minutes slow, so live lines land at the bottom with the right time', () => {
+    const { chat, session } = buildChat();
+    const slow = -3 * 60_000;
+    session.emit(event('JOIN', at(Date.now() + slow), { From: 'Nyan' }));
+    chat.send('#t', 'mine');
+    session.emit(event('PRIVMSG', at(Date.now() + slow), { Message: 'reply' }));
+    const msgs = messages(chat);
+    expect(msgs.map((m) => m.text).slice(-2)).toEqual(['mine', 'reply']);
+    expect(Math.abs(msgs[msgs.length - 1]!.timestamp - Date.now())).toBeLessThan(1_000);
+  });
+
+  it('does not learn skew from replayed messages', () => {
+    const { chat, session } = buildChat();
+    const old = Date.now() - 20 * 60_000;
+    session.emit(event('PRIVMSG', at(old), { Message: 'replayed' }));
+    expect(messages(chat)[0]!.timestamp).toBe(old);
+  });
+
+  it('ignores sub-second differences', () => {
+    const { chat, session } = buildChat();
+    session.emit(event('JOIN', at(Date.now() - 400), { From: 'Nyan' }));
+    const t = Date.now() - 200;
+    session.emit(event('PRIVMSG', at(t), { Message: 'x' }));
+    expect(messages(chat).find((m) => m.text === 'x')!.timestamp).toBe(t);
+  });
+});
