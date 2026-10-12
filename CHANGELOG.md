@@ -1,3 +1,9 @@
+## [0.34.0](https://github.com/boson-chat/boson/compare/v0.33.0...v0.34.0) (2026-10-12)
+
+### Features
+
+* **client:** themes, with built-ins, an in-app editor and JSON theme files ([#12](https://github.com/boson-chat/boson/issues/12)) ([8dde436](https://github.com/boson-chat/boson/commit/8dde436ed0125cc51af51ec14a19a75b323eecfc))
+
 ## [0.33.0](https://github.com/boson-chat/boson/compare/v0.32.3...v0.33.0) (2026-10-11)
 
 ### Features
