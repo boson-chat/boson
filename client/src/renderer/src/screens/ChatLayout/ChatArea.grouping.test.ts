@@ -177,3 +177,54 @@ describe('ASCII-art banners', () => {
     expect(preformattedBody(['   ', ''])).toBe('\n');
   });
 });
+
+describe('buildRenderItems — pasted markdown documents', () => {
+  const t0 = 1_000_000_000_000;
+  const paste = (from: string, lines: string[], gap = 1_000, start = t0) =>
+    lines.map((text, i) => msg({ id: `${from}-${start}-${i}`, from, text, timestamp: start + i * gap }));
+
+  it('joins a burst of lines with block markdown into one doc', () => {
+    const lines = ['# Notes', ' ', '```go', '    x := 1', '```'];
+    const items = buildRenderItems(paste('ada', lines));
+    expect(items.map((i) => i.type)).toEqual(['doc']);
+    const doc = items[0] as Extract<typeof items[number], { type: 'doc' }>;
+    expect(doc.msg.text).toBe(lines.join('\n'));
+    expect(doc.msg.id).toBe(`ada-${t0}-0`);
+    expect(doc.items).toHaveLength(5);
+  });
+
+  it('ends the burst at a gap, another speaker, or a different kind', () => {
+    const items = buildRenderItems([
+      ...paste('ada', ['- one', '- two']),
+      msg({ id: 'late', from: 'ada', text: '- three', timestamp: t0 + 60_000 }),
+      ...paste('bob', ['# hi', 'there'], 1_000, t0 + 61_000),
+      msg({ id: 'n', kind: 'notice', from: 'bob', text: '- x', timestamp: t0 + 62_500 }),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['doc', 'msg', 'doc', 'msg']);
+  });
+
+  it('leaves chat that is not markdown as separate messages, dropping blank lines', () => {
+    const items = buildRenderItems(paste('ada', ['hi', ' ', 'how are you?']));
+    expect(items.map((i) => (i.type === 'msg' ? i.msg.text : i.type))).toEqual(['hi', 'how are you?']);
+  });
+
+  it('still folds banners and tables that are not markdown into a preblock', () => {
+    const items = buildRenderItems(paste('bot', ['┌──┬──┐', '│ a│ b│', '└──┴──┘']));
+    expect(items.map((i) => i.type)).toEqual(['preblock']);
+  });
+
+  it('keeps a paste that is only a pipe table as a preblock table', () => {
+    const items = buildRenderItems(paste('bot', ['| name | score |', '|------|-------|', '| a | 1 |']));
+    expect(items.map((i) => i.type)).toEqual(['preblock']);
+  });
+
+  it('keeps a chat line, a table and box art from one sender apart', () => {
+    const items = buildRenderItems(paste('ada', ['| name | score |', '|------|-------|', '| a | 1 |', 'and now some art', '┌────┐', '│ hi │', '└────┘']));
+    expect(items.map((i) => i.type)).toEqual(['preblock', 'msg', 'preblock']);
+  });
+
+  it('renders a table inside a markdown document as part of it', () => {
+    const items = buildRenderItems(paste('ada', ['## Scores', ' ', '| name | score |', '|------|-------|', '| a | 1 |']));
+    expect(items.map((i) => i.type)).toEqual(['doc']);
+  });
+});

@@ -2,6 +2,7 @@ import type { SlashCommandSpec } from '../../modules/chat';
 import { SLASH_COMMANDS } from '../../modules/chat';
 import { stripMentionAts, tokenizeInput, type InputToken } from './chat-input.tokenize';
 import { findNickWordStart, formatNickCompletion } from './chat-input.tab';
+import { toWireLines } from './markdown-blocks';
 
 // Public state surface for ChatInputBloc. The view binds directly to this; no
 // secondary state should leak into the component. Cursor placement is queued
@@ -412,8 +413,9 @@ export class ChatInputBloc {
     this.historyIndex = null;
     this.historyDraft = '';
     // IRC PRIVMSG is one line per command. Multi-line input becomes N
-    // PRIVMSGs; receivers see them grouped (same sender, same window).
-    const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+    // PRIVMSGs, keeping indentation and blank lines so a pasted markdown
+    // document survives (see toWireLines); receivers group them back.
+    const lines = toWireLines(this.input);
     const members = this.deps.getMembers() as { nick: string }[];
     const stripped = lines.map((l) => stripMentionAts(l, members));
     this.deps.onSend(stripped);

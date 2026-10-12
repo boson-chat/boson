@@ -158,6 +158,34 @@ test.describe('composer', () => {
     await expect(box).toHaveValue('qqqq');
   });
 
+  test('a pasted markdown document keeps its shape on the wire and renders as one message', async ({ launchApp }) => {
+    const channel = randomChannel('md');
+    const peer = await connectPeer();
+    peers.push(peer);
+    const { page, nick } = await connectGuest(launchApp);
+    await joinViaUi(page, channel, nick);
+    await peer.join(channel);
+    const box = input(page);
+
+    await box.fill('## Notes\n\n\n- item\n  - nested\n\n```sh\n/usr/bin/env true\n```');
+    await box.press('Enter');
+    // Indentation survives, blank lines go out as a single space (one per
+    // run), and a line starting with "/" is text, not a command.
+    for (const text of ['## Notes', ' ', '- item', '  - nested', '```sh', '/usr/bin/env true', '```']) {
+      await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === text);
+    }
+    const doc = messages(page).locator('.md-doc');
+    await expect(doc).toHaveCount(1);
+    await expect(doc.locator('h2')).toHaveText('Notes');
+    await expect(doc.locator('ul ul li')).toHaveText('nested');
+    await expect(doc.locator('pre code')).toHaveText('/usr/bin/env true');
+
+    // The peer's paste, arriving one line at a time, renders the same way.
+    for (const l of ['# From the peer', ' ', '1. one', '2. two']) peer.privmsg(channel, l);
+    await expect(messages(page).locator('.md-doc h1')).toHaveText('From the peer');
+    await expect(messages(page).locator('.md-doc ol li')).toHaveText(['one', 'two']);
+  });
+
   test('Shift+Enter writes multi-line messages; Up/Down recall sent lines', async ({ launchApp }) => {
     const channel = randomChannel('ml');
     const peer = await connectPeer();

@@ -416,7 +416,15 @@ describe('ChatInputBloc', () => {
       const { bloc, sent } = makeBloc();
       bloc.setInput('one\ntwo\n\nthree');
       bloc.send();
-      expect(sent).toEqual([['one', 'two', 'three']]);
+      // The blank line is kept, as a single space (IRC can't send an empty line).
+      expect(sent).toEqual([['one', 'two', ' ', 'three']]);
+    });
+
+    it('multi-line input keeps indentation and escapes leading slashes', () => {
+      const { bloc, sent } = makeBloc();
+      bloc.setInput('```bash\n/usr/bin/env\n  cd /tmp\n```\n');
+      bloc.send();
+      expect(sent).toEqual([['```bash', '//usr/bin/env', '  cd /tmp', '```']]);
     });
 
     it('empty / whitespace-only input is a no-op', () => {

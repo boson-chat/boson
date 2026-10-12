@@ -9,6 +9,8 @@ import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, isPreformattedLine, stripIrcFormatting, type MdToken } from './markdown';
 import { parseTables, type ParsedTable } from './table';
 import { parseBanners, splitBannerLine, type Banner } from './banner';
+import { BURST_GAP_MS, hasBlockMarkdown, isMarkdownDocument } from './markdown-blocks';
+import { MarkdownDoc } from './MarkdownDoc';
 import { emojiFor } from './emoji-data';
 import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
@@ -45,13 +47,15 @@ interface MessageRowProps {
   fresh?: boolean;
   /** Resolve a nick to its profile-image URL (Boson members). */
   avatarFor?: (nick: string) => string | undefined;
+  /** msg.text is a multi-line markdown document (a paste), not one line. */
+  doc?: boolean;
 }
 
 // Match UserPanel's hover-card open-delay so dwelling on a nick in chat
 // and dwelling on one in the right rail feel identically responsive.
 const HOVER_OPEN_DELAY_MS = 150;
 
-export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor }: MessageRowProps) {
+export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
   // Debounce-on-enter timer for the hover card — see `UserPanel.tsx`.
@@ -76,7 +80,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
   // Only flag the row as a mention when someone *else* says our nick. Our
   // own messages always contain our nick (in `from`) but never count.
   const mentionsMe = !mine && containsNickMention(msg.text, myNick);
-  const renderedText = renderMessageBody(msg.text, myNick, members);
+  const renderedText = doc ? null : renderMessageBody(msg.text, myNick, members);
 
   if (msg.kind === 'action') {
     return (
@@ -143,11 +147,13 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
             <span class="message-row-time">{time}</span>
           </div>
         )}
-        <div class="message-row-text">
-          <span class="message-row-text-body">{renderedText}</span>
+        <div class={`message-row-text${doc ? ' message-row-doc' : ''}`}>
+          {doc
+            ? <MarkdownDoc text={msg.text} />
+            : <span class="message-row-text-body">{renderedText}</span>}
           {grouped && <span class="message-row-grouped-time" aria-hidden="true">{time}</span>}
         </div>
-        <MessageEmbeds text={msg.text} />
+        {!doc && <MessageEmbeds text={msg.text} />}
       </div>
       {menu && (
         <NickContextMenu
@@ -387,6 +393,7 @@ export const MessageList = memo(function MessageList({
             return <PreBlock key={item.id} items={item.items} avatarFor={avatarFor} />;
           }
           const m = item.msg;
+          const doc = item.type === 'doc';
           const grouped = shouldGroup(prevMsg, m);
           const isFresh = m.timestamp > freshnessBaseline.current;
           prevMsg = m;
@@ -400,6 +407,7 @@ export const MessageList = memo(function MessageList({
               nickActions={nickActions}
               fresh={isFresh}
               avatarFor={avatarFor}
+              doc={doc}
             />
           );
         })}
@@ -423,7 +431,11 @@ export type RenderItem =
   | { type: 'activity'; id: string; items: ChatMessage[] }
   // Consecutive preformatted lines (box-drawing / pipe tables) from one sender,
   // rendered as a single aligned monospace block (see PreBlock).
-  | { type: 'preblock'; id: string; from: string; items: ChatMessage[] };
+  | { type: 'preblock'; id: string; from: string; items: ChatMessage[] }
+  // A pasted markdown document: a burst of lines from one sender, joined
+  // into one message (msg.text holds every line; id/timestamp are the
+  // first line's) and rendered as a document (see MarkdownDoc).
+  | { type: 'doc'; msg: ChatMessage; items: ChatMessage[] };
 
 // Preformatted grouping is only meaningful for actual chat lines (a bot's
 // table is PRIVMSG/NOTICE), never system/join/quit.
@@ -431,6 +443,7 @@ const PREFORMAT_KINDS: ReadonlySet<ChatMessage['kind']> = new Set(['message', 'n
 
 // Walk the message list and fold runs into higher-level items:
 //   - long runs of activity-kind messages → one `activity` item
+//   - a burst of lines from one sender that reads as markdown → one `doc`
 //   - consecutive preformatted lines from the same sender → one `preblock`
 // Everything else passes through as individual `msg` items, preserving the
 // existing per-message rendering + grouping.
@@ -455,7 +468,33 @@ export function buildRenderItems(
     out.push({ type: 'preblock', id: `pre-${preRun[0]!.id}`, from: preRun[0]!.from, items: preRun });
     preRun = [];
   };
-  for (const m of messages) {
+  // A burst that isn't a document has no tail that is one either; don't
+  // re-check each of its lines.
+  let checkedTo = -1;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (PREFORMAT_KINDS.has(m.kind) && i > checkedTo) {
+      const burst = burstAt(messages, i);
+      checkedTo = i + burst.length - 1;
+      // The markdown has to be in lines other than tables and ASCII art:
+      // those keep the preblock below (table with "show all", banner cards,
+      // aligned art) even when a chat line comes with them.
+      const texts = burst.map((b) => b.text);
+      if (isMarkdownDocument(texts) && hasBlockMarkdown(texts.filter((t) => !isPreformattedLine(t)))) {
+        flushActivity();
+        flushPre();
+        out.push({
+          type: 'doc',
+          msg: { ...m, text: texts.join('\n') },
+          items: burst,
+        });
+        i += burst.length - 1;
+        continue;
+      }
+    }
+    // A blank line outside a document (BLANK_LINE from a paste that isn't
+    // markdown) has nothing to show.
+    if (PREFORMAT_KINDS.has(m.kind) && !m.text.trim()) continue;
     if (ACTIVITY_KINDS.has(m.kind)) {
       flushPre();
       activityRun.push(m);
@@ -474,6 +513,21 @@ export function buildRenderItems(
   flushActivity();
   flushPre();
   return out;
+}
+
+// The run of lines starting at messages[i] that one paste produced: same
+// sender and kind, each within BURST_GAP_MS of the one before, nothing else
+// in between.
+function burstAt(messages: readonly ChatMessage[], i: number): ChatMessage[] {
+  const first = messages[i]!;
+  const run = [first];
+  for (let j = i + 1; j < messages.length; j++) {
+    const m = messages[j]!;
+    const prev = run[run.length - 1]!;
+    if (m.kind !== first.kind || m.from !== first.from || m.timestamp - prev.timestamp > BURST_GAP_MS) break;
+    run.push(m);
+  }
+  return run;
 }
 
 // Coalesce identical adjacent activity texts into {text, count} so a wall of
