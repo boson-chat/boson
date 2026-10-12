@@ -240,10 +240,14 @@ func (b *bouncerState) enterDisconnectedLocked(post *bouncerPost) {
 	}
 }
 
-// enterConnectingLocked moves to connecting and arms the fallback timer.
+// enterConnectingLocked moves to connecting and (re)arms the fallback
+// timer. Already connecting, it restarts the timer: every sign that ZNC is
+// still at it ("Connecting to …", "Reconnecting...", the user's own Connect
+// after trusting a certificate) gets a full window. Otherwise a retry loop
+// that finally succeeds is called "disconnected" 60s after its first try.
 func (b *bouncerState) enterConnectingLocked(post *bouncerPost) {
 	if !b.setLocked(UpstreamConnecting) {
-		return
+		b.epoch++ // voids the previous timer
 	}
 	epoch := b.epoch
 	d := b.connectingTimeout

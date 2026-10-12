@@ -534,6 +534,40 @@ func TestBouncerState_ConnectingTimesOut(t *testing.T) {
 	assert.Equal(t, []BouncerUpstream{UpstreamDisconnected, UpstreamConnecting, UpstreamDisconnected}, env.states)
 }
 
+// Each sign that ZNC is still trying restarts the connecting window, so the
+// first attempt's timeout can't end a later one. Seen on a network whose
+// certificate the user trusted ~a minute into ZNC's retry loop.
+func TestBouncerState_RetryRestartsConnectingTimeout(t *testing.T) {
+	for _, step := range []struct {
+		name string
+		do   func(b *bouncerState)
+	}{
+		{"connecting to", func(b *bouncerState) { b.onStatusMessage("*status", "Connecting to irc6.rizon.net...") }},
+		{"reconnecting", func(b *bouncerState) {
+			b.onStatusMessage("*status", "Disconnected from IRC (Invalid SSL certificate: hostname doesn't match). Reconnecting...")
+		}},
+		{"user connect", func(b *bouncerState) { b.connect() }},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			b, env := newFakeBouncer(true, false)
+			b.onWelcome(zncServerName)
+			b.connect()
+			env.mu.Lock()
+			first := env.timers
+			env.timers = nil
+			env.mu.Unlock()
+			require.Len(t, first, 1)
+
+			step.do(b)
+			first[0]() // the first attempt's window runs out
+			assert.Equal(t, UpstreamConnecting, b.snapshot())
+
+			env.fireTimers() // the restarted window, with nothing new
+			assert.Equal(t, UpstreamDisconnected, b.snapshot())
+		})
+	}
+}
+
 func TestBouncerState_ConnectingTimeoutVoidedByWelcome(t *testing.T) {
 	b, env := newFakeBouncer(true, false)
 	b.onWelcome(zncServerName)
