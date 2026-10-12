@@ -8,6 +8,7 @@ import { BarLoader } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, isPreformattedLine, stripIrcFormatting, type MdToken } from './markdown';
 import { parseTables, type ParsedTable } from './table';
+import { parseBanners, splitBannerLine, type Banner } from './banner';
 import { emojiFor } from './emoji-data';
 import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
@@ -585,11 +586,13 @@ function PreBlock({
 }: { items: ChatMessage[]; avatarFor?: (nick: string) => string | undefined }) {
   const head = items[0]!;
   const time = new Date(head.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const body = items.map((m) => m.text).join('\n');
+  const body = preformattedBody(items.map((m) => m.text));
   // Pasted box-drawing / pipe / ascii tables render as real <table>s (a block
   // may hold more than one); any other monospace block (ascii art, logs, code)
   // stays as aligned <pre>.
   const tables = parseTables(body);
+  // Framed bot banners (____ / | text | / ¯¯¯¯) render as cards.
+  const banners = tables ? null : parseBanners(body);
   return (
     <div class="message-row message-preblock">
       <div class="message-row-gutter">
@@ -603,8 +606,38 @@ function PreBlock({
         </div>
         {tables
           ? tables.map((t, i) => <MessageTable key={i} table={t} />)
-          : <pre class="message-preblock-pre">{body}</pre>}
+          : banners
+            ? banners.map((b, i) => <MessageBanner key={i} banner={b} />)
+            : <pre class="message-preblock-pre">{body}</pre>}
       </div>
+    </div>
+  );
+}
+
+// The text of a preformatted block: formatting codes removed (we don't render
+// colours, and the raw controls would break alignment), trailing padding
+// dropped, and the indent every line shares taken off so the art sits flush
+// left rather than starting a few columns in.
+export function preformattedBody(lines: readonly string[]): string {
+  const plain = lines.map((l) => stripIrcFormatting(l).replace(/\s+$/, ''));
+  const indents = plain.filter((l) => l).map((l) => l.length - l.trimStart().length);
+  const cut = indents.length ? Math.min(...indents) : 0;
+  return plain.map((l) => l.slice(cut)).join('\n');
+}
+
+function MessageBanner({ banner }: { banner: Banner }) {
+  return (
+    <div class="message-banner">
+      {banner.lines.map((line, i) => {
+        const parts = splitBannerLine(line);
+        return (
+          <div key={i} class="message-banner-line">
+            {parts
+              ? <><span class="message-banner-label">{parts.label}</span><span class="message-banner-value">{parts.value}</span></>
+              : <span class="message-banner-value">{line}</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }

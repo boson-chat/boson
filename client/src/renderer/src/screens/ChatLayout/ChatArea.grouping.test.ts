@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { shouldGroup, buildRenderItems, coalesceActivity, ACTIVITY_COLLAPSE_MIN } from './message-render';
+import { shouldGroup, buildRenderItems, coalesceActivity, preformattedBody, ACTIVITY_COLLAPSE_MIN } from './message-render';
+import { parseTables } from './table';
 import type { ChatMessage } from '../../modules/chat';
 
 function msg(overrides: Partial<ChatMessage>): ChatMessage {
@@ -143,5 +144,36 @@ describe('buildRenderItems — preformatted grouping', () => {
       msg({ id: '2', text: 'normal two' }),
     ]);
     expect(items.every((i) => i.type === 'msg')).toBe(true);
+  });
+});
+
+describe('ASCII-art banners', () => {
+  const banner = (title: string): string[] => [
+    `   ${'_'.repeat(title.length + 8)}   `,
+    `  |   ${title} |  `,
+    `   ${'¯'.repeat(title.length + 8)}   `,
+  ];
+  const lines = [...banner('New TV Release: South.Park.S29E01.720p.WEB.h264-DiRT'), ...banner('New MOVIE Release: Gunche.2026')];
+
+  it('folds a run of framed banners from one bot into a single preblock', () => {
+    const items = buildRenderItems([
+      ...lines.map((text, i) => msg({ id: `b${i}`, from: 'bot', text })),
+      msg({ id: 'x', from: 'bot', text: 'Found a subscription match for: Gunche.2026' }),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['preblock', 'msg']);
+    expect((items[0] as Extract<typeof items[number], { type: 'preblock' }>).items).toHaveLength(6);
+  });
+
+  it('renders as monospace art, not a table', () => {
+    expect(parseTables(preformattedBody(lines))).toBeNull();
+  });
+
+  it('strips formatting, trailing padding and the shared indent', () => {
+    expect(preformattedBody(['   \x0304____\x03   ', '  |\x02 hi\x02 |  ', '   ¯¯¯¯'])).toBe(' ____\n| hi |\n ¯¯¯¯');
+  });
+
+  it('keeps blank lines and copes with an all-blank block', () => {
+    expect(preformattedBody(['  a', '', '    b'])).toBe('a\n\n  b');
+    expect(preformattedBody(['   ', ''])).toBe('\n');
   });
 });

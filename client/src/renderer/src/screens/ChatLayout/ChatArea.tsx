@@ -11,6 +11,7 @@ import type { EngineState } from '../../modules/engine';
 import { ChatInputBloc, type ChatInputState } from './ChatInputBloc';
 import { ChatInputBar } from './ChatInputBar';
 import { MessageList } from './message-render';
+import { stripIrcFormatting } from './markdown';
 import type { NickActions } from './UserPanel';
 import './ChatArea.css';
 
@@ -277,19 +278,21 @@ export function ChatArea({
   // still connecting): nothing typed there would reach it, so hold input.
   const joining = prefix === '#' && !channel.joined;
 
+  // Topics often carry mIRC colour codes; show the plain text.
+  const topic = channel.topic ? stripIrcFormatting(channel.topic).trim() : '';
   return (
     <main class="chat-area">
       <div class="chat-header">
         <div class="chat-header-left">
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
-          {channel.topic && (
+          {topic && (
             <span
               class="chat-channel-topic"
-              title={channel.topic}
-              aria-label={`Topic: ${channel.topic}`}
+              title={topic}
+              aria-label={`Topic: ${topic}`}
             >
-              {channel.topic}
+              {topic}
             </span>
           )}
         </div>

@@ -113,3 +113,26 @@ describe('isPreformattedLine', () => {
     expect(isPreformattedLine('hi')).toBe(false);
   });
 });
+
+describe('isPreformattedLine — ASCII-art banners', () => {
+  // A release bot's framed announcement, one IRC line per row.
+  const banner = [
+    '   ________________________________________________________________   ',
+    '  |   New TV Release: North.of.North.S02E01.1080p.WEBRip.x264-BAE |  ',
+    '   ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯   ',
+  ];
+  it('recognises every row of a framed banner', () => {
+    for (const line of banner) expect(isPreformattedLine(line)).toBe(true);
+  });
+  it('sees through mIRC colour codes', () => {
+    expect(isPreformattedLine('\x0304,01  |\x03 \x02New\x02 release \x0304|')).toBe(true);
+    expect(isPreformattedLine('\x0314____________\x0F')).toBe(true);
+  });
+  it('recognises other rule characters', () => {
+    for (const t of ['====', '~~~~~~', '********', '#####', '------']) expect(isPreformattedLine(t)).toBe(true);
+  });
+  it('leaves ordinary chat alone', () => {
+    for (const t of ['___', '...', '**bold**', 'Found a subscription match for: x', '|', '| |', 'pipe | in the middle', 'lol ____'])
+      expect(isPreformattedLine(t)).toBe(false);
+  });
+});
