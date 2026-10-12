@@ -240,10 +240,14 @@ func (b *bouncerState) enterDisconnectedLocked(post *bouncerPost) {
 	}
 }
 
-// enterConnectingLocked moves to connecting and arms the fallback timer.
+// enterConnectingLocked moves to connecting and (re)arms the fallback
+// timer. Already connecting, it restarts the timer: every sign that ZNC is
+// still at it ("Connecting to …", "Reconnecting...", the user's own Connect
+// after trusting a certificate) gets a full window. Otherwise a retry loop
+// that finally succeeds is called "disconnected" 60s after its first try.
 func (b *bouncerState) enterConnectingLocked(post *bouncerPost) {
 	if !b.setLocked(UpstreamConnecting) {
-		return
+		b.epoch++ // voids the previous timer
 	}
 	epoch := b.epoch
 	d := b.connectingTimeout
@@ -379,12 +383,20 @@ func (b *bouncerState) onStatusMessage(nick, body string) {
 		if b.state != UpstreamConnecting {
 			b.enterDisconnectedLocked(&post)
 		}
-	case strings.Contains(body, "Disconnected from IRC"),
-		strings.Contains(body, "you are not connected to IRC"):
-		// Explicit disconnect, a dropped upstream ("Reconnecting..." — ZNC
-		// retries on its own and the next 001 flips us back), or ZNC
-		// bouncing a message we sent into a dead upstream.
-		b.enterDisconnectedLocked(&post)
+	case strings.HasSuffix(strings.TrimSpace(body), "Reconnecting..."),
+		strings.HasSuffix(strings.TrimSpace(body), "Retrying..."):
+		// "Disconnected from IRC (…). Reconnecting..." / "Cannot connect to
+		// IRC (…). Retrying...": the upstream dropped or failed, and ZNC is
+		// already trying again on its own, so it's connecting, not down
+		// (no Connect button for something ZNC is doing anyway). A failure
+		// that needs the user, like an untrusted certificate, is reported
+		// alongside and takes over the banner. The connecting timeout still
+		// ends a retry loop that goes quiet.
+		if b.state == UpstreamConnected && b.rearm != nil {
+			// A dropped session: re-arm the welcome work, as on disconnect.
+			post = append(post, b.rearm)
+		}
+		b.enterConnectingLocked(&post)
 	case strings.Contains(body, "Connected!"), strings.Contains(body, "Connecting to "):
 		// Upstream registration is under way; the 001 that follows is the
 		// authoritative "connected". Precedes the 001 on the wire, so never
@@ -392,10 +404,19 @@ func (b *bouncerState) onStatusMessage(nick, body string) {
 		if b.state != UpstreamConnected {
 			b.enterConnectingLocked(&post)
 		}
+	case strings.Contains(body, "Disconnected from IRC"),
+		strings.Contains(body, "you are not connected to IRC"):
+		// Explicit disconnect ("Use 'connect' to reconnect."), or ZNC
+		// bouncing a message we sent into a dead upstream.
+		b.enterDisconnectedLocked(&post)
 	default:
-		// Unrecognised (localized ZNC, or just a reply to a user command).
-		// If we believe the upstream is up, verify with a USERHOST probe.
-		if b.state == UpstreamConnected || b.state == UpstreamConnecting {
+		// Unrecognised (localized ZNC, a hosted ZNC's own welcome notices,
+		// or just a reply to a user command). If we believe the upstream is
+		// up, verify with a USERHOST probe. Not while connecting: only a
+		// registered upstream answers USERHOST, so silence then proves
+		// nothing and would read a connect in progress as "down". The
+		// connecting timeout covers a connect that fails quietly.
+		if b.state == UpstreamConnected {
 			b.scheduleProbeLocked(&post)
 		}
 	}

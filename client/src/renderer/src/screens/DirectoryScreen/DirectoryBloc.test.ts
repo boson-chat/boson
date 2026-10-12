@@ -967,6 +967,58 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  // A reconnect mints a fresh ChatService. What was on screen goes with it:
+  // on a bouncer (no local history) it would otherwise vanish, since ZNC
+  // only replays what nobody has seen yet. The replayed backlog then adds
+  // what was missed without repeating what was already there.
+  it('a reconnect keeps the conversations on screen and adds the backlog without repeats', async () => {
+    const sessionStore = new SessionStore(memoryStorage());
+    const engine = fakeEngine();
+    const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: fakeDirectory({ user: fakeUser('alice'), servers: [server] }),
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore,
+    });
+    await flushPromises(4);
+    await bloc.connect(server);
+    await flushPromises(2);
+    const first = engine.sessionFor('libera');
+    first._setState('connected');
+    await flushPromises(2);
+    const msg = (text: string, time: string): IrcEvent =>
+      ({ Kind: 'PRIVMSG', From: 'bob', Target: '#general', Message: text, Tags: { time }, Raw: '' });
+    const dm = (text: string, time: string): IrcEvent =>
+      ({ Kind: 'PRIVMSG', From: 'bob', Target: 'alice', Message: text, Tags: { time }, Raw: '' });
+    first._emitEvent({ Kind: 'JOIN', From: 'alice', Target: '#general', Message: '', Raw: '' });
+    first._emitEvent(msg('read before the drop', '2026-10-12T09:00:00.000Z'));
+    first._emitEvent(dm('a private line', '2026-10-12T09:01:00.000Z'));
+
+    first._setState('disconnected');
+    await flushPromises(2);
+    await bloc.reconnectActive();
+    await flushPromises(2);
+    const conn = bloc.getState().connections[0]!;
+    const texts = (name: string) =>
+      conn.chat.getState().channels.find((c) => c.name === name)?.messages.map((m) => m.text) ?? [];
+    expect(texts('#general')).toContain('read before the drop');
+    expect(texts('bob')).toEqual(['a private line']);
+
+    // The bouncer replays: one line already shown, one missed.
+    const again = engine.sessionFor('libera');
+    again._setState('connected');
+    await flushPromises(2);
+    again._emitEvent({ Kind: 'JOIN', From: 'alice', Target: '#general', Message: '', Raw: '' });
+    again._emitEvent(msg('read before the drop', '2026-10-12T09:00:00.000Z'));
+    again._emitEvent(msg('said during the drop', '2026-10-12T09:05:00.000Z'));
+    const after = texts('#general');
+    expect(after.filter((t) => t === 'read before the drop')).toHaveLength(1);
+    expect(after.indexOf('read before the drop')).toBeLessThan(after.indexOf('said during the drop'));
+    bloc.dispose();
+  });
+
   // Server settings → Actions → Reconnect on a LIVE connection used to be a
   // no-op: connect()'s same-server guard just switched to it.
   it('reconnectActive() on a connected server quits it and rejoins on a fresh session', async () => {

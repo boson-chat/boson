@@ -944,6 +944,11 @@ func translate(e girc.Event) Event {
 		// target; individual messages inside carry the `batch` tag (already
 		// forwarded via Tags). The engine doesn't interpret the framing.
 		out.Args = append([]string(nil), e.Params...)
+	case "CHATHISTORY":
+		// CHATHISTORY TARGETS <target> <timestamp>, inside a
+		// chathistory-targets batch: the conversations with recent
+		// activity, which the renderer then fetches backlog for.
+		out.Args = append([]string(nil), e.Params...)
 	case girc.RPL_WHOSPCRPL:
 		// 354 — WHOX reply. girc's auto-WHO uses WHOX format; the field
 		// order depends on the querytype. We don't request any flags
