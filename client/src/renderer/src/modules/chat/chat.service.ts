@@ -102,6 +102,10 @@ const SERVER_LOG_CAP = 200;
 // Default chathistory request size (messages per page), capped by the
 // server's CHATHISTORY=<max> ISUPPORT token when smaller.
 const CHATHISTORY_REQUEST_LIMIT = 50;
+// On attach, private conversations with activity this recent get their
+// backlog pulled too (CHATHISTORY TARGETS). Channels come from their JOIN.
+const DM_BACKLOG_WINDOW_MS = 30 * 24 * 60 * 60_000;
+const DM_BACKLOG_MAX_TARGETS = 50;
 // A message whose IRCv3 server-time is older than this (relative to now) is
 // treated as bouncer/buffer replay (backlog), not a live arrival — so it
 // doesn't mark channels unread / notify / hit the Inbox. Live messages are
@@ -271,6 +275,12 @@ export class ChatService {
   // doesn't implement it, e.g. ZNC < 1.8 relaying upstream). Disables further
   // requests for this connection.
   private chathistoryUnsupported = false;
+  // Open `chathistory-targets` batches (ref → targets listed so far): the
+  // reply to the CHATHISTORY TARGETS sent on attach.
+  private readonly targetBatches = new Map<string, string[]>();
+  // ZNC playback: `PLAY *` went out for this attach, covering every buffer
+  // (channels and queries), so per-JOIN requests would only repeat it.
+  private playedAll = false;
   // Per-channel kind of the in-flight request, read when its BATCH starts.
   private readonly pendingHistoryKind = new Map<string, 'latest' | 'before'>();
   // Per-channel watchdog for an in-flight scroll-back request. If the server
@@ -405,6 +415,36 @@ export class ChatService {
   // (the bouncer replays its buffer; a local copy would duplicate).
   private get persistMessages(): boolean {
     return this.persistence !== null && !this.bouncerConn;
+  }
+
+  // The conversations and their messages, for the ChatService that replaces
+  // this one when the connection drops and is made again (DirectoryBloc
+  // mints a fresh one per connection). Without the handoff, everything
+  // already read vanishes on a reconnect: in memory only on a bouncer or
+  // for a guest, and a bouncer that clears its buffers once played (ZNC's
+  // default) won't send those lines again.
+  exportConversations(): Array<{ name: string; messages: ChatMessage[] }> {
+    const out: Array<{ name: string; messages: ChatMessage[] }> = [];
+    for (const ch of this.channels.values()) {
+      const messages = ch.messages.peek();
+      if (messages.length > 0) out.push({ name: ch.name, messages });
+    }
+    return out;
+  }
+
+  // Take over a predecessor's conversations (exportConversations). Call
+  // before attach(): the reconnect's backlog and rejoins then dedupe
+  // against them like any other line already shown.
+  seedConversations(convs: ReadonlyArray<{ name: string; messages: readonly ChatMessage[] }>): void {
+    for (const c of convs) {
+      if (c.messages.length === 0) continue;
+      const ch = this.ensureChannel(c.name);
+      const fresh = c.messages.filter((m) => !this.isDuplicateMessage(ch, m));
+      ch.messages.value = [...fresh, ...ch.messages.peek()]
+        .sort((a, b) => a.timestamp - b.timestamp)
+        .slice(-IN_MEMORY_MESSAGE_CAP);
+    }
+    this.emit();
   }
 
   attach(): void {
@@ -2015,6 +2055,12 @@ export class ChatService {
     if (batchRef) {
       const batch = this.batches.get(batchRef);
       if (batch) { this.bufferHistoryMessage(batch, e); return; }
+      const targets = this.targetBatches.get(batchRef);
+      if (targets) {
+        // CHATHISTORY TARGETS <target> <timestamp>
+        if (e.Kind === 'CHATHISTORY' && (e.Args?.[0] ?? '').toUpperCase() === 'TARGETS' && e.Args?.[1]) targets.push(e.Args[1]);
+        return;
+      }
     }
     // Capture EVERY event to the dev-tools log before kind-specific routing.
     // This is intentionally noisy — the panel exists so users / devs can see
@@ -2217,10 +2263,14 @@ export class ChatService {
           if (type === 'chathistory' || type === 'draft/chathistory' || type === 'znc.in/playback') {
             const kind = this.pendingHistoryKind.get(this.channelKey(target)) ?? 'latest';
             this.batches.set(ref.slice(1), { target, kind, msgs: [] });
+          } else if (type === 'chathistory-targets' || type === 'draft/chathistory-targets') {
+            this.targetBatches.set(ref.slice(1), []);
           }
         } else if (ref.startsWith('-')) {
           const batch = this.batches.get(ref.slice(1));
           if (batch) { this.batches.delete(ref.slice(1)); this.flushHistoryBatch(batch); }
+          const targets = this.targetBatches.get(ref.slice(1));
+          if (targets) { this.targetBatches.delete(ref.slice(1)); this.requestTargetsBacklog(targets); }
         }
         break;
       }
@@ -2578,6 +2628,7 @@ export class ChatService {
         // DMs never mirror). See also the 004 sync below as a backstop.
         this.syncMyNickFromNumeric(e.Target);
         this.welcomed = true;
+        this.requestAttachBacklog();
         // A password that arrived between connect and welcome (see
         // watchLatePassword) — the engine wasn't given it, so send it now.
         if (!this.passwordAtConnect) {
@@ -2891,6 +2942,43 @@ export class ChatService {
     }
   }
 
+  // On every registration (a fresh attach, to a server or a bouncer), pull
+  // what was said while we were away. Backlog is per attach, so what was
+  // fetched last time is forgotten first; dedupe drops lines we already
+  // show. Channels are fetched as their JOINs arrive (requestBacklog);
+  // this adds private conversations, which have no JOIN:
+  //   - chathistory (soju, ergo): CHATHISTORY TARGETS lists the recently
+  //     active ones, then each gets a LATEST (requestTargetsBacklog).
+  //   - ZNC znc.in/playback: `PLAY *` replays every buffer, channels and
+  //     queries alike, one batch each.
+  // A plain ZNC needs neither: it replays all its buffers on attach.
+  private requestAttachBacklog(): void {
+    this.historyRequested.clear();
+    this.batches.clear();
+    this.targetBatches.clear();
+    this.playedAll = false;
+    if (this.chathistorySupported()) {
+      const now = Date.now();
+      const from = new Date(now - DM_BACKLOG_WINDOW_MS).toISOString();
+      // A little past now so a line stamped by a fast server clock counts.
+      const to = new Date(now + 60_000).toISOString();
+      this.session.raw(`CHATHISTORY TARGETS timestamp=${from} timestamp=${to} ${DM_BACKLOG_MAX_TARGETS}`);
+    } else if (this.playbackSupported()) {
+      this.playedAll = true;
+      this.session.privmsg('*playback', 'PLAY * 0');
+    }
+  }
+
+  // The reply to CHATHISTORY TARGETS: fetch each private conversation's
+  // backlog. Channels are left to their JOIN (one we've left stays left).
+  private requestTargetsBacklog(targets: string[]): void {
+    for (const t of targets) {
+      if (t.startsWith('#') || t.startsWith('&') || t === '*') continue;
+      if (t.toLowerCase() === this.myNick.toLowerCase()) continue;
+      this.requestBacklog(t);
+    }
+  }
+
   // Request the most recent backlog for a channel/target, once per open.
   // Prefers IRCv3 chathistory; falls back to ZNC's znc.in/playback module
   // (`*playback PLAY <target> 0` replays that buffer from the start). No-op
@@ -2904,6 +2992,8 @@ export class ChatService {
       this.session.raw(`CHATHISTORY LATEST ${target} * ${this.chathistoryLimit()}`);
     } else if (this.playbackSupported()) {
       this.historyRequested.add(key);
+      // Already on its way in the attach's `PLAY *`.
+      if (this.playedAll) return;
       this.pendingHistoryKind.set(key, 'latest');
       this.session.privmsg('*playback', `PLAY ${target} 0`);
     }
@@ -3002,9 +3092,11 @@ export class ChatService {
     return e.Tags?.time ? eventTimestamp(e) - this.clockOffset : eventTimestamp(e);
   }
 
-  // Flush a completed chathistory batch: sort, dedupe by msgid, prepend to the
-  // channel (oldest history goes above existing messages), persist, and clear
-  // the loading flag (+ mark exhausted when the server returned a short page).
+  // Flush a completed chathistory batch: dedupe, merge into the channel by
+  // time, persist, and clear the loading flag (+ mark exhausted when the
+  // server returned a short page). A scroll-back page lands above what's
+  // shown; an attach's backlog can be newer than lines carried over from
+  // before the reconnect, so it is merged, not just prepended.
   private flushHistoryBatch(batch: { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] }): void {
     const ch = this.ensureChannel(batch.target);
     const key = this.channelKey(batch.target);
@@ -3014,7 +3106,8 @@ export class ChatService {
     // reconnect dups pile up. isDuplicateMessage covers both.
     const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m));
     if (fresh.length > 0) {
-      ch.messages.value = [...fresh, ...ch.messages.peek()];
+      // Stable: among equal timestamps what was already shown stays first.
+      ch.messages.value = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
     }
     ch.history = { loading: false, exhausted: batch.msgs.length < this.chathistoryLimit() };
     this.pendingHistoryKind.delete(key);

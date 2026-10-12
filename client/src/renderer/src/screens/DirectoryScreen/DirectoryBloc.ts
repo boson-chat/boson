@@ -21,6 +21,9 @@ import {
   type LocalServer,
 } from '../../modules/directory/local-servers';
 
+// A dropped connection's conversations, handed to its replacement.
+type ConversationCarry = ReturnType<ChatService['exportConversations']>;
+
 // DirectoryBloc owns the directory + connect + session-restore flow. The
 // DirectoryScreen view layer subscribes to this bloc and dispatches user
 // intents back through public methods. Mirrors the convention used by
@@ -652,6 +655,7 @@ export class DirectoryBloc {
   // background auto-reconnect must not yank the user to that server).
   async connect(server: Server, opts: { focus?: boolean } = {}): Promise<void> {
     const existing = this.connections.get(server.id);
+    let carry: ConversationCarry | undefined;
     if (existing) {
       // Same-server guard generalised: if a connection already exists in
       // connecting/connected state for this server, just switch to it and
@@ -687,10 +691,13 @@ export class DirectoryBloc {
       if (channelsToRejoin.length > 0) {
         this.pendingJoins.set(server.id, channelsToRejoin.slice());
       }
+      // What's on screen carries over to the new ChatService; the
+      // reconnect then only adds what was missed (bouncer backlog).
+      carry = existing.chat.exportConversations();
       this.teardownConnection(existing, { sendDisconnect: false });
       this.connections.delete(server.id);
     }
-    await this.connectWith(server, opts);
+    await this.connectWith(server, { ...opts, carry });
     if (this.serverBrowserOpen) {
       this.serverBrowserOpen = false;
       this.emit();
@@ -1471,7 +1478,7 @@ export class DirectoryBloc {
 
   // Build a brand-new connection (ServerSession + ChatService + listeners) for
   // the given server, store it in the map, and fire off the engine connect.
-  private async connectWith(server: Server | SavedServer, opts: { focus?: boolean } = {}): Promise<void> {
+  private async connectWith(server: Server | SavedServer, opts: { focus?: boolean; carry?: ConversationCarry } = {}): Promise<void> {
     if (!this.engine || !this.me?.handle) return;
     // Already have a live Connection record for this server? Skip — caller
     // paths overlap (user-initiated connect, saved-session restore, and the
@@ -1618,6 +1625,7 @@ export class DirectoryBloc {
       server: { serverId: server.id, serverName: server.name },
       onBouncerUpstreamWanted: (wanted) => this.rememberUpstreamWanted(server.id, wanted),
     });
+    if (opts.carry) chat.seedConversations(opts.carry);
     chat.attach();
     chat.setNotifier((ev) => getNotifier().notify(ev));
 

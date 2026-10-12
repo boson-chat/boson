@@ -448,6 +448,18 @@ func TestTranslate_BatchForwardsParams(t *testing.T) {
 	assert.Equal(t, []string{"-abc"}, end.Args)
 }
 
+func TestTranslate_ChathistoryTargetsForwardsParamsAndBatchTag(t *testing.T) {
+	got := translate(girc.Event{
+		Command: "CHATHISTORY",
+		Source:  &girc.Source{Name: "soju"},
+		Tags:    girc.Tags{"batch": "t1"},
+		Params:  []string{"TARGETS", "alice", "2026-10-11T10:00:00.000Z"},
+	})
+	assert.Equal(t, "CHATHISTORY", got.Kind)
+	assert.Equal(t, []string{"TARGETS", "alice", "2026-10-11T10:00:00.000Z"}, got.Args)
+	assert.Equal(t, "t1", got.Tags["batch"])
+}
+
 func TestTranslate_ForwardsServerTimeAndMsgidTags(t *testing.T) {
 	got := translate(girc.Event{
 		Command: girc.PRIVMSG,
