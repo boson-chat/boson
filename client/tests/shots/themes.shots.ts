@@ -48,6 +48,8 @@ test('appearance: the editor with the colour picker open', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Accent', exact: true })).toHaveValue('#e8590c');
   await page.mouse.move(0, 0); // no hover states in the shot
   await dialogShot(page, 'theme-editor.png');
+  // The full window, like the other Features page shots.
+  await shot(page, 'feat-appearance.png');
 });
 
 for (const [id, file] of [['daylight', 'theme-chat-daylight.png']] as const) {

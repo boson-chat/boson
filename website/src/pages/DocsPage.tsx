@@ -252,6 +252,7 @@ export function DocsPage() {
                   src="/screenshots/theme-gallery.png"
                   alt="Settings → Appearance with the built-in themes; Nord is selected"
                   caption="Settings → Appearance. Nord is selected."
+                  maxWidth={768}
                 />
 
                 <h3>Make your own.</h3>
@@ -280,6 +281,7 @@ export function DocsPage() {
                   src="/screenshots/theme-editor.png"
                   alt="The theme editor with the colour picker open on the Accent colour"
                   caption="The editor, with the colour picker open on Accent."
+                  maxWidth={768}
                 />
                 <p>
                   The colours, grouped as in the editor:

@@ -17,7 +17,9 @@ export default defineConfig({
     channel: 'chrome',
     baseURL: 'http://127.0.0.1:5199',
     viewport: { width: 1440, height: 900 },
-    deviceScaleFactor: 1,
+    // 2x: the site shows these on high-density screens, and docs crops
+    // are displayed at their CSS size (see ScreenshotFrame maxWidth).
+    deviceScaleFactor: 2,
     colorScheme: 'dark',
   },
   // Its own port, always a fresh server: 5173 (the renderer's usual port)

@@ -105,7 +105,7 @@ export function FeaturesPage() {
         eyebrow="Appearance"
         title="Make it yours."
         blurb="Every colour in the app comes from its theme. Pick one, or build your own."
-        image="/screenshots/theme-editor.png"
+        image="/screenshots/feat-appearance.png"
         imageAlt="The theme editor with the colour picker open on the Accent colour"
         features={[
           { icon: <PaletteIcon />, title: 'Five built-in themes', body: 'Terminal, Daylight, Nord, Solarized, and Phosphor — switch in one click, applied instantly across the app.' },
