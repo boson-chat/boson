@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -49,9 +49,13 @@ describe('ThemeFiles', () => {
   it('notices edits made outside the app', async () => {
     let changes = 0;
     await files.watch(() => { changes++; });
-    writeFileSync(join(files.dir, 'live.json'), '{}');
-    await new Promise((r) => setTimeout(r, 400));
-    expect(changes).toBeGreaterThan(0);
+    // macOS starts the watch asynchronously, so a write right after watch()
+    // can land before it's live; keep editing until one is seen, as a user
+    // editing a file after launch always is.
+    await vi.waitFor(() => {
+      writeFileSync(join(files.dir, 'live.json'), '{}');
+      expect(changes).toBeGreaterThan(0);
+    }, { timeout: 10_000, interval: 250 });
     expect(readFileSync(join(files.dir, 'live.json'), 'utf8')).toBe('{}');
   });
 });

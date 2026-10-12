@@ -112,7 +112,10 @@ export class ThemeFiles {
     await this.ensureDir();
     this.watcher?.close();
     this.watcher = watch(this.dir, (_event, name) => {
-      if (name && (name.startsWith('.') || !name.toLowerCase().endsWith('.json'))) return;
+      // Only our own write-then-rename temp files are skipped. Anything else
+      // reloads (cheap, debounced): macOS can report a change under the
+      // folder's own name, or no name at all, instead of the file's.
+      if (name?.endsWith('.json.tmp')) return;
       if (this.debounce) clearTimeout(this.debounce);
       this.debounce = setTimeout(onChange, 150);
     });
