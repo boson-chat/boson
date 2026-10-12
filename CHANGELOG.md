@@ -1,3 +1,9 @@
+## [0.36.1](https://github.com/boson-chat/boson/compare/v0.36.0...v0.36.1) (2026-10-12)
+
+### Bug Fixes
+
+* **bouncer:** stop showing "isn't connected" while the bouncer is connected ([#16](https://github.com/boson-chat/boson/issues/16)) ([5310853](https://github.com/boson-chat/boson/commit/53108530e528c0103df4003ef779ab340e9d3755))
+
 ## [0.36.0](https://github.com/boson-chat/boson/compare/v0.35.1...v0.36.0) (2026-10-12)
 
 ### Features
