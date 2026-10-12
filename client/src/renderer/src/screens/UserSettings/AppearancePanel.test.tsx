@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/preact';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/preact';
 import { AppearancePanel } from './AppearancePanel';
 import { ThemeStore, setThemeStore, type ThemeFilesBridge } from '../../modules/ui/theme';
 
@@ -38,6 +38,28 @@ describe('AppearancePanel', () => {
     expect(tile('Nord')).toHaveAttribute('aria-checked', 'true');
     expect(accent()).toBe('#88C0D0');
     expect(screen.getByRole('button', { name: 'Open themes folder' })).toBeInTheDocument();
+  });
+
+  it('groups the OS looks under their own heading', () => {
+    render(<AppearancePanel />);
+    const system = screen.getByRole('group', { name: 'System looks' });
+    for (const n of ['macOS Light', 'macOS Dark', 'Windows Light', 'Windows Dark', 'GNOME Light', 'GNOME Dark']) {
+      expect(within(system).getByRole('radio', { name: new RegExp(`^${n}`) })).toBeInTheDocument();
+    }
+    expect(within(screen.getByRole('group', { name: 'Boson' })).getAllByRole('radio')).toHaveLength(5);
+    expect(screen.queryByRole('group', { name: 'Yours' })).toBeNull();
+  });
+
+  it('the editor sets corners and font', async () => {
+    render(<AppearancePanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Customize Terminal' }));
+    fireEvent.input(screen.getByRole('slider', { name: 'Corner radius' }), { target: { value: '8' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'System font' }));
+    expect(root.style.getPropertyValue('--radius-md')).toBe('16px');
+    fireEvent.click(screen.getByRole('button', { name: 'Save as new theme' }));
+    await waitFor(() => expect(files['terminal-custom']).toBeDefined());
+    expect(JSON.parse(files['terminal-custom']!)).toMatchObject({ radius: 8, font: 'system' });
+    expect(screen.getByRole('group', { name: 'Yours' })).toBeInTheDocument();
   });
 
   it('customizing previews live and saves a new theme file', async () => {

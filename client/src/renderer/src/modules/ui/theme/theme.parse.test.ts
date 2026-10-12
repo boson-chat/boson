@@ -33,6 +33,16 @@ describe('parseTheme', () => {
     expect(parseTheme('x'.repeat(70 * 1024)).ok).toBe(false);
   });
 
+  it('reads corner radius and font, falling back with a warning', () => {
+    const r = parseTheme({ radius: 6, font: 'system' });
+    expect(r.ok && [r.theme.radius, r.theme.font]).toEqual([6, 'system']);
+    const bad = parseTheme({ radius: 40, font: 'comic-sans' });
+    expect(bad.ok && [bad.theme.radius, bad.theme.font]).toEqual([12, 'boson']);
+    expect(bad.ok && bad.warnings).toHaveLength(2);
+    const none = parseTheme({ base: 'light' });
+    expect(none.ok && [none.theme.radius, none.theme.font]).toEqual([2, 'boson']);
+  });
+
   it('clamps nick percentages', () => {
     const r = parseTheme({ nick: { saturation: 140, lightness: -3 } });
     expect(r.ok && r.theme.nick).toEqual({ saturation: 100, lightness: 0 });

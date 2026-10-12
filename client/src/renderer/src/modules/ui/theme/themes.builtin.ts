@@ -25,6 +25,8 @@ const terminal: Theme = {
     info: '#3B82F6',
   },
   nick: { saturation: 62, lightness: 64 },
+  radius: 2,
+  font: 'boson',
 };
 
 const daylight: Theme = {
@@ -50,6 +52,8 @@ const daylight: Theme = {
     info: '#2563EB',
   },
   nick: { saturation: 60, lightness: 38 },
+  radius: 2,
+  font: 'boson',
 };
 
 // Nord (nordtheme.com), polar night surfaces + frost accent.
@@ -76,6 +80,8 @@ const nord: Theme = {
     info: '#81A1C1',
   },
   nick: { saturation: 45, lightness: 70 },
+  radius: 2,
+  font: 'boson',
 };
 
 // Solarized (ethanschoonover.com/solarized), dark variant.
@@ -102,6 +108,8 @@ const solarized: Theme = {
     info: '#268BD2',
   },
   nick: { saturation: 55, lightness: 62 },
+  radius: 2,
+  font: 'boson',
 };
 
 // Green-phosphor CRT.
@@ -128,16 +136,191 @@ const phosphor: Theme = {
     info: '#5CCCFF',
   },
   nick: { saturation: 70, lightness: 66 },
+  radius: 2,
+  font: 'boson',
+};
+
+// The OS looks: each platform's own window / sidebar / control colours and
+// accent, rounded corners and the system UI font. Approximations from the
+// platforms' published palettes (Apple HIG system colours, Windows 11 Fluent,
+// libadwaita), not pixel copies.
+const macosLight: Theme = {
+  name: 'macOS Light',
+  base: 'light',
+  colors: {
+    bg: '#FFFFFF',
+    surface: '#F5F5F7',
+    'surface-raised': '#FFFFFF',
+    'surface-hover': '#E8E8ED',
+    border: '#D2D2D7',
+    'border-soft': '#E5E5EA',
+    fg: '#1D1D1F',
+    'fg-2': '#6E6E73',
+    'fg-3': '#86868B',
+    muted: '#AEAEB2',
+    meta: '#C7C7CC',
+    accent: '#007AFF',
+    'accent-on': '#FFFFFF',
+    success: '#248A3D',
+    warn: '#C93400',
+    danger: '#D70015',
+    info: '#0071E3',
+  },
+  nick: { saturation: 60, lightness: 40 },
+  radius: 5,
+  font: 'system',
+};
+
+const macosDark: Theme = {
+  name: 'macOS Dark',
+  base: 'dark',
+  colors: {
+    bg: '#1E1E1E',
+    surface: '#262626',
+    'surface-raised': '#2E2E2E',
+    'surface-hover': '#3A3A3C',
+    border: '#3D3D3F',
+    'border-soft': '#303032',
+    fg: '#F5F5F7',
+    'fg-2': '#AEAEB2',
+    'fg-3': '#8E8E93',
+    muted: '#636366',
+    meta: '#48484A',
+    accent: '#0A84FF',
+    'accent-on': '#FFFFFF',
+    success: '#32D74B',
+    warn: '#FF9F0A',
+    danger: '#FF453A',
+    info: '#64D2FF',
+  },
+  nick: { saturation: 60, lightness: 68 },
+  radius: 5,
+  font: 'system',
+};
+
+const windowsLight: Theme = {
+  name: 'Windows Light',
+  base: 'light',
+  colors: {
+    bg: '#F9F9F9',
+    surface: '#F3F3F3',
+    'surface-raised': '#FFFFFF',
+    'surface-hover': '#EAEAEA',
+    border: '#D9D9D9',
+    'border-soft': '#E5E5E5',
+    fg: '#1A1A1A',
+    'fg-2': '#5D5D5D',
+    'fg-3': '#767676',
+    muted: '#A0A0A0',
+    meta: '#C8C8C8',
+    accent: '#005FB8',
+    'accent-on': '#FFFFFF',
+    success: '#0F7B0F',
+    warn: '#9D5D00',
+    danger: '#C42B1C',
+    info: '#005FB8',
+  },
+  nick: { saturation: 65, lightness: 38 },
+  radius: 4,
+  font: 'system',
+};
+
+const windowsDark: Theme = {
+  name: 'Windows Dark',
+  base: 'dark',
+  colors: {
+    bg: '#272727',
+    surface: '#202020',
+    'surface-raised': '#2D2D2D',
+    'surface-hover': '#353535',
+    border: '#3D3D3D',
+    'border-soft': '#2F2F2F',
+    fg: '#FFFFFF',
+    'fg-2': '#C5C5C5',
+    'fg-3': '#9D9D9D',
+    muted: '#717171',
+    meta: '#4D4D4D',
+    accent: '#60CDFF',
+    'accent-on': '#000000',
+    success: '#6CCB5F',
+    warn: '#FCE100',
+    danger: '#FF99A4',
+    info: '#60CDFF',
+  },
+  nick: { saturation: 60, lightness: 70 },
+  radius: 4,
+  font: 'system',
+};
+
+// GNOME's Adwaita, the default look on most Linux desktops.
+const gnomeLight: Theme = {
+  name: 'GNOME Light',
+  base: 'light',
+  colors: {
+    bg: '#FFFFFF',
+    surface: '#FAFAFB',
+    'surface-raised': '#FFFFFF',
+    'surface-hover': '#EBEBED',
+    border: '#D9D9DC',
+    'border-soft': '#E8E8EA',
+    fg: '#1F1F21',
+    'fg-2': '#5E5C64',
+    'fg-3': '#77767B',
+    muted: '#9A9996',
+    meta: '#C0BFBC',
+    accent: '#1C71D8',
+    'accent-on': '#FFFFFF',
+    success: '#1B8553',
+    warn: '#9C6E03',
+    danger: '#C01C28',
+    info: '#1C71D8',
+  },
+  nick: { saturation: 60, lightness: 38 },
+  radius: 6,
+  font: 'system',
+};
+
+const gnomeDark: Theme = {
+  name: 'GNOME Dark',
+  base: 'dark',
+  colors: {
+    bg: '#1D1D20',
+    surface: '#222226',
+    'surface-raised': '#2E2E32',
+    'surface-hover': '#36363B',
+    border: '#3D3D42',
+    'border-soft': '#2C2C30',
+    fg: '#FFFFFF',
+    'fg-2': '#C0C0C4',
+    'fg-3': '#9A9A9E',
+    muted: '#6E6E73',
+    meta: '#4A4A4F',
+    accent: '#78AEED',
+    'accent-on': '#1D1D20',
+    success: '#8FF0A4',
+    warn: '#F8E45C',
+    danger: '#FF7B63',
+    info: '#99C1F1',
+  },
+  nick: { saturation: 55, lightness: 68 },
+  radius: 6,
+  font: 'system',
 };
 
 export const DEFAULT_THEME_ID = 'terminal';
 
 export const BUILTIN_THEMES: readonly ThemeEntry[] = [
-  { id: 'terminal', theme: terminal, builtin: true },
-  { id: 'daylight', theme: daylight, builtin: true },
-  { id: 'nord', theme: nord, builtin: true },
-  { id: 'solarized', theme: solarized, builtin: true },
-  { id: 'phosphor', theme: phosphor, builtin: true },
+  { id: 'terminal', theme: terminal, builtin: true, group: 'boson' },
+  { id: 'daylight', theme: daylight, builtin: true, group: 'boson' },
+  { id: 'nord', theme: nord, builtin: true, group: 'boson' },
+  { id: 'solarized', theme: solarized, builtin: true, group: 'boson' },
+  { id: 'phosphor', theme: phosphor, builtin: true, group: 'boson' },
+  { id: 'macos-light', theme: macosLight, builtin: true, group: 'system' },
+  { id: 'macos-dark', theme: macosDark, builtin: true, group: 'system' },
+  { id: 'windows-light', theme: windowsLight, builtin: true, group: 'system' },
+  { id: 'windows-dark', theme: windowsDark, builtin: true, group: 'system' },
+  { id: 'gnome-light', theme: gnomeLight, builtin: true, group: 'system' },
+  { id: 'gnome-dark', theme: gnomeDark, builtin: true, group: 'system' },
 ];
 
 // The theme a partial custom theme is filled in from.

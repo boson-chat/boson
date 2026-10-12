@@ -40,12 +40,17 @@ re-applies it as soon as you save. Make a new one from Settings > Appearance
     "danger": "#EF4444",
     "info": "#3B82F6"
   },
-  "nick": { "saturation": 62, "lightness": 64 }
+  "nick": { "saturation": 62, "lightness": 64 },
+  "radius": 2,
+  "font": "boson"
 }
 
-"base" is "dark" or "light". Any colour you leave out comes from the built-in
+"base" is "dark" or "light". Anything you leave out comes from the built-in
 theme of that base. Colours are CSS colours: #hex, rgb(), hsl(), oklch(), or
 names. "nick" sets the saturation and lightness (0-100) of nick avatars.
+"radius" is the corner rounding in px (0-12; Boson's own is 2, the macOS look
+uses 5). "font" is "boson" (Inter + JetBrains Mono) or "system" (your OS's
+UI font).
 `;
 
 export function isThemeId(id: unknown): id is string {

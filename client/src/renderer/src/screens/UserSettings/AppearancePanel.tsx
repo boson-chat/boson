@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Input, useTransientFlag } from '@boson/shared';
 import {
-  THEME_TOKENS, getThemeStore, isThemeColor, parseTheme, serializeTheme,
+  MAX_RADIUS, THEME_TOKENS, getThemeStore, isThemeColor, parseTheme, serializeTheme,
   type Theme, type ThemeEntry, type ThemeState, type ThemeToken,
 } from '../../modules/ui/theme';
 import { nickColor } from '../../modules/chat/nick-color';
@@ -75,15 +75,26 @@ export function AppearancePanel() {
     <div class="appearance">
       <Card>
         <div class="user-settings-card-body">
-          <div class="appearance-grid" role="radiogroup" aria-label="Theme">
-            {state.themes.map((entry) => (
-              <ThemeTile
-                key={entry.id}
-                entry={entry}
-                selected={entry.id === state.activeId}
-                onSelect={() => { setConfirmDelete(false); store.setActive(entry.id); }}
-              />
-            ))}
+          <div class="appearance-groups" role="radiogroup" aria-label="Theme">
+            {GROUP_TITLES.map(([group, title]) => {
+              const entries = state.themes.filter((t) => t.group === group);
+              if (entries.length === 0) return null;
+              return (
+                <div key={group} class="appearance-group-block" role="group" aria-label={title}>
+                  <h3 class="appearance-group-title">{title}</h3>
+                  <div class="appearance-grid">
+                    {entries.map((entry) => (
+                      <ThemeTile
+                        key={entry.id}
+                        entry={entry}
+                        selected={entry.id === state.activeId}
+                        onSelect={() => { setConfirmDelete(false); store.setActive(entry.id); }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
           <div class="appearance-actions">
             <Button size="sm" variant="secondary" onClick={() => customize(active)}>
@@ -158,6 +169,12 @@ export function AppearancePanel() {
   );
 }
 
+const GROUP_TITLES = [
+  ['boson', 'Boson'],
+  ['system', 'System looks'],
+  ['custom', 'Yours'],
+] as const;
+
 function ThemeTile({ entry, selected, onSelect }: { entry: ThemeEntry; selected: boolean; onSelect: () => void }) {
   const c = entry.theme.colors;
   return (
@@ -168,7 +185,11 @@ function ThemeTile({ entry, selected, onSelect }: { entry: ThemeEntry; selected:
       class={`appearance-tile ${selected ? 'appearance-tile-selected' : ''}`}
       onClick={onSelect}
     >
-      <span class="appearance-swatch" style={{ background: c.bg, borderColor: c.border }} aria-hidden="true">
+      <span
+        class="appearance-swatch"
+        style={{ background: c.bg, borderColor: c.border, borderRadius: `${entry.theme.radius * 2}px` }}
+        aria-hidden="true"
+      >
         <span class="appearance-swatch-side" style={{ background: c.surface, borderColor: c['border-soft'] }}>
           <span style={{ background: c['fg-3'] }} />
           <span style={{ background: c.accent }} />
@@ -178,7 +199,10 @@ function ThemeTile({ entry, selected, onSelect }: { entry: ThemeEntry; selected:
           <span style={{ background: c.fg, width: '70%' }} />
           <span style={{ background: c['fg-2'], width: '50%' }} />
           <span style={{ background: c['fg-2'], width: '62%' }} />
-          <span class="appearance-swatch-input" style={{ background: c['surface-raised'], borderColor: c.border }} />
+          <span
+            class="appearance-swatch-input"
+            style={{ background: c['surface-raised'], borderColor: c.border, borderRadius: `${entry.theme.radius}px` }}
+          />
         </span>
       </span>
       <span class="appearance-tile-label">
@@ -306,6 +330,38 @@ function ThemeEditor({ editing, onCancel, onSaved }: { editing: Editing; onCance
               })}
             </fieldset>
           ))}
+
+          <fieldset class="appearance-group">
+            <legend>Corners &amp; font</legend>
+            <label class="appearance-range">
+              <span>Corners</span>
+              <input
+                type="range"
+                min={0}
+                max={MAX_RADIUS}
+                value={draft.radius}
+                aria-label="Corner radius"
+                onInput={(e) => {
+                  const v = Number(e.currentTarget.value);
+                  setDraft((d) => ({ ...d, radius: v }));
+                }}
+              />
+              <span class="appearance-range-value">{draft.radius}px</span>
+            </label>
+            <div class="appearance-base" role="radiogroup" aria-label="Font">
+              {(['boson', 'system'] as const).map((f) => (
+                <label key={f}>
+                  <input
+                    type="radio"
+                    name="theme-font"
+                    checked={draft.font === f}
+                    onChange={() => setDraft((d) => ({ ...d, font: f }))}
+                  />
+                  {f === 'boson' ? 'Boson (Inter + JetBrains Mono)' : 'System font'}
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           <fieldset class="appearance-group">
             <legend>Nick colours</legend>

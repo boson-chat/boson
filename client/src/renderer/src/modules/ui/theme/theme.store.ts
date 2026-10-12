@@ -16,6 +16,19 @@ import { parseTheme, serializeTheme } from './theme.parse';
 // ring) are written in terms of these and follow automatically.
 
 const ACTIVE_KEY = 'boson:theme:v1';
+
+// Font stacks per ThemeFont. 'boson' repeats tokens.css so switching back
+// from a system-font theme restores it.
+const FONTS: Record<Theme['font'], { body: string; display: string }> = {
+  boson: {
+    body: "'Inter', -apple-system, system-ui, sans-serif",
+    display: "'JetBrains Mono', ui-monospace, monospace",
+  },
+  system: {
+    body: "-apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI', Cantarell, Ubuntu, 'Noto Sans', system-ui, sans-serif",
+    display: "-apple-system, BlinkMacSystemFont, 'Segoe UI Variable Display', 'Segoe UI', Cantarell, Ubuntu, 'Noto Sans', system-ui, sans-serif",
+  },
+};
 const CUSTOM_KEY = 'boson:themes:custom:v1';
 
 export interface ThemeFilesBridge {
@@ -137,7 +150,7 @@ export class ThemeStore {
   getState(): ThemeState {
     const customs: ThemeEntry[] = [...this.custom.entries()]
       .sort((a, b) => a[1].name.localeCompare(b[1].name))
-      .map(([id, theme]) => ({ id, theme, builtin: false }));
+      .map(([id, theme]) => ({ id, theme, builtin: false, group: 'custom' as const }));
     return {
       themes: [...BUILTIN_THEMES, ...customs],
       activeId: this.resolveActive().id,
@@ -199,7 +212,7 @@ export class ThemeStore {
   // to the default without forgetting the choice, so it returns if the file does.
   private resolveActive(): ThemeEntry {
     const custom = this.custom.get(this.activeId);
-    if (custom) return { id: this.activeId, theme: custom, builtin: false };
+    if (custom) return { id: this.activeId, theme: custom, builtin: false, group: 'custom' };
     return BUILTIN_THEMES.find((b) => b.id === this.activeId) ?? BUILTIN_THEMES[0]!;
   }
 
@@ -221,6 +234,11 @@ export class ThemeStore {
     for (const t of THEME_TOKENS) root.style.setProperty(`--${t.key}`, theme.colors[t.key]);
     root.style.setProperty('--nick-s', `${theme.nick.saturation}%`);
     root.style.setProperty('--nick-l', `${theme.nick.lightness}%`);
+    root.style.setProperty('--radius-sm', `${theme.radius}px`);
+    root.style.setProperty('--radius-md', `${theme.radius * 2}px`);
+    root.style.setProperty('--radius-lg', `${theme.radius * 3}px`);
+    root.style.setProperty('--font-body', FONTS[theme.font].body);
+    root.style.setProperty('--font-display', FONTS[theme.font].display);
     root.style.colorScheme = theme.base;
     root.dataset['themeBase'] = theme.base;
   }

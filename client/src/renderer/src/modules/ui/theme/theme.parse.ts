@@ -1,4 +1,4 @@
-import { THEME_TOKENS, type Theme, type ThemeBase, type ThemeColors } from './theme.types';
+import { MAX_RADIUS, THEME_TOKENS, type Theme, type ThemeBase, type ThemeColors, type ThemeFont } from './theme.types';
 import { baseTheme } from './themes.builtin';
 
 // Theme JSON comes from files the user (or anyone who handed them a theme)
@@ -81,12 +81,23 @@ export function parseTheme(input: string | unknown, fallbackName = 'Custom theme
     lightness: clampPct(nickRaw['lightness'], fill.nick.lightness),
   };
 
-  return { ok: true, theme: { name, base, colors, nick }, warnings };
+  const radiusRaw = obj['radius'];
+  const radius = typeof radiusRaw === 'number' && Number.isFinite(radiusRaw)
+    ? Math.min(MAX_RADIUS, Math.max(0, Math.round(radiusRaw)))
+    : fill.radius;
+  if (radiusRaw !== undefined && radius !== radiusRaw) warnings.push(`"radius" must be a whole number from 0 to ${MAX_RADIUS}; using ${radius}.`);
+
+  let font: ThemeFont = fill.font;
+  if (obj['font'] === 'boson' || obj['font'] === 'system') font = obj['font'];
+  else if (obj['font'] !== undefined) warnings.push('"font" must be "boson" or "system"; using "boson".');
+
+  return { ok: true, theme: { name, base, colors, nick, radius, font }, warnings };
 }
 
 // The file form of a theme: stable key order, two-space indent.
 export function serializeTheme(theme: Theme): string {
   const colors: Record<string, string> = {};
   for (const t of THEME_TOKENS) colors[t.key] = theme.colors[t.key];
-  return `${JSON.stringify({ name: theme.name, base: theme.base, colors, nick: theme.nick }, null, 2)}\n`;
+  const { name, base, nick, radius, font } = theme;
+  return `${JSON.stringify({ name, base, colors, nick, radius, font }, null, 2)}\n`;
 }

@@ -33,6 +33,19 @@ describe('ThemeStore', () => {
     expect(root.dataset['themeBase']).toBe('dark');
   });
 
+  it("applies an OS look's corners and system font, and restores Boson's on the way back", async () => {
+    const root = document.createElement('div');
+    const store = new ThemeStore(null, root);
+    await store.init();
+    store.setActive('macos-dark');
+    expect([prop(root, '--radius-sm'), prop(root, '--radius-md'), prop(root, '--radius-lg')]).toEqual(['5px', '10px', '15px']);
+    expect(prop(root, '--font-body')).toContain('-apple-system');
+    expect(prop(root, '--font-body')).toContain('Segoe UI');
+    store.setActive('terminal');
+    expect(prop(root, '--radius-sm')).toBe('2px');
+    expect(prop(root, '--font-display')).toContain('JetBrains Mono');
+  });
+
   it('remembers the active theme across instances', async () => {
     const root = document.createElement('div');
     new ThemeStore(null, root).setActive('daylight');

@@ -35,6 +35,20 @@ test.describe('themes', () => {
     expect(await again.page.evaluate(() => document.documentElement.dataset['themeBase'])).toBe('light');
   });
 
+  test('an OS look rounds the corners and uses the system font', async ({ launchApp }) => {
+    const { page } = await launchApp();
+    await continueAsGuest(page, `th${uid()}`);
+    const dialog = await openAppearance(page);
+    await dialog.getByRole('group', { name: 'System looks' }).getByRole('radio', { name: /^Windows Dark/ }).click();
+    expect(await cssVar(page, '--bg')).toBe('#272727');
+    expect(await cssVar(page, '--radius-md')).toBe('8px');
+    expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Segoe UI');
+    // Real controls pick it up.
+    const radius = await dialog.getByRole('button', { name: 'Customize Windows Dark' })
+      .evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
+    expect(['4px', '8px', '12px']).toContain(radius);
+  });
+
   test('customize writes a theme file, and editing the file updates the app live', async ({ launchApp, profile }) => {
     const { page } = await launchApp();
     await continueAsGuest(page, `th${uid()}`);
