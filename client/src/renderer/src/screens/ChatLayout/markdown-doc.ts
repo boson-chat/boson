@@ -133,7 +133,6 @@ function mathPlugin(mdi: MarkdownIt): void {
     const lineText = (n: number): string => state.src.slice(state.bMarks[n]! + state.tShift[n]!, state.eMarks[n]);
     const first = lineText(startLine);
     if (state.sCount[startLine]! - state.blkIndent >= 4 || !first.startsWith('$$')) return false;
-    if (silent) return true;
     let body = first.slice(2);
     let line = startLine;
     let closed = body.trimEnd().endsWith('$$') && body.trim().length >= 2;
@@ -147,7 +146,11 @@ function mathPlugin(mdi: MarkdownIt): void {
         body += `\n${text}`;
       }
     }
-    state.line = Math.min(line, endLine - 1) + 1;
+    // An unclosed $$ is text: as maths it would swallow the rest of the
+    // document into one broken formula.
+    if (!closed) return false;
+    if (silent) return true;
+    state.line = line + 1;
     const token = state.push('math_block', 'div', 0);
     token.block = true;
     token.content = body.trim();

@@ -31,10 +31,11 @@ export function toWireLines(text: string): string[] {
   return out;
 }
 
-// Lines from one sender at most this far apart belong to the same paste.
-// Pastes are paced at one line per 1–2 s (send queue; ZNC's own flood
-// control); people typing take longer between lines.
-export const BURST_GAP_MS = 5_000;
+// Lines from one sender at most this far apart belong to the same message
+// block. Pastes are paced at one line per 1–2 s (send queue), but server
+// flood control and bouncers can stall them for longer, and a document split
+// mid-way renders as two broken halves — so only a real pause separates.
+export const BURST_GAP_MS = 2 * 60_000;
 
 const FENCE_RE = /^ {0,3}(```|~~~)/;
 const HEADING_RE = /^ {0,3}#{1,6}\s+\S/;

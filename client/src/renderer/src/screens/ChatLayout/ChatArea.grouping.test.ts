@@ -196,9 +196,9 @@ describe('buildRenderItems — pasted markdown documents', () => {
   it('ends the burst at a gap, another speaker, or a different kind', () => {
     const items = buildRenderItems([
       ...paste('ada', ['- one', '- two']),
-      msg({ id: 'late', from: 'ada', text: '- three', timestamp: t0 + 60_000 }),
-      ...paste('bob', ['# hi', 'there'], 1_000, t0 + 61_000),
-      msg({ id: 'n', kind: 'notice', from: 'bob', text: '- x', timestamp: t0 + 62_500 }),
+      msg({ id: 'late', from: 'ada', text: '- three', timestamp: t0 + 1_000 + 3 * 60_000 }),
+      ...paste('bob', ['# hi', 'there'], 1_000, t0 + 4 * 60_000),
+      msg({ id: 'n', kind: 'notice', from: 'bob', text: '- x', timestamp: t0 + 4 * 60_000 + 1_500 }),
     ]);
     expect(items.map((i) => i.type)).toEqual(['doc', 'msg', 'doc', 'msg']);
   });
@@ -226,5 +226,14 @@ describe('buildRenderItems — pasted markdown documents', () => {
   it('renders a table inside a markdown document as part of it', () => {
     const items = buildRenderItems(paste('ada', ['## Scores', ' ', '| name | score |', '|------|-------|', '| a | 1 |']));
     expect(items.map((i) => i.type)).toEqual(['doc']);
+  });
+
+  it('keeps one sender\'s paste together across a stall of up to 2 minutes', () => {
+    const items = buildRenderItems([
+      ...paste('ada', ['# Doc', ' ', '```go']),
+      ...paste('ada', ['x := 1', '```'], 1_000, t0 + 90_000),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['doc']);
+    expect((items[0] as Extract<typeof items[number], { type: 'doc' }>).items).toHaveLength(5);
   });
 });

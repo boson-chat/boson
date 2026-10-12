@@ -134,3 +134,16 @@ describe('front matter', () => {
     expect(el.querySelector('.md-frontmatter')).toBeNull();
   });
 });
+
+describe('maths blocks', () => {
+  it('leave an unclosed $$ as text instead of swallowing the rest', () => {
+    const el = html(['Block math:', '$$', 'x^2', ' ', '## Next section', 'text']);
+    expect(el.querySelector('[data-math]')).toBeNull();
+    expect(el.querySelector('h2')?.textContent).toBe('Next section');
+  });
+
+  it('close on a $$ line or a trailing $$', () => {
+    const el = html(['$$', 'a', '$$', ' ', '$$b$$', ' ', '$$', 'c $$']);
+    expect([...el.querySelectorAll('[data-math="display"]')].map(placeholderTex)).toEqual(['a', 'b', 'c']);
+  });
+});
