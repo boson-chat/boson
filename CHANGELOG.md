@@ -1,3 +1,9 @@
+## [0.35.0](https://github.com/boson-chat/boson/compare/v0.34.0...v0.35.0) (2026-10-12)
+
+### Features
+
+* **bouncer:** fetch backlog on every attach, DMs included; keep what was read across a reconnect ([#13](https://github.com/boson-chat/boson/issues/13)) ([0b7c959](https://github.com/boson-chat/boson/commit/0b7c959db402f19050fb09897c0272a006bb0cc1))
+
 ## [0.34.0](https://github.com/boson-chat/boson/compare/v0.33.0...v0.34.0) (2026-10-12)
 
 ### Features
