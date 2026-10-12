@@ -1,3 +1,9 @@
+## [0.36.2](https://github.com/boson-chat/boson/compare/v0.36.1...v0.36.2) (2026-10-12)
+
+### Bug Fixes
+
+* **client:** ASCII-art banners as cards, pasted markdown as documents, plain topics ([#17](https://github.com/boson-chat/boson/issues/17)) ([180d6bc](https://github.com/boson-chat/boson/commit/180d6bcc39766fd83436b3a5a9f7a0bec077ba1d)), closes [mailto/#anchor](https://github.com/boson-chat/mailto//issues/anchor)
+
 ## [0.36.1](https://github.com/boson-chat/boson/compare/v0.36.0...v0.36.1) (2026-10-12)
 
 ### Bug Fixes
