@@ -166,6 +166,51 @@ test.describe('embeds', () => {
     expect(await openedExternally()).not.toContain(exe);
   });
 
+  // YouTube refuses some videos (label / VEVO music videos) when the page
+  // around its player is a local address, and the app runs on
+  // http://127.0.0.1. So the player is framed by the app's own wrapper page
+  // under youtube-embed.invalid (mapped to 127.0.0.1 in main). YouTube is
+  // stubbed here: the stub reports which page embeds it.
+  test('YouTube plays inside the wrapper, whose address is a hostname, not 127.0.0.1', async ({ launchApp }) => {
+    const channel = randomChannel('emy');
+    const peer = await connectPeer();
+    peers.push(peer);
+    const { app, page, nick } = await connectGuest(launchApp);
+    await app.context().route('https://www.youtube-nocookie.com/embed/**', (route) => route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><body><p id="who"></p><script>
+        document.getElementById('who').textContent =
+          'embedded by ' + location.ancestorOrigins[0] + ' via ' + document.referrer;
+      </script></body>`,
+    }));
+    await joinViaUi(page, channel, nick);
+    await peer.join(channel);
+    await expect(memberRow(page, peer.nick)).toBeVisible();
+    peer.privmsg(channel, 'yt1 https://www.youtube.com/watch?v=KtypSRcwIhA');
+    const row = messages(page).locator('.message-row').filter({ hasText: 'yt1' });
+    await row.getByRole('button', { name: 'Play video' }).click();
+
+    const appPort = new URL(page.url()).port;
+    const wrapperOrigin = `http://youtube-embed.invalid:${appPort}`;
+    const iframe = row.locator('iframe.embed-yt-iframe');
+    await expect(iframe).toHaveAttribute('src', `${wrapperOrigin}/youtube-embed.html?v=KtypSRcwIhA`);
+    const player = page.frameLocator('iframe.embed-yt-iframe').frameLocator('iframe');
+    await expect(player.locator('#who')).toHaveText(`embedded by ${wrapperOrigin} via ${wrapperOrigin}/`);
+    // The wrapper said it loaded, so the app keeps it (no fallback to a direct embed).
+    await page.waitForTimeout(7_000);
+    await expect(iframe).toHaveAttribute('src', `${wrapperOrigin}/youtube-embed.html?v=KtypSRcwIhA`);
+
+    // Under that hostname the app's own server hands out the wrapper only,
+    // never the app. (net.fetch goes through Chromium, which applies the
+    // host mapping.)
+    const status = (path: string) =>
+      app.evaluate(async ({ net }, u) => (await net.fetch(u)).status, `${wrapperOrigin}${path}`);
+    expect(await status('/youtube-embed.html')).toBe(200);
+    expect(await status('/youtube-embed.js')).toBe(200);
+    expect(await status('/')).toBe(404);
+    expect(await status('/index.html')).toBe(404);
+  });
+
   test('click-to-load mode keeps embeds inert until clicked', async ({ launchApp }) => {
     const s = site!;
     const channel = randomChannel('emc');

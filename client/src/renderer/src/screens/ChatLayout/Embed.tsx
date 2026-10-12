@@ -119,6 +119,25 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
   );
 }
 
+// The player isn't embedded directly. The app is served from a loopback
+// address (http://127.0.0.1:<port>, or localhost in dev), and YouTube refuses
+// some videos (label / VEVO music videos: "This video is unavailable") when
+// the page around its player is a local address, whatever Referer it's sent.
+// So it's framed from public/youtube-embed.html served by the same server
+// under youtube-embed.invalid, which main maps to 127.0.0.1
+// (src/main/youtube-embed.ts; keep the hostname in sync). The wrapper posts a
+// ready message; without one in time we embed YouTube directly, which plays
+// most videos. Outside a loopback origin (web build, tests) it's direct.
+export const YOUTUBE_EMBED_HOST = 'youtube-embed.invalid';
+export const YOUTUBE_WRAPPER_TIMEOUT_MS = 6_000;
+
+export function youtubeWrapperOrigin(loc: { protocol: string; hostname: string; port: string } | undefined =
+  typeof location === 'undefined' ? undefined : location): string | null {
+  if (!loc || loc.protocol !== 'http:' || !loc.port) return null;
+  if (loc.hostname !== '127.0.0.1' && loc.hostname !== 'localhost') return null;
+  return `http://${YOUTUBE_EMBED_HOST}:${loc.port}`;
+}
+
 // YouTube: a Discord-style card (YouTube label + video title) whose thumbnail
 // facade swaps in the privacy-enhanced (youtube-nocookie) iframe on play.
 // Nothing hits YouTube until the user clicks past the inert chip.
@@ -135,7 +154,25 @@ function YouTubeEmbed({
   // inline for those; only a bare file:// origin (no origin) opens externally.
   const origin = typeof location !== 'undefined' ? location.origin : '';
   const canInline = !!origin && origin !== 'null' && !origin.startsWith('file:');
-  const src = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&origin=${encodeURIComponent(origin)}`;
+  const direct = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&origin=${encodeURIComponent(origin)}`;
+  const wrapperOrigin = youtubeWrapperOrigin();
+  const [viaWrapper, setViaWrapper] = useState(wrapperOrigin !== null);
+  const src = viaWrapper && wrapperOrigin ? `${wrapperOrigin}/youtube-embed.html?v=${encodeURIComponent(id)}` : direct;
+  const frame = useRef<HTMLIFrameElement>(null);
+
+  // Playing through the wrapper: wait for its ready message, else go direct.
+  useEffect(() => {
+    if (stage !== 'play' || !viaWrapper) return;
+    let ready = false;
+    const onMessage = (e: MessageEvent): void => {
+      if (e.origin !== wrapperOrigin || e.source !== frame.current?.contentWindow) return;
+      const d = e.data as { type?: unknown; v?: unknown } | null;
+      if (d?.type === 'boson-youtube-ready' && d.v === id) ready = true;
+    };
+    window.addEventListener('message', onMessage);
+    const timer = setTimeout(() => { if (!ready) setViaWrapper(false); }, YOUTUBE_WRAPPER_TIMEOUT_MS);
+    return () => { window.removeEventListener('message', onMessage); clearTimeout(timer); };
+  }, [stage, viaWrapper, id, wrapperOrigin]);
 
   // Once past the inert chip, fetch the video title (OG) for the card header.
   useEffect(() => {
@@ -182,6 +219,7 @@ function YouTubeEmbed({
           </button>
         ) : (
           <iframe
+            ref={frame}
             class="embed-yt-iframe"
             src={src}
             title="YouTube video player"

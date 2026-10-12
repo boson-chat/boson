@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/preact';
-import { MessageEmbeds } from './Embed';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/preact';
+import { MessageEmbeds, youtubeWrapperOrigin, YOUTUBE_EMBED_HOST, YOUTUBE_WRAPPER_TIMEOUT_MS } from './Embed';
+import { YOUTUBE_EMBED_HOST as MAIN_YOUTUBE_EMBED_HOST } from '../../../../main/youtube-embed';
 import { setEmbedSettings, __resetEmbedSettingsCache } from '../../modules/ui/embeds.store';
 
 beforeEach(() => {
@@ -47,14 +48,62 @@ describe('MessageEmbeds', () => {
     expect(v.getAttribute('src')).toContain('clip.mp4');
   });
 
-  it('plays YouTube in-app: chip → thumbnail facade → nocookie iframe', () => {
-    render(<MessageEmbeds text="https://youtu.be/dQw4w9WgXcQ" />);
-    fireEvent.click(screen.getByRole('button', { name: /youtube · youtu\.be — click to load/i }));
+  // The test page is http://localhost:<port>, like the app in dev.
+  const wrapper = () => `http://${YOUTUBE_EMBED_HOST}:${location.port}`;
+  const play = (url = 'https://youtu.be/dQw4w9WgXcQ'): HTMLIFrameElement => {
+    render(<MessageEmbeds text={url} />);
+    fireEvent.click(screen.getByRole('button', { name: /youtube · .* — click to load/i }));
     expect(document.querySelector('iframe.embed-yt-iframe')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Play video' }));
-    const f = document.querySelector('iframe.embed-yt-iframe') as HTMLIFrameElement;
-    expect(f).not.toBeNull();
-    expect(f.getAttribute('src')).toContain('youtube-nocookie.com/embed/dQw4w9WgXcQ');
+    return document.querySelector('iframe.embed-yt-iframe') as HTMLIFrameElement;
+  };
+
+  it('plays YouTube in-app: chip → thumbnail facade → the player, framed by the local wrapper', () => {
+    const f = play();
+    expect(f.getAttribute('src')).toBe(`${wrapper()}/youtube-embed.html?v=dQw4w9WgXcQ`);
+    expect(f.getAttribute('allow')).toContain('fullscreen');
+  });
+
+  it('embeds YouTube directly if the wrapper never says it loaded', () => {
+    vi.useFakeTimers();
+    try {
+      const f = play();
+      act(() => { vi.advanceTimersByTime(YOUTUBE_WRAPPER_TIMEOUT_MS + 10); });
+      expect(f.getAttribute('src')).toContain('youtube-nocookie.com/embed/dQw4w9WgXcQ');
+      expect(f.getAttribute('src')).toContain(`origin=${encodeURIComponent(location.origin)}`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the wrapper once it says it loaded, and ignores look-alike messages', () => {
+    vi.useFakeTimers();
+    try {
+      const f = play();
+      const post = (data: unknown, origin: string, source: unknown) =>
+        window.dispatchEvent(new MessageEvent('message', { data, origin, source: source as Window }));
+      // Wrong sender, wrong origin, wrong video: none of these count.
+      post({ type: 'boson-youtube-ready', v: 'dQw4w9WgXcQ' }, wrapper(), window);
+      post({ type: 'boson-youtube-ready', v: 'dQw4w9WgXcQ' }, 'https://evil.example', f.contentWindow);
+      post({ type: 'boson-youtube-ready', v: 'xxxxxxxxxxx' }, wrapper(), f.contentWindow);
+      post({ type: 'boson-youtube-ready', v: 'dQw4w9WgXcQ' }, wrapper(), f.contentWindow);
+      act(() => { vi.advanceTimersByTime(YOUTUBE_WRAPPER_TIMEOUT_MS + 10); });
+      expect(f.getAttribute('src')).toBe(`${wrapper()}/youtube-embed.html?v=dQw4w9WgXcQ`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses the wrapper only from a loopback http origin', () => {
+    const at = (protocol: string, hostname: string, port: string) => youtubeWrapperOrigin({ protocol, hostname, port });
+    expect(at('http:', '127.0.0.1', '43117')).toBe(`http://${YOUTUBE_EMBED_HOST}:43117`);
+    expect(at('http:', 'localhost', '5173')).toBe(`http://${YOUTUBE_EMBED_HOST}:5173`);
+    expect(at('https:', 'boson.chat', '')).toBeNull();
+    expect(at('http:', 'example.com', '80')).toBeNull();
+    expect(at('file:', '', '')).toBeNull();
+    expect(at('http:', '127.0.0.1', '')).toBeNull();
+    // The hostname main maps to 127.0.0.1 is the one embeds use.
+    expect(YOUTUBE_EMBED_HOST).toBe(MAIN_YOUTUBE_EMBED_HOST);
   });
 
   it('dismisses an embed', () => {

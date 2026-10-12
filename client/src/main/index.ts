@@ -11,6 +11,7 @@ import { fetchSpotifyInfo } from './spotify';
 import { createApiProxyPolicy, proxyApiFetch } from './api-proxy';
 import { AppOrigin } from './app-origin';
 import { ThemeFiles } from './themes';
+import { isYoutubeEmbedRequest, youtubeEmbedAllows, youtubeEmbedHostRule } from './youtube-embed';
 
 // boson:// is the custom URL scheme that the marketing site's directory
 // page (/discover) deep-links to. Format: boson://join?host=…&port=…&tls=1
@@ -74,6 +75,9 @@ class BosonApp {
     // throws "RangeError: Incorrect locale information provided". Forcing a sane
     // default keeps locale-sensitive code (ours and third-party) from crashing.
     app.commandLine.appendSwitch('lang', 'en-US');
+    // youtube-embed.invalid → 127.0.0.1: the YouTube wrapper's hostname
+    // (see youtube-embed.ts). Must be set before Chromium starts.
+    app.commandLine.appendSwitch('host-resolver-rules', youtubeEmbedHostRule);
     // Windows needs the AppUserModelID to match the installed app for native
     // notifications to render with the right identity (and not silently drop).
     if (process.platform === 'win32') app.setAppUserModelId('chat.boson.app');
@@ -595,6 +599,11 @@ function startRendererServer(): Promise<string> {
           if (rel === '/__migrate') {
             res.writeHead(200, { 'content-type': 'text/html' });
             res.end('<!doctype html><meta charset="utf-8"><title>migrate</title>');
+            return;
+          }
+          // Under the YouTube wrapper's hostname, only the wrapper is served.
+          if (isYoutubeEmbedRequest(req.headers.host) && !youtubeEmbedAllows(rel)) {
+            res.writeHead(404).end('Not found');
             return;
           }
           if (rel === '/' || rel === '') rel = '/index.html';
