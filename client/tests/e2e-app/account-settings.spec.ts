@@ -237,13 +237,14 @@ test('content and notification preferences persist across a relaunch', async ({ 
   await expect(box(dialog, 'Every channel message (noisy)')).toBeChecked({ checked: allBefore });
 });
 
-test('appearance and about: theme, version, update check and the source link', async ({ launchApp }) => {
+test('appearance and about: theme picker, version, update check and the source link', async ({ launchApp }) => {
   const { page, openedExternally } = await launchApp();
   await continueAsGuest(page, `abt${uid()}`);
   const dialog = await openSettings(page, 'Appearance');
   await expect(dialog.getByRole('heading', { name: 'Appearance' })).toBeVisible();
-  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Theme' })).toContainText('Dark (terminal-modern)');
-  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Density' })).toContainText('Comfortable');
+  // The theme picker (themes.spec.ts covers switching and custom themes).
+  await expect(dialog.getByRole('radiogroup', { name: 'Theme' })).toBeVisible();
+  await expect(dialog.getByRole('radio', { name: /^Terminal/ })).toHaveAttribute('aria-checked', 'true');
 
   await dialog.getByRole('tab', { name: /^About/ }).click();
   const version = (JSON.parse(readFileSync(join(CLIENT_DIR, 'package.json'), 'utf8')) as { version: string }).version;

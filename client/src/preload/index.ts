@@ -183,6 +183,29 @@ const bosonUpdater = {
 };
 contextBridge.exposeInMainWorld('bosonUpdater', bosonUpdater);
 
+// Theme files in <userData>/themes (see main/themes.ts). Text in, text out:
+// the renderer parses and validates.
+const bosonThemes = {
+  async list(): Promise<Array<{ id: string; text: string }>> {
+    return ipcRenderer.invoke('themes:list');
+  },
+  async write(id: string, text: string): Promise<void> {
+    return ipcRenderer.invoke('themes:write', id, text);
+  },
+  async remove(id: string): Promise<void> {
+    return ipcRenderer.invoke('themes:remove', id);
+  },
+  async openFolder(): Promise<void> {
+    return ipcRenderer.invoke('themes:openFolder');
+  },
+  onChange(fn: () => void): () => void {
+    const listener = (): void => fn();
+    ipcRenderer.on('themes:changed', listener);
+    return () => { ipcRenderer.off('themes:changed', listener); };
+  },
+};
+contextBridge.exposeInMainWorld('bosonThemes', bosonThemes);
+
 export type BosonSecure = typeof bosonSecure;
 export type BosonWindow = typeof bosonWindow;
 export type BosonEngine = typeof bosonEngine;

@@ -19,6 +19,7 @@ import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import type { AuthService } from '../../modules/auth';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
+import { AppearancePanel } from './AppearancePanel';
 import { HttpError } from '../../shared/http/http.client';
 // Pulled at build time from client/package.json. semantic-release keeps
 // every workspace package.json in lockstep with the latest tag via
@@ -44,7 +45,7 @@ type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'acco
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',      label: 'Identity',      description: 'Display nick + handle' },
-  { id: 'appearance',    label: 'Appearance',    description: 'Theme + density' },
+  { id: 'appearance',    label: 'Appearance',    description: 'Themes + colours' },
   { id: 'content',       label: 'Content',       description: 'Link previews / embeds' },
   { id: 'notifications', label: 'Notifications', description: 'Desktop alerts' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
@@ -402,15 +403,9 @@ function AppearanceSection() {
   return (
     <SectionFrame
       title="Appearance"
-      description="Theme and density. Currently locked to the terminal-modern dark scheme; light + density toggles planned."
+      description="Pick a theme, or customize one: every colour in the app comes from it. Changes apply instantly."
     >
-      <Card>
-        <div class="user-settings-card-body">
-          <DetailRow label="Theme" customValue={<Badge tone="info">Dark (terminal-modern)</Badge>} />
-          <Divider />
-          <DetailRow label="Density" value="Comfortable" />
-        </div>
-      </Card>
+      <AppearancePanel />
     </SectionFrame>
   );
 }

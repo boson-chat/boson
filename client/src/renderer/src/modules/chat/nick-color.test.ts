@@ -12,7 +12,7 @@ describe('nickColor', () => {
   });
 
   it('returns a valid hsl() string', () => {
-    expect(nickColor('bob')).toMatch(/^hsl\(\d{1,3} 62% 64%\)$/);
+    expect(nickColor('bob')).toMatch(/^hsl\(\d{1,3} var\(--nick-s, 62%\) var\(--nick-l, 64%\)\)$/);
   });
 
   it('distinguishes different nicks (no global collapse to one hue)', () => {
