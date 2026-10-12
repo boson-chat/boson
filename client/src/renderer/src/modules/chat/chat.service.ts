@@ -130,6 +130,13 @@ const SKEW_SKIP_KINDS = new Set(['PRIVMSG', 'NOTICE', 'TAGMSG']);
 // scroll-back session; the oldest are evicted on the live-append path once
 // exceeded. Persistence keeps its own (separate, smaller) cap.
 const IN_MEMORY_MESSAGE_CAP = 1500;
+// Lines pushed out by that cap are kept aside (per conversation, newest
+// this many) and handed back a page at a time on scroll-up when the server
+// has no history command of its own: a plain ZNC with its buffers kept
+// replays up to ~10k lines per channel on attach, and that is all the
+// history it can ever give.
+const OLDER_CAP = 10_000;
+const OLDER_PAGE = 50;
 
 // How long a scroll-back request waits for the server before the ribbon shows
 // an error (covers a CHATHISTORY / *playback request that gets no reply).
@@ -249,6 +256,12 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
 // unchanged.
 type InternalChannel = Omit<ChatChannel, 'messages'> & { messages: Signal<ChatMessage[]> };
 
+// Identity of a line for the `older` store: its msgid, else what dedupe
+// compares (time, sender, text).
+function olderKey(m: ChatMessage): string {
+  return m.msgid ? `id:${m.msgid}` : `${m.timestamp}\u0000${m.from}\u0000${m.text}`;
+}
+
 export class ChatService {
   private channels = new Map<string, InternalChannel>();
   private activeChannel: string | null = null;
@@ -275,6 +288,11 @@ export class ChatService {
   // doesn't implement it, e.g. ZNC < 1.8 relaying upstream). Disables further
   // requests for this connection.
   private chathistoryUnsupported = false;
+  // Lines older than what's in memory, oldest first (see OLDER_CAP), and
+  // how many of them scroll-up has put back, which raises that
+  // conversation's in-memory cap so live traffic doesn't push them out again.
+  private readonly older = new Map<string, ChatMessage[]>();
+  private readonly revealed = new Map<string, number>();
   // Open `chathistory-targets` batches (ref → targets listed so far): the
   // reply to the CHATHISTORY TARGETS sent on attach.
   private readonly targetBatches = new Map<string, string[]>();
@@ -423,11 +441,12 @@ export class ChatService {
   // already read vanishes on a reconnect: in memory only on a bouncer or
   // for a guest, and a bouncer that clears its buffers once played (ZNC's
   // default) won't send those lines again.
-  exportConversations(): Array<{ name: string; messages: ChatMessage[] }> {
-    const out: Array<{ name: string; messages: ChatMessage[] }> = [];
+  exportConversations(): Array<{ name: string; messages: ChatMessage[]; older?: ChatMessage[] }> {
+    const out: Array<{ name: string; messages: ChatMessage[]; older?: ChatMessage[] }> = [];
     for (const ch of this.channels.values()) {
       const messages = ch.messages.peek();
-      if (messages.length > 0) out.push({ name: ch.name, messages });
+      const older = this.older.get(ch.name);
+      if (messages.length > 0 || older) out.push({ name: ch.name, messages, ...(older ? { older } : {}) });
     }
     return out;
   }
@@ -435,14 +454,14 @@ export class ChatService {
   // Take over a predecessor's conversations (exportConversations). Call
   // before attach(): the reconnect's backlog and rejoins then dedupe
   // against them like any other line already shown.
-  seedConversations(convs: ReadonlyArray<{ name: string; messages: readonly ChatMessage[] }>): void {
+  seedConversations(convs: ReadonlyArray<{ name: string; messages: readonly ChatMessage[]; older?: readonly ChatMessage[] }>): void {
     for (const c of convs) {
-      if (c.messages.length === 0) continue;
+      if (c.messages.length === 0 && !c.older?.length) continue;
       const ch = this.ensureChannel(c.name);
+      if (c.older?.length) this.stashOlder(this.channelKey(c.name), c.older);
       const fresh = c.messages.filter((m) => !this.isDuplicateMessage(ch, m));
-      ch.messages.value = [...fresh, ...ch.messages.peek()]
-        .sort((a, b) => a.timestamp - b.timestamp)
-        .slice(-IN_MEMORY_MESSAGE_CAP);
+      const merged = [...fresh, ...ch.messages.peek()].sort((a, b) => a.timestamp - b.timestamp);
+      ch.messages.value = this.capMessages(this.channelKey(c.name), merged);
     }
     this.emit();
   }
@@ -1726,8 +1745,11 @@ export class ChatService {
   private cmdClear(): void {
     if (!this.activeChannel) return;
     const ch = this.channels.get(this.activeChannel);
+    this.older.delete(this.activeChannel);
+    this.revealed.delete(this.activeChannel);
     if (ch) {
       ch.messages.value = [];
+      ch.history = undefined;
       this.emit();
     }
     // Persisted history goes with the in-memory log; otherwise a /clear would
@@ -2885,6 +2907,8 @@ export class ChatService {
       this.hydratedChannels.delete(key);
       // Same for chathistory: re-fetch backlog on rejoin.
       this.historyRequested.delete(key);
+      this.older.delete(key);
+      this.revealed.delete(key);
       this.pendingHistoryKind.delete(key);
       this.clearLoadOlderTimeout(key);
       if (this.activeChannel === key) {
@@ -3047,7 +3071,62 @@ export class ChatService {
       this.armLoadOlderTimeout(key);
       this.emit();
       this.session.privmsg('*playback', `PLAY ${ch.name} 0 ${toSec}`);
+      return;
     }
+
+    // No history command (plain ZNC): hand back lines held aside.
+    const older = this.older.get(key) ?? [];
+    const page = older.slice(-OLDER_PAGE);
+    const rest = older.slice(0, older.length - page.length);
+    if (rest.length > 0) this.older.set(key, rest);
+    else this.older.delete(key);
+    if (page.length > 0) {
+      this.revealed.set(key, (this.revealed.get(key) ?? 0) + page.length);
+      ch.messages.value = [...page, ...ch.messages.peek()];
+    }
+    ch.history = { loading: false, exhausted: rest.length === 0 };
+    this.emit();
+  }
+
+  // Keep a conversation's newest lines within its cap (raised by what
+  // scroll-up has revealed); the rest go aside into `older`. `live`: once
+  // the user has scrolled back, new lines grow the cap instead of pushing
+  // what they're reading off the top (up to OLDER_CAP extra).
+  private capMessages(key: string, msgs: ChatMessage[], live = false): ChatMessage[] {
+    let extra = this.revealed.get(key) ?? 0;
+    if (live && extra > 0 && msgs.length > IN_MEMORY_MESSAGE_CAP + extra) {
+      extra = Math.min(OLDER_CAP, msgs.length - IN_MEMORY_MESSAGE_CAP);
+      this.revealed.set(key, extra);
+    }
+    const cap = IN_MEMORY_MESSAGE_CAP + extra;
+    if (msgs.length <= cap) return msgs;
+    this.stashOlder(key, msgs.slice(0, msgs.length - cap));
+    return msgs.slice(msgs.length - cap);
+  }
+
+  private olderKeys(key: string): Set<string> {
+    return new Set((this.older.get(key) ?? []).map(olderKey));
+  }
+
+  // Add lines to a conversation's `older` store: deduped, oldest first,
+  // newest OLDER_CAP kept. Makes scroll-up available (again).
+  private stashOlder(key: string, msgs: readonly ChatMessage[]): void {
+    const prev = this.older.get(key) ?? [];
+    const seen = this.olderKeys(key);
+    const add = msgs.filter((m) => {
+      const k = olderKey(m);
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    if (add.length === 0) return;
+    const next = [...prev, ...add].sort((a, b) => a.timestamp - b.timestamp);
+    this.older.set(key, next.length > OLDER_CAP ? next.slice(next.length - OLDER_CAP) : next);
+    const ch = this.channels.get(key);
+    if (ch?.history?.exhausted && !this.chathistorySupported() && !this.playbackSupported()) {
+      ch.history = { loading: false, exhausted: false };
+    }
+    this.markScrollbackAvailable();
   }
 
   // Buffer one message that arrived inside an active chathistory BATCH.
@@ -3104,18 +3183,23 @@ export class ChatService {
     // Dedupe by msgid AND content (from+text+timestamp): a server may replay
     // the same buffer on every attach with no msgid, so msgid-only dedupe lets
     // reconnect dups pile up. isDuplicateMessage covers both.
-    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m));
+    const aside = this.olderKeys(key);
+    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !aside.has(olderKey(m)));
     if (fresh.length > 0) {
       // Stable: among equal timestamps what was already shown stays first.
       const merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
       // An attach's backlog keeps only the newest lines, like live traffic: a
       // ZNC that doesn't clear its buffers replays all of it (10k lines per
       // channel is common) on every attach. Scroll-back pages are kept whole.
-      ch.messages.value = batch.kind === 'latest' && merged.length > IN_MEMORY_MESSAGE_CAP
-        ? merged.slice(merged.length - IN_MEMORY_MESSAGE_CAP)
-        : merged;
+      ch.messages.value = batch.kind === 'latest' ? this.capMessages(key, merged) : merged;
     }
-    ch.history = { loading: false, exhausted: batch.msgs.length < this.chathistoryLimit() };
+    // A short page means the server has nothing older. Without a history
+    // command (a plain ZNC's own replay) only lines held aside remain.
+    const serverHistory = this.chathistorySupported() || this.playbackSupported();
+    ch.history = {
+      loading: false,
+      exhausted: serverHistory ? batch.msgs.length < this.chathistoryLimit() : !this.older.has(key),
+    };
     this.pendingHistoryKind.delete(key);
     this.clearLoadOlderTimeout(key);
     this.emit();
@@ -3177,8 +3261,8 @@ export class ChatService {
       while (i > 0 && arr[i - 1]!.timestamp > msg.timestamp) i--;
       next = [...arr.slice(0, i), msg, ...arr.slice(i)];
     }
-    // Bounded in-memory cap, trimmed from the front (oldest).
-    if (next.length > IN_MEMORY_MESSAGE_CAP) next = next.slice(next.length - IN_MEMORY_MESSAGE_CAP);
+    // Bounded in-memory cap, trimmed from the front (oldest) into `older`.
+    next = this.capMessages(this.channelKey(channel), next, true);
     ch.messages.value = next;
     this.emit();
     // Mirror to persistence (fire-and-forget). The store enforces its own cap
