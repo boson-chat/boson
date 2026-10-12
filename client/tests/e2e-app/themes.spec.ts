@@ -35,18 +35,19 @@ test.describe('themes', () => {
     expect(await again.page.evaluate(() => document.documentElement.dataset['themeBase'])).toBe('light');
   });
 
-  test('an OS look rounds the corners and uses the system font', async ({ launchApp }) => {
+  test('a custom theme can round the corners and use the system font', async ({ launchApp }) => {
     const { page } = await launchApp();
     await continueAsGuest(page, `th${uid()}`);
     const dialog = await openAppearance(page);
-    await dialog.getByRole('group', { name: 'System looks' }).getByRole('radio', { name: /^Windows Dark/ }).click();
-    expect(await cssVar(page, '--bg')).toBe('#272727');
-    expect(await cssVar(page, '--radius-md')).toBe('8px');
-    expect(await page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Segoe UI');
-    // Real controls pick it up.
-    const radius = await dialog.getByRole('button', { name: 'Customize Windows Dark' })
-      .evaluate((el) => getComputedStyle(el).borderTopLeftRadius);
-    expect(['4px', '8px', '12px']).toContain(radius);
+    await dialog.getByRole('button', { name: 'Customize Terminal' }).click();
+    await dialog.getByRole('slider', { name: 'Corner radius' }).fill('4');
+    await dialog.getByRole('radio', { name: 'System font' }).check();
+    await expect.poll(() => cssVar(page, '--radius-md')).toBe('8px');
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Segoe UI');
+    // Real controls pick it up (once their own transition settles).
+    const save = dialog.getByRole('button', { name: 'Save as new theme' });
+    await expect.poll(() => save.evaluate((el) => getComputedStyle(el).borderTopLeftRadius))
+      .toMatch(/^(4|8|12)px$/);
   });
 
   test('customize writes a theme file, and editing the file updates the app live', async ({ launchApp, profile }) => {
@@ -60,7 +61,7 @@ test.describe('themes', () => {
     await dialog.getByLabel('Name').fill('Night Shift');
     await dialog.getByRole('textbox', { name: 'Accent', exact: true }).fill('#ff4d8d');
     // Live preview before saving.
-    expect(await cssVar(page, '--accent')).toBe('#ff4d8d');
+    await expect.poll(() => cssVar(page, '--accent')).toBe('#ff4d8d');
     await dialog.getByRole('button', { name: 'Save as new theme' }).click();
     await expect(dialog.getByRole('radio', { name: /^Night Shift/ })).toHaveAttribute('aria-checked', 'true');
 

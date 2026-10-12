@@ -170,8 +170,7 @@ export function AppearancePanel() {
 }
 
 const GROUP_TITLES = [
-  ['boson', 'Boson'],
-  ['system', 'System looks'],
+  ['boson', 'Built-in'],
   ['custom', 'Yours'],
 ] as const;
 

@@ -1,8 +1,7 @@
 // A theme recolours the design-system tokens (packages/shared/.../tokens.css):
 // every colour in the app is derived from these, so a theme is a value for
 // each. It can also round the corners and swap Boson's fonts for the OS's
-// own (for the macOS / Windows / GNOME looks). Spacing, sizes and motion are
-// not themeable.
+// own. Spacing, sizes and motion are not themeable.
 //
 // On disk (and in Copy JSON) a theme looks like:
 //
@@ -68,6 +67,6 @@ export interface ThemeEntry {
   id: string;
   theme: Theme;
   builtin: boolean;
-  // Picker heading: Boson's own themes, the OS looks, or the user's.
-  group: 'boson' | 'system' | 'custom';
+  // Picker heading: Boson's own themes or the user's.
+  group: 'boson' | 'custom';
 }

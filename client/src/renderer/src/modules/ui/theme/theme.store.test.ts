@@ -33,11 +33,11 @@ describe('ThemeStore', () => {
     expect(root.dataset['themeBase']).toBe('dark');
   });
 
-  it("applies an OS look's corners and system font, and restores Boson's on the way back", async () => {
+  it("applies a theme's corners and system font, and restores Boson's on the way back", async () => {
     const root = document.createElement('div');
     const store = new ThemeStore(null, root);
     await store.init();
-    store.setActive('macos-dark');
+    await store.save({ ...mine, radius: 5, font: 'system' });
     expect([prop(root, '--radius-sm'), prop(root, '--radius-md'), prop(root, '--radius-lg')]).toEqual(['5px', '10px', '15px']);
     expect(prop(root, '--font-body')).toContain('-apple-system');
     expect(prop(root, '--font-body')).toContain('Segoe UI');

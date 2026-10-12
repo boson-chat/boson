@@ -40,14 +40,13 @@ describe('AppearancePanel', () => {
     expect(screen.getByRole('button', { name: 'Open themes folder' })).toBeInTheDocument();
   });
 
-  it('groups the OS looks under their own heading', () => {
+  it('lists built-ins and your own themes under separate headings', async () => {
     render(<AppearancePanel />);
-    const system = screen.getByRole('group', { name: 'System looks' });
-    for (const n of ['macOS Light', 'macOS Dark', 'Windows Light', 'Windows Dark', 'GNOME Light', 'GNOME Dark']) {
-      expect(within(system).getByRole('radio', { name: new RegExp(`^${n}`) })).toBeInTheDocument();
-    }
-    expect(within(screen.getByRole('group', { name: 'Boson' })).getAllByRole('radio')).toHaveLength(5);
+    expect(within(screen.getByRole('group', { name: 'Built-in' })).getAllByRole('radio')).toHaveLength(5);
     expect(screen.queryByRole('group', { name: 'Yours' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Customize Terminal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save as new theme' }));
+    await waitFor(() => expect(within(screen.getByRole('group', { name: 'Yours' })).getAllByRole('radio')).toHaveLength(1));
   });
 
   it('the editor sets corners and font', async () => {
