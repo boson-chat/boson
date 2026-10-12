@@ -172,6 +172,9 @@ export default defineConfig({
   },
   renderer: {
     plugins: [preact(), stripCrossOriginAttr(), injectFreshEngineDiscovery()],
+    // The dev server also serves the YouTube wrapper (public/youtube-embed.html)
+    // under the hostname main maps to 127.0.0.1 (src/main/youtube-embed.ts).
+    server: { allowedHosts: ['youtube-embed.invalid'] },
     build: coverageBuild ? { sourcemap: true, minify: false } : {},
   },
 });

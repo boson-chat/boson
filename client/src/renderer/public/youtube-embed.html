@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  YouTube player host for inline video embeds. Boson's UI is served from a
+  loopback address (http://127.0.0.1:<port>), and YouTube refuses some videos
+  (label / VEVO music videos: "This video is unavailable") when the page
+  around its player is a local address. The app frames this page from
+  http://youtube-embed.invalid:<same port> instead: a hostname the main
+  process maps to 127.0.0.1 (host-resolver-rules), so the player's embedding
+  page has an ordinary name. .invalid is reserved and never resolves on the
+  internet, so the mapping can't shadow a real site.
+  Takes ?v=<11-char id>[&t=<seconds>]; anything else is refused.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src https://www.youtube-nocookie.com; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>YouTube</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; color: #aaa; font: 13px system-ui, sans-serif; overflow: hidden; }
+      iframe { display: block; width: 100%; height: 100%; border: 0; }
+    </style>
+  </head>
+  <body>
+    <script src="youtube-embed.js"></script>
+  </body>
+</html>
