@@ -10,6 +10,7 @@ import { unfurl } from './unfurl';
 import { fetchSpotifyInfo } from './spotify';
 import { createApiProxyPolicy, proxyApiFetch } from './api-proxy';
 import { AppOrigin } from './app-origin';
+import { ThemeFiles } from './themes';
 
 // boson:// is the custom URL scheme that the marketing site's directory
 // page (/discover) deep-links to. Format: boson://join?host=…&port=…&tls=1
@@ -363,6 +364,24 @@ class BosonApp {
     this.handle('updater:getState', () => getUpdateState());
     this.handle('updater:checkNow', () => checkNow());
     this.handle('updater:apply', () => { applyDownloadedUpdate(); });
+
+    // Theme files (<userData>/themes/*.json). The renderer parses them; main
+    // only lists / writes / deletes, and pushes `themes:changed` when the
+    // folder changes so an edit in any text editor re-applies live.
+    const themes = new ThemeFiles(join(app.getPath('userData'), 'themes'));
+    this.handle('themes:list', () => themes.list());
+    this.handle('themes:write', (_e, id: unknown, text: unknown) => themes.write(id, text));
+    this.handle('themes:remove', (_e, id: unknown) => themes.remove(id));
+    this.handle('themes:openFolder', async () => {
+      await themes.ensureDir();
+      const err = await shell.openPath(themes.dir);
+      if (err) throw new Error(err);
+    });
+    void themes.watch(() => {
+      const w = this.mainWindow;
+      if (w && !w.isDestroyed()) w.webContents.send('themes:changed');
+    }).catch((err: unknown) => console.warn('[themes] watch failed', err));
+    app.on('will-quit', () => themes.close());
   }
 
   // Forward a deep-link URL to the renderer. Always buffer AND

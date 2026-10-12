@@ -2,7 +2,12 @@ import { render } from 'preact';
 import { App, buildApp } from './app';
 import { initDeepLinkBridge, subscribeAuthConfirmed } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
+import { getThemeStore } from './modules/ui/theme';
 import './styles.css';
+
+// Paint the saved theme before anything renders (from the local copy), then
+// load the themes folder and watch it for edits.
+void getThemeStore().init();
 
 // Attach to the main-process deep-link bridge before any UI mounts so
 // the module-level buffer in deep-link.ts captures any `boson://` URL
