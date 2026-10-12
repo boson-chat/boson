@@ -102,6 +102,19 @@ export function FeaturesPage() {
       />
 
       <FeatureSection
+        eyebrow="Appearance"
+        title="Make it yours."
+        blurb="Every colour in the app comes from its theme. Pick one, or build your own."
+        image="/screenshots/theme-editor.png"
+        imageAlt="The theme editor with the colour picker open on the Accent colour"
+        features={[
+          { icon: <PaletteIcon />, title: 'Five built-in themes', body: 'Terminal, Daylight, Nord, Solarized, and Phosphor — switch in one click, applied instantly across the app.' },
+          { icon: <DropperIcon />, title: 'Live theme editor', body: 'A colour picker with hue, opacity, hex, eyedropper, and the theme\'s own colours to reuse — plus corners, font, and nick colours, all previewed live.' },
+          { icon: <FileIcon />, title: 'Shareable theme files', body: 'Themes are plain JSON files that reload as you edit them. Copy one to share it; import one a friend sent you.' },
+        ]}
+      />
+
+      <FeatureSection
         eyebrow="Privacy & security"
         title="Your keys, your machine."
         blurb="Credentials never leave your control, and previews never leak your IP unasked."
@@ -190,4 +203,7 @@ const BellIcon = () => svg(<><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"
 const ResizeIcon = () => svg(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M17.5 10l2 2-2 2M10.5 10l-2 2 2 2" /></>);
 const DesktopIcon = () => svg(<><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>);
 const LockIcon = () => svg(<><rect x="5" y="11" width="14" height="9" rx="1.5" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></>);
+const PaletteIcon = () => svg(<><path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.3-1-1.6-1-2.6 0-.9.7-1.4 1.6-1.4H17a4 4 0 0 0 4-4c0-4.6-4-8.3-9-8.3z" /><circle cx="7.5" cy="11" r="1" /><circle cx="10" cy="7" r="1" /><circle cx="15" cy="7.5" r="1" /></>);
+const DropperIcon = () => svg(<><path d="M14.5 4.5a2.1 2.1 0 0 1 3 3L9 16l-4 1 1-4z" /><path d="M13 6l5 5" /><path d="M4 20h4" /></>);
+const FileIcon = () => svg(<><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5M9.5 13l-1.5 1.5L9.5 16M14.5 13l1.5 1.5-1.5 1.5" /></>);
 const ProtocolIcon = () => svg(<><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="12" cy="18" r="2.5" /><path d="M6 8.5v3a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-3M12 13.5v2" /></>);

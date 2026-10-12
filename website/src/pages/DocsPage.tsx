@@ -13,6 +13,7 @@ const DOC_SECTION_IDS = [
   'add-manual',
   'channels',
   'commands',
+  'themes',
   'host-start',
   'host-daemon',
   'host-verify',
@@ -50,6 +51,7 @@ export function DocsPage() {
                 <li><a href="#add-manual"     class={linkClass('add-manual')}>Add a server manually</a></li>
                 <li><a href="#channels"       class={linkClass('channels')}>Channels &amp; DMs</a></li>
                 <li><a href="#commands"       class={linkClass('commands')}>Slash commands</a></li>
+                <li><a href="#themes"         class={linkClass('themes')}>Themes &amp; customization</a></li>
               </ul>
               <h4>List in the directory</h4>
               <ul>
@@ -233,6 +235,98 @@ export function DocsPage() {
                   Anything starting with <span class="num">//</span> sends the rest of the line as
                   literal text — useful if your message happens to start with a slash.
                 </p>
+              </article>
+
+              <article class="doc-section" id="themes">
+                <p class="eyebrow">06</p>
+                <h2>Themes and customization.</h2>
+                <p>
+                  Every colour in Boson comes from its theme, so one choice restyles the whole app.
+                  Open <strong>Settings → Appearance</strong> and click a theme: it applies
+                  instantly and is remembered. Five are built in — <strong>Terminal</strong> (the
+                  default), <strong>Daylight</strong> (light), <strong>Nord</strong>,{' '}
+                  <strong>Solarized</strong>, and <strong>Phosphor</strong>. Themes you make or
+                  import are listed under <strong>Yours</strong>.
+                </p>
+                <ScreenshotFrame
+                  src="/screenshots/theme-gallery.png"
+                  alt="Settings → Appearance with the built-in themes; Nord is selected"
+                  caption="Settings → Appearance. Nord is selected."
+                />
+
+                <h3>Make your own.</h3>
+                <p>
+                  Select a built-in theme and click <strong>Customize</strong> to open the editor
+                  with a copy of it (<strong>Edit</strong> on one of your own themes changes it in
+                  place). Everything you change previews live across the app;{' '}
+                  <strong>Save</strong> keeps it, <strong>Cancel</strong> throws it away.
+                </p>
+                <ul>
+                  <li>
+                    <strong>Colours</strong> — click a swatch for the colour picker: drag in the
+                    square for saturation and brightness, use the strips for hue and opacity, type a
+                    hex value, reuse one of the theme's other colours from the row of chips, or pick
+                    one off the screen with the eyedropper. Arrow keys move the picker too (hold
+                    Shift for bigger steps). The text box beside each swatch takes any CSS colour:{' '}
+                    <span class="num">#hex</span>, <span class="num">rgb()</span>,{' '}
+                    <span class="num">hsl()</span>, <span class="num">oklch()</span>, or a name.
+                  </li>
+                  <li><strong>Base</strong> — dark or light. Anything a theme leaves out is filled in from Terminal or Daylight.</li>
+                  <li><strong>Corners</strong> — from square (0px) to round (12px).</li>
+                  <li><strong>Font</strong> — Boson's own (Inter + JetBrains Mono) or your system's UI font.</li>
+                  <li><strong>Nick colours</strong> — each nick gets its own hue; saturation and lightness set how loud they are.</li>
+                </ul>
+                <ScreenshotFrame
+                  src="/screenshots/theme-editor.png"
+                  alt="The theme editor with the colour picker open on the Accent colour"
+                  caption="The editor, with the colour picker open on Accent."
+                />
+                <p>
+                  The colours, grouped as in the editor:
+                </p>
+                <ul>
+                  <li><strong>Surfaces</strong> — <span class="num">bg</span> (background), <span class="num">surface</span> (panels), <span class="num">surface-raised</span>, <span class="num">surface-hover</span>, <span class="num">border</span>, <span class="num">border-soft</span>.</li>
+                  <li><strong>Text</strong> — <span class="num">fg</span>, <span class="num">fg-2</span>, <span class="num">fg-3</span> (primary to tertiary), <span class="num">muted</span>, <span class="num">meta</span> (faint).</li>
+                  <li><strong>Accent</strong> — <span class="num">accent</span> and <span class="num">accent-on</span> (text drawn on the accent).</li>
+                  <li><strong>Status</strong> — <span class="num">success</span>, <span class="num">warn</span>, <span class="num">danger</span>, <span class="num">info</span>.</li>
+                </ul>
+
+                <h3>Theme files.</h3>
+                <p>
+                  Each of your themes is a JSON file in Boson's themes folder —{' '}
+                  <strong>Open themes folder</strong> in Appearance takes you there. Edit a file in
+                  any editor and Boson re-applies it as soon as you save. Every field is optional;
+                  a missing one comes from the built-in theme of the same base.
+                </p>
+                <Terminal>
+                  <Line>{'{'}</Line>
+                  <Line>&nbsp;&nbsp;<C tone="key">"name"</C>: <C tone="str">"Ember"</C>,</Line>
+                  <Line>&nbsp;&nbsp;<C tone="key">"base"</C>: <C tone="str">"dark"</C>,</Line>
+                  <Line>&nbsp;&nbsp;<C tone="key">"colors"</C>: {'{'} <C tone="key">"accent"</C>: <C tone="str">"#e8590c"</C>, <C tone="key">"bg"</C>: <C tone="str">"#0b0a09"</C> {'}'},</Line>
+                  <Line>&nbsp;&nbsp;<C tone="key">"nick"</C>: {'{'} <C tone="key">"saturation"</C>: <C tone="acc">62</C>, <C tone="key">"lightness"</C>: <C tone="acc">64</C> {'}'},</Line>
+                  <Line>&nbsp;&nbsp;<C tone="key">"radius"</C>: <C tone="acc">4</C>,</Line>
+                  <Line>&nbsp;&nbsp;<C tone="key">"font"</C>: <C tone="str">"system"</C></Line>
+                  <Line>{'}'}</Line>
+                </Terminal>
+                <p>
+                  The folder is <span class="num">~/Library/Application Support/boson-client/themes</span>{' '}
+                  on macOS, <span class="num">%APPDATA%\boson-client\themes</span> on Windows, and{' '}
+                  <span class="num">~/.config/boson-client/themes</span> on Linux. A file that
+                  can't be read as a theme is listed in Appearance with the reason.
+                </p>
+                <h3>Share a theme.</h3>
+                <p>
+                  With one of your themes selected, <strong>Copy JSON</strong> puts it on your
+                  clipboard to paste to a friend. <strong>Import JSON</strong> adds a theme from a
+                  file someone sent you. Colours in a theme file must be plain CSS colours —
+                  anything else (an image, a variable) is ignored, and the import says so.{' '}
+                  <strong>Delete</strong> removes one of your themes, file included.
+                </p>
+                <ScreenshotFrame
+                  src="/screenshots/theme-chat-daylight.png"
+                  alt="A Boson channel in the light Daylight theme"
+                  caption="The same channel in Daylight."
+                />
               </article>
 
               {/* --------------- LIST IN THE DIRECTORY (planned) --------------- */}

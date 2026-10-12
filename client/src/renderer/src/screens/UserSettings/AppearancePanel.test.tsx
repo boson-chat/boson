@@ -26,6 +26,14 @@ beforeEach(async () => {
 });
 afterEach(() => setThemeStore(null));
 
+// Picks a file the way a browser reports it: a native change event. Not
+// fireEvent.change: with preact/compat loaded (the colour picker's portal),
+// @testing-library/preact turns every change into input, even on a file
+// input, where compat itself keeps onChange on change.
+const pickFile = (input: HTMLInputElement, file: File): void => {
+  Object.defineProperty(input, 'files', { configurable: true, value: [file] });
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+};
 const tile = (name: string) => screen.getByRole('radio', { name: new RegExp(`^${name}`) });
 const accent = () => root.style.getPropertyValue('--accent');
 
@@ -81,6 +89,27 @@ describe('AppearancePanel', () => {
     expect(screen.getByRole('button', { name: 'Edit Terminal (custom)' })).toBeInTheDocument();
   });
 
+  it('the colour picker previews live, and the text box and saved file follow it', async () => {
+    render(<AppearancePanel />);
+    fireEvent.click(screen.getByRole('button', { name: 'Customize Terminal' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Accent colour picker' }));
+    const pick = screen.getByRole('dialog', { name: 'Pick Accent' });
+    fireEvent.input(within(pick).getByRole('textbox', { name: 'Hex' }), { target: { value: '#22aa66' } });
+    expect(accent()).toBe('#22aa66');
+    expect(screen.getByRole('textbox', { name: 'Accent' })).toHaveValue('#22aa66');
+    // The theme's other colours are there to reuse; the accent itself isn't.
+    expect(within(pick).getByRole('button', { name: 'Use #070709' })).toBeInTheDocument();
+    expect(within(pick).queryByRole('button', { name: 'Use #22aa66' })).toBeNull();
+
+    // Typing in the text box moves the picker too.
+    fireEvent.input(screen.getByRole('textbox', { name: 'Accent' }), { target: { value: '#ff0000' } });
+    expect(within(pick).getByRole('textbox', { name: 'Hex' })).toHaveValue('#ff0000');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save as new theme' }));
+    await waitFor(() => expect(files['terminal-custom']).toBeDefined());
+    expect(JSON.parse(files['terminal-custom']!).colors.accent).toBe('#ff0000');
+  });
+
   it('Cancel throws the preview away', () => {
     render(<AppearancePanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Customize Terminal' }));
@@ -94,20 +123,20 @@ describe('AppearancePanel', () => {
     render(<AppearancePanel />);
     const input = screen.getByTestId('theme-import') as HTMLInputElement;
     const good = new File([JSON.stringify({ name: 'Sunset', base: 'light', colors: { accent: '#e8590c' } })], 'sunset.json');
-    fireEvent.change(input, { target: { files: [good] } });
+    pickFile(input, good);
     await waitFor(() => expect(tile('Sunset')).toHaveAttribute('aria-checked', 'true'));
     expect(accent()).toBe('#e8590c');
     expect(root.dataset['themeBase']).toBe('light');
 
     const bad = new File(['{oops'], 'oops.json');
-    fireEvent.change(input, { target: { files: [bad] } });
+    pickFile(input, bad);
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent("Couldn't import oops.json: Not valid JSON"));
   });
 
   it('Delete removes the active custom theme and falls back to Terminal', async () => {
     render(<AppearancePanel />);
     const input = screen.getByTestId('theme-import') as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [new File(['{"name":"Gone"}'], 'gone.json')] } });
+    pickFile(input, new File(['{"name":"Gone"}'], 'gone.json'));
     await waitFor(() => expect(tile('Gone')).toHaveAttribute('aria-checked', 'true'));
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(files).toEqual({ gone: expect.any(String) });

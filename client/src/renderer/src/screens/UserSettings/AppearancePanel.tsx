@@ -5,6 +5,7 @@ import {
   type Theme, type ThemeEntry, type ThemeState, type ThemeToken,
 } from '../../modules/ui/theme';
 import { nickColor } from '../../modules/chat/nick-color';
+import { ColorPicker } from './ColorPicker';
 import './AppearancePanel.css';
 
 // Settings → Appearance: pick a theme, or make / edit your own with live
@@ -212,27 +213,6 @@ function ThemeTile({ entry, selected, onSelect }: { entry: ThemeEntry; selected:
   );
 }
 
-// A colour input only takes #rrggbb; turn any CSS colour into that for the
-// swatch (the text box keeps whatever the user wrote).
-function toHex(value: string): string {
-  const v = value.trim();
-  if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase();
-  if (/^#[0-9a-f]{3}$/i.test(v)) return `#${[...v.slice(1)].map((ch) => ch + ch).join('')}`.toLowerCase();
-  if (/^#[0-9a-f]{8}$/i.test(v)) return v.slice(0, 7).toLowerCase();
-  try {
-    const ctx = document.createElement('canvas').getContext('2d');
-    if (ctx) {
-      ctx.fillStyle = '#000000';
-      ctx.fillStyle = v;
-      const out = String(ctx.fillStyle);
-      if (/^#[0-9a-f]{6}$/i.test(out)) return out;
-      const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(out);
-      if (m) return `#${[m[1], m[2], m[3]].map((n) => Number(n).toString(16).padStart(2, '0')).join('')}`;
-    }
-  } catch { /* no canvas */ }
-  return '#000000';
-}
-
 const GROUPS = [...new Set(THEME_TOKENS.map((t) => t.group))];
 
 function ThemeEditor({ editing, onCancel, onSaved }: { editing: Editing; onCancel: () => void; onSaved: () => void }) {
@@ -308,12 +288,11 @@ function ThemeEditor({ editing, onCancel, onSaved }: { editing: Editing; onCance
                 const bad = !isThemeColor(text[t.key]);
                 return (
                   <div key={t.key} class="appearance-color">
-                    <input
-                      type="color"
-                      class="appearance-color-swatch"
-                      aria-label={`${t.label} colour picker`}
-                      value={toHex(draft.colors[t.key])}
-                      onInput={(e) => setColor(t.key, e.currentTarget.value)}
+                    <ColorPicker
+                      label={t.label}
+                      value={draft.colors[t.key]}
+                      onChange={(hex) => setColor(t.key, hex)}
+                      swatches={THEME_TOKENS.filter((o) => o.key !== t.key).map((o) => draft.colors[o.key])}
                     />
                     <span class="appearance-color-label">{t.label}</span>
                     <Input

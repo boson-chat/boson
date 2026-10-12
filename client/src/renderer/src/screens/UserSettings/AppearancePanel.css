@@ -138,17 +138,6 @@
   gap: var(--space-2);
 }
 .appearance-color-label { font-size: var(--text-sm); color: var(--fg-2); }
-.appearance-color-swatch {
-  width: 28px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: none;
-  cursor: pointer;
-}
-.appearance-color-swatch::-webkit-color-swatch-wrapper { padding: 0; }
-.appearance-color-swatch::-webkit-color-swatch { border: 0; border-radius: 1px; }
 .appearance-color .bds-input { font-family: var(--font-mono); }
 
 .appearance-range {

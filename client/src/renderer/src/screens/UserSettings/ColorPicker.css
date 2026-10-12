@@ -1,0 +1,153 @@
+.color-picker { position: relative; display: inline-flex; }
+
+/* Checkerboard behind anything that can be translucent. */
+.color-picker-swatch,
+.color-picker-preview,
+.color-picker-chip,
+.color-picker-alpha {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%),
+    linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%);
+  background-size: 8px 8px;
+  background-position: 0 0, 4px 4px;
+}
+
+.color-picker-swatch {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  overflow: hidden;
+}
+.color-picker-swatch > span { display: block; width: 100%; height: 100%; }
+.color-picker-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.color-picker-pop {
+  /* Placed by ColorPicker in viewport coordinates (escapes scroll clipping). */
+  position: fixed;
+  z-index: 1000;
+  width: 232px;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+}
+
+.color-picker-area {
+  position: relative;
+  height: 140px;
+  border-radius: var(--radius-sm);
+  cursor: crosshair;
+  touch-action: none;
+}
+.color-picker-area::before,
+.color-picker-area::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.color-picker-area::before { background: linear-gradient(to right, #fff, rgb(255 255 255 / 0)); }
+.color-picker-area::after { background: linear-gradient(to top, #000, rgb(0 0 0 / 0)); }
+
+.color-picker-area-thumb {
+  position: absolute;
+  z-index: 1;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+.color-picker-area-thumb:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.color-picker-strip {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 12px;
+  margin: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.color-picker-hue {
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.color-picker-alpha { position: relative; }
+.color-picker-alpha {
+  background-image:
+    linear-gradient(to right, transparent, var(--cp-color)),
+    linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%),
+    linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%);
+  background-size: 100% 100%, 8px 8px, 8px 8px;
+  background-position: 0 0, 0 0, 4px 4px;
+}
+.color-picker-strip::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+}
+.color-picker-strip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.color-picker-row { display: flex; align-items: center; gap: var(--space-2); }
+.color-picker-preview {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.color-picker-preview > span { display: block; width: 100%; height: 100%; }
+.color-picker-hex {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--space-2);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.color-picker-hex:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.color-picker-dropper {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  color: var(--fg-2);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.color-picker-dropper:hover { color: var(--fg); background: var(--surface-hover); }
+
+.color-picker-swatches { display: flex; flex-wrap: wrap; gap: 4px; }
+.color-picker-chip {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.color-picker-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
