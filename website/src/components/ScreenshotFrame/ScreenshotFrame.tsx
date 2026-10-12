@@ -7,6 +7,9 @@ interface ScreenshotFrameProps {
   width?: number;
   height?: number;
   loading?: 'eager' | 'lazy';
+  // Cap the displayed width (CSS px) so a cropped, smaller-than-a-window
+  // shot shows at its true size instead of being stretched to the column.
+  maxWidth?: number;
 }
 
 /**
@@ -21,9 +24,10 @@ export function ScreenshotFrame({
   width,
   height,
   loading = 'lazy',
+  maxWidth,
 }: ScreenshotFrameProps) {
   return (
-    <figure class="shot-figure">
+    <figure class="shot-figure" style={maxWidth ? { maxWidth: `${maxWidth}px` } : undefined}>
       <div class="shot shot-window">
         <img
           src={src}

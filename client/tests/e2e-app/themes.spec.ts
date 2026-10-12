@@ -50,6 +50,59 @@ test.describe('themes', () => {
       .toMatch(/^(4|8|12)px$/);
   });
 
+  // The colour picker opens over the settings dialog (rendered into <body>
+  // so the dialog can't clip it), drives the live preview, and closing it
+  // (Escape, a click elsewhere) leaves the dialog open.
+  test('the colour picker previews live and saves, without closing the settings', async ({ launchApp, profile }) => {
+    const { page } = await launchApp();
+    await continueAsGuest(page, `th${uid()}`);
+    const dialog = await openAppearance(page);
+    await dialog.getByRole('button', { name: 'Customize Terminal' }).click();
+    await dialog.getByLabel('Name').fill('Picked');
+
+    const swatch = dialog.getByRole('button', { name: 'Accent colour picker', exact: true });
+    await swatch.click();
+    const pick = page.getByRole('dialog', { name: 'Pick Accent' });
+    await expect(pick).toBeVisible();
+    // Fully inside the window, next to its swatch.
+    const [p, s] = [(await pick.boundingBox())!, (await swatch.boundingBox())!];
+    expect(p.y + p.height).toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight));
+    expect(Math.abs(p.y - (s.y + s.height)) < 12 || Math.abs(p.y + p.height - s.y) < 12).toBe(true);
+
+    // Hue to green at full saturation/brightness (Terminal's accent is an orange).
+    await pick.getByRole('textbox', { name: 'Hex' }).fill('#ff0000');
+    await pick.getByRole('slider', { name: 'Hue' }).fill('120');
+    await expect.poll(() => cssVar(page, '--accent')).toBe('#00ff00');
+    await expect(dialog.getByRole('textbox', { name: 'Accent', exact: true })).toHaveValue('#00ff00');
+    // Drag in the square: bottom-left is black.
+    const square = (await pick.locator('.color-picker-area').boundingBox())!;
+    await page.mouse.move(square.x + 1, square.y + square.height - 1);
+    await page.mouse.down();
+    await page.mouse.move(square.x + square.width / 2, square.y + square.height / 2, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(() => cssVar(page, '--accent')).toMatch(/^#[0-9a-f]{6}$/);
+    expect(await cssVar(page, '--accent')).not.toBe('#00ff00');
+    // A swatch chip reuses another theme colour.
+    await pick.getByRole('button', { name: 'Use #10b981' }).click();
+    await expect.poll(() => cssVar(page, '--accent')).toBe('#10b981');
+
+    await page.keyboard.press('Escape');
+    await expect(pick).toBeHidden();
+    await expect(dialog).toBeVisible();
+    await expect(swatch).toBeFocused();
+    await swatch.click();
+    await expect(pick).toBeVisible();
+    await dialog.getByLabel('Name').click(); // elsewhere in the dialog
+    await expect(pick).toBeHidden();
+    await expect(dialog).toBeVisible();
+
+    await dialog.getByRole('button', { name: 'Save as new theme' }).click();
+    await expect(dialog.getByRole('radio', { name: /^Picked/ })).toHaveAttribute('aria-checked', 'true');
+    const file = join(profile.userData, 'themes', 'picked.json');
+    await expect.poll(() => { try { return JSON.parse(readFileSync(file, 'utf8')).colors.accent; } catch { return null; } })
+      .toBe('#10b981');
+  });
+
   test('customize writes a theme file, and editing the file updates the app live', async ({ launchApp, profile }) => {
     const { page } = await launchApp();
     await continueAsGuest(page, `th${uid()}`);

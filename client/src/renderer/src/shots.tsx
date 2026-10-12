@@ -18,6 +18,10 @@ import { UserSettings } from './screens/UserSettings/UserSettings';
 import { Inbox } from './screens/Inbox/Inbox';
 import type { Memo } from './modules/memos';
 import { ServerSettings } from './screens/ChatLayout/ServerSettings';
+import { getThemeStore } from './modules/ui/theme';
+
+// Apply the saved theme (local storage), as main.tsx does in the app.
+void getThemeStore().init();
 
 // ---- Stub the Electron embed bridges so cards render rich content ----
 type W = typeof window & { bosonUnfurl?: unknown; bosonSpotify?: unknown };
