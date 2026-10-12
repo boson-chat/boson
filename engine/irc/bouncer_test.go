@@ -302,15 +302,14 @@ func TestBouncer_UpstreamLifecycle(t *testing.T) {
 	srv.waitCount(lineVersion, 1)
 	srv.waitCount(lineList, 1)
 
-	// 3. The upstream drops; ZNC retries on its own.
+	// 3. The upstream drops; ZNC retries on its own, so it's connecting.
 	srv.send(zncDroppedRetrying, zncConnRefused)
-	rec.waitStates(t, UpstreamConnecting, UpstreamConnected, UpstreamDisconnected)
+	rec.waitStates(t, UpstreamConnecting, UpstreamConnected, UpstreamConnecting)
 
 	// ...and reconnects: everything per-session fires again.
 	srv.send(zncConnected)
 	srv.send(upstreamBurst...)
-	rec.waitStates(t, UpstreamConnecting, UpstreamConnected,
-		UpstreamDisconnected, UpstreamConnecting, UpstreamConnected)
+	rec.waitStates(t, UpstreamConnecting, UpstreamConnected, UpstreamConnecting, UpstreamConnected)
 	srv.waitCount(lineIdentify, 2)
 	srv.waitCount(lineList, 2)
 	// Still unclassified (nothing answered the probe), so it re-runs too.
@@ -553,6 +552,39 @@ func TestBouncerState_CurrentlyDisconnectedDoesNotCancelConnecting(t *testing.T)
 	assert.Equal(t, []BouncerUpstream{UpstreamDisconnected, UpstreamConnecting}, env.states)
 }
 
+// A hosted ZNC (IRCForever) greets every attach with its own *status
+// notices, then the held auto-connect goes out and ZNC answers "Connecting
+// to …". The upstream needs several seconds to register; the app must say
+// "connecting" all along, not "disconnected" after an unanswered probe.
+func TestBouncerState_HostedWelcomeNoticesKeepConnecting(t *testing.T) {
+	b, env := newFakeBouncer(true, true)
+	assert.False(t, b.onWelcome(zncServerName))
+	for _, n := range []string{
+		"Welcome to IRCForever BNC's (bnc.ircforever.org).",
+		"For SSL connection use bnc.ircforever.org:31337",
+		"For Non-SSL connection use bnc.ircforever.org:1337",
+		"If you would like to get some support, mail us at support@ircforever.org",
+	} {
+		b.onStatusMessage("*status", n)
+	}
+	b.onStatusMessage("*status", "Connecting to irc6.rizon.net...")
+	assert.Contains(t, env.sent, "PRIVMSG *status :connect")
+	assert.NotContains(t, env.sent, "USERHOST tester")
+	assert.Equal(t, UpstreamConnecting, b.snapshot())
+
+	// The certificate is rejected and ZNC retries: still connecting.
+	b.onStatusMessage("*status", "Disconnected from IRC (Invalid SSL certificate: hostname doesn't match). Reconnecting...")
+	b.onStatusMessage("*status", "Disconnected from IRC. Reconnecting...")
+	assert.Equal(t, UpstreamConnecting, b.snapshot())
+	assert.Equal(t, []BouncerUpstream{UpstreamConnecting}, env.states)
+
+	// Run what's pending (the auto-connect grace, the connecting timeout):
+	// no USERHOST probe was armed by any of those lines.
+	env.fireTimers()
+	env.fireTimers()
+	assert.NotContains(t, env.sent, "USERHOST tester")
+}
+
 func TestBouncerState_StatusMessages(t *testing.T) {
 	cases := []struct {
 		name string
@@ -562,15 +594,22 @@ func TestBouncerState_StatusMessages(t *testing.T) {
 		// probe: an unrecognised line arms the USERHOST probe.
 		probe bool
 	}{
-		{"drop while connected", UpstreamConnected, "Disconnected from IRC. Reconnecting...", UpstreamDisconnected, false},
-		{"drop with reason", UpstreamConnected, "Disconnected from IRC (Can't resolve server hostname). Reconnecting...", UpstreamDisconnected, false},
+		// ZNC retrying on its own is connecting, not down.
+		{"drop while connected", UpstreamConnected, "Disconnected from IRC. Reconnecting...", UpstreamConnecting, false},
+		{"drop with reason", UpstreamConnected, "Disconnected from IRC (Can't resolve server hostname). Reconnecting...", UpstreamConnecting, false},
+		{"cert rejected while connecting", UpstreamConnecting, "Disconnected from IRC (Invalid SSL certificate: hostname doesn't match). Reconnecting...", UpstreamConnecting, false},
+		{"cert rejected while down", UpstreamDisconnected, "Disconnected from IRC (Invalid SSL certificate: hostname doesn't match). Reconnecting...", UpstreamConnecting, false},
+		{"cannot connect, retrying", UpstreamDisconnected, "Cannot connect to IRC (Connection refused). Retrying...", UpstreamConnecting, false},
 		{"explicit disconnect", UpstreamConnected, "Disconnected from IRC. Use 'connect' to reconnect.", UpstreamDisconnected, false},
 		{"message lost", UpstreamConnected, "Your message to NickServ got lost, you are not connected to IRC!", UpstreamDisconnected, false},
 		{"connected! while down", UpstreamDisconnected, "Connected!", UpstreamConnecting, false},
 		{"connected! while up stays up", UpstreamConnected, "Connected!", UpstreamConnected, false},
 		{"connecting to while up stays up", UpstreamConnected, "Connecting to ergo2...", UpstreamConnected, false},
 		{"localized while connected probes", UpstreamConnected, "Getrennt vom IRC.", UpstreamConnected, true},
-		{"localized while connecting probes", UpstreamConnecting, "Verbinde zu ergo...", UpstreamConnecting, true},
+		// Only a registered upstream answers USERHOST: a probe while
+		// connecting would always time out and read as "down".
+		{"localized while connecting does not probe", UpstreamConnecting, "Verbinde zu ergo...", UpstreamConnecting, false},
+		{"hosted ZNC welcome notice while connecting does not probe", UpstreamConnecting, "For SSL connection use bnc.example.org:31337", UpstreamConnecting, false},
 		{"localized while disconnected ignored", UpstreamDisconnected, "Verbunden!", UpstreamDisconnected, false},
 	}
 	for _, tc := range cases {

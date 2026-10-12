@@ -101,3 +101,23 @@ export async function addZncTlsNetwork(u: ZncUser, name: string): Promise<void> 
     if (!/added/i.test(server)) throw new Error(`AddServer ${name}: ${server}`);
   });
 }
+
+// Adds a network whose only server never answers (a blackholed address):
+// ZNC's connect to it hangs, like a slow or unreachable real network.
+export async function addZncSilentNetwork(u: ZncUser, name: string): Promise<void> {
+  await withZncAdmin(u, async (run) => {
+    const added = (await run('*controlpanel', `AddNetwork ${u.username} ${name}`)).join(' ');
+    if (!/added|already exists/i.test(added)) throw new Error(`AddNetwork ${name}: ${added}`);
+    const server = (await run('*controlpanel', `AddServer ${u.username} ${name} 10.255.255.1 6667`)).join(' ');
+    if (!/added/i.test(server)) throw new Error(`AddServer ${name}: ${server}`);
+  });
+}
+
+// ZNC's message of the day: *status NOTICEs to every client on login, the
+// way hosted ZNCs greet you ("Welcome to … BNC", "For SSL use …"). Global.
+export async function setZncMotd(u: ZncUser, lines: string[]): Promise<void> {
+  await withZncAdmin(u, async (run) => {
+    await run('*status', 'ClearMOTD');
+    for (const l of lines) await run('*status', `AddMOTD ${l}`);
+  });
+}
