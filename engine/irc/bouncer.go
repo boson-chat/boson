@@ -69,7 +69,10 @@ const (
 	bouncerProbeDelay = 5 * time.Second
 	// bouncerProbeTimeout is how long we wait for the 302 before deciding
 	// the upstream is down (ZNC drops USERHOST silently when disconnected).
-	bouncerProbeTimeout = 5 * time.Second
+	// Generous: ZNC forwards lines upstream through its own flood queue, so
+	// on attach the probe can wait behind the app's whole join burst. Any
+	// upstream evidence meanwhile settles it anyway (see onUpstreamEvidence).
+	bouncerProbeTimeout = 15 * time.Second
 	// bouncerConnectingTimeout bounds the `connecting` state. ZNC throttles
 	// reconnects silently (ServerThrottle, default 30s), so a `connect` can
 	// produce no further output at all; fall back to `disconnected` rather
@@ -121,6 +124,21 @@ type bouncerState struct {
 	// we wait for the 302 so the reply can be consumed rather than shown.
 	probeScheduled bool
 	probeInFlight  bool
+	// probeSeq numbers each probe sent, so a timeout only ever judges its
+	// own probe: one answered probe's timeout must not fire on the next.
+	probeSeq uint64
+	// lateProbe: the probe timed out without its 302. A 302 that still
+	// turns up answers it: consumed (kept out of the server log) and, as
+	// upstream evidence, settles "connected".
+	lateProbe bool
+	// evidence counts upstream evidence (isUpstreamEvidence); a probe
+	// remembers the count when sent, and a timeout with evidence since
+	// then isn't silence.
+	evidence uint64
+	// evidenceMuted after an explicit bouncer-disconnect: lines already on
+	// the wire from the upstream we just dropped mustn't read as
+	// "connected". Cleared by connect() and by a real upstream 001.
+	evidenceMuted bool
 
 	// Timings, overridable by tests.
 	probeDelay        time.Duration
@@ -202,6 +220,7 @@ func (b *bouncerState) setLocked(s BouncerUpstream) bool {
 	b.epoch++
 	b.probeScheduled = false
 	b.probeInFlight = false
+	b.lateProbe = false
 	b.emitLocked()
 	return true
 }
@@ -329,6 +348,7 @@ func (b *bouncerState) onWelcome(source string) (runWelcomeWork bool) {
 		return false
 	}
 
+	b.evidenceMuted = false
 	wasBouncer := b.isBouncerLocked()
 	b.setLocked(UpstreamConnected)
 	if wasBouncer && b.rearm != nil {
@@ -446,6 +466,10 @@ func (b *bouncerState) fireProbe(epoch uint64, timeout time.Duration) {
 	}
 	b.probeScheduled = false
 	b.probeInFlight = true
+	b.lateProbe = false
+	b.probeSeq++
+	seq := b.probeSeq
+	seen := b.evidence
 	b.mu.Unlock()
 
 	nick := ""
@@ -458,10 +482,16 @@ func (b *bouncerState) fireProbe(epoch uint64, timeout time.Duration) {
 	b.schedule(timeout, func() {
 		b.mu.Lock()
 		var p bouncerPost
-		if b.epoch == epoch && b.probeInFlight {
-			// Silence: ZNC dropped the probe, so nothing is upstream.
+		if b.epoch == epoch && b.probeSeq == seq && b.probeInFlight {
 			b.probeInFlight = false
-			b.enterDisconnectedLocked(&p)
+			// Silence means ZNC dropped the probe: nothing upstream. But
+			// if the network has spoken since it went out (its reply may
+			// just be queued behind a join burst), it's there.
+			if b.evidence == seen {
+				b.enterDisconnectedLocked(&p)
+			}
+			// After the transition (which resets it): the 302 may yet come.
+			b.lateProbe = true
 		}
 		b.mu.Unlock()
 		p.run()
@@ -474,23 +504,27 @@ func (b *bouncerState) fireProbe(epoch uint64, timeout time.Duration) {
 func (b *bouncerState) onUserhostReply() (consumed bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.probeInFlight {
+	if !b.probeInFlight && !b.lateProbe {
 		return false
 	}
 	b.probeInFlight = false
+	b.lateProbe = false
 	// Only the upstream answers USERHOST, so a reply proves it's up.
 	b.setLocked(UpstreamConnected)
 	return true
 }
 
-// onUpstreamTraffic handles a live (un-batched) message from another user on
-// the network. ZNC relays those only while its upstream is up, so it proves
-// "connected" — recovering from a probe whose answer came too late, without
-// waiting for the next *status line.
-func (b *bouncerState) onUpstreamTraffic() {
+// onUpstreamEvidence handles a line only the real network could have sent
+// through the bouncer (isUpstreamEvidence in client.go): a numeric from its
+// server, another user's activity, our own JOIN echo. ZNC relays those only
+// while its upstream is up, so it proves "connected", whatever an
+// unrecognised *status line or an unanswered probe suggested. That is what
+// recovers from a wrong "disconnected" without waiting for someone to talk.
+func (b *bouncerState) onUpstreamEvidence() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.isBouncerLocked() || b.state == UpstreamConnected || b.state == "" {
+	b.evidence++
+	if !b.isBouncerLocked() || b.state == UpstreamConnected || b.state == "" || b.evidenceMuted {
 		return
 	}
 	b.setLocked(UpstreamConnected)
@@ -502,6 +536,7 @@ func (b *bouncerState) onUpstreamTraffic() {
 func (b *bouncerState) connect() {
 	var post bouncerPost
 	b.mu.Lock()
+	b.evidenceMuted = false
 	if b.state != UpstreamConnected {
 		line := "PRIVMSG " + b.statusNick + " :connect"
 		post = append(post, func() { b.sendLine(line, classInteractive) })
@@ -521,6 +556,7 @@ func (b *bouncerState) disconnect() {
 	b.mu.Lock()
 	b.userWantsDown = true
 	b.autoConnectPending = false
+	b.evidenceMuted = true
 	line := "PRIVMSG " + b.statusNick + " :disconnect"
 	post = append(post, func() { b.sendLine(line, classInteractive) })
 	b.enterDisconnectedLocked(&post)
@@ -528,3 +564,4 @@ func (b *bouncerState) disconnect() {
 	b.mu.Unlock()
 	post.run()
 }
+
