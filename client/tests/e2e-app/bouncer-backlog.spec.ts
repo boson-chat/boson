@@ -9,6 +9,7 @@ import {
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
 import { conversation, messages } from './helpers/chat';
+import { withZncAdmin } from './helpers/znc-admin';
 
 async function joinViaBouncer(page: Page, peer: IrcPeer, z: ZncUser, name: string, channel: string): Promise<string> {
   await continueAsGuest(page, `bl${uid()}`);
@@ -102,6 +103,55 @@ test.describe('bouncer backlog', () => {
       await conversation(page, peer.nick).click();
       await expect(messages(page).getByText(dm)).toHaveCount(1, { timeout: 30_000 });
     } finally {
+      await peer.quit();
+    }
+  });
+
+  // A ZNC with AutoClearChanBuffer / AutoClearQueryBuffer off keeps its
+  // buffers and replays all of them on every attach, read or not. That is
+  // the only way a plain ZNC (no playback module, no chathistory) gives back
+  // history, and replaying it every time must not stack up repeats.
+  test('a ZNC that keeps its buffers gives back what was already read, every launch, once', async ({ launchApp, zncUser }) => {
+    test.setTimeout(300_000);
+    const set = (on: boolean) => withZncAdmin(zncUser, async (run) => {
+      for (const k of ['AutoClearChanBuffer', 'AutoClearQueryBuffer']) {
+        const reply = (await run('*controlpanel', `Set ${k} ${zncUser.username} ${on}`)).join(' ');
+        expect(reply).toMatch(new RegExp(`${k} = ${on}`, 'i'));
+      }
+    });
+    const channel = `#e2e-keep-${uid(8)}`;
+    const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
+    await set(false);
+    try {
+      await peer.join(channel);
+      const first = await launchApp();
+      const nick = await joinViaBouncer(first.page, peer, zncUser, `ZNC Kept ${uid(4)}`, channel);
+      const read = [`read live one ${uid()}`, `read live two ${uid()}`];
+      for (const l of read) peer.privmsg(channel, l);
+      const dmRead = `private, read live ${uid()}`;
+      peer.privmsg(nick, dmRead);
+      for (const l of read) await expect(messages(first.page).getByText(l)).toHaveCount(1);
+      await first.app.close();
+
+      const missed = `said while closed ${uid()}`;
+      peer.privmsg(channel, missed);
+      await new Promise((r) => setTimeout(r, 1_500));
+
+      // Twice: the second launch gets the same full replay again.
+      for (let launch = 0; launch < 2; launch++) {
+        const { app, page } = await launchApp();
+        await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 60_000 });
+        await conversation(page, channel).click();
+        for (const l of [...read, missed]) await expect(messages(page).getByText(l)).toHaveCount(1, { timeout: 30_000 });
+        const texts = await messages(page).locator('.message-row-text-body').allTextContents();
+        const at = [...read, missed].map((l) => texts.indexOf(l));
+        expect(at).toEqual([...at].sort((a, b) => a - b));
+        await conversation(page, peer.nick).click();
+        await expect(messages(page).getByText(dmRead)).toHaveCount(1, { timeout: 30_000 });
+        await app.close();
+      }
+    } finally {
+      await set(true).catch(() => {});
       await peer.quit();
     }
   });
