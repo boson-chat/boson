@@ -82,14 +82,17 @@ describe('backlog on attach — chathistory (soju, ergo)', () => {
     const { session } = buildChat('batch server-time chathistory');
     const before = Date.now();
     welcome(session);
+    const after = Date.now();
     const line = session.raws.find((r) => r.startsWith('CHATHISTORY TARGETS'));
     const m = /^CHATHISTORY TARGETS timestamp=(\S+) timestamp=(\S+) (\d+)$/.exec(line ?? '');
     expect(m).not.toBeNull();
     const from = Date.parse(m![1]!);
     const to = Date.parse(m![2]!);
-    expect(before - from).toBeGreaterThanOrEqual(30 * 24 * 60 * 60_000);
-    expect(before - from).toBeLessThan(31 * 24 * 60 * 60_000);
-    expect(to).toBeGreaterThanOrEqual(before);
+    // Measured from the moment of the request, somewhere in [before, after].
+    const DAYS_30 = 30 * 24 * 60 * 60_000;
+    expect(from).toBeGreaterThanOrEqual(before - DAYS_30);
+    expect(from).toBeLessThanOrEqual(after - DAYS_30);
+    expect(to).toBeGreaterThanOrEqual(after);
   });
 
   it('fetches the latest lines of each private conversation it lists, not channels or ourselves', () => {
