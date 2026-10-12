@@ -128,12 +128,19 @@ export function tokenizeMarkdown(text: string): MdToken[] {
 // preserved whitespace) — box-drawing tables, markdown pipe-tables, and their
 // separator rows. message-render groups consecutive such lines from the same
 // sender into a single aligned block so a pasted table isn't broken up by
-// timestamps or proportional-font misalignment.
+// timestamps or proportional-font misalignment. ASCII-art banners (rules of
+// ____ / ¯¯¯¯ around a | framed | line) count too. Formatting codes are
+// ignored, so a coloured banner is still recognised.
 const BOX_DRAWING_RE = /[─-╿]/; // ─ │ ┌ ┐ └ ┘ ├ ┤ ┬ ┴ ┼ …
 export function isPreformattedLine(text: string): boolean {
-  if (BOX_DRAWING_RE.test(text)) return true;
-  const t = text.trim();
+  const t = stripIrcFormatting(text).trim();
+  if (BOX_DRAWING_RE.test(t)) return true;
   if (t.length < 3) return false;
+  // ASCII-art rule: a line made only of a repeated drawing character
+  // (____, ¯¯¯¯, ====, ~~~~, ****, ####), as in bots' framed banners.
+  if (/^([_¯=~*#-])\1{3,}$/.test(t)) return true;
+  // Framed line: | text | (a banner's middle row, or a one-column table row).
+  if (/^\|.*\S.*\|$/.test(t)) return true;
   // Markdown table separator: |---|:--:|  (dashes + optional colons + pipes).
   if (/^\|?[\s:|-]*-{3,}[\s:|-]*\|?$/.test(t) && t.includes('-')) return true;
   // Pipe-table row: starts and ends with a pipe and has at least one interior pipe.

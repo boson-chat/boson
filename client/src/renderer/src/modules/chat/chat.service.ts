@@ -94,6 +94,11 @@ import type {
 } from './chat.types';
 import { prefixRank, banMask } from './channel-ops';
 
+// IRC can't carry an empty line, so a blank line inside a multi-line paste
+// goes out as a single space: other clients show an empty line, and Boson
+// gets the paragraph break back (screens/ChatLayout/markdown-blocks.ts).
+export const BLANK_LINE = ' ';
+
 // Maximum raw IRC events retained for the dev-tools server log. Old entries
 // are evicted in FIFO order. 200 lines comfortably covers a full handshake
 // (NOTICE chatter + RPL_WELCOME + MOTD + ISUPPORT bursts) plus a chunk of
@@ -1232,7 +1237,9 @@ export class ChatService {
   }
 
   send(channel: string, message: string): void {
-    if (!message.trim()) return;
+    // Whitespace-only is nothing to send, except BLANK_LINE: a paste's blank
+    // line (see input()).
+    if (!message.trim() && message !== BLANK_LINE) return;
     this.session.privmsg(channel, message);
     // Optimistic local echo — IRC doesn't reflect our own PRIVMSGs back.
     this.appendMessage(channel, {
@@ -1525,9 +1532,13 @@ export class ChatService {
 
   // input() is the single entrypoint for the chat input box. Plain text goes
   // to the active channel; lines starting with '/' are slash commands.
+  //
+  // A line of a multi-line paste keeps its indentation, and a blank line in
+  // one arrives as a single space (IRC can't send an empty line), which is
+  // sent as is so the receiver gets the paragraph break.
   input(text: string): void {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed && text !== BLANK_LINE) return;
     if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
       this.executeCommand(trimmed);
       return;
@@ -1537,7 +1548,8 @@ export class ChatService {
       return;
     }
     // Allow `//foo` as an escape for a literal leading slash.
-    const payload = trimmed.startsWith('//') ? trimmed.slice(1) : trimmed;
+    const line = text.replace(/\s+$/, '') || BLANK_LINE;
+    const payload = trimmed.startsWith('//') ? line.replace('//', '/') : line;
     this.send(this.activeChannel, payload);
   }
 

@@ -436,6 +436,23 @@ describe('ChatService', () => {
     expect(engine.privmsgCalls).toEqual([]);
   });
 
+  it('input() keeps a pasted line\'s indentation, a blank line and an escaped slash', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    chat.setActive('#general');
+    for (const line of ['```go', '    fmt.Println()  ', ' ', '//usr/bin/env', '  //tmp', '```']) chat.input(line);
+    expect(engine.privmsgCalls.map((c) => c.message)).toEqual(['```go', '    fmt.Println()', ' ', '/usr/bin/env', '  /tmp', '```']);
+  });
+
+  it('input() still ignores whitespace that is not the blank-line marker', () => {
+    const { chat, engine } = makeChat('me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
+    chat.setActive('#general');
+    chat.input('   ');
+    chat.input('');
+    expect(engine.privmsgCalls).toEqual([]);
+  });
+
   it('PART from our nick removes the channel', () => {
     const { chat, engine } = makeChat('me');
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));

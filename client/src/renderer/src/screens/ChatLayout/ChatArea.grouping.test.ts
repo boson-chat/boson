@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { shouldGroup, buildRenderItems, coalesceActivity, ACTIVITY_COLLAPSE_MIN } from './message-render';
+import { shouldGroup, buildRenderItems, coalesceActivity, preformattedBody, ACTIVITY_COLLAPSE_MIN } from './message-render';
+import { parseTables } from './table';
 import type { ChatMessage } from '../../modules/chat';
 
 function msg(overrides: Partial<ChatMessage>): ChatMessage {
@@ -143,5 +144,96 @@ describe('buildRenderItems — preformatted grouping', () => {
       msg({ id: '2', text: 'normal two' }),
     ]);
     expect(items.every((i) => i.type === 'msg')).toBe(true);
+  });
+});
+
+describe('ASCII-art banners', () => {
+  const banner = (title: string): string[] => [
+    `   ${'_'.repeat(title.length + 8)}   `,
+    `  |   ${title} |  `,
+    `   ${'¯'.repeat(title.length + 8)}   `,
+  ];
+  const lines = [...banner('New TV Release: South.Park.S29E01.720p.WEB.h264-DiRT'), ...banner('New MOVIE Release: Gunche.2026')];
+
+  it('folds a run of framed banners from one bot into a single preblock', () => {
+    const items = buildRenderItems([
+      ...lines.map((text, i) => msg({ id: `b${i}`, from: 'bot', text })),
+      msg({ id: 'x', from: 'bot', text: 'Found a subscription match for: Gunche.2026' }),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['preblock', 'msg']);
+    expect((items[0] as Extract<typeof items[number], { type: 'preblock' }>).items).toHaveLength(6);
+  });
+
+  it('renders as monospace art, not a table', () => {
+    expect(parseTables(preformattedBody(lines))).toBeNull();
+  });
+
+  it('strips formatting, trailing padding and the shared indent', () => {
+    expect(preformattedBody(['   \x0304____\x03   ', '  |\x02 hi\x02 |  ', '   ¯¯¯¯'])).toBe(' ____\n| hi |\n ¯¯¯¯');
+  });
+
+  it('keeps blank lines and copes with an all-blank block', () => {
+    expect(preformattedBody(['  a', '', '    b'])).toBe('a\n\n  b');
+    expect(preformattedBody(['   ', ''])).toBe('\n');
+  });
+});
+
+describe('buildRenderItems — pasted markdown documents', () => {
+  const t0 = 1_000_000_000_000;
+  const paste = (from: string, lines: string[], gap = 1_000, start = t0) =>
+    lines.map((text, i) => msg({ id: `${from}-${start}-${i}`, from, text, timestamp: start + i * gap }));
+
+  it('joins a burst of lines with block markdown into one doc', () => {
+    const lines = ['# Notes', ' ', '```go', '    x := 1', '```'];
+    const items = buildRenderItems(paste('ada', lines));
+    expect(items.map((i) => i.type)).toEqual(['doc']);
+    const doc = items[0] as Extract<typeof items[number], { type: 'doc' }>;
+    expect(doc.msg.text).toBe(lines.join('\n'));
+    expect(doc.msg.id).toBe(`ada-${t0}-0`);
+    expect(doc.items).toHaveLength(5);
+  });
+
+  it('ends the burst at a gap, another speaker, or a different kind', () => {
+    const items = buildRenderItems([
+      ...paste('ada', ['- one', '- two']),
+      msg({ id: 'late', from: 'ada', text: '- three', timestamp: t0 + 1_000 + 3 * 60_000 }),
+      ...paste('bob', ['# hi', 'there'], 1_000, t0 + 4 * 60_000),
+      msg({ id: 'n', kind: 'notice', from: 'bob', text: '- x', timestamp: t0 + 4 * 60_000 + 1_500 }),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['doc', 'msg', 'doc', 'msg']);
+  });
+
+  it('leaves chat that is not markdown as separate messages, dropping blank lines', () => {
+    const items = buildRenderItems(paste('ada', ['hi', ' ', 'how are you?']));
+    expect(items.map((i) => (i.type === 'msg' ? i.msg.text : i.type))).toEqual(['hi', 'how are you?']);
+  });
+
+  it('still folds banners and tables that are not markdown into a preblock', () => {
+    const items = buildRenderItems(paste('bot', ['┌──┬──┐', '│ a│ b│', '└──┴──┘']));
+    expect(items.map((i) => i.type)).toEqual(['preblock']);
+  });
+
+  it('keeps a paste that is only a pipe table as a preblock table', () => {
+    const items = buildRenderItems(paste('bot', ['| name | score |', '|------|-------|', '| a | 1 |']));
+    expect(items.map((i) => i.type)).toEqual(['preblock']);
+  });
+
+  it('keeps a chat line, a table and box art from one sender apart', () => {
+    const items = buildRenderItems(paste('ada', ['| name | score |', '|------|-------|', '| a | 1 |', 'and now some art', '┌────┐', '│ hi │', '└────┘']));
+    expect(items.map((i) => i.type)).toEqual(['preblock', 'msg', 'preblock']);
+  });
+
+  it('renders a table inside a markdown document as part of it', () => {
+    const items = buildRenderItems(paste('ada', ['## Scores', ' ', '| name | score |', '|------|-------|', '| a | 1 |']));
+    expect(items.map((i) => i.type)).toEqual(['doc']);
+  });
+
+  it('keeps one sender\'s paste together across a stall of up to 2 minutes', () => {
+    const items = buildRenderItems([
+      ...paste('ada', ['# Doc', ' ', '```go']),
+      ...paste('ada', ['x := 1', '```'], 1_000, t0 + 90_000),
+    ]);
+    expect(items.map((i) => i.type)).toEqual(['doc']);
+    expect((items[0] as Extract<typeof items[number], { type: 'doc' }>).items).toHaveLength(5);
   });
 });
