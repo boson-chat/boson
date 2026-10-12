@@ -1,3 +1,9 @@
+## [0.35.1](https://github.com/boson-chat/boson/compare/v0.35.0...v0.35.1) (2026-10-12)
+
+### Bug Fixes
+
+* **client:** YouTube embeds that refused to play ("This video is unavailable") ([#15](https://github.com/boson-chat/boson/issues/15)) ([5f3eaa7](https://github.com/boson-chat/boson/commit/5f3eaa7c938593de642e153f80d1baf65aedabc5))
+
 ## [0.35.0](https://github.com/boson-chat/boson/compare/v0.34.0...v0.35.0) (2026-10-12)
 
 ### Features
