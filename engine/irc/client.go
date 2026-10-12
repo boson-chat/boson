@@ -339,6 +339,19 @@ func (c *Client) OnEvent(fn EventHandler) {
 				c.dispatch.push(func() { c.onEvent(evt) })
 			}
 		}
+		// The answer to the bouncer's upstream self-probe, even a late one:
+		// consumed, so the probe doesn't show up in the renderer's server
+		// log. Matched before it counts as evidence below, since evidence
+		// settles the state and the state change forgets the probe.
+		if e.Command == girc.RPL_USERHOST && c.bouncer.onUserhostReply() {
+			c.bouncer.onUpstreamEvidence()
+			return
+		}
+		// Anything only the real network could have sent proves a bouncer's
+		// upstream is connected (no-op for plain servers; see bouncer.go).
+		if isUpstreamEvidence(e, c.girc.GetNick()) {
+			c.bouncer.onUpstreamEvidence()
+		}
 		// Intercept directory-list lifecycle before forwarding the generic
 		// event stream. The renderer doesn't need the per-line 322 frames —
 		// just the final atomic update — so 322 is consumed here and never
@@ -364,19 +377,11 @@ func (c *Client) OnEvent(fn EventHandler) {
 			if c.bouncer.onWelcome(source) {
 				c.runWelcomeWork()
 			}
-		case girc.RPL_USERHOST:
-			// Answer to the bouncer's upstream self-probe: consumed, so the
-			// periodic probe doesn't show up in the renderer's server log.
-			if c.bouncer.onUserhostReply() {
-				return
-			}
 		case girc.PRIVMSG, girc.NOTICE:
 			// ZNC's status bot (`<StatusPrefix>status!status@znc.in`) is the
 			// only wire signal that a bouncer's upstream went away.
 			if e.Source != nil && isStatusSource(e.Source.Ident, e.Source.Host) {
 				c.bouncer.onStatusMessage(e.Source.Name, e.Last())
-			} else if isLiveUpstreamTraffic(e, c.girc.GetNick()) {
-				c.bouncer.onUpstreamTraffic()
 			}
 			// Feed service-sourced messages into the framework classifier.
 			// A hit on "atheme" / "anope" anywhere in the body settles
@@ -1106,23 +1111,55 @@ func translate(e girc.Event) Event {
 	return out
 }
 
-// isLiveUpstreamTraffic reports a PRIVMSG/NOTICE that only the real network
-// could have sent through a bouncer right now: from another user (a full
-// nick!user@host that isn't a bouncer module on znc.in, nor us) and not part
-// of a batch (ZNC wraps buffer playback in one). Another client of the same
-// ZNC network talking to a module doesn't count: ZNC relays that line to us
-// as `:<its nick>!<user>@irc.znc.in PRIVMSG *status :…` even while offline.
-func isLiveUpstreamTraffic(e girc.Event, self string) bool {
-	if e.Source == nil || e.Source.Ident == "" || e.Source.Host == "" {
+// isUpstreamEvidence reports a line that only the real network could have
+// sent through a bouncer right now, which proves the upstream is connected.
+// It is the main way the engine learns that: ZNC's *status text is
+// translatable and partly hosting-specific, and the USERHOST probe can sit
+// behind ZNC's flood queue for many seconds while a join burst drains.
+//
+// Counts:
+//   - a numeric reply from the network's server (source isn't ZNC):
+//     NAMES, TOPIC, WHO, MODE, USERHOST, … ZNC answers for itself as
+//     irc.znc.in. 001 is left to onWelcome, which also re-arms the
+//     per-session welcome work.
+//   - anything from another user (nick!user@host, not on znc.in): their
+//     messages, joins, parts, quits, mode/topic/nick changes, away, …
+//   - our own JOIN: the network echoes it; ZNC never makes one up.
+//
+// Doesn't count:
+//   - buffer playback (ZNC wraps it in a batch; we always ask for batch);
+//   - ZNC itself (irc.znc.in) and its modules (*status!status@znc.in, …);
+//   - another client of the same ZNC network talking to a module: ZNC
+//     relays `:<nick>!<user>@irc.znc.in PRIVMSG *status :…` even offline,
+//     and anything addressed to a `*module`;
+//   - our own messages, nick changes, parts, quits and away: with
+//     echo-message ZNC echoes those itself, connected or not;
+//   - server-sourced non-numerics (NOTICE, MODE): kept out to stay safe.
+func isUpstreamEvidence(e girc.Event, self string) bool {
+	if _, batched := e.Tags.Get("batch"); batched {
 		return false
 	}
-	if strings.EqualFold(e.Source.Host, zncStatusHost) || strings.EqualFold(e.Source.Host, zncServerName) ||
-		girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(self) {
+	if e.Source == nil || e.Source.Name == "" {
+		return false
+	}
+	if isZncHost(e.Source.Name) || isZncHost(e.Source.Host) {
 		return false
 	}
 	if len(e.Params) > 0 && strings.HasPrefix(e.Params[0], "*") {
 		return false
 	}
-	_, batched := e.Tags.Get("batch")
-	return !batched
+	numeric := len(e.Command) == 3 && e.Command[0] >= '0' && e.Command[0] <= '9'
+	if e.Source.Ident == "" && e.Source.Host == "" {
+		// A server. Only its numeric replies count.
+		return numeric && e.Command != girc.RPL_WELCOME
+	}
+	if girc.ToRFC1459(e.Source.Name) == girc.ToRFC1459(self) {
+		return e.Command == girc.JOIN
+	}
+	return true
+}
+
+// isZncHost: irc.znc.in (ZNC's own replies) or znc.in (its modules).
+func isZncHost(h string) bool {
+	return strings.EqualFold(h, zncServerName) || strings.EqualFold(h, zncStatusHost)
 }
