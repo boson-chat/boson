@@ -3107,7 +3107,13 @@ export class ChatService {
     const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m));
     if (fresh.length > 0) {
       // Stable: among equal timestamps what was already shown stays first.
-      ch.messages.value = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
+      const merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
+      // An attach's backlog keeps only the newest lines, like live traffic: a
+      // ZNC that doesn't clear its buffers replays all of it (10k lines per
+      // channel is common) on every attach. Scroll-back pages are kept whole.
+      ch.messages.value = batch.kind === 'latest' && merged.length > IN_MEMORY_MESSAGE_CAP
+        ? merged.slice(merged.length - IN_MEMORY_MESSAGE_CAP)
+        : merged;
     }
     ch.history = { loading: false, exhausted: batch.msgs.length < this.chathistoryLimit() };
     this.pendingHistoryKind.delete(key);
