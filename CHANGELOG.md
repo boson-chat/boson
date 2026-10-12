@@ -1,3 +1,9 @@
+## [0.36.0](https://github.com/boson-chat/boson/compare/v0.35.1...v0.36.0) (2026-10-12)
+
+### Features
+
+* **client:** colour picker in the theme editor; website docs for themes ([#14](https://github.com/boson-chat/boson/issues/14)) ([e5b16c1](https://github.com/boson-chat/boson/commit/e5b16c1625ac2a74b33ad072cca133c08b24d050)), closes [#rrggbbaa](https://github.com/boson-chat/boson/issues/rrggbbaa)
+
 ## [0.35.1](https://github.com/boson-chat/boson/compare/v0.35.0...v0.35.1) (2026-10-12)
 
 ### Bug Fixes
