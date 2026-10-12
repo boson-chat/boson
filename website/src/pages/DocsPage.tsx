@@ -328,6 +328,7 @@ export function DocsPage() {
                   src="/screenshots/theme-chat-daylight.png"
                   alt="A Boson channel in the light Daylight theme"
                   caption="The same channel in Daylight."
+                  maxWidth={768}
                 />
               </article>
 
