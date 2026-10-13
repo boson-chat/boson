@@ -11,6 +11,11 @@ export interface ChatMessage {
   // IRCv3 msgid tag, when the server sent one. Used to de-duplicate messages
   // that arrive both live and via chathistory/bouncer backlog.
   msgid?: string;
+  // The server-time tag as sent (epoch ms), before `timestamp`'s correction
+  // for the server's clock skew. That correction is re-measured on every
+  // connection, so a bouncer replaying the same line gives it a slightly
+  // different `timestamp` each time; this stays put, so dedupe compares it.
+  serverTime?: number;
 }
 
 // IRC channel-status prefix sigils. Common: `@` op, `+` voice, `%` halfop,

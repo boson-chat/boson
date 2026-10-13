@@ -93,6 +93,39 @@ describe('ChatService — duplicate suppression (OOM guard)', () => {
     expect(channel(chat, '#t')!.messages.filter((m) => m.text === 'are you around?')).toHaveLength(1);
   });
 
+  it('collapses a replay across a reconnect whose clock-skew correction changed', () => {
+    // Each connection measures the bouncer's clock afresh, so the same replayed
+    // line got a different corrected timestamp per reconnect and piled up.
+    const line = (time: string): IrcEvent => ({
+      Kind: 'PRIVMSG', From: 'jrmu', Target: '#t', Message: 'have a good night!', Tags: { time }, Raw: '',
+    });
+    const join = (skewMs: number): IrcEvent => ({
+      Kind: 'JOIN', From: 'Nyan', Target: '#t', Message: '', Tags: { time: new Date(Date.now() + skewMs).toISOString() }, Raw: '',
+    });
+    const sent = '2026-06-13T21:53:00.000Z';
+    let prev: ChatService | null = null;
+    let last: ChatService | null = null;
+    for (const skew of [0, -5_000, -9_000, -3 * 60_000]) {
+      const session = makeFakeSession();
+      const chat = new ChatService(session as unknown as ServerSession, 'Nyan', undefined, { bouncer: true });
+      if (prev) chat.seedConversations(prev.exportConversations());
+      chat.attach();
+      session.emit(join(skew));
+      session.emit(line(sent));
+      prev = last = chat;
+    }
+    expect(channel(last!, '#t')!.messages.filter((m) => m.text === 'have a good night!')).toHaveLength(1);
+  });
+
+  it('matches a stored copy without a msgid against a replay that has one', () => {
+    const { chat, session } = buildChat();
+    session.emit({ Kind: 'JOIN', From: 'Nyan', Target: '#t', Message: '', Raw: '' });
+    const time = '2026-06-13T15:00:00.000Z';
+    session.emit({ Kind: 'PRIVMSG', From: 'jrmu', Target: '#t', Message: 'hi', Tags: { time }, Raw: '' });
+    session.emit({ Kind: 'PRIVMSG', From: 'jrmu', Target: '#t', Message: 'hi', Tags: { time, msgid: 'abc' }, Raw: '' });
+    expect(channel(chat, '#t')!.messages.filter((m) => m.text === 'hi')).toHaveLength(1);
+  });
+
   it('keeps genuine repeats that carry distinct timestamps', () => {
     const { chat, session } = buildChat();
     session.emit({ Kind: 'JOIN', From: 'Nyan', Target: '#t', Message: '', Raw: '' });
