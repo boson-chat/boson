@@ -236,6 +236,21 @@ export class SessionStore {
     this.save(current);
   }
 
+  // Put servers in the rail order the user dragged them into. `ids` is the
+  // new order of the servers it names; they're laid back into the slots
+  // those servers held, so rows it doesn't name (parked ones) stay put.
+  reorderServers(ids: readonly string[]): void {
+    const current = this.load();
+    if (!current) return;
+    const rank = new Map(ids.map((id, i) => [id, i]));
+    const slots = current.servers.flatMap((s, i) => (rank.has(s.server.id) ? [i] : []));
+    const moved = slots.map((i) => current.servers[i]!)
+      .sort((a, b) => rank.get(a.server.id)! - rank.get(b.server.id)!);
+    if (moved.every((s, k) => s === current.servers[slots[k]!])) return;
+    slots.forEach((slot, k) => { current.servers[slot] = moved[k]!; });
+    this.save(current);
+  }
+
   // Set which server is active in the rail.
   setActiveServer(serverId: string | null): void {
     const current = this.load();

@@ -221,3 +221,34 @@ describe('SessionStore (v2 multi-server)', () => {
     });
   });
 });
+
+describe('SessionStore.reorderServers', () => {
+  const srvC: SavedServer = { id: 'srv-c', name: 'Rizon', hostname: 'irc.rizon.net', port: 6697, tls: true };
+  const ids = (st: SessionStore): string[] => st.load()!.servers.map((s) => s.server.id);
+
+  it('puts the named servers in the given order and saves it', () => {
+    const storage = makeStorage();
+    const store = new SessionStore(storage);
+    store.upsertServer(srvA);
+    store.upsertServer(srvB);
+    store.upsertServer(srvC);
+    let changes = 0;
+    store.onChange(() => { changes++; });
+    store.reorderServers(['srv-c', 'srv-a', 'srv-b']);
+    expect(ids(new SessionStore(storage))).toEqual(['srv-c', 'srv-a', 'srv-b']);
+    expect(changes).toBe(1);
+    // Same order again: nothing to save, no sync.
+    store.reorderServers(['srv-c', 'srv-a', 'srv-b']);
+    expect(changes).toBe(1);
+  });
+
+  it('leaves rows it does not name (parked servers) in their slots', () => {
+    const store = new SessionStore(makeStorage());
+    store.upsertServer(srvA);
+    store.upsertServer(srvB);
+    store.upsertServer(srvC);
+    store.parkServer('srv-b');
+    store.reorderServers(['srv-c', 'srv-a']);
+    expect(ids(store)).toEqual(['srv-c', 'srv-b', 'srv-a']);
+  });
+});

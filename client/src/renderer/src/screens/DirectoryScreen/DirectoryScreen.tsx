@@ -158,6 +158,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onOpenServerSettings={(id) => setServerSettingsForId(id)}
             onBouncerConnect={(id) => bloc.bouncerConnect(id)}
             onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
+            onReorderServers={(ids) => bloc.reorderServers(ids)}
           />
           <ServerSettings
             serverDisplayName={target.server.name}
@@ -254,6 +255,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
           onLeaveServer={(id) => bloc.disconnect(id)}
           onBouncerConnect={(id) => bloc.bouncerConnect(id)}
           onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
+          onReorderServers={(ids) => bloc.reorderServers(ids)}
         />
         <Modal
           open={serverBrowserOpen}
