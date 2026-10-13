@@ -1447,6 +1447,41 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('orders the rail by the saved server list, and reorderServers() changes and keeps it', async () => {
+    const engine = fakeEngine();
+    const a = fakeServer('a');
+    const b = fakeServer('b', { hostname: 'irc.b' });
+    const c = fakeServer('c', { hostname: 'irc.c' });
+    const store = new SessionStore(memoryStorage());
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: fakeDirectory({ user: fakeUser('alice'), servers: [a, b, c] }),
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore: store,
+    });
+    await flushPromises(4);
+    await bloc.connect(a);
+    await bloc.connect(b);
+    await bloc.connect(c);
+    await flushPromises(2);
+    const order = (): string[] => bloc.getState().connections.map((x) => x.serverId);
+    expect(order()).toEqual(['a', 'b', 'c']);
+
+    bloc.reorderServers(['c', 'a', 'b']);
+    expect(order()).toEqual(['c', 'a', 'b']);
+    expect(store.load()!.servers.map((x) => x.server.id)).toEqual(['c', 'a', 'b']);
+
+    // A reconnect re-adds the connection last in the map; the rail doesn't move.
+    await bloc.disconnect('a');
+    await bloc.connect(a);
+    await flushPromises(2);
+    expect(store.load()!.servers.map((x) => x.server.id)).toEqual(['c', 'b', 'a']);
+    bloc.reorderServers(['c', 'a', 'b']);
+    expect(order()).toEqual(['c', 'a', 'b']);
+    bloc.dispose();
+  });
+
   it('connect() to a different server adds a second concurrent connection', async () => {
     const engine = fakeEngine();
     const a = fakeServer('a');

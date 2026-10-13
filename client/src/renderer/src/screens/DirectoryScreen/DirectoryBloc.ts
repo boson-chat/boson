@@ -497,6 +497,13 @@ export class DirectoryBloc {
     this.emit();
   }
 
+  // The user dragged the rail into a new order (`ids`, top to bottom).
+  // Saved with the session, so it holds across relaunches and devices.
+  reorderServers(ids: readonly string[]): void {
+    this.sessionStore.reorderServers(ids);
+    this.emit();
+  }
+
   // A server the user left. One with bouncer settings keeps its row, parked,
   // so the setup isn't lost (a bouncer network would vanish from Directory →
   // Bouncer; a routed server would come back direct while ZNC holds its
@@ -992,8 +999,18 @@ export class DirectoryBloc {
     this.listeners.forEach((fn) => fn(snapshot));
   }
 
+  // Rail order is the saved server list's order (which the user sets by
+  // dragging tiles), not the map's: connections are added as each finishes
+  // setting up, so restore and reconnects would otherwise shuffle the rail.
+  // Servers not in the saved list (yet) follow, in the order they came up.
   private snapshotConnections(): ReadonlyArray<DirectoryConnection> {
-    return Array.from(this.connections.values()).map((c) => ({
+    const saved = this.sessionStore.load()?.servers ?? [];
+    const rank = new Map(saved.map((s, i) => [s.server.id, i]));
+    const ordered = Array.from(this.connections.values())
+      .map((c, i) => ({ c, key: rank.get(c.serverId) ?? saved.length + i }))
+      .sort((a, b) => a.key - b.key)
+      .map(({ c }) => c);
+    return ordered.map((c) => ({
       serverId: c.serverId,
       server: c.server,
       chat: c.chat,

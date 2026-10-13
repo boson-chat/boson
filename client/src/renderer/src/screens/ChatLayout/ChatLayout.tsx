@@ -60,12 +60,15 @@ interface Props {
   // The active server's in-chat strip uses `chat.bouncerConnect()` directly.
   onBouncerConnect?: (serverId: string) => void;
   onBouncerDisconnect?: (serverId: string) => void;
+  // The rail was dragged into a new order (server ids, top to bottom).
+  onReorderServers?: (serverIds: string[]) => void;
 }
 
 export function ChatLayout({
   chat, serverName, bannerUrl, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
+  onReorderServers,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -140,6 +143,7 @@ export function ChatLayout({
         onLeaveServer={onLeaveServer}
         onBouncerConnect={onBouncerConnect}
         onBouncerDisconnect={onBouncerDisconnect}
+        onReorderServers={onReorderServers}
       />
       <ChannelSidebar
         serverName={serverName}

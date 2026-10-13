@@ -43,6 +43,21 @@ interface ServerRailProps {
   // `bouncerUpstream` state.
   onBouncerConnect?: (serverId: string) => void;
   onBouncerDisconnect?: (serverId: string) => void;
+  // Tiles can be dragged into a new order; called with every tile's server
+  // id, top to bottom, after a drop that moved one. Without it tiles don't drag.
+  onReorderServers?: (serverIds: string[]) => void;
+}
+
+// Where a dragged tile will land: beside `serverId`, above it or below it.
+interface DropTarget { serverId: string; after: boolean }
+
+// The rail's order after dropping `dragged` beside `target`.
+export function reorderedIds(ids: readonly string[], dragged: string, target: DropTarget): string[] {
+  const rest = ids.filter((id) => id !== dragged);
+  const at = rest.indexOf(target.serverId);
+  if (at === -1 || rest.length === ids.length) return [...ids];
+  rest.splice(target.after ? at + 1 : at, 0, dragged);
+  return rest;
 }
 
 // ServerRail renders one tile per connected server, plus a `+` button that
@@ -51,7 +66,7 @@ interface ServerRailProps {
 // view driven by `activeServerName` for legacy callers.
 export function ServerRail({
   servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings, onLeaveServer,
-  onBouncerConnect, onBouncerDisconnect,
+  onBouncerConnect, onBouncerDisconnect, onReorderServers,
 }: ServerRailProps) {
   // Right-click context menu state. Anchored to the tile, positioned at the
   // event's client coords so the menu pops up under the cursor.
@@ -72,16 +87,52 @@ export function ServerRail({
       ? [{ serverId: '__legacy', name: activeServerName, engineState: 'connected' }]
       : [];
 
+  // Drag to reorder. `dragging` is the tile being moved; `drop` is where it
+  // would land, shown as a line between tiles. The tiles stay put until the
+  // drop, so nothing jumps around under the pointer.
+  const [dragging, setDragging] = useState<string | null>(null);
+  const [drop, setDrop] = useState<DropTarget | null>(null);
+  const canReorder = !!(servers && onSelectServer && onReorderServers) && tiles.length > 1;
+  const endDrag = (): void => { setDragging(null); setDrop(null); };
+  const dragOverTile = (e: DragEvent, serverId: string): void => {
+    if (!dragging) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const after = e.clientY > r.top + r.height / 2;
+    if (drop?.serverId !== serverId || drop.after !== after) setDrop({ serverId, after });
+  };
+  const onRailDragOver = (e: DragEvent): void => {
+    // Between tiles and on the + button: keep the move cursor; the line
+    // stays where the last tile put it (the + button puts it at the end).
+    if (!dragging) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+  };
+  const onRailDrop = (e: DragEvent): void => {
+    if (!dragging) return;
+    e.preventDefault();
+    const ids = tiles.map((t) => t.serverId);
+    const next = drop ? reorderedIds(ids, dragging, drop) : ids;
+    endDrag();
+    if (next.some((id, i) => id !== ids[i])) onReorderServers?.(next);
+  };
+
   return (
     <>
-    <nav class="server-rail" aria-label="Servers">
+    <nav
+      class={`server-rail${dragging ? ' server-rail-dragging' : ''}`}
+      aria-label="Servers"
+      onDragOver={onRailDragOver}
+      onDrop={onRailDrop}
+    >
       {tiles.map((t) => {
         const isActive = (activeServerId ?? '__legacy') === t.serverId;
         // Icon when the owner set one; otherwise the initials tile. alt="" —
         // the tile's title/aria already names the server, so the image is
         // decorative and shouldn't be announced twice.
         const face = t.iconUrl
-          ? <img class="server-item-icon" src={t.iconUrl} alt="" />
+          ? <img class="server-item-icon" src={t.iconUrl} alt="" draggable={false} />
           : serverInitials(t.name);
         const unread = t.unread ?? 0;
         const mentions = t.mentions ?? 0;
@@ -96,6 +147,10 @@ export function ServerRail({
           showBadge ? 'server-item-unread' : '',
           hasMention ? 'server-item-mention' : '',
           t.iconUrl ? 'server-item-has-icon' : '',
+          dragging === t.serverId ? 'server-item-dragging' : '',
+          drop?.serverId === t.serverId && dragging !== t.serverId
+            ? (drop.after ? 'server-item-drop-after' : 'server-item-drop-before')
+            : '',
         ].filter(Boolean).join(' ');
         // A bouncer tile whose bouncer is up but not attached to the network
         // reads "connected" by engine state alone — say what's really going on.
@@ -149,6 +204,18 @@ export function ServerRail({
               onContextMenu={(e) => handleContextMenu(e, t.serverId)}
               onMouseEnter={showName}
               onMouseLeave={hideName}
+              draggable={canReorder}
+              onDragStart={canReorder ? (e) => {
+                if (e.dataTransfer) {
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/x-boson-server', t.serverId);
+                }
+                setHovered(null);
+                setMenu(null);
+                setDragging(t.serverId);
+              } : undefined}
+              onDragOver={(e) => dragOverTile(e, t.serverId)}
+              onDragEnd={endDrag}
             >
               {face}
               {badge}
@@ -175,6 +242,12 @@ export function ServerRail({
         type="button"
         title="Browse / switch servers"
         onClick={onBrowseServers}
+        onDragOver={() => {
+          const last = tiles[tiles.length - 1];
+          if (dragging && last && !(drop?.serverId === last.serverId && drop.after)) {
+            setDrop({ serverId: last.serverId, after: true });
+          }
+        }}
         aria-label="Browse / switch servers"
       >
         +
