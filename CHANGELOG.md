@@ -1,3 +1,9 @@
+## [0.36.3](https://github.com/boson-chat/boson/compare/v0.36.2...v0.36.3) (2026-10-13)
+
+### Bug Fixes
+
+* **client:** keep the server rail in a fixed order; drag tiles to reorder ([#18](https://github.com/boson-chat/boson/issues/18)) ([fda68e5](https://github.com/boson-chat/boson/commit/fda68e5e37c07c563d9882b5d745bb4422ef4888))
+
 ## [0.36.2](https://github.com/boson-chat/boson/compare/v0.36.1...v0.36.2) (2026-10-12)
 
 ### Bug Fixes
