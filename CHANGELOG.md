@@ -1,3 +1,9 @@
+## [0.36.4](https://github.com/boson-chat/boson/compare/v0.36.3...v0.36.4) (2026-10-14)
+
+### Bug Fixes
+
+* **client:** stop bouncer replays duplicating lines after each reconnect ([#19](https://github.com/boson-chat/boson/issues/19)) ([0261729](https://github.com/boson-chat/boson/commit/0261729c93ed53c7ba8ff5fd82a99bd8a4418d41))
+
 ## [0.36.3](https://github.com/boson-chat/boson/compare/v0.36.2...v0.36.3) (2026-10-13)
 
 ### Bug Fixes
