@@ -264,7 +264,16 @@ type InternalChannel = Omit<ChatChannel, 'messages'> & { messages: Signal<ChatMe
 // Identity of a line for the `older` store: its msgid, else what dedupe
 // compares (time, sender, text).
 function olderKey(m: ChatMessage): string {
-  return m.msgid ? `id:${m.msgid}` : `${m.timestamp}\u0000${m.from}\u0000${m.text}`;
+  return m.msgid ? `id:${m.msgid}` : `${m.serverTime ?? m.timestamp}\u0000${m.from}\u0000${m.text}`;
+}
+
+// Whether two copies of a line were sent at the same moment: by the server's
+// own stamp when both have one (skew corrections differ between connections),
+// else by our timestamp.
+function sameTime(a: ChatMessage, b: ChatMessage): boolean {
+  return a.serverTime !== undefined && b.serverTime !== undefined
+    ? a.serverTime === b.serverTime
+    : a.timestamp === b.timestamp;
 }
 
 export class ChatService {
@@ -2210,6 +2219,7 @@ export class ChatService {
           text,
           timestamp: ts,
           msgid: e.Tags?.msgid,
+          ...this.serverTimeOf(e),
         });
         // Mirror real-user DMs (1:1, addressed to us, not a channel, not the
         // server-wildcard pseudo-channel, not our own echo) into the Inbox so
@@ -3160,6 +3170,7 @@ export class ChatService {
       text,
       timestamp: this.timestampOf(e),
       msgid: e.Tags?.msgid,
+      ...this.serverTimeOf(e),
     });
   }
 
@@ -3181,6 +3192,11 @@ export class ChatService {
   // measured skew, or now when the server didn't stamp it.
   private timestampOf(e: IrcEvent): number {
     return e.Tags?.time ? eventTimestamp(e) - this.clockOffset : eventTimestamp(e);
+  }
+
+  // The uncorrected server-time, as `{ serverTime }` when the event has one.
+  private serverTimeOf(e: IrcEvent): { serverTime?: number } {
+    return e.Tags?.time ? { serverTime: eventTimestamp(e) } : {};
   }
 
   // Flush a completed chathistory batch: dedupe, merge into the channel by
@@ -3234,20 +3250,22 @@ export class ChatService {
     this.emit();
   }
 
-  // True when `msg` is already present in the channel. Prefers the exact IRCv3
-  // msgid; without one, falls back to a content key of from+text+timestamp.
-  // Bouncer reconnects replay the same buffer with IDENTICAL server-time stamps,
-  // so this collapses replay duplicates while leaving genuine repeats (which
-  // carry distinct timestamps) intact — critical for servers like ngircd that
-  // don't emit msgid. Walks back-to-front since dups cluster near the tail.
+  // True when `msg` is already present in the channel. Two copies that both
+  // carry an IRCv3 msgid match on it; otherwise on sender + text + send time
+  // (sameTime). Bouncer reconnects replay the same buffer with IDENTICAL
+  // server-time stamps, so this collapses replay duplicates while leaving
+  // genuine repeats (which carry distinct times) intact — critical for
+  // servers like ngircd that don't emit msgid. Walks back-to-front since dups
+  // cluster near the tail.
   private isDuplicateMessage(ch: InternalChannel, msg: ChatMessage): boolean {
     const arr = ch.messages.peek();
-    if (msg.msgid) return arr.some((m) => m.msgid === msg.msgid);
     for (let i = arr.length - 1; i >= 0; i--) {
       const m = arr[i]!;
-      if (m.timestamp === msg.timestamp && m.from === msg.from && m.text === msg.text && !m.msgid) {
-        return true;
+      if (msg.msgid && m.msgid) {
+        if (m.msgid === msg.msgid) return true;
+        continue;
       }
+      if (m.from === msg.from && m.text === msg.text && sameTime(m, msg)) return true;
     }
     return false;
   }

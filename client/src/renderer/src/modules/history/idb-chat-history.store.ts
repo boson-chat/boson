@@ -30,7 +30,7 @@ const DB_NAME = 'boson-chat-history';
 const DB_VERSION = 1;
 const STORE = 'messages';
 
-interface StoredRow extends ChatMessage {
+export interface StoredRow extends ChatMessage {
   _pk: string;
   userId: string;
   serverId: string;
@@ -209,12 +209,14 @@ function makePk(scope: HistoryScope, msg: ChatMessage): string {
   return `${scope.userId}::${scope.serverId}::${scope.channel}::${padTimestamp(msg.timestamp)}::${msg.id}`;
 }
 
-function rowToMessage(row: StoredRow): ChatMessage {
+export function rowToMessage(row: StoredRow): ChatMessage {
   return {
     id: row.id,
     kind: row.kind,
     from: row.from,
     text: row.text,
     timestamp: row.timestamp,
+    ...(row.msgid ? { msgid: row.msgid } : {}),
+    ...(row.serverTime !== undefined ? { serverTime: row.serverTime } : {}),
   };
 }

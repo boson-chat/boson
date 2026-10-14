@@ -1,4 +1,5 @@
-import { describe, it } from 'vitest';
+import { describe, it, expect } from 'vitest';
+import { rowToMessage, type StoredRow } from './idb-chat-history.store';
 
 // happy-dom's IndexedDB shim is incomplete (missing IDBKeyRange.bound on
 // arrays, fragile cursor semantics under range-onsuccess chains). Rather than
@@ -13,5 +14,22 @@ import { describe, it } from 'vitest';
 describe.skip('IDBChatHistoryStore', () => {
   it('round-trips messages and enforces the cap (run in Electron e2e)', () => {
     // intentionally empty
+  });
+});
+
+describe('rowToMessage', () => {
+  const base: StoredRow = {
+    _pk: 'pk', userId: 'u', serverId: 's', channel: '#t',
+    id: 'm1', kind: 'message', from: 'jrmu', text: 'hi', timestamp: 1000,
+  };
+
+  it('keeps msgid and serverTime, which dedupe needs', () => {
+    expect(rowToMessage({ ...base, msgid: 'abc', serverTime: 900 })).toEqual({
+      id: 'm1', kind: 'message', from: 'jrmu', text: 'hi', timestamp: 1000, msgid: 'abc', serverTime: 900,
+    });
+  });
+
+  it('leaves them off rows stored without them', () => {
+    expect(rowToMessage(base)).toEqual({ id: 'm1', kind: 'message', from: 'jrmu', text: 'hi', timestamp: 1000 });
   });
 });
