@@ -1,0 +1,8 @@
+.task
+bin
+# The renderer build is copied in (client/scripts/build-e2e-wails.mjs);
+# the placeholder keeps go:embed building on a fresh clone.
+frontend/dist/*
+!frontend/dist/.gitkeep
+build/linux/appimage/build
+build/windows/nsis/MicrosoftEdgeWebview2Setup.exe

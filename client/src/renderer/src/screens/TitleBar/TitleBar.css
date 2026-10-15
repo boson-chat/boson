@@ -16,15 +16,14 @@
 }
 
 /* macOS variant — leave room for the native traffic lights on the left.
-   They sit at x=16 (trafficLightPosition in src/main/index.ts) and span
-   ~54px, so 88px leaves the same 16px gap before the mark as the window
-   edge leaves before the lights. */
+   They sit at x=16 in Electron (trafficLightPosition in src/main/index.ts)
+   and nearer the edge under Wails, and span ~54px; 88px clears both. */
 .title-bar-darwin .title-bar-drag {
   padding-left: 88px;
 }
 
-/* The drag region fills the bar minus the controls. -webkit-app-region: drag
-   tells Electron to treat this area as the OS drag handle. */
+/* The drag region fills the bar minus the controls. -webkit-app-region (Electron)
+   and --wails-draggable (Wails) make this area the OS drag handle. */
 .title-bar-drag {
   flex: 1;
   display: flex;
@@ -32,6 +31,7 @@
   gap: var(--space-2);
   padding: 0 var(--space-4);
   -webkit-app-region: drag;
+  --wails-draggable: drag;
   overflow: hidden;
 }
 
@@ -60,6 +60,7 @@
   display: flex;
   flex-shrink: 0;
   -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
 }
 
 .title-bar-btn {
@@ -76,6 +77,7 @@
               color var(--motion-fast) var(--ease-standard);
   padding: 0;
   -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
 }
 
 .title-bar-btn:hover {
@@ -107,6 +109,7 @@
   color: var(--fg-3);
   cursor: pointer;
   -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
   transition: background var(--motion-fast) var(--ease-standard),
               color var(--motion-fast) var(--ease-standard);
 }
@@ -161,6 +164,7 @@
   color: var(--fg-3);
   cursor: pointer;
   -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
   transition: background var(--motion-fast) var(--ease-standard),
               color var(--motion-fast) var(--ease-standard);
 }

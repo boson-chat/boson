@@ -1,5 +1,7 @@
 import { render } from 'preact';
 import { App, buildApp } from './app';
+import type { WebSocketCtor } from './modules/engine';
+import { isWailsPage } from './platform/is-wails';
 import { initDeepLinkBridge, subscribeAuthConfirmed } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
 import { getThemeStore } from './modules/ui/theme';
@@ -36,12 +38,14 @@ const root = document.getElementById('app')!;
 // token via the bosonEngine preload bridge. In dev (`npm run dev`) the
 // bridge returns null and we fall back to VITE_ENGINE_URL/TOKEN from
 // .env, which `make engine-env` populates after `make engine-serve`.
-async function resolveEngineDiscovery(): Promise<{ url?: string; token?: string }> {
-  const bridge = (window as { bosonEngine?: { discovery: () => Promise<{ url: string; token: string } | null> } }).bosonEngine;
+// Under Wails the engine is in-process and the discovery also carries the
+// socket class that reaches it (platform/wails.ts).
+async function resolveEngineDiscovery(): Promise<{ url?: string; token?: string; socket?: WebSocketCtor }> {
+  const bridge = (window as { bosonEngine?: { discovery: () => Promise<{ url: string; token: string; socket?: WebSocketCtor } | null> } }).bosonEngine;
   if (bridge) {
     try {
       const d = await bridge.discovery();
-      if (d) return { url: d.url, token: d.token };
+      if (d) return { url: d.url, token: d.token, socket: d.socket };
     } catch (err) {
       console.warn('engine discovery via IPC failed', err);
     }
@@ -59,13 +63,16 @@ if (!publishableKey) {
     '</div>';
 } else {
   void (async () => {
-    const { url: engineUrl, token: engineToken } = await resolveEngineDiscovery();
+    // The Wails shell installs its bridges before anything reads them.
+    if (isWailsPage()) await (await import('./platform/wails')).installWailsBridges();
+    const { url: engineUrl, token: engineToken, socket: engineSocket } = await resolveEngineDiscovery();
     const props = buildApp({
       supabaseUrl,
       anonKey: publishableKey,
       bosonUrl,
       engineUrl,
       engineToken,
+      engineSocket,
     });
     // Fire init async — App renders immediately and shows "Loading…" until ready.
     props.auth.init().catch((err) => {
