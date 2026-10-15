@@ -1,8 +1,10 @@
-// Package ipc exposes the engine to the Electron renderer over a localhost
-// WebSocket. Each WebSocket connection can own multiple concurrent IRC
-// sessions — one per serverId minted by the renderer. A connect command
+// Package ipc exposes the engine to the renderer. The protocol (protocol.go)
+// is JSON frames over a Transport: a localhost WebSocket here (Server), or
+// any other carrier that hands frames to ServeSession. Each transport
+// connection is one session, which can own multiple concurrent IRC
+// connections — one per serverId minted by the renderer. A connect command
 // registers a new IRC client under the given serverId, and closing the
-// WebSocket quits every client owned by that session.
+// transport quits every client owned by that session.
 package ipc
 
 import (
@@ -80,8 +82,33 @@ func (s *Server) handleWS(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 	defer c.Close(websocket.StatusNormalClosure, "")
 
-	sess := newSession(c)
-	sess.run(r.Context())
+	ServeSession(r.Context(), wsTransport{c})
+}
+
+// Transport carries one session's protocol frames: each Read returns one
+// JSON-encoded ClientMessage, each Write sends one JSON-encoded
+// ServerMessage. Read returning an error ends the session (every IRC
+// connection it owns is quit); a Write error stops further writes.
+type Transport interface {
+	Read(ctx context.Context) ([]byte, error)
+	Write(ctx context.Context, frame []byte) error
+}
+
+// ServeSession runs one session over t until ctx is done or t.Read fails.
+func ServeSession(ctx context.Context, t Transport) {
+	newSession(t).run(ctx)
+}
+
+// wsTransport is the WebSocket Transport: one text message per frame.
+type wsTransport struct{ c *websocket.Conn }
+
+func (w wsTransport) Read(ctx context.Context) ([]byte, error) {
+	_, data, err := w.c.Read(ctx)
+	return data, err
+}
+
+func (w wsTransport) Write(ctx context.Context, frame []byte) error {
+	return w.c.Write(ctx, websocket.MessageText, frame)
 }
 
 func (s *Server) authorize(r *stdhttp.Request) bool {
@@ -120,7 +147,7 @@ type engineClient struct {
 const disconnectWait = 5 * time.Second
 
 type session struct {
-	ws *websocket.Conn
+	t Transport
 
 	// ctx bounds the session lifetime; set once at the top of run() before
 	// any IRC client (and thus any send) can exist. Read by send() so a
@@ -138,12 +165,12 @@ type session struct {
 	out     chan ServerMessage
 }
 
-func newSession(ws *websocket.Conn) *session {
+func newSession(t Transport) *session {
 	// Buffer sized to comfortably absorb a NAMREPLY burst for a busy channel
 	// without dropping events. The renderer reads them serially; a small
 	// buffer used to cause silent loss when joining several channels at once.
 	return &session{
-		ws:      ws,
+		t:       t,
 		clients: make(map[string]*engineClient),
 		closing: make(map[string]chan struct{}),
 		out:     make(chan ServerMessage, 1024),
@@ -157,7 +184,7 @@ func (s *session) run(ctx context.Context) {
 	go s.writeLoop(ctx)
 
 	for {
-		_, data, err := s.ws.Read(ctx)
+		data, err := s.t.Read(ctx)
 		if err != nil {
 			s.shutdownAll()
 			return
@@ -181,7 +208,7 @@ func (s *session) writeLoop(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			if err := s.ws.Write(ctx, websocket.MessageText, raw); err != nil {
+			if err := s.t.Write(ctx, raw); err != nil {
 				return
 			}
 		}
@@ -199,7 +226,7 @@ func (s *session) send(msg ServerMessage) {
 	// IRC state (JOIN/PART/NAMES/PRIVMSG) and leaves the renderer's channel
 	// view permanently inconsistent until a manual refresh, so we block for
 	// a bounded window instead. If the writer is still wedged after that the
-	// websocket is effectively dead — drop rather than stall the IRC reader
+	// transport is effectively dead — drop rather than stall the IRC reader
 	// forever; closing ctx (session teardown) also unblocks us immediately.
 	ctx := s.ctx
 	if ctx == nil {
