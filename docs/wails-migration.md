@@ -7,8 +7,8 @@ Starting point: main at 0.36.4 on Electron 44.7, electron-vite and electron-buil
 ## Why, and what doesn't change
 
 Wails replaces Chromium and Node with the OS webview and a Go process. The
-native shell moves from TypeScript to Go, next to the Go engine, which stays a
-separate process. The expected gains are size (about 200 MB per DMG today),
+native shell moves from TypeScript to Go and links in the Go engine, which keeps
+its WebSocket protocol as its only interface to the UI. The expected gains are size (about 200 MB per DMG today),
 memory, and one language for everything native.
 
 The renderer stays: the Preact app, its ~30k lines and its 130 unit-test files.
@@ -47,7 +47,7 @@ The inventory was taken from main at `0959852`.
 | `bosonWindow` (min/max/close/show/isMaximized/onMaximizedChange), `bosonPlatform` | Window service plus window events | 1:1 |
 | Single-instance lock and `second-instance` | `Options.SingleInstance` (with `EncryptionKey`) | Second-instance args are untrusted, so parse strictly, as today. |
 | `boson://` deep links: `open-url` on macOS, argv elsewhere, buffered until the renderer consumes them | `protocols:` in `build/config.yml` plus `ApplicationLaunchedWithUrl`. On a warm start on Windows/Linux the URL arrives in `OnSecondInstanceLaunch` args | Keep the same buffer/consume/dedupe in the bridge. The Linux `.desktop` task drops the MIME type (wails#6252), so customise it. |
-| Engine sidecar: spawned binary, loopback WebSocket with a token, restart with backoff | **Still a sidecar**, supervised by the Wails app (a Go port of `engine.ts`) | See "Engine" below. |
+| Engine sidecar: spawned binary, loopback WebSocket with a token, restart with backoff | **In-process**: the app imports `engine/` and serves the same WebSocket protocol on loopback | See "Engine" below. |
 | `bosonSecure`: `identity-store.json`, values `ks1:` (safeStorage) or `fb1:` (derived key) | Same file format. The AES-GCM master key is kept in the OS keychain via `zalando/go-keyring` | Wails has no desktop secure store. go-keyring caps a Windows credential at about 2.5 KB, so only the 32-byte key goes there, not the values. |
 | `bosonApi`: CORS-free proxy to api.boson.chat with an allowlist, a manual redirect walk and credential stripping on cross-origin hops | Go service, ported with its tests | The page's origin becomes `wails://localhost`, so the proxy is still needed. |
 | `bosonUnfurl` (OG fetch, SSRF host guard, LRU) and `bosonSpotify` (embed `__NEXT_DATA__`) | Go services | Straight ports. The SSRF guard is the security-sensitive one. |
@@ -71,24 +71,26 @@ The inventory was taken from main at `0959852`.
      points at it, and a `bridge/wails.ts` shim installs the `window.boson*`
      globals from bindings.
    - `client/src/main` and `preload` are deleted only at the end.
-2. **Engine (decided: stays a separate process)**
-   - The engine remains its own binary, spawned and supervised by the Wails app
-     exactly as Electron does today:
-     - a free loopback port and a random token;
-     - `serve --token-from-env`;
-     - restart with backoff (0.5 s up to 10 s, reset after 30 s up).
-   - That's a small Go port of `client/src/main/engine.ts`. The binary is still
-     built per OS/arch, signed on macOS, and bundled in the `.app` /
-     installer.
+2. **Engine (decided: in-process, protocol unchanged)**
+   - The engine is a Go package, so the Wails app imports it and runs its server
+     in the same process. That drops the separate binary, the per-arch engine
+     builds and signing, the port race between picking and binding, and the
+     respawn supervisor.
    - The renderer↔engine boundary stays the existing JSON-over-WebSocket
-     protocol (`engine/ipc/protocol.go`). Nothing about it becomes
-     Wails-specific: no bindings, no `HandleStream`.
-   - **Why:** the long-term direction is to compile the engine to WebAssembly
-     and deploy the frontend to the web, outside Wails. Keeping the engine
-     behind a transport-level protocol, rather than Go bindings, keeps that open.
-     That work is out of scope here. This plan just mustn't close it off.
-   - The only change is that the engine's WebSocket `OriginPatterns` gains the
-     Wails origins (`wails://localhost`, `http://wails.localhost`).
+     protocol (`engine/ipc/protocol.go`). The app starts the engine's
+     `ipc.Server` on a loopback listener (random port, random token) and hands
+     `{url, token}` to the renderer through the `bosonEngine` bridge, as today.
+     **No Wails bindings or `HandleStream` for engine traffic.**
+   - **Why the protocol stays the boundary:** the long-term direction is to
+     compile the engine to WebAssembly and deploy the frontend to the web,
+     outside Wails. A transport-level protocol keeps that open. That work is out
+     of scope here; this plan just mustn't close it off.
+   - The engine's WebSocket `OriginPatterns` gains the Wails origins
+     (`wails://localhost`, `http://wails.localhost`).
+   - **Cost:** an engine panic now kills the app. Every IRC-connection goroutine
+     gets a `recover` boundary that reports the failure as a `disconnected`
+     status, which the renderer's reconnect logic already handles. The
+     engine's tests cover that boundary.
 3. **Updates**
    - Use the Wails built-in `app.Updater` with the GitHub provider and **our own
      signature enforcement**.
@@ -169,13 +171,13 @@ GA.
   - `make desktop` / `npm run desktop:dev` (`wails3 dev`).
   - A CI job that builds `desktop/` on all three OSes, without signing yet.
 - **Exit:** the app launches, shows the directory and connects to IRC through
-  the engine sidecar it spawned.
+  the in-process engine over its WebSocket protocol.
 
 ### Phase 2: native services (about 2 to 3 weeks)
 Port in this order, each with Go unit tests ported from `client/src/main/*.test.ts`:
 
-1. Engine supervisor (sidecar spawn, discovery via the `bosonEngine` bridge,
-   restart with backoff) and window controls.
+1. Engine (in-process server on loopback, discovery via the `bosonEngine`
+   bridge, panic recovery) and window controls.
 2. Secure store: same file, the master key in the keychain, the `ks1:`/`fb1:`
    readers kept for import.
 3. API proxy, unfurl and the SSRF guard, Spotify.
@@ -198,8 +200,8 @@ Port in this order, each with Go unit tests ported from `client/src/main/*.test.
     - API stub;
     - deep-link delivery (replacing `app.emit('open-url'|'second-instance')`);
     - user-data dir access;
-    - engine PID lookup (the sidecar kill/restart specs keep working, since the
-      engine is still its own process).
+    - engine restart (replacing killing the sidecar PID; the kill/restart specs
+      become "the engine server restarts and the renderer reconnects").
   - About 13 specs need edits.
 - **Native smoke**
   - Windows CI via WebView2 CDP (`--remote-debugging-port`) and Playwright
