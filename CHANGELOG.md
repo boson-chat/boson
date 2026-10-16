@@ -1,3 +1,9 @@
+## [0.39.1](https://github.com/boson-chat/boson/compare/v0.39.0...v0.39.1) (2026-10-16)
+
+### Bug Fixes
+
+* flaky e2e tests — lost NickServ password, early bouncer 'connected', lightbox Escape ([#26](https://github.com/boson-chat/boson/issues/26)) ([687394a](https://github.com/boson-chat/boson/commit/687394ae5dfb64b0f1be147ce9b681c958576250))
+
 ## [0.39.0](https://github.com/boson-chat/boson/compare/v0.38.0...v0.39.0) (2026-10-16)
 
 ### Features
