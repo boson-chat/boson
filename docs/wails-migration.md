@@ -1,8 +1,26 @@
 # Migrating the desktop client from Electron to Wails v3
 
-Status: **plan for review**. No app code changes until it's agreed.
+Status: **in progress** (2026-10-16), in the same PR as this plan.
 Pinned to `github.com/wailsapp/wails/v3 v3.0.0-beta.30` (2026-10-15).
 Starting point: main at 0.36.4 on Electron 44.7, electron-vite and electron-builder.
+
+## Progress
+
+- **Done: Phases 0–3.**
+  - The engine runs in-process over Wails bindings; the WebSocket is one transport.
+  - Every Electron main-process service has a Go port in `desktop/`.
+  - The real-app e2e suite runs against the Wails server build. CI runs it in place of the Electron job (`.github/workflows/e2e.yml`, with coverage). The Electron run is local only (`make test-e2e-app`).
+  - Under Wails, 4 specs skip: native window controls, notification click → restore, webview permissions, and Electron's loopback server.
+- **Phase 0 findings:**
+  - YouTube refuses `wails://` (error 153). The wrapper is served from `youtube-embed.localhost` on loopback.
+  - Notifications need the bundled `.app`.
+- **Not started:**
+  - Phase 4: packaging and signing.
+  - Phase 5: the signed update feed. Until then the Wails build only checks for updates and opens the release page.
+  - Phase 6: migrating users' Electron data.
+  - Windows and Linux native runs.
+  - Adapting the Wails Taskfile.
+- **Open questions:** below, answered with the recommended defaults for now.
 
 ## Why, and what doesn't change
 
