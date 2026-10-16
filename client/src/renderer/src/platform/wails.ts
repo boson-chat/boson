@@ -6,6 +6,7 @@
 import { Call, Events, System, Window } from '@wailsio/runtime';
 import type { WebSocketLike } from '../modules/engine/engine.client';
 import type { ApiRequest, ApiResponse } from '../shared/http/transport';
+import { applyPhoneScale } from '../shared/phone-scale';
 
 const ENGINE = 'main.EngineService';
 const STORE = 'main.SecureStore';
@@ -217,6 +218,7 @@ export async function installWailsBridges(): Promise<void> {
     };
   }
   w.bosonPlatform = platformName((await System.Environment()).OS);
+  applyPhoneScale(String(w.bosonPlatform));
   w.bosonWindow = windowBridge;
   w.bosonApi = { fetch: apiFetch };
   // Link previews and Spotify cards, fetched in Go (desktop/unfurl.go,

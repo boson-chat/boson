@@ -542,17 +542,8 @@
 }
 
 
-/* Phones: finger-sized rows. With no hover to reveal it, the leave button
-   stays hidden (an invisible button at the row's edge is a trap). */
-@media (max-width: 700px) {
-  .channel-item {
-    min-height: 44px;
-    font-size: var(--text-lg);
-  }
-  .channel-hash { font-size: var(--text-base); }
-  .channel-join-result { padding-top: 12px; padding-bottom: 12px; }
-  .channel-join-result-name { font-size: var(--text-lg); }
-}
+/* Touch screens: with no hover to reveal it, the leave button stays hidden
+   (an invisible button at the row's edge is a trap). */
 @media (hover: none) {
   .channel-leave { display: none; }
 }
