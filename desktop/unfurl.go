@@ -24,7 +24,6 @@ type OgCard struct {
 // UnfurlService fetches link previews for the renderer, which can't fetch
 // arbitrary sites itself (CORS). It only runs when the user loads a preview
 // (click-to-load by default) and never for loopback or private hosts.
-// A port of client/src/main/unfurl.ts and og-parse.ts.
 type UnfurlService struct {
 	web   *webFetcher
 	cache *ttlCache[*OgCard]

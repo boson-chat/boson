@@ -8,8 +8,8 @@ import { getThemeStore } from './modules/ui/theme';
 import './styles.css';
 
 // The Wails shell's bridges (platform/wails.ts) are installed asynchronously;
-// everything below that reads a window.boson* bridge waits for them. Under
-// Electron the preload has already installed them, so it all runs now.
+// everything below that reads a window.boson* bridge waits for them. In a
+// plain browser (vite dev) there are no bridges, so it all runs now.
 const shellReady: Promise<void> | null = isWailsPage()
   ? import('./platform/wails').then((m) => m.installWailsBridges())
   : null;
@@ -23,7 +23,7 @@ function withBridges(fn: () => void): void {
 // load the themes folder and watch it for edits.
 withBridges(() => { void getThemeStore().init(); });
 
-// Attach to the main-process deep-link bridge before any UI mounts so
+// Attach to the shell's deep-link bridge before any UI mounts so
 // the module-level buffer in deep-link.ts captures any `boson://` URL
 // the OS hands us, even before the directory screen mounts.
 withBridges(initDeepLinkBridge);
@@ -45,13 +45,11 @@ const bosonUrl = import.meta.env.VITE_BOSON_API_URL ?? 'http://localhost:3000';
 
 const root = document.getElementById('app')!;
 
-// Engine discovery — in the packaged app the main process spawned the
-// bundled engine binary on a random loopback port and exposes the URL +
-// token via the bosonEngine preload bridge. In dev (`npm run dev`) the
-// bridge returns null and we fall back to VITE_ENGINE_URL/TOKEN from
+// Engine discovery — in the desktop app the engine runs in-process and
+// the bosonEngine bridge (platform/wails.ts) hands back the discovery
+// along with the socket class that reaches it. In browser dev (`npm run
+// dev`) there's no bridge and we fall back to VITE_ENGINE_URL/TOKEN from
 // .env, which `make engine-env` populates after `make engine-serve`.
-// Under Wails the engine is in-process and the discovery also carries the
-// socket class that reaches it (platform/wails.ts).
 async function resolveEngineDiscovery(): Promise<{ url?: string; token?: string; socket?: WebSocketCtor }> {
   const bridge = (window as { bosonEngine?: { discovery: () => Promise<{ url: string; token: string; socket?: WebSocketCtor } | null> } }).bosonEngine;
   if (bridge) {

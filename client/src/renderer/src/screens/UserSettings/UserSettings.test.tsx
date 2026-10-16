@@ -332,7 +332,7 @@ describe('UpdateActions', () => {
     expect(onApply).toHaveBeenCalledOnce();
   });
 
-  it('says it is downloading when the updater fetches it (Electron)', () => {
+  it('says it is downloading when the updater fetches it (self-updating build)', () => {
     render(<UpdateActions state={{ kind: 'available', version: '0.37.0' }} onCheck={vi.fn()} onApply={vi.fn()} />);
     expect(screen.getByText('v0.37.0 available — downloading.')).toBeTruthy();
     expect(screen.queryByRole('button')).toBeNull();

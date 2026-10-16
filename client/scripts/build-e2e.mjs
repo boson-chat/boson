@@ -1,17 +1,22 @@
 #!/usr/bin/env node
-// Builds the Wails shell for the real-app e2e suite, as a server-mode binary
-// (`go build -tags server`): the same Go services and renderer, served over
-// HTTP so Playwright can drive it in Chromium (tests/e2e-app with
-// E2E_SHELL=wails). The renderer bundle is the e2e one from
-// build-e2e-app.mjs (pinned to the e2e stack), so run that first or pass
-// --with-renderer to do both.
+// Builds the desktop app for the real-app e2e suite (tests/e2e-app/):
+//
+//   1. the renderer, pinned to the e2e stack (infra/e2e/stack.json: the
+//      backend on 127.0.0.1:13000, the boson-e2e Supabase project on
+//      :55321), into client/out-e2e/renderer (or $E2E_OUT_DIR/renderer).
+//      Process env beats .env in Vite, so a developer's client/.env can't
+//      leak into it.
+//   2. desktop/ as a server-mode binary (`go build -tags server`): the same
+//      Go services and in-process engine, serving that renderer over HTTP,
+//      so Playwright drives it in Chromium.
 //
 //   out-e2e/renderer  →  desktop/frontend/dist  →  desktop/bin/boson-e2e-server
 //
-// With E2E_COVERAGE=1 the binary is a `go build -cover` build of the shell and
-// the engine (tests/e2e-app/coverage), and the renderer gets source maps.
+// With E2E_COVERAGE=1 the renderer keeps source maps (unminified) and the
+// binary is a `go build -cover` build of the shell and the engine
+// (tests/e2e-app/coverage).
 //
-// Usage: node scripts/build-e2e-wails.mjs [--with-renderer]
+// Usage: node scripts/build-e2e.mjs [--skip-renderer]
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -31,12 +36,26 @@ function run(cmd, args, opts) {
   }
 }
 
-if (process.argv.includes('--with-renderer')) {
-  run('node', [join(clientDir, 'scripts', 'build-e2e-app.mjs'), '--skip-engine'], { cwd: clientDir });
-}
+const stack = JSON.parse(readFileSync(join(repoRoot, 'infra', 'e2e', 'stack.json'), 'utf8'));
 const renderer = join(outDir, 'renderer');
+if (!process.argv.includes('--skip-renderer')) {
+  run('npx', ['vite', 'build'], {
+    cwd: clientDir,
+    env: {
+      ...process.env,
+      RENDERER_OUT_DIR: renderer,
+      VITE_SUPABASE_URL: stack.supabase.apiUrl,
+      VITE_SUPABASE_PUBLISHABLE_KEY: stack.supabase.publishableKey,
+      VITE_SUPABASE_ANON_KEY: stack.supabase.publishableKey,
+      VITE_BOSON_API_URL: stack.backend.url,
+      // The engine runs in-process; never a developer's `make engine-serve`.
+      VITE_ENGINE_URL: '',
+      VITE_ENGINE_TOKEN: '',
+    },
+  });
+}
 if (!existsSync(join(renderer, 'index.html'))) {
-  console.error(`${renderer} is missing — run \`npm run build:e2e-app\` first (or pass --with-renderer).`);
+  console.error(`${renderer} is missing — run without --skip-renderer.`);
   process.exit(1);
 }
 
@@ -62,11 +81,10 @@ if (process.platform === 'darwin') {
 }
 const bin = join(desktopDir, 'bin', `boson-e2e-server${process.platform === 'win32' ? '.exe' : ''}`);
 // The e2e bundle talks to the e2e backend; let the API proxy reach it.
-const stack = JSON.parse(readFileSync(join(repoRoot, 'infra', 'e2e', 'stack.json'), 'utf8'));
 const version = JSON.parse(readFileSync(join(clientDir, 'package.json'), 'utf8')).version;
 const ldflags = `-X main.apiBase=${stack.backend.url} -X main.devBuild=true -X main.appVersion=${version}`;
 const cover = process.env.E2E_COVERAGE === '1'
   ? ['-cover', '-coverpkg=github.com/boson-chat/boson/desktop,github.com/boson-chat/boson/engine/...']
   : [];
 run('go', ['build', '-tags', 'server', ...cover, '-ldflags', ldflags, '-o', bin, '.'], { cwd: desktopDir, env });
-console.log(`wails e2e server built: ${bin}`);
+console.log(`e2e app built: ${bin}${process.env.E2E_COVERAGE === '1' ? ' (coverage build)' : ''}`);

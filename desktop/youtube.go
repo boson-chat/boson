@@ -31,7 +31,6 @@ type YouTubeService struct {
 	srv    *http.Server
 }
 
-
 // youtubeWrapperHost: a *.localhost name resolves to loopback in the
 // webview without any DNS, and isn't a bare loopback address, which YouTube
 // refuses for some (label) videos.

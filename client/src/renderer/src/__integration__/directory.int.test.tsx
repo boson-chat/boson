@@ -10,7 +10,7 @@ import {
 } from '../modules/chat/services-credentials';
 
 // Synchronous creds store so connectWith doesn't await the lazily-built
-// secure default's hydration poll (no preload bridge in jsdom).
+// secure default's hydration poll (no bosonSecure bridge in jsdom).
 function memStorage(): Storage {
   const m = new Map<string, string>();
   return {

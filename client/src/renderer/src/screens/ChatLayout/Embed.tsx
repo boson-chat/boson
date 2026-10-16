@@ -33,7 +33,7 @@ export type UnfurlFn = (url: string) => Promise<OgCard | null>;
 // All embeds for a message, below its text. Click-to-load by default: chips are
 // inert (no network / no remote image) until clicked. Each is dismissible.
 export function MessageEmbeds({ text, unfurl, spotify }: { text: string; unfurl?: UnfurlFn; spotify?: SpotifyFn }) {
-  // Default to the Electron main-process bridges; undefined on web/tests
+  // Default to the desktop app's bridges; undefined on web/tests
   // (website embeds then just open externally instead of showing a card).
   const fetcher = unfurl ?? getUnfurl();
   const spotifyFetcher = spotify ?? getSpotify();
@@ -119,33 +119,22 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
   );
 }
 
-// The player isn't embedded directly. The app is served from a loopback
-// address (http://127.0.0.1:<port>, or localhost in dev), and YouTube refuses
-// some videos (label / VEVO music videos: "This video is unavailable") when
-// the page around its player is a local address, whatever Referer it's sent.
-// So it's framed from public/youtube-embed.html served by the same server
-// under youtube-embed.invalid, which main maps to 127.0.0.1
-// (src/main/youtube-embed.ts; keep the hostname in sync). The wrapper posts a
-// ready message; without one in time we embed YouTube directly, which plays
-// most videos. Outside a loopback origin (web build, tests) it's direct. The
-// Wails shell names its wrapper (desktop/youtube.go): boson.chat's copy
-// (its e2e build: its own loopback server). A wails:// page can't play YouTube at
-// all, so there the fallback is the video on YouTube, never a direct embed.
-// The wrapper also passes on the player's errors (embedding refused, 153),
-// which turn the player back into a "watch on YouTube" card.
-export const YOUTUBE_EMBED_HOST = 'youtube-embed.invalid';
+// In the desktop app the player isn't embedded directly: YouTube refuses to
+// play in a wails:// page ("Error 153"), and some videos (label / VEVO
+// music) in any local page. The app frames public/youtube-embed.html from
+// the origin the shell names (desktop/youtube.go: boson.chat's copy, or its
+// e2e build's loopback server), and the wrapper frames YouTube. The wrapper
+// posts "ready", and passes on the player's errors (embedding refused, 153).
+// An error, or no "ready" in time, turns the player back into the card,
+// which opens the video on YouTube. In a browser (`npm run dev`, tests
+// without the shell) YouTube is embedded directly.
 export const YOUTUBE_WRAPPER_TIMEOUT_MS = 6_000;
 
-export function youtubeWrapperOrigin(loc: { protocol: string; hostname: string; port: string } | undefined =
-  typeof location === 'undefined' ? undefined : location): string | null {
-  // The Wails shell serves the wrapper itself, from its own loopback server.
+export function youtubeWrapperOrigin(): string | null {
   const shell = typeof window !== 'undefined'
     ? (window as { bosonYouTube?: { wrapperOrigin: string | null } }).bosonYouTube
     : undefined;
-  if (shell) return shell.wrapperOrigin;
-  if (!loc || loc.protocol !== 'http:' || !loc.port) return null;
-  if (loc.hostname !== '127.0.0.1' && loc.hostname !== 'localhost') return null;
-  return `http://${YOUTUBE_EMBED_HOST}:${loc.port}`;
+  return shell?.wrapperOrigin ?? null;
 }
 
 // YouTube: a Discord-style card (YouTube label + video title) whose thumbnail
@@ -159,29 +148,26 @@ function YouTubeEmbed({
   const id = c.youtubeId!;
   const thumb = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
   // YouTube's player needs a real origin/referrer or it errors ("Error 153 /
-  // Video player configuration error"). The packaged app serves the renderer
-  // from app:// (a real secure origin) and dev uses http://localhost, so play
-  // inline for those; only a bare file:// origin (no origin) opens externally.
+  // Video player configuration error"): the desktop app plays it through the
+  // wrapper (above), a browser directly; a page with no origin (file://)
+  // opens it externally.
   const origin = typeof location !== 'undefined' ? location.origin : '';
   const canInline = !!origin && origin !== 'null' && !origin.startsWith('file:');
   const direct = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&origin=${encodeURIComponent(origin)}`;
   const wrapperOrigin = youtubeWrapperOrigin();
-  const [viaWrapper, setViaWrapper] = useState(wrapperOrigin !== null);
   // YouTube won't play it here: show the card, which opens it on YouTube.
   const [failed, setFailed] = useState(false);
-  // Under the Wails shell embedding YouTube directly can only fail (153).
-  const directWorks = typeof window === 'undefined' || !(window as { bosonYouTube?: unknown }).bosonYouTube;
-  const src = viaWrapper && wrapperOrigin ? `${wrapperOrigin}/youtube-embed.html?v=${encodeURIComponent(id)}` : direct;
+  const src = wrapperOrigin ? `${wrapperOrigin}/youtube-embed.html?v=${encodeURIComponent(id)}` : direct;
   const frame = useRef<HTMLIFrameElement>(null);
 
-  // Playing through the wrapper: wait for its ready message, else go direct
-  // (or, where that can't work, to the card). A player error → the card.
+  // Playing through the wrapper: wait for its ready message, else the card.
+  // A player error → the card.
   // A layout effect: listening must start before the frame can post. From a
   // loopback server the wrapper reports in ~20 ms after insertion, sooner
   // than useEffect runs (next animation frame, or 100 ms when frames are
   // throttled), and a missed "ready" meant a needless fallback.
   useLayoutEffect(() => {
-    if (stage !== 'play' || !viaWrapper || failed) return;
+    if (stage !== 'play' || !wrapperOrigin || failed) return;
     let ready = false;
     const onMessage = (e: MessageEvent): void => {
       if (e.origin !== wrapperOrigin || e.source !== frame.current?.contentWindow) return;
@@ -191,13 +177,9 @@ function YouTubeEmbed({
       if (d.type === 'boson-youtube-error') setFailed(true);
     };
     window.addEventListener('message', onMessage);
-    const timer = setTimeout(() => {
-      if (ready) return;
-      if (directWorks) setViaWrapper(false);
-      else setFailed(true);
-    }, YOUTUBE_WRAPPER_TIMEOUT_MS);
+    const timer = setTimeout(() => { if (!ready) setFailed(true); }, YOUTUBE_WRAPPER_TIMEOUT_MS);
     return () => { window.removeEventListener('message', onMessage); clearTimeout(timer); };
-  }, [stage, viaWrapper, failed, id, wrapperOrigin, directWorks]);
+  }, [stage, failed, id, wrapperOrigin]);
 
   // Once past the inert chip, fetch the video title (OG) for the card header.
   useEffect(() => {
@@ -269,7 +251,7 @@ function fmtDur(ms: number): string {
 // Spotify: a fully custom card built from the embed page's __NEXT_DATA__ (cover,
 // title, and — for playlists/albums — the full track list with 30s previews).
 // We render our own UI + audio player instead of Spotify's iframe, which crashes
-// inside Electron. Playback uses the preview MP3s; "Open in Spotify" for the
+// in a webview. Playback uses the preview MP3s; "Open in Spotify" for the
 // full track. Falls back to a minimal card when the bridge is unavailable.
 function SpotifyEmbed({
   c, spotify, dismissBtn,

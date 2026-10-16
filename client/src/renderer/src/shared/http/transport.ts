@@ -1,9 +1,8 @@
-// Network transport for the API client. In Electron the renderer runs on a
-// loopback http origin (so origin/referrer-sensitive embeds work), but our API
-// (api.boson.chat) only CORS-allows the legacy file:// null origin. Routing the
-// request through the main process (Node fetch, not subject to CORS) sidesteps
-// that. The preload exposes window.bosonApi; web builds / tests fall back to a
-// direct fetch.
+// Network transport for the API client. In the desktop app the renderer runs
+// on a Wails origin (wails://localhost), which our API (api.boson.chat) doesn't
+// CORS-allow. Routing the request through the shell (Go's HTTP client in
+// desktop/apiproxy.go, not subject to CORS) sidesteps that. The shell installs
+// window.bosonApi; web builds / tests fall back to a direct fetch.
 
 export interface ApiRequest {
   method: string;
@@ -28,7 +27,7 @@ export const fetchTransport: ApiTransport = async ({ method, url, headers, body 
   return { status: res.status, ok: res.ok, statusText: res.statusText, text };
 };
 
-// Prefer the main-process proxy when the Electron bridge is present.
+// Prefer the shell's API proxy when the desktop bridge is present.
 export function defaultApiTransport(): ApiTransport {
   const bridge = typeof window !== 'undefined'
     ? (window as { bosonApi?: { fetch: ApiTransport } }).bosonApi

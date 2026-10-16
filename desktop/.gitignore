@@ -1,6 +1,6 @@
 .task
 bin
-# The renderer build is copied in (client/scripts/build-e2e-wails.mjs);
+# The renderer build is copied in (client/scripts/build-e2e.mjs, scripts/package*.sh);
 # the placeholder keeps go:embed building on a fresh clone. (The root
 # .gitignore ignores every dist/; re-include this one first, or the
 # placeholder can't be tracked.)

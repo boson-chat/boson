@@ -1,9 +1,9 @@
 // Rich embeds for links in messages, served by a local HTTP server:
-//   - website previews come from the main process's unfurler (OpenGraph),
-//     which refuses loopback / private hosts (SSRF guard). The page is served
-//     under a NAME (unfurl.e2e.test) that BOSON_E2E_HOST_MAP resolves to
-//     127.0.0.1 inside the app's main process only (electron-sandbox-hook) —
-//     the guard itself is untouched, and a loopback URL is asserted refused;
+//   - website previews come from the app's unfurler (desktop/unfurl.go,
+//     OpenGraph), which refuses loopback / private hosts (SSRF guard). The
+//     page is served under a NAME (unfurl.e2e.test) that BOSON_E2E_HOST_MAP
+//     resolves to 127.0.0.1 inside the e2e build only (desktop/webfetch.go)
+//     — the guard itself is untouched, and a loopback URL is asserted refused;
 //   - images / files load straight from 127.0.0.1 in the renderer (its CSP
 //     allows loopback images).
 import { createServer, type IncomingMessage, type Server } from 'node:http';
@@ -12,7 +12,6 @@ import { test, expect, randomChannel } from './fixtures';
 import { connectGuest, connectPeer, messages, memberRow, joinViaUi } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 import { request } from 'node:http';
-import { WAILS_SHELL } from './wails-shell';
 
 // GET origin+path on 127.0.0.1 with the origin's Host header (Node can't
 // resolve *.localhost names); resolves to the status code.
@@ -180,11 +179,11 @@ test.describe('embeds', () => {
     expect(await openedExternally()).not.toContain(exe);
   });
 
-  // YouTube refuses some videos (label / VEVO music videos) when the page
-  // around its player is a local address, and the app runs on
-  // http://127.0.0.1. So the player is framed by the app's own wrapper page
-  // under youtube-embed.invalid (mapped to 127.0.0.1 in main). YouTube is
-  // stubbed here: the stub reports which page embeds it.
+  // YouTube won't play in the app's own page (wails://, "Error 153"), and
+  // refuses some videos in any local page. So the player is framed by a
+  // wrapper page under an ordinary hostname: boson.chat in the release build,
+  // the e2e build's own loopback server here. YouTube is stubbed: the stub
+  // reports which page embeds it.
   test('YouTube plays inside the wrapper, whose address is a hostname, not 127.0.0.1', async ({ launchApp }) => {
     const channel = randomChannel('emy');
     const peer = await connectPeer();
@@ -204,11 +203,10 @@ test.describe('embeds', () => {
     const row = messages(page).locator('.message-row').filter({ hasText: 'yt1' });
     await row.getByRole('button', { name: 'Play video' }).click();
 
-    // Electron: the app's own server under youtube-embed.invalid. Wails: the
-    // shell's loopback wrapper server under youtube-embed.localhost.
-    const wrapperOrigin = WAILS_SHELL
-      ? await page.evaluate(() => (window as unknown as { bosonYouTube: { wrapperOrigin: string } }).bosonYouTube.wrapperOrigin)
-      : `http://youtube-embed.invalid:${new URL(page.url()).port}`;
+    // The e2e build serves the wrapper itself, on its loopback server under
+    // youtube-embed.localhost (the release build frames boson.chat's copy).
+    const wrapperOrigin = await page.evaluate(() => (window as unknown as { bosonYouTube: { wrapperOrigin: string } }).bosonYouTube.wrapperOrigin);
+    expect(wrapperOrigin).toMatch(/^http:\/\/youtube-embed\.localhost:\d+$/);
     const iframe = row.locator('iframe.embed-yt-iframe');
     await expect(iframe).toHaveAttribute('src', `${wrapperOrigin}/youtube-embed.html?v=KtypSRcwIhA`);
     const player = page.frameLocator('iframe.embed-yt-iframe').frameLocator('iframe');
@@ -217,12 +215,8 @@ test.describe('embeds', () => {
     await page.waitForTimeout(7_000);
     await expect(iframe).toHaveAttribute('src', `${wrapperOrigin}/youtube-embed.html?v=KtypSRcwIhA`);
 
-    // Under that hostname the app's own server hands out the wrapper only,
-    // never the app. (net.fetch goes through Chromium, which applies the
-    // host mapping.)
-    const status = (path: string): Promise<number> => WAILS_SHELL
-      ? hostStatus(wrapperOrigin, path)
-      : app.evaluate(async ({ net }, u) => (await net.fetch(u)).status, `${wrapperOrigin}${path}`);
+    // That server hands out the wrapper only, never the app.
+    const status = (path: string): Promise<number> => hostStatus(wrapperOrigin, path);
     expect(await status('/youtube-embed.html')).toBe(200);
     expect(await status('/youtube-embed.js')).toBe(200);
     expect(await status('/')).toBe(404);
@@ -263,10 +257,9 @@ test.describe('embeds', () => {
     await expect.poll(openedExternally).toContain(url);
   });
 
-  // The wrapper never reports in (it didn't load). Electron falls back to
-  // embedding YouTube directly, which plays most videos there. Under Wails a
-  // direct embed can only fail (the page is wails://), so it's the card.
-  test('a wrapper that never loads: a direct embed in Electron, the card under Wails', async ({ launchApp }) => {
+  // The wrapper never reports in (it didn't load). A direct embed can only
+  // fail from the app's page (wails://, "Error 153"), so it's the card.
+  test('a wrapper that never loads gives the card, not a direct embed', async ({ launchApp }) => {
     const channel = randomChannel('emyw');
     const peer = await connectPeer();
     peers.push(peer);
@@ -281,12 +274,8 @@ test.describe('embeds', () => {
     await row.getByRole('button', { name: 'Play video' }).click();
     const iframe = row.locator('iframe.embed-yt-iframe');
     await expect(iframe).toHaveAttribute('src', /\/youtube-embed\.html\?v=KtypSRcwIhA$/);
-    if (WAILS_SHELL) {
-      await expect(iframe).toHaveCount(0, { timeout: 15_000 });
-      await expect(row.getByRole('button', { name: 'Watch on YouTube' })).toBeVisible();
-    } else {
-      await expect(iframe).toHaveAttribute('src', /^https:\/\/www\.youtube-nocookie\.com\/embed\/KtypSRcwIhA\?/, { timeout: 15_000 });
-    }
+    await expect(iframe).toHaveCount(0, { timeout: 15_000 });
+    await expect(row.getByRole('button', { name: 'Watch on YouTube' })).toBeVisible();
   });
 
   test('click-to-load mode keeps embeds inert until clicked', async ({ launchApp }) => {

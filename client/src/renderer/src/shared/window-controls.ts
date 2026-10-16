@@ -1,9 +1,10 @@
 // Renderer-side typings + thin wrapper around the `bosonWindow` bridge that
-// preload exposes. Keeping the bridge interface here (instead of importing
-// from preload) avoids pulling `electron` into the renderer bundle.
+// platform/wails.ts installs (Wails Window API). Keeping the bridge interface
+// here (instead of importing the shell) keeps the Wails runtime out of the
+// browser bundle.
 //
 // The bridge is OPTIONAL at runtime — happy-dom tests and vitest don't have
-// preload, so window-controls calls just no-op there.
+// it, so window-controls calls just no-op there.
 
 export type BosonPlatform = 'darwin' | 'win32' | 'linux' | string;
 
@@ -33,7 +34,7 @@ export function isDarwin(): boolean {
   return getPlatform() === 'darwin';
 }
 
-/** Get the bridge, or null in tests / non-Electron contexts. */
+/** Get the bridge, or null in tests / browser contexts. */
 export function getWindowBridge(): BosonWindowBridge | null {
   return (typeof window !== 'undefined' && window.bosonWindow) || null;
 }

@@ -57,8 +57,8 @@ export function DownloadPage() {
           </p>
           <h1>Get the Boson desktop client.</h1>
           <p class="lead" style="margin-top: 20px;">
-            Native installers for macOS, Windows, and Linux — Electron UI with the local Go IRC
-            bridge bundled in. Pick your platform; assets live on the GitHub release page.
+            A native app for macOS, Windows, and Linux, with the Go IRC engine built in. Pick
+            your platform; assets live on the GitHub release page.
           </p>
         </div>
       </section>
@@ -72,13 +72,10 @@ export function DownloadPage() {
                   <MacIcon />
                   {recommended('mac')}
                   <h3>macOS</h3>
-                  <span class="dl-arch">13.0+ · Apple Silicon or Intel</span>
+                  <span class="dl-arch">12.0+ · Apple Silicon and Intel</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={DL('Boson-mac-arm64.dmg')} rel="noopener">
-                      Apple Silicon (.dmg)
-                    </a>
-                    <a class="btn btn-secondary btn-sm" href={DL('Boson-mac-x64.dmg')} rel="noopener">
-                      Intel (.dmg)
+                    <a class="btn btn-primary" href={DL('Boson-mac-universal.dmg')} rel="noopener">
+                      Download (.dmg)
                     </a>
                   </div>
                   <span class="dl-bytes">
@@ -97,11 +94,11 @@ export function DownloadPage() {
                   <h3>Windows</h3>
                   <span class="dl-arch">x64 · Windows 10 / 11</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={DL('Boson-Setup.exe')} rel="noopener">
-                      Installer (.exe)
+                    <a class="btn btn-primary" href={DL('Boson-windows-x64.zip')} rel="noopener">
+                      Download (.zip)
                     </a>
                   </div>
-                  <span class="dl-bytes">Not yet code-signed · SmartScreen will warn on first launch</span>
+                  <span class="dl-bytes">Unzip and run Boson.exe · not yet code-signed, so SmartScreen will warn on first launch</span>
                 </div>
               </Card>
             </article>
@@ -112,24 +109,13 @@ export function DownloadPage() {
                   <LinuxIcon />
                   {recommended('linux')}
                   <h3>Linux</h3>
-                  <span class="dl-arch">x64 &amp; ARM64 · AppImage or Debian/Ubuntu</span>
+                  <span class="dl-arch">x64 · GTK 4 &amp; WebKitGTK 6.0</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={DL('Boson-linux-x86_64.AppImage')} rel="noopener">
-                      AppImage (x64)
-                    </a>
-                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-amd64.deb')} rel="noopener">
-                      .deb (x64)
+                    <a class="btn btn-primary" href={DL('Boson-linux-x86_64.tar.gz')} rel="noopener">
+                      Download (.tar.gz)
                     </a>
                   </div>
-                  <div class="dl-actions">
-                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-arm64.AppImage')} rel="noopener">
-                      AppImage (ARM64)
-                    </a>
-                    <a class="btn btn-secondary btn-sm" href={DL('Boson-linux-arm64.deb')} rel="noopener">
-                      .deb (ARM64)
-                    </a>
-                  </div>
-                  <span class="dl-bytes">AppImage is self-contained; .deb installs system-wide</span>
+                  <span class="dl-bytes">The app, a .desktop entry and its icon</span>
                 </div>
               </Card>
             </article>
@@ -155,7 +141,7 @@ export function DownloadPage() {
             <div>
               <h3>macOS</h3>
               <ul>
-                <li>macOS 13 Ventura or newer</li>
+                <li>macOS 12 Monterey or newer</li>
                 <li>250 MB free disk</li>
                 <li>Keychain access for credential storage</li>
                 <li>Outbound TCP/TLS to your servers (port 6697 by default)</li>
@@ -167,16 +153,15 @@ export function DownloadPage() {
                 <li>Windows 10 (build 19041+) or Windows 11</li>
                 <li>250 MB free disk</li>
                 <li>Credential Manager available (default)</li>
-                <li>No extra runtime — Chromium ships inside the installer</li>
+                <li>Microsoft Edge WebView2 (built into Windows 10/11)</li>
               </ul>
             </div>
             <div>
               <h3>Linux</h3>
               <ul>
-                <li>glibc 2.31+ (Ubuntu 20.04+, Fedora 33+, Debian 11+)</li>
+                <li>GTK 4 and WebKitGTK 6.0 (Ubuntu 24.04+, Fedora 39+, Debian 13+)</li>
                 <li>libsecret + Secret Service backend (GNOME Keyring, KWallet)</li>
                 <li>Wayland or X11 supported</li>
-                <li>Optional: <span class="num">libfuse2</span> for the AppImage build</li>
               </ul>
             </div>
           </div>
@@ -194,8 +179,8 @@ export function DownloadPage() {
               <h3 style="margin-bottom: 12px; font-size: 16px;">macOS · Linux</h3>
               <Terminal>
                 <Line><C tone="cmt"># 1. compute the SHA-256 of the package you downloaded</C></Line>
-                <Line prompt>shasum -a 256 Boson-mac-arm64.dmg</Line>
-                <Line><C tone="ok">…</C> &nbsp;Boson-mac-arm64.dmg</Line>
+                <Line prompt>shasum -a 256 Boson-mac-universal.dmg</Line>
+                <Line><C tone="ok">…</C> &nbsp;Boson-mac-universal.dmg</Line>
                 <Line />
                 <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
                 <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
@@ -210,7 +195,7 @@ export function DownloadPage() {
               <h3 style="margin-bottom: 12px; font-size: 16px;">Windows (PowerShell)</h3>
               <Terminal>
                 <Line><C tone="cmt"># 1. compute the SHA-256 hash</C></Line>
-                <Line prompt>Get-FileHash Boson-Setup.exe -Algorithm SHA256</Line>
+                <Line prompt>Get-FileHash Boson-windows-x64.zip -Algorithm SHA256</Line>
                 <Line />
                 <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
                 <Line><C tone="cmt">#    {LATEST_URL}</C></Line>
@@ -224,7 +209,8 @@ export function DownloadPage() {
             <div class="checksum-block">
               <h4>Checksums</h4>
               <p style="margin: 0;">
-                SHA-256 checksums and the full asset list are published on the GitHub release page:{' '}
+                SHA-256 checksums (<span class="num">SHA256SUMS.txt</span>) and the full asset list are
+                published on the GitHub release page:{' '}
                 <a href={LATEST_URL} rel="noopener">{LATEST_URL}</a>
               </p>
             </div>
@@ -246,12 +232,12 @@ export function DownloadPage() {
           </p>
           <div class="grid-2" style="gap: 32px; align-items: start;">
             <div>
-              <h3 style="margin-bottom: 12px; font-size: 16px;">Upgrading from v0.32.0 or earlier</h3>
+              <h3 style="margin-bottom: 12px; font-size: 16px;">Upgrading from an earlier version</h3>
               <p class="muted" style="margin-bottom: 12px;">
-                Older builds were ad-hoc signed, and macOS won't let them auto-update to a
-                Developer ID–signed release. Download the new version from this page once and
-                replace <strong>Boson.app</strong> in /Applications; in-app updates work from
-                then on.
+                The app was rebuilt on a native webview, and earlier versions can't update
+                themselves to it. Download it from this page once and replace{' '}
+                <strong>Boson.app</strong> in /Applications, then sign in again. The app checks
+                for new releases and links you here when one is out.
               </p>
             </div>
             <div>
@@ -267,7 +253,7 @@ export function DownloadPage() {
           </div>
           <p class="muted" style="max-width: 72ch;">
             On Windows, SmartScreen will show a "Windows protected your PC" prompt the first time —
-            click <strong>More info</strong> then <strong>Run anyway</strong>. Linux installers
+            click <strong>More info</strong> then <strong>Run anyway</strong>. Linux builds
             don't need any of this.
           </p>
         </div>
@@ -291,7 +277,7 @@ export function DownloadPage() {
               platforms="all platforms"
             >
               The current desktop build. Multi-server IRC chat, server directory, guest mode,
-              local Go IRC bridge bundled as a sidecar. See the{' '}
+              with the Go IRC engine built in. See the{' '}
               <a href={releaseUrl} rel="noopener">release page</a> for the full asset list and
               the changelog entry for what's new.
             </ReleaseRow>
@@ -303,7 +289,7 @@ export function DownloadPage() {
         <div class="container">
           <h2 style="margin-bottom: 20px;">Ready when you are.</h2>
           <p class="lead" style="margin-bottom: 32px;">
-            The desktop client is the same on every platform — pick whichever installer matches
+            The desktop client is the same on every platform — pick whichever download matches
             the machine you're on.
           </p>
           <div class="hero-cta" style="justify-content: center;">

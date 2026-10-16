@@ -10,7 +10,7 @@ import (
 
 func TestSealOpenMatchesElectronLayout(t *testing.T) {
 	// Made by Node's crypto (aes-256-gcm, key 32×0x07, iv 12×0x03) in the
-	// Electron secure store's iv||tag||ciphertext layout.
+	// former Electron secure store's iv||tag||ciphertext layout.
 	const fromNode = "AwMDAwMDAwMDAwMDFML3kGt2sgEQWKHwNM4H7labwHE/XH6g5tM="
 	key := bytes.Repeat([]byte{7}, 32)
 	got, err := open(key, fromNode)

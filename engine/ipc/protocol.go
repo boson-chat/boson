@@ -6,7 +6,7 @@ import (
 	"github.com/boson-chat/boson/engine/irc"
 )
 
-// Inbound: messages from the renderer (Electron) to the engine.
+// Inbound: messages from the renderer to the engine.
 
 type ClientMessage struct {
 	Type   string          `json:"type"`

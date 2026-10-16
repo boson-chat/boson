@@ -1,7 +1,7 @@
-// SecureStorage is the renderer-facing abstraction over the main-process
-// SecureStore. In production it proxies via `window.bosonSecure` (exposed by
-// the preload script). In tests and the renderer-only Vite preview there's
-// no preload, so we fall back to a memory-only Map with a console warning.
+// SecureStorage is the renderer-facing abstraction over the desktop shell's
+// SecureStore. In production it proxies via `window.bosonSecure` (installed by
+// platform/wails.ts). In tests and the renderer-only Vite preview there's
+// no bridge, so we fall back to a memory-only Map with a console warning.
 // Production callers should ALWAYS check `isAvailable()` first — the fallback
 // returns `false` so identity persistence is correctly disabled rather than
 // silently losing the secret to a tab refresh.
@@ -13,9 +13,9 @@ export interface SecureStorage {
   remove(key: string): Promise<void>;
 }
 
-// The shape exposed by `src/preload/index.ts`. Kept structurally compatible
-// with `BosonSecure` without importing from preload (which would pull in
-// `electron` into the renderer bundle).
+// The shape installed by `platform/wails.ts` (backed by desktop/securestore.go).
+// Declared here so callers needn't import the shell module (which would
+// pull the Wails runtime into the browser bundle).
 interface BosonSecureBridge {
   isAvailable(): Promise<boolean>;
   get(key: string): Promise<string | null>;
@@ -31,7 +31,7 @@ declare global {
 
 /**
  * `windowSecureStorage` reads `window.bosonSecure` at every call (not once at
- * module load) so the bridge is picked up even if preload finishes injecting
+ * module load) so the bridge is picked up even if the shell finishes installing
  * after our module is imported. Falls back to an in-memory Map when the
  * bridge is missing.
  */
@@ -104,7 +104,7 @@ class WindowSecureStorage implements SecureStorage {
 export const windowSecureStorage: SecureStorage = new WindowSecureStorage();
 
 /**
- * In-memory `SecureStorage` for tests. Pure-Map; never reaches preload.
+ * In-memory `SecureStorage` for tests. Pure-Map; never reaches the bridge.
  * Marked `isAvailable() === true` so persist/restore paths run end-to-end.
  */
 export class InMemorySecureStorage implements SecureStorage {

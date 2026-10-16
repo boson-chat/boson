@@ -695,10 +695,10 @@ function RecoveryCodeSettings({ directory, identity, open }: {
   );
 }
 
-// Renderer-side shape of the auto-update state pushed by main. Kept
-// inline here rather than imported from the preload module so the
-// About panel stays self-contained (the preload package isn't always
-// resolvable from a test renderer context).
+// Renderer-side shape of the update state pushed by the shell
+// (desktop/updater.go via bosonUpdater). Kept inline here so the
+// About panel stays self-contained — Go types don't reach the
+// renderer, and tests stub the bridge directly.
 type UpdateState =
   | { kind: 'idle' }
   | { kind: 'checking' }
@@ -718,15 +718,15 @@ interface UpdaterBridge {
 }
 
 function AboutSection() {
-  // Platform string is exposed by the preload bridge (set on Electron
-  // launch). In a browser preview / e2e harness `bosonPlatform` may not
+  // Platform string is set by the shell's bridges (platform/wails.ts,
+  // at startup). In a browser preview / e2e harness `bosonPlatform` may not
   // exist — fall back to navigator's hint so we still show something
   // useful instead of "undefined".
   const platform =
     (window as unknown as { bosonPlatform?: string }).bosonPlatform
     ?? (typeof navigator !== 'undefined' ? navigator.platform : 'unknown');
 
-  // Auto-update integration. Pull the initial state from main on
+  // Auto-update integration. Pull the initial state from the shell on
   // mount, subscribe to live pushes, and offer a manual "Check now"
   // button next to the version row. The whole block degrades to "no
   // updater available" when the bridge isn't there (dev / e2e).
@@ -777,12 +777,12 @@ function AboutSection() {
                 class="user-settings-link"
                 href="https://github.com/boson-chat/boson"
                 onClick={(e) => {
-                  // Electron renderers in production refuse navigation
-                  // to https URLs (we want them to open in the OS
-                  // browser instead). The main process picks these up
-                  // via setWindowOpenHandler and shell.openExternal —
-                  // preventDefault here just stops the in-window nav
-                  // attempt that would precede that handoff.
+                  // The desktop app never navigates its window to
+                  // https URLs (they open in the OS browser instead).
+                  // The shell's window.open hands them to
+                  // desktop/links.go — preventDefault here just stops
+                  // the in-window nav attempt that would precede that
+                  // handoff.
                   e.preventDefault();
                   const bridge = (window as unknown as { open?: (u: string) => void }).open;
                   if (bridge) bridge('https://github.com/boson-chat/boson');
@@ -818,14 +818,13 @@ function AboutSection() {
   );
 }
 
-// Last line of defence against a raw electron-updater HttpError dump
-// reaching the UI. The main process already classifies + suppresses
-// transient errors (release-asset race window, offline, etc.) — this
+// Last line of defence against a raw updater HTTP error dump
+// reaching the UI. The shell's updater already suppresses
+// transient errors (offline, rate-limited, etc.) — this
 // catches the edge case where a *permanent* error gets through but
 // still has an unsuitable phrasing for end users. Maps the most common
 // failure modes to short, actionable copy; everything else is passed
-// through unchanged (but capped + first-line-only on the way in via
-// classifyUpdaterError in the main process).
+// through unchanged.
 function summariseUpdateError(raw: string): string {
   if (/\b404\b/.test(raw) && /latest[^\s'"]*\.yml/i.test(raw)) {
     return "Update info isn't published yet. Try again in a few minutes.";

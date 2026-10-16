@@ -409,7 +409,7 @@ function CopyButton({ label, value }: { label: string; value: string }) {
       await navigator.clipboard.writeText(value);
       triggerCopied();
     } catch {
-      // Some Electron contexts disable clipboard writes — fall back
+      // Some webview contexts disable clipboard writes — fall back
       // silently. The TXT record is visible in the <pre> so the user
       // can still select + copy manually.
     }

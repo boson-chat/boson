@@ -97,7 +97,7 @@ export function FeaturesPage() {
         features={[
           { icon: <BellIcon />, title: 'Desktop notifications', body: 'Native alerts for mentions and DMs when the window is in the background; click to jump straight to the conversation.' },
           { icon: <ResizeIcon />, title: 'Resizable, persistent layout', body: 'Drag to resize the channel and member lists; your layout, panel sizes, and session persist across restarts.' },
-          { icon: <DesktopIcon />, title: 'Cross-platform + auto-update', body: 'macOS, Windows, and Linux (x64 & ARM64, AppImage or .deb), with built-in auto-updates.' },
+          { icon: <DesktopIcon />, title: 'Cross-platform, native', body: 'macOS (Apple Silicon and Intel), Windows and Linux, on each system’s own webview; the app tells you when a new release is out.' },
         ]}
       />
 

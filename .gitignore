@@ -31,10 +31,6 @@ test-results/
 /renderer-*.png
 /mockup-*.png
 
-# Stray electron-vite build output that sometimes lands at client/ root.
-# The real output is client/out/, gitignored as part of `out/` above.
-client/index.js
-
 # Go workspace
 go.work
 go.work.sum
@@ -62,11 +58,6 @@ postgres-data/
 supabase/.branches
 supabase/.temp
 .env.supabase
-
-# Electron installer artifacts + bundled engine sidecar (built per-platform
-# in CI by .github/workflows/release-client.yml).
-client/dist/
-client/resources/engine/
 
 # Release tooling
 CHANGELOG.md.bak

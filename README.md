@@ -4,11 +4,12 @@ A desktop chat app that feels like Discord, built on real IRC. See [PRD.md](./PR
 
 ## Architecture
 
-Three components in one monorepo:
+Components in one monorepo:
 
 ```
-client/             Electron + Preact renderer (the app users see)
-engine/             Local Go IRC process — bridges WebSocket ↔ IRC for the client
+desktop/            The desktop app (Wails v3, Go): native window, the engine in-process, OS services
+client/             Preact renderer (the UI the desktop app shows)
+engine/             Go IRC engine — run inside the desktop app; `engine serve` bridges it over a WebSocket for browser dev
 backend/            Go HTTP API — Supabase auth, server directory, user sessions
 packages/shared/    @boson/shared — design system (Button, Card, …) shared with the website
 website/            Public marketing site (Preact + Vite)
@@ -19,7 +20,8 @@ website/            Public marketing site (Preact + Vite)
 ### Prerequisites
 
 - **Go** ≥ 1.27
-- **Node** ≥ 22.12 + npm (required by Electron 44)
+- **Node** ≥ 22.12 + npm
+- For the desktop app: a cgo toolchain — macOS: Xcode; Linux: GTK 4 + WebKitGTK 6.0 dev packages (`libgtk-4-dev libwebkitgtk-6.0-dev`); Windows: nothing extra (WebView2 ships with Windows 10/11)
 - **Docker** + `docker compose` (Postgres + Supabase Auth + ergo IRCd run in containers)
 - **Supabase CLI** — `brew install supabase/tap/supabase` or `npm i -g supabase`
 
@@ -50,7 +52,7 @@ make run
 # 2. Local IRC engine (WebSocket bridge between the renderer and IRC)
 make engine-serve
 
-# 3. Electron client (renderer + main)
+# 3. The renderer in a browser on http://localhost:5173 (hot reload)
 make client-dev
 
 # 4. (Optional) Fake user that types into a channel — useful for verifying
@@ -58,7 +60,9 @@ make client-dev
 make typingbot
 ```
 
-The client reads engine discovery from `~/.boson/engine.json` (or `$XDG_RUNTIME_DIR/boson/engine.json`); `make client-dev` automatically merges its URL + token into `client/.env` if the engine is up.
+The page reads the engine's discovery file (`~/.boson/engine.json`, or `$XDG_RUNTIME_DIR/boson/engine.json`) on every load, so a restarted engine is picked up by a reload.
+
+For the real desktop app (native window, secure store, link previews, notifications…), run `make desktop-dev` instead of 2 and 3: a dev build of `desktop/` with the renderer built against your `client/.env`, the engine in-process. `make desktop-build` makes a release build for your machine in `desktop/bin/` (macOS: a signed universal `.app` + DMG; set `NOTARY_PROFILE` to notarize).
 
 ### Skip auth (guest mode)
 
@@ -128,14 +132,15 @@ make test               # Go + TS unit tests (requires Postgres up)
 make test-go            # Just Go
 make test-client        # Just renderer (vitest)
 make test-e2e           # Playwright E2E (needs the full dev stack + engine built)
-make test-e2e-app       # Real Electron app E2E (needs only Docker — see below)
+make test-e2e-app       # Real desktop app E2E (needs only Docker — see below)
 ```
 
 ### End-to-end tests (real app)
 
-`client/tests/e2e-app/` drives the **built Electron app** — main process,
-preload, renderer and its own Go engine sidecar — with Playwright's
-`_electron` API. Guest specs: manually added server → chat with a raw IRC
+`client/tests/e2e-app/` drives the **built desktop app** — `desktop/` as a
+server-mode binary: the real Go services and in-process engine, serving the
+renderer over HTTP — in Playwright's Chromium (Playwright can't drive the
+native webviews; what needs the native window is checked by hand). Guest specs: manually added server → chat with a raw IRC
 peer bot, restore-on-relaunch, the ZNC bouncer flow (auto-connect,
 disconnect, reconnect), navigation-guard smoke tests. Account specs: sign-up
 → confirmation email → `boson://auth/confirmed` deep link → sign-in → handle
@@ -148,7 +153,7 @@ make test-e2e-app-down   # stop the whole e2e stack and drop its state
 
 # Iterating (stack already up):
 cd client
-npm run build:e2e-app    # → client/out-e2e (+ host engine sidecar); rerun after code changes
+npm run build:e2e-app    # → client/out-e2e + desktop/bin/boson-e2e-server; rerun after code changes
 npm run test:e2e:app     # add e.g. `-- bouncer` to run one spec file
 node scripts/e2e-stack.mjs status            # what's running where
 node scripts/e2e-stack.mjs restart-backend   # after backend code changes
@@ -178,28 +183,23 @@ Isolation, so it can run next to a live dev stack:
 - The backend runs from `infra/e2e/.run/` (binary, pid, log) with all config
   from env, so a local `backend/config/config.dev.json` (which may hold real
   mail credentials) is never loaded; `down` only kills the PID it started.
-- The app is built into `client/out-e2e/` (`E2E_OUT_DIR` to change; not
-  `client/out/`, which `electron-vite dev` owns) with the backend/Supabase
-  URLs pinned to the e2e stack, so a local `client/.env` can't leak in.
+- The renderer is built into `client/out-e2e/` (`E2E_OUT_DIR` to change;
+  not `client/out/`) with the backend/Supabase URLs pinned to the e2e
+  stack, so a local `client/.env` can't leak in.
   Guest specs pass without the stack's account half running.
-- Every test launches the app with a throwaway `HOME`, `XDG_RUNTIME_DIR` and
-  `--user-data-dir`, plus `--use-mock-keychain` on macOS — your
-  `~/.boson/engine.json`, real app profile and keychain are left alone.
-  `shell.openExternal` is stubbed so nothing opens in your browser.
+- Every test launches the app with a throwaway `HOME`, `XDG_RUNTIME_DIR`,
+  data dir and browser profile, with the secure store in its derived-key
+  mode — your real app data and keychain are left alone. The e2e build
+  records links instead of opening them, so nothing opens in your browser.
 - Tests use random channels, nicks, emails and handles and lease their own
-  ZNC user, so they run in parallel: 4 workers locally, 1 in CI
+  ZNC user, so they run in parallel: 4 workers locally, 3 in CI
   (`E2E_WORKERS` overrides). Several people can share one stack with their
   own `E2E_OUT_DIR` / `E2E_RESULTS_DIR` / `E2E_COVERAGE_DIR`.
 
-Failures leave a screenshot, a Playwright trace and the main-process +
-engine log in `client/test-results/e2e-app/` (`npx playwright show-trace
-<zip>`); the backend logs to `infra/e2e/.run/backend.log`.
-
-CI runs the suite against the Wails desktop shell instead
-(`.github/workflows/e2e.yml`, locally `make test-e2e-wails`, or
-`make test-e2e-wails-coverage`): `desktop/` built as a server-mode binary,
-driven in headless Chromium on Linux. Specs that need a native window or
-Electron itself skip there.
+Failures leave a screenshot and the app's log (Go services, engine,
+renderer console) in `client/test-results/e2e-app/`; the backend logs to
+`infra/e2e/.run/backend.log`. CI runs the same suite on Linux
+(`.github/workflows/e2e.yml`).
 
 #### Coverage
 
@@ -212,19 +212,16 @@ E2E_COVERAGE=1 npm run build:e2e-app
 npm run test:e2e:app:coverage
 ```
 
-`E2E_COVERAGE=1` builds the bundles with source maps (renderer unminified),
-the engine with `go build -cover` and (on `e2e-stack.mjs up`) the backend
-with `go build -cover`, then measures all four layers across every launch
-in the run (relaunches included):
+`E2E_COVERAGE=1` builds the renderer with source maps (unminified), the
+app with `go build -cover` and (on `e2e-stack.mjs up`) the backend with
+`go build -cover`, then measures three layers across every launch in the
+run (relaunches included):
 
-- **Renderer** — V8 precise coverage, started on each window before its first
-  script runs (`tests/e2e-app/coverage/electron-hook.cjs`, preloaded into the
-  main process with `-r`) and taken just before the app closes.
-- **Main + preload** — `NODE_V8_COVERAGE` for the main process (flushed on a
-  graceful quit); the sandboxed preload runs in the renderer's V8 and comes
-  with the renderer data.
-- **Engine** — `GOCOVERDIR`, inherited by the sidecar; counters are written
-  when it exits on the app's SIGTERM.
+- **Renderer** — Playwright's JS coverage, started before the page loads and
+  taken just before the app closes (`tests/e2e-app/desktop-app.ts`).
+- **App + engine** — `GOCOVERDIR` for the desktop app's binary (`desktop/`
+  and the `engine/` packages it links in); counters are written when it
+  exits on SIGTERM.
 - **Backend** — the stack's backend runs for the whole session, so the report
   sends it SIGUSR1 and it writes a counter snapshot
   (`backend/cmd/server/coverflush_e2e.go`, `boson_e2ecover` builds only).
@@ -232,15 +229,22 @@ in the run (relaunches included):
   restarts it so they cover just that run (plus `migrate up`). Skipped with a
   warning when the backend isn't a coverage build.
 
-Reports are mapped back to `client/src/…`, `engine/…` and `backend/…`
-(node_modules, tests and the shared workspace package are excluded):
-`renderer/`, `main/`, `engine/` and `backend/` each hold an `index.html` and
-`lcov.info`, and `summary.md` has
-per-layer totals plus the least-covered files. Expect about 10% overhead.
-CI runs with coverage on, adds `summary.md` to the job summary and uploads
-the reports as the `e2e-app-coverage` artifact. A coverage build left in
-`client/out-e2e` still works for a plain `npm run test:e2e:app`; rebuild
-without the flag for representative timings.
+Reports are mapped back to `client/src/…`, `desktop/…`, `engine/…` and
+`backend/…` (node_modules, tests and the shared workspace package are
+excluded): `renderer/`, `engine/` and `backend/` each hold an `index.html`
+and `lcov.info`, and `summary.md` has per-layer totals plus the
+least-covered files. CI runs with coverage on, adds `summary.md` to the job
+summary and uploads the reports as the `e2e-app-coverage` artifact. A
+coverage build left in `client/out-e2e` still works for a plain
+`npm run test:e2e:app`; rebuild without the flag for representative timings.
+
+## Releases
+
+Every release tag (cut by semantic-release on `main`) builds the desktop app
+on macOS, Windows and Linux (`.github/workflows/desktop.yml`) and attaches it
+to the GitHub Release: `Boson-mac-universal.dmg` (Developer ID signed,
+notarized), `Boson-windows-x64.zip`, `Boson-linux-x86_64.tar.gz` and
+`SHA256SUMS.txt`. The website's download links point at those names.
 
 ## Useful one-shots
 

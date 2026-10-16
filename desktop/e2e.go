@@ -74,8 +74,8 @@ func (e *E2EService) OpenedLinks() []string {
 	return e.t.links.Opened()
 }
 
-// CrashEngine ends the engine session as a crash of the Electron build's
-// engine process would: IRC connections drop without a QUIT, and the
+// CrashEngine ends the engine session as a crash of a separate engine
+// process would: IRC connections drop without a QUIT, and the
 // renderer loses its connection (and reconnects, to a new session). Returns
 // the ended session's id (0: none was open).
 func (e *E2EService) CrashEngine() int {
@@ -86,7 +86,7 @@ func (e *E2EService) CrashEngine() int {
 }
 
 // EngineSession is the open engine session's id (0: none) — what the
-// Electron suite reads as the engine's PID.
+// e2e suite uses where it once read the engine's PID.
 func (e *E2EService) EngineSession() int {
 	if !e.enabled {
 		return 0

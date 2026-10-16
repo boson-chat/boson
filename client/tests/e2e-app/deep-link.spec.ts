@@ -9,7 +9,7 @@ import {
   continueAsGuest, randomNick,
 } from './fixtures';
 import { cardIn, directoryCards, expectConnected, railTile, searchDirectory, sidebarServerName } from './helpers/directory';
-import { secondInstance } from './wails-shell';
+import { secondInstance } from './desktop-app';
 
 const joinUrl = (p: Record<string, string>): string => `boson://join?${new URLSearchParams(p)}`;
 

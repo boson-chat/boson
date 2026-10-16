@@ -71,42 +71,6 @@ jobs:
         working-directory: client
         run: npm test
 
-  # Packages the Electron app the way release-client.yml does (unpacked dir,
-  # Linux only) so packaging regressions fail the PR instead of the release:
-  # v0.31.0 shipped with no installers because electron-builder couldn't
-  # resolve the hoisted Electron version.
-  package:
-    name: Client (electron-builder package smoke)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
-        with:
-          go-version: '1.27'
-          cache: true
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: '24'
-          cache: npm
-      - run: npm ci
-      - name: build engine sidecar
-        run: |
-          mkdir -p client/resources/engine
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64 ./engine/cmd/engine
-      - name: package (unpacked)
-        working-directory: client
-        run: |
-          npm run build
-          npx electron-builder --linux dir --x64 --config electron-builder.yml --publish never
-      - name: check the packaged app
-        working-directory: client/dist/linux-unpacked
-        run: |
-          test -x boson-client
-          test -x resources/engine/engine-linux-amd64
-          npx --yes @electron/asar@3.4.1 list "$PWD/resources/app.asar" > asar.txt
-          grep -q '^/out/main/index.js$' asar.txt
-          grep -q '^/node_modules/electron-updater/package.json$' asar.txt
-
   website:
     name: Website (typecheck + build)
     runs-on: ubuntu-latest

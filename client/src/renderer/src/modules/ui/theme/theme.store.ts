@@ -5,7 +5,7 @@ import { parseTheme, serializeTheme } from './theme.parse';
 // The active theme and the user's own themes.
 //
 // In the desktop app, custom themes are JSON files in <userData>/themes/,
-// read and written through the main process (preload `bosonThemes`), which
+// read and written through the shell (`bosonThemes`, desktop/themes.go), which
 // also watches the folder so a file edited in any editor re-applies live.
 // Local storage keeps a copy of each so the active theme paints the very
 // first frame (before the async file read) and so the browser build, which

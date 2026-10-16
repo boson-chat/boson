@@ -1,25 +1,27 @@
 # Migrating the desktop client from Electron to Wails v3
 
-Status: **in progress** (2026-10-16), in the same PR as this plan.
+Status: **Electron removed** (2026-10-16). The desktop app is the Wails app
+in `desktop/`; releases ship it. The plan below is kept as the record of how
+we got here and what's left.
 Pinned to `github.com/wailsapp/wails/v3 v3.0.0-beta.30` (2026-10-15).
 Starting point: main at 0.36.4 on Electron 44.7, electron-vite and electron-builder.
 
 ## Progress
 
-- **Done: Phases 0–3.**
-  - The engine runs in-process over Wails bindings; the WebSocket is one transport.
+- **Done: Phases 0–4 and the Electron removal (Phase 7, early).**
+  - The engine runs in-process over Wails bindings; the WebSocket is one transport (kept for browser dev, `make engine-serve`).
   - Every Electron main-process service has a Go port in `desktop/`.
-  - The real-app e2e suite runs against the Wails server build. CI runs it in place of the Electron job (`.github/workflows/e2e.yml`, with coverage). The Electron run is local only (`make test-e2e-app`).
-  - Under Wails, 4 specs skip: native window controls, notification click → restore, webview permissions, and Electron's loopback server.
+  - The real-app e2e suite runs against the app's server-mode build, in CI with coverage (`.github/workflows/e2e.yml`). What needs the native window (window controls, notification click → restore, webview permissions) is a manual check on the native build.
+  - Packaging and signing: `.github/workflows/desktop.yml` builds macOS (universal DMG, Developer ID signed, notarized, stapled), Windows (zip) and Linux (tar.gz) on every PR, and attaches them to the GitHub Release on every tag.
+  - Electron is gone: `client/src/main`, the preload, electron-vite, electron-builder and the Electron release workflow. The renderer builds with plain Vite.
 - **Phase 0 findings:**
-  - YouTube refuses `wails://` (error 153). The wrapper is served from `youtube-embed.localhost` on loopback.
+  - YouTube refuses `wails://` (error 153), and in WebKit some videos refuse a loopback wrapper page too. The app frames the wrapper from `https://boson.chat` (`website/public/youtube-embed.*`).
   - Notifications need the bundled `.app`.
-- **Not started:**
-  - Phase 4: packaging and signing.
-  - Phase 5: the signed update feed. Until then the Wails build only checks for updates and opens the release page.
-  - Phase 6: migrating users' Electron data.
-  - Windows and Linux native runs.
-  - Adapting the Wails Taskfile.
+- **Not done:**
+  - Phase 5: the signed update feed. The app checks GitHub for a newer release and opens the release page; it doesn't install in place.
+  - Phase 6: migrating users' Electron data. Electron users don't auto-update to the Wails app (electron-updater only reads Electron feeds); they download it once and sign in again.
+  - Windows code signing (Authenticode) and installers (NSIS/MSIX); a Linux AppImage / .deb; arm64 Linux.
+  - Adapting the Wails Taskfile (the packaging scripts in `desktop/scripts/` are what's used).
 - **Open questions:** below, answered with the recommended defaults for now.
 
 ## Why, and what doesn't change

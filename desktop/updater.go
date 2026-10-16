@@ -13,7 +13,7 @@ import (
 )
 
 // UpdaterService reports whether a newer release exists, in the states the
-// renderer's About section shows (the Electron build's UpdateState).
+// renderer's About section shows (UpdateState in UserSettings.tsx).
 //
 // For now it only checks: a newer version is reported as "available" with
 // manual=true, and Apply opens the release page. Downloading and installing

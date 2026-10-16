@@ -331,7 +331,7 @@ function isLegacySession(v: unknown): v is LegacySession {
 }
 
 function defaultStorage(): Storage {
-  // happy-dom in tests provides window.localStorage; main runtime is Electron renderer.
+  // happy-dom in tests provides window.localStorage; main runtime is the desktop webview.
   if (typeof globalThis !== 'undefined' && (globalThis as { localStorage?: Storage }).localStorage) {
     return (globalThis as unknown as { localStorage: Storage }).localStorage;
   }

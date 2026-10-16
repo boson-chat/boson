@@ -4,8 +4,8 @@
 # (linux/amd64 + linux/arm64) so M-series Macs can pull it locally
 # without emulation.
 #
-# The engine intentionally is NOT containerised here — it ships embedded
-# inside the Electron app, see .github/workflows/release-client.yml. The
+# The engine intentionally is NOT containerised here — it runs inside the
+# desktop app, see .github/workflows/desktop.yml. The
 # engine/Dockerfile in the repo is retained as an escape hatch for
 # operators who want a remote engine, but no CI builds it.
 #
@@ -19,8 +19,8 @@ on:
   push:
     tags:
       - 'v*.*.*'
-  # Same rationale as release-client.yml — tag-pushed-by-workflow doesn't
-  # chain-trigger, so we expose a manual rerun path.
+  # Tags pushed by a workflow (semantic-release) don't chain-trigger, so
+  # release.yml dispatches this; also a manual rerun path.
   workflow_dispatch:
 
 permissions:

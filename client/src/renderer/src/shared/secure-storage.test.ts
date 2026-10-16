@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { InMemorySecureStorage, windowSecureStorage } from './secure-storage';
 
 // happy-dom provides `window` but no `window.bosonSecure` — that's the
-// "fallback" path we exercise here. Production builds inject `bosonSecure`
-// via the Electron preload script.
+// "fallback" path we exercise here. The desktop app installs `bosonSecure`
+// from platform/wails.ts.
 
 describe('windowSecureStorage', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;

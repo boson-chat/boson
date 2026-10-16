@@ -16,7 +16,6 @@ import (
 // embed page server-renders the entity (title, cover, and for playlists and
 // albums the track list with 30 s previews) into a __NEXT_DATA__ blob.
 // It only ever fetches open.spotify.com/embed/<type>/<id>.
-// A port of client/src/main/spotify.ts.
 type SpotifyService struct {
 	web   *webFetcher
 	cache *ttlCache[*SpotifyInfo]

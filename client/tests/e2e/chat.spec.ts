@@ -124,7 +124,7 @@ test.describe('Chat flow', () => {
       has: page.locator('.channel-name', { hasText: '#leave-me' }),
     });
     // Native click via evaluate — Playwright's synthesizer hits a stability
-    // timeout on the small × button on this Electron/WSL stack.
+    // timeout on the small × button on this WSL stack.
     await channelRow.locator('.channel-leave').evaluate((el) => (el as HTMLButtonElement).click());
 
     await expect(page.locator('.channel-name', { hasText: '#leave-me' })).not.toBeVisible({ timeout: 5_000 });

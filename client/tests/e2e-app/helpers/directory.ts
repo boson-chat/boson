@@ -1,15 +1,14 @@
 // Directory / multi-server helpers for the directory-area specs.
 import { deflateSync, crc32 } from 'node:zlib';
-import { expect, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { backendSql } from './backend';
-import { WAILS_SHELL } from '../wails-shell';
+import type { App } from '../desktop-app';
 
-// Takes over the main process's `api:fetch` IPC handler (the renderer's only
-// route to the backend — see src/main/api-proxy.ts) so a test can make the
-// backend look down, or slow, for THIS app only, without touching the shared
-// backend. "Down" sends each request to a closed loopback port, so the app
-// sees a real connection-refused failure; "up" performs the request for real.
-// Call before the renderer's first API request you want to affect.
+// Controls the app's API proxy (the renderer's only route to the backend —
+// desktop/apiproxy.go) through the e2e build's hooks (desktop/e2e.go), so a
+// test can make the backend look down, or slow, for THIS app only, without
+// touching the shared backend. "Down" fails each request like a backend
+// that's down; "up" performs the request for real.
 export interface ApiControl {
   setDown(down: boolean): Promise<void>;
   setDelay(ms: number): Promise<void>;
@@ -17,40 +16,22 @@ export interface ApiControl {
   requests(): Promise<string[]>;
 }
 
-export async function controlApi(app: ElectronApplication): Promise<ApiControl> {
-  if (WAILS_SHELL) return wailsApiControl(app);
-  await app.evaluate(({ ipcMain }) => {
-    const g = globalThis as unknown as { __e2eApi?: { down: boolean; delayMs: number; log: string[] } };
-    if (g.__e2eApi) return;
-    const st = { down: false, delayMs: 0, log: [] as string[] };
-    g.__e2eApi = st;
-    ipcMain.removeHandler('api:fetch');
-    ipcMain.handle('api:fetch', async (_evt, raw: unknown) => {
-      const req = raw as { method: string; url: string; headers?: Record<string, string>; body?: string | ArrayBuffer | null };
-      const u = new URL(req.url);
-      st.log.push(`${req.method} ${u.pathname}${u.search}`);
-      if (st.delayMs > 0) await new Promise((r) => setTimeout(r, st.delayMs));
-      // Port 9 (discard) is closed on a dev machine / CI runner: the
-      // connection is refused like a backend that's down.
-      const target = st.down ? `http://127.0.0.1:9${u.pathname}${u.search}` : req.url;
-      try {
-        const body = req.body == null ? undefined : (typeof req.body === 'string' ? req.body : Buffer.from(req.body));
-        const res = await fetch(target, { method: req.method, headers: req.headers, body, redirect: 'manual' });
-        return { status: res.status, ok: res.ok, statusText: res.statusText, text: await res.text() };
-      } catch (e) {
-        const cause = (e as { cause?: { message?: string } }).cause?.message;
-        return { status: 0, ok: false, statusText: cause ?? (e instanceof Error ? e.message : 'fetch failed'), text: '' };
-      }
-    });
-  });
-  const set = (patch: Record<string, unknown>): Promise<void> =>
-    app.evaluate((_e, p) => {
-      Object.assign((globalThis as unknown as { __e2eApi: object }).__e2eApi, p);
-    }, patch);
+export function controlApi(app: App): ApiControl {
+  type E2E = { setApi: (down: boolean, delayMs: number) => Promise<void>; apiRequests: () => Promise<string[]> };
+  const page = app.windows()[0]!;
+  const ready = page.waitForFunction(() => 'bosonE2E' in window);
+  const state = { down: false, delayMs: 0 };
+  const push = async (): Promise<void> => {
+    await ready;
+    await page.evaluate((s) => (window as unknown as { bosonE2E: E2E }).bosonE2E.setApi(s.down, s.delayMs), state);
+  };
   return {
-    setDown: (down) => set({ down }),
-    setDelay: (delayMs) => set({ delayMs }),
-    requests: () => app.evaluate(() => (globalThis as unknown as { __e2eApi: { log: string[] } }).__e2eApi.log.slice()),
+    setDown: (down) => { state.down = down; return push(); },
+    setDelay: (delayMs) => { state.delayMs = delayMs; return push(); },
+    requests: async () => {
+      await ready;
+      return page.evaluate(() => (window as unknown as { bosonE2E: E2E }).bosonE2E.apiRequests());
+    },
   };
 }
 
@@ -138,22 +119,3 @@ function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-// The Wails shell's equivalent: the e2e build's API proxy hooks (desktop/e2e.go).
-function wailsApiControl(app: ElectronApplication): ApiControl {
-  type E2E = { setApi: (down: boolean, delayMs: number) => Promise<void>; apiRequests: () => Promise<string[]> };
-  const page = app.windows()[0]!;
-  const ready = page.waitForFunction(() => 'bosonE2E' in window);
-  const state = { down: false, delayMs: 0 };
-  const push = async (): Promise<void> => {
-    await ready;
-    await page.evaluate((s) => (window as unknown as { bosonE2E: E2E }).bosonE2E.setApi(s.down, s.delayMs), state);
-  };
-  return {
-    setDown: (down) => { state.down = down; return push(); },
-    setDelay: (delayMs) => { state.delayMs = delayMs; return push(); },
-    requests: async () => {
-      await ready;
-      return page.evaluate(() => (window as unknown as { bosonE2E: E2E }).bosonE2E.apiRequests());
-    },
-  };
-}

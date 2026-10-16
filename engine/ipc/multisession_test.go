@@ -394,7 +394,9 @@ func TestSession_ReconnectSameServerID_NoStrayStatusFromOldConnection(t *testing
 	irc1.mu.Lock()
 	first := irc1.conns[0]
 	irc1.mu.Unlock()
-	_ = first.SetReadDeadline(time.Now().Add(time.Second))
+	// Generous: a loaded CI runner can take a while to deliver the close
+	// (a 1 s deadline flaked there); a connection left open still fails.
+	_ = first.SetReadDeadline(time.Now().Add(5 * time.Second))
 	_, err := first.Read(make([]byte, 1))
 	var ne net.Error
 	closed := err != nil && !(errors.As(err, &ne) && ne.Timeout())

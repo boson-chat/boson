@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { APP_DIR, IRC_HOST, IRC_PORT, ZNC_HOST, ZNC_PORT } from './fixtures';
 import { STACK } from './stack';
 import { COVERAGE, COVERAGE_DIR, RAW } from './coverage/config';
-import { WAILS_BIN, WAILS_SHELL } from './wails-shell';
+import { APP_BIN } from './desktop-app';
 
 function probe(host: string, port: number, timeoutMs = 3_000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -20,24 +20,11 @@ function probe(host: string, port: number, timeoutMs = 3_000): Promise<boolean> 
 
 export default async function globalSetup(): Promise<void> {
   const problems: string[] = [];
-  if (WAILS_SHELL) {
-    // The server-mode binary embeds the renderer; the coverage report maps
-    // the renderer chunks back through out-e2e/renderer's source maps.
-    if (!existsSync(WAILS_BIN)) problems.push(`${WAILS_BIN} is missing — run \`npm run build:e2e-wails\``);
-    if (COVERAGE && !readdirSync(join(APP_DIR, 'renderer', 'assets')).some((f) => f.endsWith('.js.map'))) {
-      problems.push(`E2E_COVERAGE=1 but ${APP_DIR}/renderer is not a coverage build — run \`E2E_COVERAGE=1 npm run build:e2e-wails\``);
-    }
-  } else {
-    if (!existsSync(join(APP_DIR, 'package.json')) || !existsSync(join(APP_DIR, 'main', 'index.js'))) {
-      problems.push(`app build missing at ${APP_DIR} — run \`npm run build:e2e-app\``);
-    }
-    const os = process.platform === 'win32' ? 'windows' : process.platform;
-    const arch = process.arch === 'arm64' ? 'arm64' : 'amd64';
-    const engine = join(APP_DIR, 'resources', 'engine', `engine-${os}-${arch}${os === 'windows' ? '.exe' : ''}`);
-    if (!existsSync(engine)) problems.push(`engine sidecar missing at ${engine} — run \`npm run build:e2e-app\``);
-    if (COVERAGE && !existsSync(join(APP_DIR, 'main', 'index.js.map'))) {
-      problems.push(`E2E_COVERAGE=1 but ${APP_DIR} is not a coverage build — run \`E2E_COVERAGE=1 npm run build:e2e-app\``);
-    }
+  // The server-mode binary embeds the renderer; the coverage report maps
+  // the renderer chunks back through out-e2e/renderer's source maps.
+  if (!existsSync(APP_BIN)) problems.push(`${APP_BIN} is missing — run \`npm run build:e2e-app\``);
+  if (COVERAGE && !readdirSync(join(APP_DIR, 'renderer', 'assets')).some((f) => f.endsWith('.js.map'))) {
+    problems.push(`E2E_COVERAGE=1 but ${APP_DIR}/renderer is not a coverage build — run \`E2E_COVERAGE=1 npm run build:e2e-app\``);
   }
   if (!(await probe(IRC_HOST, IRC_PORT))) problems.push(`ergo not reachable on ${IRC_HOST}:${IRC_PORT}`);
   if (!(await probe(ZNC_HOST, ZNC_PORT))) problems.push(`ZNC not reachable on ${ZNC_HOST}:${ZNC_PORT}`);
@@ -60,6 +47,6 @@ export default async function globalSetup(): Promise<void> {
   if (COVERAGE) {
     // Fresh run: drop the previous reports and raw data.
     rmSync(COVERAGE_DIR, { recursive: true, force: true });
-    for (const d of [RAW.renderer, RAW.main, RAW.engine, RAW.launches]) mkdirSync(d, { recursive: true });
+    for (const d of [RAW.renderer, RAW.engine, RAW.launches]) mkdirSync(d, { recursive: true });
   }
 }

@@ -268,8 +268,8 @@ export class SecureServiceCredentialsStore implements ServiceCredentialsStore {
   private writeChain: Promise<void>;
 
   // How long to keep probing for the secure backing before giving up. The
-  // store constructs at module import, which can land BEFORE the preload
-  // bridge (`window.bosonSecure`) is injected — so a single isAvailable()
+  // store constructs at module import, which can land BEFORE the shell's
+  // bridge (`window.bosonSecure`) is installed — so a single isAvailable()
   // check would spuriously read false and skip migration forever. We poll
   // briefly to ride out that injection lag. Tests with a definitively-
   // unavailable backing pass a tiny timeout to stay fast.
@@ -370,11 +370,11 @@ export class SecureServiceCredentialsStore implements ServiceCredentialsStore {
   }
 
   private async hydrate(): Promise<void> {
-    // Without a working secure backing (no preload bridge / keychain 'none')
+    // Without a working secure backing (no bosonSecure bridge / keychain 'none')
     // we can't securely persist — leave the cache empty and DON'T scrub the
     // legacy plain-text store, so we never destroy the only copy of the data.
     // Poll briefly first: the store constructs at module import, which may
-    // beat the preload bridge injection.
+    // beat the shell's bridge installation.
     const { available, elapsedMs, probes } = await this.waitForBacking();
     if (!available) {
       log(`hydrate: secure backing UNAVAILABLE after ${elapsedMs}ms / ${probes} probe(s) — keeping plain-text localStorage, NOT migrating`);
@@ -426,7 +426,7 @@ export class SecureServiceCredentialsStore implements ServiceCredentialsStore {
   }
 
   // Polls isAvailable() until it returns true or the timeout elapses. Returns
-  // how long it took + how many probes so the logs make the preload-injection
+  // how long it took + how many probes so the logs make the bridge-install
   // race visible.
   private async waitForBacking(): Promise<{ available: boolean; elapsedMs: number; probes: number }> {
     let probes = 0;
@@ -488,7 +488,7 @@ export class SecureServiceCredentialsStore implements ServiceCredentialsStore {
 // tests (which inject their own via setServiceCredentialsStore before the
 // first get, so the secure default with its background hydration poll is
 // never created) and lets production construct it on first real use, after
-// the preload bridge has had a chance to inject.
+// the shell's bridges have had a chance to install.
 let store: ServiceCredentialsStore | null = null;
 
 export function getServiceCredentialsStore(): ServiceCredentialsStore {

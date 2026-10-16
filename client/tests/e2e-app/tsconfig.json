@@ -4,5 +4,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["./**/*.ts", "../../playwright.electron.config.ts"]
+  "include": ["./**/*.ts", "../../playwright.app.config.ts"]
 }

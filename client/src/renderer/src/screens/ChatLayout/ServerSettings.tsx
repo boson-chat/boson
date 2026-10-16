@@ -488,7 +488,7 @@ function IdentitySection({
   // Copy the password field into the clipboard. Used for stashing
   // an auto-generated password somewhere durable (password manager)
   // before the field is masked again. Two-step UX:
-  //   1. clipboard.writeText (modern browsers + Electron)
+  //   1. clipboard.writeText (modern browsers + the webview)
   //   2. flip passwordCopied for ~2s so the button label reads
   //      "Copied" and the user knows the write succeeded.
   const copyPasswordToClipboard = async (): Promise<void> => {

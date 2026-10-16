@@ -45,8 +45,8 @@ function cssUrl(url: string): string {
 const API_BASE = import.meta.env.DEV ? '' : (import.meta.env.VITE_BOSON_API_URL ?? 'https://api.boson.chat');
 
 /**
- * Build the `boson://` deep-link the desktop app handles. The Electron
- * main process registers the scheme; clicking the link from a normal
+ * Build the `boson://` deep-link the desktop app handles. The installed
+ * app registers the scheme; clicking the link from a normal
  * browser hands the URL off to the installed app and triggers a
  * directory join. Hostname/port/tls are everything the app needs;
  * `name` is optional and just shows in the title bar / local-servers

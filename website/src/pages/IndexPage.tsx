@@ -30,7 +30,7 @@ export function IndexPage() {
             <div class="hero-meta" aria-label="Supported platforms">
               <span class="os">macOS 12+</span>
               <span class="os">Windows 10+</span>
-              <span class="os">Linux (AppImage · deb)</span>
+              <span class="os">Linux (x64)</span>
             </div>
           </div>
           <ScreenshotFrame

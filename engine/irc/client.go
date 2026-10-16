@@ -1,5 +1,5 @@
-// Package irc wraps girc with the surface the local Go process exposes to
-// Electron. Lives client-side per the PRD; the boson backend never imports it.
+// Package irc wraps girc with the surface the engine exposes to the
+// renderer. Lives client-side per the PRD; the boson backend never imports it.
 package irc
 
 import (
@@ -57,7 +57,7 @@ type SASLPlain struct {
 	Password string
 }
 
-// Event mirrors the subset of girc message types we forward to Electron.
+// Event mirrors the subset of girc message types we forward to the renderer.
 type Event struct {
 	Kind    string            // "PRIVMSG" | "NOTICE" | "JOIN" | "PART" | "QUIT" | "001" (welcome) | "TAGMSG" | "ACCOUNT" | "CHGHOST" | etc.
 	From    string            // nick/source
@@ -116,7 +116,7 @@ type Client struct {
 	autoListScheduled  bool
 	listRetryScheduled bool
 	// Services detection + auto-identify state. Lives on the engine
-	// (not the renderer) so every client of the engine — Electron,
+	// (not the renderer) so every client of the engine — desktop,
 	// future mobile / web — gets identical NickServ behaviour.
 	services *servicesState
 	// Bouncer (ZNC) upstream tracking — decides whether a 001 is the real

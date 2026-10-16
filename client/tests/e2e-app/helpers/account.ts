@@ -12,10 +12,10 @@
 //   recoverWithCode      the recovery-code unlock offered when the password
 //                        no longer decrypts the identity
 //   signOut              directory top bar → Sign out
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { Mailpit, extractLinks } from './mailpit';
-import { WAILS_SHELL, secondInstance } from '../wails-shell';
+import { secondInstance, type App } from '../desktop-app';
 
 export interface Credentials {
   email: string;
@@ -36,18 +36,11 @@ export async function signUpViaUi(page: Page, c: Credentials): Promise<void> {
   await expect(page.locator('.login-confirm-email')).toHaveText(c.email);
 }
 
-// Hands a boson:// URL to the running app the way the OS would: `open-url`
-// on macOS, a second-instance launch (argv) on Windows/Linux. Both land in
-// the main process's dispatchDeepLink.
-export async function deliverDeepLink(app: ElectronApplication, url: string): Promise<void> {
-  if (WAILS_SHELL) return secondInstance(app, [url]);
-  await app.evaluate(({ app: electronApp }, { url: u, platform }) => {
-    if (platform === 'darwin') {
-      electronApp.emit('open-url', { preventDefault: () => {} }, u);
-    } else {
-      electronApp.emit('second-instance', { preventDefault: () => {} }, [process.execPath, u], process.cwd(), {});
-    }
-  }, { url, platform: process.platform });
+// Hands a boson:// URL to the running app the way the OS would on
+// Windows/Linux: a second launch with the URL in argv (desktop/deeplink.go;
+// macOS's open-url event ends up in the same place).
+export function deliverDeepLink(app: App, url: string): Promise<void> {
+  return secondInstance(app, [url]);
 }
 
 // What the user's click on the confirmation link ends up as: GoTrue verifies
@@ -78,7 +71,7 @@ export async function confirmationDeepLink(email: string, mail = Mailpit.users()
 // Confirmation mail → deep link → app. The app then holds a session but no
 // unlocked identity, so it shows the login screen again: follow with
 // loginAs().
-export async function confirmSignup(app: ElectronApplication, email: string): Promise<void> {
+export async function confirmSignup(app: App, email: string): Promise<void> {
   await deliverDeepLink(app, await confirmationDeepLink(email));
 }
 

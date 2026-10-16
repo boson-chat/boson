@@ -85,12 +85,10 @@ export function DocsPage() {
                 <p class="eyebrow">01</p>
                 <h2>Install &amp; sign in.</h2>
                 <p>
-                  Grab the installer for your platform from the <a href="/download" class="docs-link">downloads page</a>.
-                  Three flavours — <span class="num">.dmg</span> for macOS,{' '}
-                  <span class="num">.exe</span> for Windows,{' '}
-                  <span class="num">.AppImage</span> or <span class="num">.deb</span> for Linux. The
-                  desktop client bundles a local Go process — the IRC engine — that handles all
-                  network I/O.
+                  Grab the app for your platform from the <a href="/download" class="docs-link">downloads page</a>:
+                  a <span class="num">.dmg</span> for macOS, a <span class="num">.zip</span> for
+                  Windows, a <span class="num">.tar.gz</span> for Linux. The desktop client has
+                  the IRC engine built in — Go code that handles all network I/O.
                 </p>
                 <p>
                   On first launch, you have two paths:

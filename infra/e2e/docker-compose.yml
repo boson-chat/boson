@@ -1,4 +1,4 @@
-# Isolated infra for the real-app Electron e2e suite (client/tests/e2e-app/).
+# Isolated infra for the real-app (Wails) e2e suite (client/tests/e2e-app/).
 #
 #   node client/scripts/e2e-stack.mjs up     # this file + Supabase + backend
 #   node client/scripts/e2e-stack.mjs down

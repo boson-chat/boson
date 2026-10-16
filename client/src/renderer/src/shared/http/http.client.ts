@@ -14,7 +14,7 @@ export class HttpClient {
   constructor(
     private readonly baseUrl: string,
     private readonly tokenProvider: TokenProvider,
-    // Network transport — defaults to the Electron main-process proxy when
+    // Network transport — defaults to the desktop shell's API proxy when
     // available, else a direct fetch. Injectable for tests.
     private readonly transport: ApiTransport = defaultApiTransport(),
   ) {}

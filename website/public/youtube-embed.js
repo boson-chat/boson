@@ -1,7 +1,7 @@
 // Hosts YouTube's player for an inline video embed (see youtube-embed.html).
-// The same two files are served by the app (Electron's loopback server, the
-// Wails e2e build) and by boson.chat (website/public/), which the Wails
-// app frames: YouTube refuses to play inside a wails:// or local page.
+// The same two files are served by the app (the e2e build's loopback
+// server) and by boson.chat (website/public/), which the desktop app
+// frames: YouTube refuses to play inside a wails:// or local page.
 (function () {
   var q = new URLSearchParams(location.search);
   var v = q.get('v') || '';

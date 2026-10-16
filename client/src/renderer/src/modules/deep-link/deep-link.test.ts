@@ -81,8 +81,8 @@ describe('subscribeDeepLink buffering + dedupe', () => {
   });
 
   it('dedupes the same URL arriving via both consume() and live onJoin', async () => {
-    // This is the cold-start scenario the main process now hardens
-    // against: main both buffers and best-effort live-sends, so the
+    // This is the cold-start scenario the desktop shell hardens
+    // against: it both buffers and best-effort live-sends, so the
     // renderer can see the same URL twice. The dedupe guard means
     // we only fire the listener once.
     let liveSend: ((u: string) => void) | null = null;

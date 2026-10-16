@@ -1,6 +1,6 @@
-// Command engine is the boson local Go process. It runs on the user's
-// machine alongside Electron, owns IRC connections, and (later) handles
-// crypto + identity sync with the boson backend.
+// Command engine runs the boson engine (IRC connections, and later crypto +
+// identity sync) as a standalone process. The desktop app embeds it
+// in-process; `engine serve` is for browser dev (`npm run dev`).
 package main
 
 import (
@@ -77,7 +77,7 @@ var connectCmd = &cobra.Command{
 	},
 }
 
-// -------- `engine serve` (WebSocket bridge for Electron) --------
+// -------- `engine serve` (WebSocket bridge for browser dev) --------
 
 var (
 	flagServeAddr      string
@@ -87,7 +87,7 @@ var (
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Start the WebSocket bridge for the Electron renderer",
+	Short: "Start the WebSocket bridge for the renderer (browser dev)",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		token := os.Getenv("BOSON_ENGINE_TOKEN")
 		if !flagTokenFromEnv || token == "" {

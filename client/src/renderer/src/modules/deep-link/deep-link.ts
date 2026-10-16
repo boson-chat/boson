@@ -1,7 +1,7 @@
-// Deep-link bridge for the renderer. The Electron main process catches
-// boson:// URLs (from open-url on macOS, argv on Win/Linux, second-
+// Deep-link bridge for the renderer. The desktop shell (desktop/deeplink.go)
+// catches boson:// URLs (open-URL on macOS, argv on Win/Linux, second-
 // instance forwarding when the app is already running) and forwards
-// them here via the preload bridge.
+// them here via the bosonDeepLink bridge.
 //
 // Two verbs are recognised today:
 //
@@ -256,7 +256,7 @@ export function subscribeAuthConfirmed(fn: (params: AuthConfirmedParams) => void
 }
 
 /**
- * Wire the renderer to the preload-exposed `window.bosonDeepLink`
+ * Wire the renderer to the shell-installed `window.bosonDeepLink`
  * bridge. Idempotent — safe to call on every boot. No-op when the
  * bridge isn't present (running in a browser tab via vite dev / e2e).
  */
