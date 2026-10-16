@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { render, screen, fireEvent, act } from '@testing-library/preact';
 import { MessageEmbeds, youtubeWrapperOrigin, YOUTUBE_EMBED_HOST, YOUTUBE_WRAPPER_TIMEOUT_MS } from './Embed';
 import { YOUTUBE_EMBED_HOST as MAIN_YOUTUBE_EMBED_HOST } from '../../../../main/youtube-embed';
@@ -91,6 +93,73 @@ describe('MessageEmbeds', () => {
       expect(f.getAttribute('src')).toBe(`${wrapper()}/youtube-embed.html?v=dQw4w9WgXcQ`);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  const post = (data: unknown, origin: string, source: unknown) =>
+    act(() => { window.dispatchEvent(new MessageEvent('message', { data, origin, source: source as Window })); });
+
+  it('turns a player error the wrapper reports into the card, which opens YouTube', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    try {
+      const f = play();
+      // Another video's error, or one from the wrong origin, doesn't count.
+      post({ type: 'boson-youtube-error', v: 'xxxxxxxxxxx', code: 150 }, wrapper(), f.contentWindow);
+      post({ type: 'boson-youtube-error', v: 'dQw4w9WgXcQ', code: 150 }, 'https://evil.example', f.contentWindow);
+      expect(document.querySelector('iframe.embed-yt-iframe')).not.toBeNull();
+      post({ type: 'boson-youtube-error', v: 'dQw4w9WgXcQ', code: 153 }, wrapper(), f.contentWindow);
+      expect(document.querySelector('iframe.embed-yt-iframe')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Watch on YouTube' }));
+      expect(open).toHaveBeenCalledWith('https://youtu.be/dQw4w9WgXcQ', '_blank', 'noopener,noreferrer');
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it('hears a "ready" the wrapper posts straight away (before the next frame)', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MessageEmbeds text="https://youtu.be/dQw4w9WgXcQ" />);
+      fireEvent.click(screen.getByRole('button', { name: /youtube · .* — click to load/i }));
+      // A plain click, outside act(): the render commits on a microtask and
+      // passive effects wait for the next frame, as in the app. The wrapper
+      // posts before that frame.
+      (screen.getByRole('button', { name: 'Play video' }) as HTMLButtonElement).click();
+      await Promise.resolve();
+      await Promise.resolve();
+      const f = document.querySelector('iframe.embed-yt-iframe') as HTMLIFrameElement;
+      expect(f).not.toBeNull();
+      window.dispatchEvent(new MessageEvent('message', {
+        data: { type: 'boson-youtube-ready', v: 'dQw4w9WgXcQ' }, origin: wrapper(), source: f.contentWindow as Window,
+      }));
+      // Well past the timeout, however late the listener started.
+      act(() => { vi.advanceTimersByTime(2 * YOUTUBE_WRAPPER_TIMEOUT_MS); });
+      expect(f.getAttribute('src')).toBe(`${wrapper()}/youtube-embed.html?v=dQw4w9WgXcQ`);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('under the Wails shell, a wrapper that never reports in gives the card, never a direct embed', () => {
+    const w = window as unknown as { bosonYouTube?: { wrapperOrigin: string | null } };
+    w.bosonYouTube = { wrapperOrigin: 'https://boson.chat' };
+    vi.useFakeTimers();
+    try {
+      const f = play();
+      expect(f.getAttribute('src')).toBe('https://boson.chat/youtube-embed.html?v=dQw4w9WgXcQ');
+      act(() => { vi.advanceTimersByTime(YOUTUBE_WRAPPER_TIMEOUT_MS + 10); });
+      expect(document.querySelector('iframe.embed-yt-iframe')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Watch on YouTube' })).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+      delete w.bosonYouTube;
+    }
+  });
+
+  it('boson.chat hosts the same wrapper the app serves', () => {
+    const pub = (dir: string, f: string) => readFileSync(join(__dirname, dir, f), 'utf8');
+    for (const f of ['youtube-embed.html', 'youtube-embed.js']) {
+      expect(pub('../../../../../../website/public', f)).toBe(pub('../../../public', f));
     }
   });
 

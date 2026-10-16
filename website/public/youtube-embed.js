@@ -37,7 +37,10 @@
     if (e.origin !== player || e.source !== f.contentWindow || typeof e.data !== 'string') return;
     var d;
     try { d = JSON.parse(e.data); } catch (err) { return; }
-    if (d && d.event === 'onError') tell({ type: 'boson-youtube-error', v: v, code: Number(d.info) || 0 });
+    if (!d) return;
+    if (d.event === 'onError') tell({ type: 'boson-youtube-error', v: v, code: Number(d.info) || 0 });
+    // Again once the player is up, in case the first one went unheard.
+    if (d.event === 'onReady') tell({ type: 'boson-youtube-ready', v: v });
   });
   // Tell the app the wrapper loaded, so it doesn't fall back to embedding
   // YouTube directly.

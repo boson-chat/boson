@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { Modal } from '@boson/shared';
 import { classifyMessage, type ClassifiedUrl } from './embeds/classify';
@@ -176,7 +176,11 @@ function YouTubeEmbed({
 
   // Playing through the wrapper: wait for its ready message, else go direct
   // (or, where that can't work, to the card). A player error → the card.
-  useEffect(() => {
+  // A layout effect: listening must start before the frame can post. From a
+  // loopback server the wrapper reports in ~20 ms after insertion, sooner
+  // than useEffect runs (next animation frame, or 100 ms when frames are
+  // throttled), and a missed "ready" meant a needless fallback.
+  useLayoutEffect(() => {
     if (stage !== 'play' || !viaWrapper || failed) return;
     let ready = false;
     const onMessage = (e: MessageEvent): void => {

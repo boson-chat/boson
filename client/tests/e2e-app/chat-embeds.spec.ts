@@ -229,6 +229,66 @@ test.describe('embeds', () => {
     expect(await status('/index.html')).toBe(404);
   });
 
+  // A video YouTube won't play here (embedding disabled by its owner, or
+  // "Error 153" for the embedding page): the wrapper passes on the player's
+  // error, and the app swaps the broken player for the card, which opens the
+  // video on YouTube. The stub player answers the iframe API's handshake
+  // with an error, as YouTube's does.
+  test('a video YouTube refuses to play here becomes a card that opens it on YouTube', async ({ launchApp }) => {
+    const channel = randomChannel('emye');
+    const peer = await connectPeer();
+    peers.push(peer);
+    const { app, page, nick, openedExternally } = await connectGuest(launchApp);
+    await app.context().route('https://www.youtube-nocookie.com/embed/**', (route) => route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><body><script>
+        addEventListener('message', (e) => {
+          if (typeof e.data === 'string' && JSON.parse(e.data).event === 'listening') {
+            parent.postMessage(JSON.stringify({ event: 'onError', info: 153 }), '*');
+          }
+        });
+      </script></body>`,
+    }));
+    await joinViaUi(page, channel, nick);
+    await peer.join(channel);
+    await expect(memberRow(page, peer.nick)).toBeVisible();
+    const url = 'https://youtu.be/VLu6poVQq-E';
+    peer.privmsg(channel, `yte ${url}`);
+    const row = messages(page).locator('.message-row').filter({ hasText: 'yte' });
+    await row.getByRole('button', { name: 'Play video' }).click();
+    // Well inside the wrapper's 6 s timeout, which under Wails also ends in
+    // the card: this is the error message's doing.
+    await expect(row.locator('iframe.embed-yt-iframe')).toHaveCount(0, { timeout: 4_000 });
+    await row.getByRole('button', { name: 'Watch on YouTube' }).click();
+    await expect.poll(openedExternally).toContain(url);
+  });
+
+  // The wrapper never reports in (it didn't load). Electron falls back to
+  // embedding YouTube directly, which plays most videos there. Under Wails a
+  // direct embed can only fail (the page is wails://), so it's the card.
+  test('a wrapper that never loads: a direct embed in Electron, the card under Wails', async ({ launchApp }) => {
+    const channel = randomChannel('emyw');
+    const peer = await connectPeer();
+    peers.push(peer);
+    const { app, page, nick } = await connectGuest(launchApp);
+    await app.context().route(/\/youtube-embed\.html\?/, (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><body></body>' }));
+    await app.context().route('https://www.youtube-nocookie.com/embed/**', (route) => route.fulfill({ contentType: 'text/html', body: '<!doctype html><p>player</p>' }));
+    await joinViaUi(page, channel, nick);
+    await peer.join(channel);
+    await expect(memberRow(page, peer.nick)).toBeVisible();
+    peer.privmsg(channel, 'ytw https://www.youtube.com/watch?v=KtypSRcwIhA');
+    const row = messages(page).locator('.message-row').filter({ hasText: 'ytw' });
+    await row.getByRole('button', { name: 'Play video' }).click();
+    const iframe = row.locator('iframe.embed-yt-iframe');
+    await expect(iframe).toHaveAttribute('src', /\/youtube-embed\.html\?v=KtypSRcwIhA$/);
+    if (WAILS_SHELL) {
+      await expect(iframe).toHaveCount(0, { timeout: 15_000 });
+      await expect(row.getByRole('button', { name: 'Watch on YouTube' })).toBeVisible();
+    } else {
+      await expect(iframe).toHaveAttribute('src', /^https:\/\/www\.youtube-nocookie\.com\/embed\/KtypSRcwIhA\?/, { timeout: 15_000 });
+    }
+  });
+
   test('click-to-load mode keeps embeds inert until clicked', async ({ launchApp }) => {
     const s = site!;
     const channel = randomChannel('emc');
