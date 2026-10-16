@@ -6,8 +6,9 @@
   page. So the player is framed by this page under an ordinary hostname:
     - Electron: http://youtube-embed.invalid:<port>, a reserved name main
       maps to its loopback server (host-resolver-rules);
-    - Wails: https://boson.chat (website/public/ holds a copy; keep them in
-      sync, Embed.test.tsx checks), or the e2e build's own loopback server.
+    - Wails: the shell's loopback server under youtube-embed.localhost, or
+      a remote copy the build names: website/public/ holds one for
+      boson.chat (keep them in sync; Embed.test.tsx checks).
   Takes ?v=<11-char id>[&t=<seconds>]; anything else is refused.
 -->
 <html lang="en">

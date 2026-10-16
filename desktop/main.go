@@ -25,6 +25,9 @@ var (
 	devBuild = "false"
 	// appVersion is the release this build is (client/package.json's version).
 	appVersion = "0.0.0-dev"
+	// youtubeWrapperOrigin is an https origin hosting the YouTube wrapper
+	// (website/public/), or empty for the app's own loopback copy.
+	youtubeWrapperOrigin = ""
 )
 
 func main() {
@@ -44,9 +47,11 @@ func main() {
 	}
 	dev := devBuild == "true"
 	e2e := dev && os.Getenv("BOSON_E2E") == "1"
-	// boson.chat's YouTube wrapper; the e2e build serves its own (it stubs
-	// YouTube, and can't depend on the website).
-	youtubeWrapper := youtubeWrapperRemote
+	// The YouTube wrapper: the app's own loopback copy, unless the build
+	// names a remote one (-X main.youtubeWrapperOrigin=https://boson.chat,
+	// once the website serves it). The e2e build always uses its own: it
+	// stubs YouTube.
+	youtubeWrapper := youtubeWrapperOrigin
 	if e2e {
 		youtubeWrapper = ""
 	}

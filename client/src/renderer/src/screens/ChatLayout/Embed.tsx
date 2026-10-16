@@ -128,8 +128,8 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
 // (src/main/youtube-embed.ts; keep the hostname in sync). The wrapper posts a
 // ready message; without one in time we embed YouTube directly, which plays
 // most videos. Outside a loopback origin (web build, tests) it's direct. The
-// Wails shell names its wrapper (desktop/youtube.go): boson.chat, where the
-// website hosts the same two files. A wails:// page can't play YouTube at
+// Wails shell names its wrapper (desktop/youtube.go): its own loopback
+// server, or a remote copy such as boson.chat's. A wails:// page can't play YouTube at
 // all, so there the fallback is the video on YouTube, never a direct embed.
 // The wrapper also passes on the player's errors (embedding refused, 153),
 // which turn the player back into a "watch on YouTube" card.

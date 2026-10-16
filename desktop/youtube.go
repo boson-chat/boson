@@ -18,10 +18,9 @@ import (
 // wrapper and the wrapper frames YouTube. The renderer gets the origin from
 // WrapperOrigin (platform/wails.ts → Embed.tsx).
 //
-// The app uses the copy boson.chat hosts (website/public/): under WebKit
-// even a *.localhost loopback page gets 153 for some videos, and a real
-// https site is what YouTube expects. The e2e build, which stubs YouTube,
-// serves the two files itself over loopback http instead.
+// By default the app serves the two files itself over loopback http, under
+// youtube-embed.localhost. A build can name a remote copy instead
+// (main.youtubeWrapperOrigin): boson.chat hosts one (website/public/).
 type YouTubeService struct {
 	dist   fs.FS
 	host   string
@@ -30,8 +29,6 @@ type YouTubeService struct {
 	srv    *http.Server
 }
 
-// youtubeWrapperRemote is where the app's wrapper lives.
-const youtubeWrapperRemote = "https://boson.chat"
 
 // youtubeWrapperHost: a *.localhost name resolves to loopback in the
 // webview without any DNS, and isn't a bare loopback address, which YouTube

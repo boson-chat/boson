@@ -44,6 +44,9 @@ cp -R "$client/out/renderer" "$desktop/frontend/dist"
 touch "$desktop/frontend/dist/.gitkeep"
 
 ldflags="-s -w -X main.appVersion=$VERSION"
+# A remote YouTube wrapper (e.g. https://boson.chat, once the website serves
+# website/public/youtube-embed.*); unset: the app's own loopback copy.
+[[ -n "${YOUTUBE_WRAPPER:-}" ]] && ldflags="$ldflags -X main.youtubeWrapperOrigin=$YOUTUBE_WRAPPER"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage" "$desktop/wails_windows_$arch.syso"' EXIT
 
