@@ -1,7 +1,8 @@
 // Chat-feature helpers for the real-app e2e suite (chat-*.spec.ts): get a
 // guest connected to the e2e ergo in one call, find conversations in the
 // sidebar, and talk to the composer the way a user does (keyboard).
-import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
+import type { App } from '../desktop-app';
 import { expect } from '@playwright/test';
 import { IrcPeer, type IrcLine } from '../irc-peer';
 import { STACK } from '../stack';
@@ -12,7 +13,7 @@ const IRC_PORT = Number(process.env['E2E_IRC_PORT'] ?? STACK.irc.port);
 const uid = (len = 6): string => Math.random().toString(16).slice(2, 2 + len).padEnd(len, '0');
 
 export interface ConnectedGuest {
-  app: ElectronApplication;
+  app: App;
   page: Page;
   nick: string;
   serverName: string;
@@ -20,7 +21,7 @@ export interface ConnectedGuest {
 }
 
 type Launch = (opts?: { env?: Record<string, string> }) => Promise<{
-  app: ElectronApplication;
+  app: App;
   page: Page;
   openedExternally: () => Promise<string[]>;
 }>;

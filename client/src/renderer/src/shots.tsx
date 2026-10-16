@@ -1,8 +1,8 @@
 // Screenshot harness — NOT part of the shipped app. Served only by the
-// standalone Vite config (vite.renderer.config.ts) at /shots.html so Playwright
+// standalone Vite config (vite.config.ts) at /shots.html so Playwright
 // can capture marketing screenshots of the REAL screens driven by mock data
 // (scripted IRC events over a fake session — the same path the integration
-// tests use). Never imported by main.tsx; never in the electron-vite build.
+// tests use). Never imported by main.tsx; never in the app build.
 import { render } from 'preact';
 import './styles.css';
 import { ChatService } from './modules/chat';
@@ -23,7 +23,7 @@ import { getThemeStore } from './modules/ui/theme';
 // Apply the saved theme (local storage), as main.tsx does in the app.
 void getThemeStore().init();
 
-// ---- Stub the Electron embed bridges so cards render rich content ----
+// ---- Stub the desktop embed bridges so cards render rich content ----
 type W = typeof window & { bosonUnfurl?: unknown; bosonSpotify?: unknown };
 (window as W).bosonUnfurl = {
   fetch: async (url: string) => {

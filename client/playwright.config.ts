@@ -7,7 +7,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Playwright launches the engine and the renderer Vite server itself.
 const TEST_TOKEN = 'e2e-test-token-do-not-use-in-prod';
 // :7332 — *not* :7331 — so test runs don't collide with a developer's
-// `make engine-serve` running for the Electron app. The renderer's
+// `make engine-serve` running for `npm run dev`. The renderer's
 // VITE_ENGINE_URL is overridden by globalSetup to point at this port.
 const ENGINE_ADDR = '127.0.0.1:7332';
 const ENGINE_URL = `ws://${ENGINE_ADDR}/ws`;
@@ -39,7 +39,7 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'npm run dev:renderer-only',
+      command: 'npm run dev',
       url: 'http://localhost:5173',
       env: {
         VITE_ENGINE_URL: ENGINE_URL,

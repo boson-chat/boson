@@ -73,8 +73,8 @@ func (s *Server) handleWS(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	}
 
 	c, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		// Localhost-only listener — but be explicit. Electron renderer
-		// loads via file://, vite dev uses localhost, so allow those.
+		// Localhost-only listener — but be explicit. Vite dev uses
+		// localhost; file:// is the old Electron origin. Allow those.
 		OriginPatterns: []string{"http://localhost:*", "http://127.0.0.1:*", "file://*"},
 	})
 	if err != nil {
@@ -650,7 +650,7 @@ type Discovery struct {
 	PID   int    `json:"pid"`
 }
 
-// WriteDiscovery writes the engine's connection info to a file Electron can read.
+// WriteDiscovery writes the engine's connection info to a file clients can read (`make engine-env`).
 // Default path: $XDG_RUNTIME_DIR/boson/engine.json, falling back to ~/.boson/engine.json.
 func WriteDiscovery(path, wsURL, token string) error {
 	if path == "" {

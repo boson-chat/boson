@@ -1,6 +1,6 @@
-// Renderer-side accessor for the main-process link-unfurl bridge (preload
-// exposes `window.bosonUnfurl`). Returns the fetcher when running inside
-// Electron, or undefined (web build / tests) — callers then fall back to just
+// Renderer-side accessor for the shell's link-unfurl bridge (desktop/unfurl.go
+// via `window.bosonUnfurl`). Returns the fetcher when running inside the
+// desktop app, or undefined (web build / tests) — callers then fall back to just
 // opening the link externally instead of showing a preview card.
 
 export interface OgCard {

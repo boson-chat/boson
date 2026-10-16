@@ -1,6 +1,6 @@
 // Endpoints of the e2e stack (infra/e2e/stack.json — shared with
-// scripts/e2e-stack.mjs and scripts/build-e2e-app.mjs) and where the app
-// build lives. Pure data: no fixtures, safe to import from global setup.
+// scripts/e2e-stack.mjs and scripts/build-e2e.mjs) and where the app's
+// renderer build lives. Pure data: no fixtures, safe to import from global setup.
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,7 @@ export const E2E_INFRA_DIR = join(REPO_ROOT, 'infra', 'e2e');
 // Runtime dir of the host-run backend (pid, log, coverage counters).
 export const E2E_RUN_DIR = join(E2E_INFRA_DIR, '.run');
 
-// The built app (scripts/build-e2e-app.mjs). E2E_OUT_DIR lets several
+// The e2e renderer build (scripts/build-e2e.mjs). E2E_OUT_DIR lets several
 // authors build + run their own copy side by side; resolved like the build
 // script does (relative to client/).
 export const APP_DIR = resolve(CLIENT_DIR, process.env['E2E_OUT_DIR'] || 'out-e2e');

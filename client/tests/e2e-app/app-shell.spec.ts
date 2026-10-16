@@ -1,40 +1,31 @@
-// App shell + main-process paths: the title bar and the window-control IPC
-// (bosonWindow → window:* handlers; on macOS the native traffic lights
-// replace the drawn buttons), the About panel's update-state UI driven by
-// real `updater:state` pushes from main, the Inbox empty state, the engine
-// pill, notification click → window:show, the engine sidecar dying under
-// the app, the secure store's on-disk formats (derived-key fallback,
-// corrupt files) and IPC validation, the API proxy's allowlist/redirect
-// policy, and the Spotify metadata fetcher.
+// App shell and the desktop app's Go services: the title bar (on macOS the
+// native traffic lights replace the drawn buttons), the About panel's
+// update-state UI driven by real `updater:state` pushes (desktop/updater.go),
+// the Inbox empty state, the engine pill, the engine dying under the app,
+// the secure store's on-disk format (derived-key mode, corrupt files) and
+// bridge validation, the API proxy's allowlist/redirect policy, and the
+// Spotify metadata fetcher.
 //
+// Not covered here: what needs the native window (window controls,
+// notification click → restore, webview permissions) is checked by hand on
+// the native build; the e2e app is a server-mode build driven in Chromium.
 // Not covered because the app doesn't have them: a theme toggle in the title
 // bar (theme lives in User settings → Appearance and is fixed to dark) and
 // global keyboard shortcuts (only Escape-to-dismiss on menus/dialogs, which
 // the bouncer specs exercise).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
-import { createConnection } from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
-import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   test, expect, uid, IRC_HOST, IRC_PORT, field,
   continueAsGuest, addServerManually, serverCard, joinChannel, messageList,
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
-import { WAILS_SHELL, electronOnly, wailsE2E } from './wails-shell';
+import { e2eHook } from './desktop-app';
 import { crashEngine, engineId } from './helpers/engine';
-
-interface WinState { maximized: boolean; minimized: boolean; visible: boolean }
-
-// The main window as main sees it.
-function mainWin(app: ElectronApplication): Promise<WinState | null> {
-  return app.evaluate(({ BrowserWindow }) => {
-    const w = BrowserWindow.getAllWindows().find((x) => !x.isDestroyed() && x.webContents.getURL().includes('/index.html'));
-    return w ? { maximized: w.isMaximized(), minimized: w.isMinimized(), visible: w.isVisible() } : null;
-  });
-}
 
 async function openUserSettings(page: Page, tab: RegExp): Promise<Locator> {
   await page.getByRole('button', { name: 'User settings' }).click();
@@ -50,12 +41,10 @@ async function connectDirect(page: Page, name: string): Promise<void> {
   await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
 }
 
-// Secure-store tag on disk: the OS keychain format ("ks1:") where one is
-// available (macOS, mock keychain), else the derived-key fallback ("fb1:") —
-// Linux CI has no keyring. Either way it's ciphertext, never plain text.
-// Electron on macOS uses the (mock) keychain; Linux CI and the Wails e2e
-// build use the derived-key store.
-const STORE_TAG = process.platform === 'darwin' && !WAILS_SHELL ? /^ks1:/ : /^fb1:/;
+// Secure-store tag on disk: the e2e build runs the store in its derived-key
+// mode (BOSON_SECURE_STORE=derived), whose values are "fb1:" ciphertext,
+// never plain text.
+const STORE_TAG = /^fb1:/;
 
 test.describe('app shell', () => {
   // The shell reports the OS (bosonPlatform), and the title bar follows it.
@@ -84,54 +73,6 @@ test.describe('app shell', () => {
     await titleBar(page);
   });
 
-  test('window controls over the bosonWindow IPC', async ({ launchApp }) => {
-    electronOnly('it checks the native window, which a server-mode build does not have');
-    const { app, page } = await launchApp();
-    const bar = await titleBar(page);
-
-    // The same IPC the drawn buttons use. Maximize/restore round-trips and
-    // the renderer hears each change (the drawn button swaps its icon).
-    await page.evaluate(() => {
-      const w = window as unknown as { __maxEvents: boolean[]; bosonWindow: { onMaximizedChange: (fn: (v: boolean) => void) => void } };
-      w.__maxEvents = [];
-      w.bosonWindow.onMaximizedChange((v) => w.__maxEvents.push(v));
-    });
-    const bridge = (fn: string): Promise<unknown> =>
-      page.evaluate((f) => (window as unknown as { bosonWindow: Record<string, () => Promise<unknown>> }).bosonWindow[f]!(), fn);
-    expect(await bridge('isMaximized')).toBe(false);
-    if (process.platform === 'darwin') {
-      await bridge('toggleMaximize');
-    } else {
-      await bar.getByRole('button', { name: 'Maximize' }).click();
-    }
-    await expect.poll(async () => (await mainWin(app))?.maximized).toBe(true);
-    expect(await bridge('isMaximized')).toBe(true);
-    if (process.platform !== 'darwin') await expect(bar.getByRole('button', { name: 'Restore' })).toBeVisible();
-    await bridge('toggleMaximize');
-    await expect.poll(async () => (await mainWin(app))?.maximized).toBe(false);
-    await expect.poll(() => page.evaluate(() => (window as unknown as { __maxEvents: boolean[] }).__maxEvents))
-      .toEqual([true, false]);
-
-    // Minimize, then window:show (what a notification click uses) brings
-    // it back.
-    if (process.platform === 'darwin') await bridge('minimize');
-    else await bar.getByRole('button', { name: 'Minimize' }).click();
-    await expect.poll(async () => (await mainWin(app))?.minimized, { timeout: 10_000 }).toBe(true);
-    await bridge('show');
-    await expect.poll(async () => mainWin(app), { timeout: 10_000 }).toMatchObject({ minimized: false, visible: true });
-
-    // Close: the window goes. On macOS the app keeps running (Dock); on
-    // Windows/Linux closing the last window quits.
-    const closed = bridge('close').catch(() => undefined);
-    if (process.platform === 'darwin') {
-      await closed;
-      await expect.poll(() => mainWin(app)).toBeNull();
-      expect(await app.evaluate(({ app: a }) => a.isReady())).toBe(true);
-    } else {
-      await app.waitForEvent('close', { timeout: 15_000 });
-    }
-  });
-
   test('About: update states pushed from main drive the version row', async ({ launchApp }) => {
     const { app, page, openedExternally } = await launchApp();
     await continueAsGuest(page, `up${uid()}`);
@@ -139,13 +80,8 @@ test.describe('app shell', () => {
     const row = dialog.locator('.user-settings-version-row');
     await expect(row.getByRole('button', { name: 'Check for updates' })).toBeVisible();
 
-    // The state as main (Electron) or the Go updater (Wails) pushes it.
-    const push = (state: Record<string, unknown>): Promise<void> => WAILS_SHELL
-      ? wailsE2E(app, 'pushUpdaterState', state)
-      : app.evaluate(({ BrowserWindow }, s) => {
-        const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes('/index.html'))!;
-        w.webContents.send('updater:state', s);
-      }, state);
+    // The state as the Go updater pushes it (desktop/updater.go).
+    const push = (state: Record<string, unknown>): Promise<void> => e2eHook(app, 'pushUpdaterState', state);
 
     await push({ kind: 'checking' });
     await expect(row).toContainText('Checking…');
@@ -155,14 +91,12 @@ test.describe('app shell', () => {
     await push({ kind: 'downloading', version: '99.0.0', percent: 42, bytesPerSecond: 1000 });
     await expect(row).toContainText('Downloading v99.0.0 · 42%');
     await push({ kind: 'ready', version: '99.0.0' });
-    // "Restart to apply" calls updater:apply — a no-op without a packaged
-    // updater, so the app stays up. The Wails build can't install in place
-    // yet (docs/wails-migration.md, Phase 5): it opens the release page.
+    // "Restart to apply": the app can't install in place yet
+    // (docs/wails-migration.md, Phase 5), so it opens the release page and
+    // stays up.
     await row.getByRole('button', { name: 'Restart to apply v99.0.0' }).click();
     await expect(row.getByRole('button', { name: 'Restart to apply v99.0.0' })).toBeVisible();
-    if (WAILS_SHELL) {
-      await expect.poll(() => openedExternally()).toContain('https://github.com/boson-chat/boson/releases/latest');
-    }
+    await expect.poll(() => openedExternally()).toContain('https://github.com/boson-chat/boson/releases/latest');
 
     // Error verdicts are summarised for humans; the raw text never shows.
     await push({ kind: 'error', message: 'HttpError: 404 \n"method: GET url: https://x/latest-mac.yml"' });
@@ -175,7 +109,7 @@ test.describe('app shell', () => {
     await expect(row).toContainText('Something specific broke');
 
     // A manual check from the error state: unpackaged → "Up to date." — and
-    // main's own state (what a re-opened panel starts from) agrees.
+    // the updater's own state (what a re-opened panel starts from) agrees.
     await row.getByRole('button', { name: 'Check for updates' }).click();
     await expect(row).toContainText('Up to date.');
     expect(await page.evaluate(() => (window as unknown as { bosonUpdater: { getState: () => Promise<{ kind: string }> } })
@@ -198,48 +132,6 @@ test.describe('app shell', () => {
     await expect(inbox.getByText('No mentions yet')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(inbox).toBeHidden();
-  });
-
-  test('a notification click restores the minimized window and opens the conversation', async ({ launchApp }) => {
-    electronOnly('it checks native window state (minimized/restored)');
-    const nick = `nt${uid()}`;
-    const serverName = `Notify Ergo ${uid(4)}`;
-    const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
-    try {
-      const { app, page } = await launchApp();
-      await continueAsGuest(page, nick);
-      await connectDirect(page, serverName);
-      const channel = `#e2e-nt-${uid(8)}`;
-      await joinChannel(page, channel);
-
-      await page.evaluate(() => {
-        const w = window as unknown as { __notes: Array<{ title: string; n: { onclick: null | (() => void) } }>; Notification: unknown };
-        w.__notes = [];
-        class FakeNotification {
-          static permission = 'granted';
-          static requestPermission(): Promise<string> { return Promise.resolve('granted'); }
-          onclick: null | (() => void) = null;
-          constructor(title: string) { w.__notes.push({ title, n: this }); }
-          close(): void { /* noop */ }
-        }
-        w.Notification = FakeNotification;
-      });
-      // Minimize: the window loses focus, so the notifier alerts.
-      await page.evaluate(() => (window as unknown as { bosonWindow: { minimize: () => Promise<void> } }).bosonWindow.minimize());
-      await expect.poll(async () => (await mainWin(app))?.minimized, { timeout: 10_000 }).toBe(true);
-      await page.evaluate(() => window.dispatchEvent(new Event('blur')));
-
-      const text = `psst ${uid()}`;
-      peer.privmsg(nick, text);
-      await expect.poll(() => page.evaluate(() => (window as unknown as { __notes: Array<{ title: string }> }).__notes.map((n) => n.title)))
-        .toEqual([`${peer.nick} · ${serverName}`]);
-      await page.evaluate(() => (window as unknown as { __notes: Array<{ n: { onclick: () => void } }> }).__notes[0]!.n.onclick());
-      await expect.poll(async () => mainWin(app), { timeout: 10_000 }).toMatchObject({ minimized: false, visible: true });
-      await expect(page.getByPlaceholder(`Message @${peer.nick}`)).toBeVisible();
-      await expect(messageList(page).getByText(text)).toBeVisible();
-    } finally {
-      await peer.quit();
-    }
   });
 
   test('engine killed: the app shows the lost connection', async ({ launchApp }) => {
@@ -272,9 +164,8 @@ test.describe('app shell', () => {
     }
   });
 
-  // Electron's main restarts the engine process; under Wails the renderer
-  // reconnects to a new in-process session. Either way the app is back on
-  // its own.
+  // The renderer reconnects to a new in-process engine session: the app is
+  // back on its own.
   test('engine killed: a new one starts and the session recovers', async ({ launchApp }) => {
     const { app, page } = await launchApp();
     await continueAsGuest(page, `er${uid()}`);
@@ -286,83 +177,7 @@ test.describe('app shell', () => {
   });
 });
 
-// ---- loopback renderer server + permissions (main/index.ts) ----------------
-
-function rawGet(port: number, path: string): Promise<{ status: number; type: string; body: string }> {
-  return new Promise((resolve, reject) => {
-    // A raw request line, so the client can't normalise `..` away.
-    const sock = createConnection({ host: '127.0.0.1', port }, () => {
-      sock.write(`GET ${path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
-    });
-    let buf = '';
-    sock.setEncoding('utf8');
-    sock.on('data', (c: string) => { buf += c; });
-    sock.on('error', reject);
-    sock.on('end', () => {
-      const [head = '', ...rest] = buf.split('\r\n\r\n');
-      resolve({
-        status: Number(/^HTTP\/1\.1 (\d+)/.exec(head)?.[1] ?? 0),
-        type: /content-type: ([^\r\n]+)/i.exec(head)?.[1] ?? '',
-        body: rest.join('\r\n\r\n'),
-      });
-    });
-  });
-}
-
-test.describe('renderer server and permissions', () => {
-  test('the loopback server serves only the build; a taken port falls back to a fresh one', async ({ launchApp, profile }) => {
-    electronOnly('Wails serves the app itself; there is no loopback renderer server');
-    const first = await launchApp();
-    const port = Number(readFileSync(join(profile.userData, 'renderer-port'), 'utf8').trim());
-    expect(new URL(first.page.url()).port).toBe(String(port));
-
-    const index = await rawGet(port, '/');
-    expect(index).toMatchObject({ status: 200, type: 'text/html' });
-    expect(index.body).toContain('<div id="app"');
-    // Unknown routes fall back to the SPA shell; traversal out of the build
-    // is refused (encoded or not).
-    expect((await rawGet(port, '/some/client/route')).body).toBe(index.body);
-    expect((await rawGet(port, '/..%2f..%2fpackage.json')).status).toBe(403);
-    expect((await rawGet(port, '/%2e%2e/%2e%2e/main/index.js')).status).toBe(403);
-    // The blank page the one-time storage migration writes through.
-    expect(await rawGet(port, '/__migrate')).toMatchObject({ status: 200, body: expect.stringContaining('<title>migrate</title>') });
-    await first.app.close();
-
-    // Something else grabs the saved port before the next launch: the app
-    // still starts, on a new port that it remembers from then on.
-    const squatter = createServer((_q, r) => r.end('not boson'));
-    await new Promise<void>((r) => squatter.listen(port, '127.0.0.1', () => r()));
-    try {
-      const second = await launchApp();
-      await expect(second.page.getByRole('button', { name: 'Continue without an account' })).toBeVisible({ timeout: 30_000 });
-      const next = Number(readFileSync(join(profile.userData, 'renderer-port'), 'utf8').trim());
-      expect(next).not.toBe(port);
-      expect(new URL(second.page.url()).port).toBe(String(next));
-    } finally {
-      squatter.close();
-    }
-  });
-
-  test('the app may notify; camera, microphone and location read as denied', async ({ launchApp }) => {
-    electronOnly('permissions come from the native webview, not a browser in server mode');
-    const { page } = await launchApp();
-    await expect(page.getByRole('button', { name: 'Continue without an account' })).toBeVisible({ timeout: 30_000 });
-    // Permission *checks* only (navigator.permissions → main's check
-    // handler) — actually requesting the camera could raise an OS prompt.
-    const r = await page.evaluate(async () => {
-      const notify = await Notification.requestPermission();
-      const state = async (name: string): Promise<string> =>
-        (await navigator.permissions.query({ name: name as PermissionName })).state;
-      return {
-        notify, current: Notification.permission,
-        geolocation: await state('geolocation'), camera: await state('camera'), microphone: await state('microphone'),
-      };
-    });
-    expect(r).toEqual({ notify: 'granted', current: 'granted', geolocation: 'denied', camera: 'denied', microphone: 'denied' });
-  });
-});
-
-// ---- secure store (main/secure-store.ts) -----------------------------------
+// ---- secure store (desktop/securestore.go) ---------------------------------
 
 // The derived-key fallback format ("fb1:"), as secure-store.ts writes it on a
 // host without a usable OS keychain (headless Linux, WSL).
@@ -404,7 +219,7 @@ test.describe('secure store', () => {
       .toMatch(STORE_TAG);
   });
 
-  test('a corrupt store file is replaced on the next write; the IPC rejects malformed calls', async ({ launchApp, profile }) => {
+  test('a corrupt store file is replaced on the next write; the bridge rejects malformed calls', async ({ launchApp, profile }) => {
     writeFileSync(join(profile.userData, 'identity-store.json'), '{ this is not json', { mode: 0o600 });
     const { page } = await launchApp();
     await continueAsGuest(page, `sc${uid()}`);
@@ -431,7 +246,7 @@ test.describe('secure store', () => {
   });
 });
 
-// ---- API proxy (main/api-proxy.ts) -----------------------------------------
+// ---- API proxy (desktop/apiproxy.go) ---------------------------------------
 
 interface Seen { method: string; url: string; headers: IncomingMessage['headers']; body: string }
 
@@ -509,7 +324,7 @@ test.describe('API proxy', () => {
   });
 });
 
-// ---- Spotify (main/spotify.ts, desktop/spotify.go) --------------------------
+// ---- Spotify (desktop/spotify.go) ------------------------------------------
 
 function spotifyEmbedPage(entity: Record<string, unknown>): string {
   const data = { props: { pageProps: { state: { data: { entity } } } } };
@@ -517,10 +332,9 @@ function spotifyEmbedPage(entity: Record<string, unknown>): string {
 }
 
 test.describe('Spotify', () => {
-  // main fetches https://open.spotify.com/embed/<type>/<id> — a fixed host
-  // (that's its SSRF guard), so the test stubs main's fetch for that one
-  // origin instead of redirecting it anywhere. Under Wails the e2e build's
-  // StubSpotify hook serves the pages in place of that fetch.
+  // The app fetches https://open.spotify.com/embed/<type>/<id> — a fixed
+  // host (that's its SSRF guard), so the e2e build's StubSpotify hook serves
+  // those pages in place of the network instead of redirecting it anywhere.
   test('a Spotify link renders a native card from the embed page; other hosts are never fetched', async ({ launchApp }) => {
     const playlistId = `PL${uid(10)}`;
     const pages: Record<string, string> = {
@@ -543,28 +357,12 @@ test.describe('Spotify', () => {
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
     try {
       const { app, page } = await launchApp();
-      if (WAILS_SHELL) await wailsE2E(app, 'stubSpotify', pages);
-      else await app.evaluate((_e, stubPages) => {
-        const g = globalThis as unknown as { fetch: typeof fetch; __spotifyFetched: string[] };
-        const real = g.fetch;
-        g.__spotifyFetched = [];
-        g.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-          const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-          if (url.startsWith('https://open.spotify.com/')) {
-            g.__spotifyFetched.push(url);
-            const body = stubPages[url];
-            return body === undefined ? new Response('nope', { status: 404 }) : new Response(body, { status: 200, headers: { 'content-type': 'text/html' } });
-          }
-          return real(input, init);
-        }) as typeof fetch;
-      }, pages);
-      const fetched = (): Promise<string[]> => WAILS_SHELL
-        ? wailsE2E<string[]>(app, 'spotifyFetched')
-        : app.evaluate(() => (globalThis as unknown as { __spotifyFetched: string[] }).__spotifyFetched.slice());
+      await e2eHook(app, 'stubSpotify', pages);
+      const fetched = (): Promise<string[]> => e2eHook<string[]>(app, 'spotifyFetched');
       const info = (url: string): Promise<unknown> =>
         page.evaluate((u) => (window as unknown as { bosonSpotify: { fetch: (x: string) => Promise<unknown> } }).bosonSpotify.fetch(u), url);
 
-      // The IPC: URL forms normalised to the embed page; parsed fields.
+      // The bridge: URL forms normalised to the embed page; parsed fields.
       expect(await info('https://open.spotify.com/intl-de/track/T1?si=abc')).toEqual({
         url: 'https://open.spotify.com/intl-de/track/T1?si=abc', type: 'track', title: 'Solo', subtitle: 'A, B',
         cover: 'https://i.scdn.co/big', durationMs: 1000, previewUrl: 'https://p.scdn.co/mp3-preview/solo',

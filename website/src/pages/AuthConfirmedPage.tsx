@@ -27,13 +27,13 @@ export function AuthConfirmedPage() {
     // Most modern browsers — Chrome explicitly, Firefox sometimes,
     // Safari often — drop the URL fragment when navigating to a
     // custom-scheme URL. That made the first cut of this page fail
-    // silently: the boson:// handler in Electron received the URL
+    // silently: the app's boson:// handler received the URL
     // *without* #access_token=... and had no tokens to hydrate the
     // session with.
     //
     // To sidestep the fragment-stripping question entirely, we move
     // every Supabase-emitted key into the query string before handing
-    // off. The Electron-side parser already accepts both forms
+    // off. The app-side parser already accepts both forms
     // (parseAuthConfirmedUrl reads from search OR hash) so the rest of
     // the flow doesn't need to change.
     const hashParams = new URLSearchParams((window.location.hash || '').replace(/^#/, ''));

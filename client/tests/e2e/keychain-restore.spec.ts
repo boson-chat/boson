@@ -1,12 +1,12 @@
 // Flow: sign in, connect, join a channel, reload — and assert the saved-
-// session signals that DON'T require the real Electron keychain preload
+// session signals that DON'T require the desktop app's secure-store bridge
 // bridge. Under vite-preview `window.bosonSecure` is undefined, so
 // SecureStorage falls back to a per-tab in-memory Map and the user_secret
 // dies on reload. We assert:
 //   1. The `boson:session:v1` localStorage row IS written and persists
 //      across reload (it's what the real client would consume on next launch).
 //   2. After reload the renderer lands on LoginScreen — documented gap;
-//      real Electron would skip straight back into chat.
+//      the desktop app would skip straight back into chat.
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
@@ -90,7 +90,7 @@ test.describe('Saved-session restore (vite-preview limited)', () => {
       .toBeVisible({ timeout: 10_000 });
 
     // Verify the SessionStore captured the connection — this is the data the
-    // real Electron client would consume on next launch.
+    // desktop app would consume on next launch.
     const savedBeforeReload = await page.evaluate(() =>
       window.localStorage.getItem('boson:session:v1'),
     );
@@ -108,7 +108,7 @@ test.describe('Saved-session restore (vite-preview limited)', () => {
     expect(savedAfterReload).not.toBeNull();
 
     // Documented gap: end state is LoginScreen because the keychain bridge
-    // is absent. Real Electron would land directly in chat.
+    // is absent. The desktop app would land directly in chat.
     await expect(page.getByPlaceholder('email')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByPlaceholder('password')).toBeVisible();
   });

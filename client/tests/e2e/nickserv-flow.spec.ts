@@ -1,4 +1,4 @@
-// Full-stack NickServ flow: Electron renderer → engine IPC → real IRC
+// Full-stack NickServ flow: renderer → engine (WebSocket) → real IRC
 // services container → reply → classifier → UI badge. Closes the
 // "Layer 4" gap (engine.services_e2e covers engine↔server,
 // classifier fixtures cover classifier↔ground-truth,

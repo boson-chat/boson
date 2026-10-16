@@ -3,12 +3,10 @@
   YouTube player host for inline video embeds. YouTube refuses some videos
   (label / VEVO music videos: "This video is unavailable"), or every video
   (error 153), when the page around its player is a local or app-scheme
-  page. So the player is framed by this page under an ordinary hostname:
-    - Electron: http://youtube-embed.invalid:<port>, a reserved name main
-      maps to its loopback server (host-resolver-rules);
-    - Wails: https://boson.chat (website/public/ holds a copy; keep them in
-      sync, Embed.test.tsx checks), or in the e2e build the shell's own
-      loopback server under youtube-embed.localhost.
+  page. So the desktop app frames the player in this page under an
+  ordinary hostname: https://boson.chat (website/public/ holds a copy; keep
+  them in sync, Embed.test.tsx checks), or in the e2e build the shell's own
+  loopback server under youtube-embed.localhost (desktop/youtube.go).
   Takes ?v=<11-char id>[&t=<seconds>]; anything else is refused.
 -->
 <html lang="en">

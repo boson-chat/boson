@@ -2,10 +2,9 @@
 // config.ts) into per-layer reports mapped back to source files:
 //
 //   coverage/e2e/renderer/  index.html (V8 report) + lcov.info + coverage-summary.json
-//   coverage/e2e/main/      index.html (V8 report) + lcov.info + coverage-summary.json
 //   coverage/e2e/engine/    index.html (go tool cover) + coverage.out + lcov.info
-//                           + packages.txt / functions.txt (under Wails: the
-//                           desktop shell + engine binary; no main/ layer)
+//                           + packages.txt / functions.txt (the desktop app's
+//                           Go binary: desktop/ + the engine packages)
 //   coverage/e2e/backend/   same as engine/, for the Go API server (only when
 //                           the e2e stack's backend is a coverage build)
 //   coverage/e2e/summary.md per-layer totals + least-covered files
@@ -18,7 +17,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import MCR from 'monocart-coverage-reports';
 import {
   APP_OUT_DIR, BACKEND_COVER_DIR, BACKEND_PID_FILE, CLIENT_DIR, COVERAGE_DIR, RAW, REPO_ROOT,
-  RENDERER_CHUNK_URL, WAILS_RUN, isMainUrl, isPreloadUrl,
+  RENDERER_CHUNK_URL,
 } from './config';
 
 type V8Entry = MCR.V8CoverageEntry;
@@ -46,17 +45,15 @@ const listFiles = (dir: string): string[] => (existsSync(dir) ? readdirSync(dir)
 // Source files that count: the app's own TS under src/. Excludes
 // node_modules, the shared workspace package, tests, and anything a
 // sourcemap pulls in from outside the client (vendored or virtual modules).
-function isAppSource(path: string, layer: 'renderer' | 'main'): boolean {
+function isAppSource(path: string): boolean {
   const p = path.replace(/\\/g, '/');
   if (/(^|\/)node_modules\//.test(p)) return false;
   if (/\.(test|spec|int\.test)\.[cm]?[jt]sx?$/.test(p) || /\/__integration__\//.test(p)) return false;
-  return layer === 'renderer'
-    ? /(^|\/)src\/renderer\/src\//.test(p)
-    : /(^|\/)src\/(main|preload)\//.test(p);
+  return /(^|\/)src\/renderer\/src\//.test(p);
 }
 
 // Bundle + its sourcemap from disk. The renderer chunk is served from the
-// app's loopback origin on a random port; key it by the built file so every
+// app's loopback origin on a per-profile port; key it by the built file so every
 // launch's data merges onto the same entry.
 function attachBuild(entry: V8Entry, file: string): V8Entry {
   const mapFile = `${file}.map`;
@@ -69,11 +66,10 @@ function attachBuild(entry: V8Entry, file: string): V8Entry {
 }
 
 async function v8Layer(opts: {
-  layer: 'renderer' | 'main';
+  layer: 'renderer';
   name: string;
   scope: string;
   entries: V8Entry[];
-  nodeCoverageDir?: string;
 }): Promise<LayerSummary | null> {
   const outputDir = join(COVERAGE_DIR, opts.layer);
   const mcr = MCR({
@@ -85,21 +81,17 @@ async function v8Layer(opts: {
     // declarations, imports and comments neither pad nor drag the numbers;
     // summary.md uses those.
     reports: ['v8', ['lcovonly', { file: 'lcov.info' }], ['json-summary', { file: 'coverage-summary.json' }]],
-    entryFilter: (entry: V8Entry) =>
-      opts.layer === 'renderer'
-        ? entry.url.startsWith(join(APP_OUT_DIR, 'renderer'))
-        : isMainUrl(entry.url) || isPreloadUrl(entry.url),
-    sourceFilter: (sourcePath: string) => isAppSource(sourcePath, opts.layer),
+    entryFilter: (entry: V8Entry) => entry.url.startsWith(join(APP_OUT_DIR, 'renderer')),
+    sourceFilter: (sourcePath: string) => isAppSource(sourcePath),
     // Sources come out of the sourcemaps relative to the bundle; report them
-    // relative to client/ (src/renderer/src/..., src/main/...).
+    // relative to client/ (src/renderer/src/...).
     sourcePath: (filePath: string) => {
-      const m = filePath.replace(/\\/g, '/').match(/(?:^|\/)(src\/(?:renderer\/src|main|preload)\/.*)$/);
+      const m = filePath.replace(/\\/g, '/').match(/(?:^|\/)(src\/renderer\/src\/.*)$/);
       return m?.[1] ?? filePath;
     },
     logging: 'error',
   });
   if (opts.entries.length > 0) await mcr.add(opts.entries);
-  if (opts.nodeCoverageDir && listFiles(opts.nodeCoverageDir).length > 0) await mcr.addFromDir(opts.nodeCoverageDir);
   const results = await mcr.generate();
   const summaryFile = join(outputDir, 'coverage-summary.json');
   if (!results || results.files.length === 0 || !existsSync(summaryFile)) return null;
@@ -121,21 +113,17 @@ async function v8Layer(opts: {
   };
 }
 
-function rawV8Entries(): { renderer: V8Entry[]; preload: V8Entry[] } {
+function rawV8Entries(): V8Entry[] {
   const renderer: V8Entry[] = [];
-  const preload: V8Entry[] = [];
   for (const file of listFiles(RAW.renderer)) {
     for (const entry of readJson<V8Entry[]>(file)) {
       const chunk = entry.url.match(RENDERER_CHUNK_URL)?.[1];
-      if (chunk) {
-        const built = join(APP_OUT_DIR, 'renderer', 'assets', chunk);
-        if (existsSync(built)) renderer.push(attachBuild(entry, built));
-      } else if (isPreloadUrl(entry.url) && existsSync(entry.url)) {
-        preload.push(attachBuild(entry, entry.url));
-      }
+      if (!chunk) continue;
+      const built = join(APP_OUT_DIR, 'renderer', 'assets', chunk);
+      if (existsSync(built)) renderer.push(attachBuild(entry, built));
     }
   }
-  return { renderer, preload };
+  return renderer;
 }
 
 // ---- Go layers (engine, backend) --------------------------------------------
@@ -146,8 +134,8 @@ function go(args: string[], cwd = REPO_ROOT): string {
   return r.stdout;
 }
 
-// Each engine writes its counter file when it exits, which can trail the
-// app's close() by a moment (Electron sends SIGTERM and doesn't wait).
+// Each app writes its counter file when it exits, which can trail its
+// close() by a moment.
 async function waitForEngineFlush(timeoutMs = 15_000): Promise<void> {
   const launches = listFiles(RAW.launches).length;
   const counters = (): number => listFiles(RAW.engine).filter((f) => basename(f).startsWith('covcounters.')).length;
@@ -246,7 +234,7 @@ function goLayer(opts: {
 
 function markdown(layers: LayerSummary[], top = 15): string {
   const out: string[] = [
-    `## E2E coverage (real ${WAILS_RUN ? 'Wails' : 'Electron'} app)`,
+    '## E2E coverage (real app)',
     '',
     '| Layer | Scope | Lines | Statements | Functions | Branches |',
     '| --- | --- | --- | --- | --- | --- |',
@@ -289,26 +277,16 @@ export async function generateE2eCoverageReport(): Promise<void> {
     }
   };
 
-  const { renderer, preload } = rawV8Entries();
   await attempt('renderer', () => v8Layer({
-    layer: 'renderer', name: 'Renderer', scope: 'src/renderer/src', entries: renderer,
+    layer: 'renderer', name: 'Renderer', scope: 'src/renderer/src', entries: rawV8Entries(),
   }));
-  if (!WAILS_RUN) {
-    await attempt('main', () => v8Layer({
-      layer: 'main', name: 'Main + preload', scope: 'src/main, src/preload', entries: preload, nodeCoverageDir: RAW.main,
-    }));
-  }
   await waitForEngineFlush();
   await attempt('engine', () => {
-    const layer = WAILS_RUN
-      ? goLayer({
-        layer: 'engine', name: 'Shell + engine (Go)', scope: 'desktop/ and the engine/... packages it links in',
-        rawDir: RAW.engine, cwd: join(REPO_ROOT, 'desktop'),
-      })
-      : goLayer({
-        layer: 'engine', name: 'Engine (Go)', scope: 'engine/... packages linked into the sidecar', rawDir: RAW.engine,
-      });
-    if (!layer) console.warn('[e2e-coverage] no engine coverage — was it built with E2E_COVERAGE=1?');
+    const layer = goLayer({
+      layer: 'engine', name: 'App + engine (Go)', scope: 'desktop/ and the engine/... packages it links in',
+      rawDir: RAW.engine, cwd: join(REPO_ROOT, 'desktop'),
+    });
+    if (!layer) console.warn('[e2e-coverage] no app coverage — was it built with E2E_COVERAGE=1?');
     return layer;
   });
   // Optional layer: guest-only runs don't need the backend at all.

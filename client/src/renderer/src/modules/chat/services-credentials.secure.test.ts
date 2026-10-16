@@ -121,7 +121,7 @@ describe('SecureServiceCredentialsStore — legacy migration', () => {
     expect(legacy.getItem(LEGACY_PREFIX + 'srv-1')).toBeNull();
   });
 
-  it('rides out a late-arriving secure backing (preload injection race) and still migrates', async () => {
+  it('rides out a late-arriving secure backing (bridge install race) and still migrates', async () => {
     const legacy = memStorage();
     legacy.setItem(LEGACY_PREFIX + 'srv-1', JSON.stringify({ nickservPassword: 'pw' }));
     const inner = new InMemorySecureStorage();

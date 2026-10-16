@@ -1,18 +1,18 @@
-# Real-app e2e: builds the Wails desktop shell as a server-mode binary
+# Real-app e2e: builds the desktop app (Wails) as a server-mode binary
 # (desktop/, `go build -tags server`: the real Go services and in-process
 # engine, serving the renderer over HTTP) for linux/amd64 and drives it with
 # Playwright in headless Chromium against the isolated e2e stack
 # (client/scripts/e2e-stack.mjs): ergo + ZNC + Postgres + Mailpit + MinIO
 # (infra/e2e/docker-compose.yml), the boson-e2e Supabase CLI project (Auth
 # only, infra/e2e/supabase/) and the Go backend. Guest specs and account
-# (signed-in) specs both run. Locally: `make test-e2e-wails`. The specs that
-# need a native window (or Electron itself) skip; see
-# client/tests/e2e-app/wails-shell.ts. The Electron shell's run of the same
-# suite is local only now (`make test-e2e-app`). The browser-only Playwright
-# suite (client/tests/e2e/) still needs the full dev stack and isn't run here.
+# (signed-in) specs both run. Locally: `make test-e2e-app`. What needs the
+# native window (window controls, notification restore, webview
+# permissions) is checked by hand on the native build. The browser-only
+# Playwright suite (client/tests/e2e/) still needs the full dev stack and
+# isn't run here.
 #
 # The suite always runs with code coverage (E2E_COVERAGE=1: renderer, the Go
-# shell + engine binary, Go backend). The per-layer summary lands in the job
+# app + engine binary, Go backend). The per-layer summary lands in the job
 # summary and the HTML/lcov reports are uploaded as the `e2e-app-coverage`
 # artifact.
 name: E2E (real app)
@@ -32,8 +32,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  wails:
-    name: Wails app (Playwright)
+  app:
+    name: Desktop app (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -93,11 +93,11 @@ jobs:
       # Builds the e2e renderer bundle (client/out-e2e/renderer, pinned to
       # the e2e stack) and desktop/bin/boson-e2e-server embedding it.
       # Coverage build: source maps + `go build -cover` of the shell and engine.
-      - name: Build Wails e2e server
+      - name: Build the e2e app (server mode)
         working-directory: client
         env:
           E2E_COVERAGE: '1'
-        run: npm run build:e2e-wails
+        run: npm run build:e2e-app
 
       - name: Wait for e2e stack
         timeout-minutes: 8
@@ -106,14 +106,14 @@ jobs:
           cat e2e-stack.log
           exit "$(cat e2e-stack.exit)"
 
-      - name: Run Wails e2e suite (with coverage)
+      - name: Run the e2e suite (with coverage)
         working-directory: client
         # ~110 specs with real IRC/ZNC round-trips: serial takes too long.
         # ubuntu-latest has 4 vCPUs; 3 workers leave room for the stack.
         # Specs are isolated per test (own users/channels/ZNC lease).
         env:
           E2E_WORKERS: '3'
-        run: npm run test:e2e:wails:coverage
+        run: npm run test:e2e:app:coverage
 
       - name: Coverage summary
         if: always()

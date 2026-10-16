@@ -13,7 +13,7 @@ import (
 // event, in the launch arguments (Windows/Linux cold start), or in a second
 // launch's arguments (Windows/Linux, via the single-instance lock).
 //
-// Like the Electron build, a URL is always buffered AND sent live: on a cold
+// A URL is always buffered AND sent live: on a cold
 // start the renderer isn't listening yet and drains the buffer with Consume
 // once it is; the renderer dedupes when both paths deliver it.
 type DeepLinkService struct {

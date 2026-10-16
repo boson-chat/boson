@@ -42,7 +42,7 @@ func main() {
 		log.Fatal(err)
 	}
 	// Dev and e2e builds may skip the OS keychain (BOSON_SECURE_STORE=derived),
-	// as the Electron e2e suite does with its mock keychain.
+	// so e2e runs never touch the real one.
 	secureMode := ""
 	if devBuild == "true" {
 		secureMode = os.Getenv("BOSON_SECURE_STORE")
@@ -66,7 +66,7 @@ func main() {
 	notify := NewNotifyService(native)
 	// One running app: a second launch (a boson:// click on Windows/Linux)
 	// hands its args over and exits. Its args are untrusted input — parsed
-	// strictly by the renderer, as in the Electron build. Off for e2e runs,
+	// strictly by the renderer (deep-link.ts). Off for e2e runs,
 	// where parallel tests each run their own app.
 	var single *application.SingleInstanceOptions
 	if !e2e {

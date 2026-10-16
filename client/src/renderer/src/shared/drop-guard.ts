@@ -1,7 +1,7 @@
-// Stop stray drag-and-drop from navigating the window. Chromium's default for
-// a file or link dropped onto a page is to navigate to it — in Electron that
-// would replace the app with an arbitrary document. The main process also
-// blocks such navigations (will-navigate in src/main/index.ts); this keeps
+// Stop stray drag-and-drop from navigating the window. A browser's default for
+// a file or link dropped onto a page is to navigate to it — in the desktop app
+// that would replace the app with an arbitrary document. The shell also
+// cancels such navigations (guardNavigation in platform/wails.ts); this keeps
 // the drop from even being attempted, so nothing flashes or gets opened.
 //
 // Rules, applied only to drops nothing else handled (`defaultPrevented`):

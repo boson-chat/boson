@@ -7,7 +7,7 @@ import type { Memo, MemoListener } from './memo.types';
 //
 // Storage shape: a flat array under `boson.memos.<userId>`. The user
 // scoping keeps account A's memos from leaking into account B's view
-// when the same Electron install hosts multiple identities (rare but
+// when the same desktop install hosts multiple identities (rare but
 // supported by our auth + identity flow).
 //
 // Design choices:

@@ -1,7 +1,7 @@
 // The Wails desktop shell. Loaded (dynamically, from main.tsx) only when the
-// page is served by Wails, so the Electron and browser builds never pull in
-// the Wails runtime. It installs the same window.boson* bridges the Electron
-// preload exposes, backed by Go services in desktop/.
+// page is served by Wails, so the browser build never pulls in the Wails
+// runtime. It installs the window.boson* bridges the renderer reaches native
+// features through, backed by Go services in desktop/.
 
 import { Call, Events, System, Window } from '@wailsio/runtime';
 import type { WebSocketLike } from '../modules/engine/engine.client';

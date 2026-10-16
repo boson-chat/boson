@@ -1,6 +1,6 @@
 // Services detection — classifies the package running NickServ / ChanServ /
 // etc. on the connected network (Atheme vs Anope vs unknown). Centralised
-// in the engine so every client (Electron, future mobile / web) sees the
+// in the engine so every client (desktop, future mobile / web) sees the
 // same verdict without re-implementing the heuristic.
 //
 // The detection lifecycle, per Client:

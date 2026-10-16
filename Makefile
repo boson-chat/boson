@@ -1,11 +1,10 @@
 .PHONY: setup up down logs build tidy run migrate-up migrate-down migrate-create reset \
         supabase-check supabase-init supabase-up supabase-down supabase-status supabase-reset \
         ergo-up typingbot seed-dev dev-up dev-down \
-        client-install client-env client-dev client-build \
-        engine-build engine-connect engine-serve engine-env sidecar-build \
+        client-install client-env client-dev client-build desktop-dev desktop-build \
+        engine-build engine-connect engine-serve engine-env \
         test test-go test-client test-e2e hooks-install \
         test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage \
-        test-e2e-wails test-e2e-wails-coverage \
         test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme
 
 setup: tidy up
@@ -135,7 +134,7 @@ typingbot:
 
 dev-down: supabase-down down
 
-# ----- Electron client -----
+# ----- Client (renderer) and desktop app -----
 
 client-install:
 	cd client && npm install
@@ -147,39 +146,39 @@ client-env: supabase-check
 	printf 'VITE_SUPABASE_URL=http://localhost:54321\nVITE_SUPABASE_ANON_KEY=%s\nVITE_BOSON_API_URL=http://localhost:3000\n' "$$ANON" > client/.env; \
 	echo "Wrote client/.env"
 
+# The renderer in a browser on :5173 (Vite, hot reload), talking to the
+# engine's WebSocket bridge: run `make engine-serve` alongside. The page
+# re-reads the engine's discovery file on every load. Native bridges
+# (secure store, unfurl, …) aren't there; use desktop-dev for those.
 client-dev: client-env
-	@DISCOVERY="$${XDG_RUNTIME_DIR:-$$HOME/.boson}/boson/engine.json"; \
-	if [ ! -f "$$DISCOVERY" ]; then DISCOVERY="$$HOME/.boson/engine.json"; fi; \
-	if [ -f "$$DISCOVERY" ]; then $(MAKE) engine-env; fi
 	cd client && npm run dev
 
 client-build:
 	cd client && npm run build
+
+# The desktop app (desktop/, Wails) as a dev build, with the renderer built
+# from client/ against client/.env (the local backend). Dev builds have the
+# webview inspector and may reach a local backend on any loopback port.
+# The native toolchain: Go with cgo (macOS: Xcode; Linux: GTK 4 and
+# WebKitGTK 6.0 dev packages; Windows: WebView2, which Windows 10/11 ship).
+desktop-dev: client-env
+	cd client && npx vite build --mode development
+	rm -rf desktop/frontend/dist && cp -R client/out/renderer desktop/frontend/dist && touch desktop/frontend/dist/.gitkeep
+	cd desktop && go run -ldflags "-X main.devBuild=true -X main.apiBase=http://localhost:3000 -X main.appVersion=$$(node -p "require('../client/package.json').version")" .
+
+# A release build of the desktop app for this machine: macOS → a signed
+# universal .app + DMG (notarized with NOTARY_PROFILE, a `xcrun notarytool
+# store-credentials` profile); Windows/Linux → a zip / tar.gz. In desktop/bin/.
+desktop-build:
+	@if [ "$$(uname -s)" = Darwin ]; then desktop/scripts/package-macos.sh; else desktop/scripts/package.sh; fi
 
 # ----- IRC engine (local Go process) -----
 
 engine-build:
 	go build -o bin/engine ./engine/cmd/engine
 
-# Rebuild the sidecar engine binaries that `make client-dev` (and the
-# packaged app) spawn from `client/resources/engine/`. The directory is
-# gitignored, so a fresh checkout has none: without them the dev client
-# falls back to a separately running `make engine-serve`. They also go
-# stale whenever `engine/` source changes — rerun this after engine/
-# edits OR before testing renderer ↔ engine IPC changes.
-#
-# Every target cross-compiles via `GOOS=...` (no cgo), so one dev
-# machine can rebuild the binaries for all platforms.
-sidecar-build:
-	@echo "Building sidecar engine binaries for client/resources/engine/..."
-	GOOS=darwin  GOARCH=arm64 go build -o client/resources/engine/engine-darwin-arm64      ./engine/cmd/engine
-	GOOS=darwin  GOARCH=amd64 go build -o client/resources/engine/engine-darwin-amd64      ./engine/cmd/engine
-	GOOS=linux   GOARCH=amd64 go build -o client/resources/engine/engine-linux-amd64       ./engine/cmd/engine
-	GOOS=linux   GOARCH=arm64 go build -o client/resources/engine/engine-linux-arm64       ./engine/cmd/engine
-	GOOS=windows GOARCH=amd64 go build -o client/resources/engine/engine-windows-amd64.exe ./engine/cmd/engine
-	@ls -la client/resources/engine/
-
-# Run the engine WebSocket bridge (foreground). Writes discovery to
+# Run the engine WebSocket bridge (foreground), for `make client-dev` (the
+# desktop app runs the engine in-process). Writes discovery to
 # ~/.boson/engine.json (or $XDG_RUNTIME_DIR/boson/engine.json).
 engine-serve:
 	go run ./engine/cmd/engine serve
@@ -225,7 +224,7 @@ test: test-go test-client
 test-go:
 	go test -p 1 ./...
 
-# Client unit tests via Vitest (renderer code only — no Electron).
+# Client unit tests via Vitest (renderer code).
 test-client:
 	cd client && npm test
 
@@ -237,12 +236,15 @@ test-client:
 test-e2e: engine-build
 	cd client && npm run test:e2e
 
-# ----- Real-app e2e (built Electron app + its own engine sidecar) -----
+# ----- Real-app e2e (the built desktop app) -----
 #
-# Drives the BUILT Electron app (client/out-e2e/, or $$E2E_OUT_DIR) with
-# Playwright's _electron API: guest flows (manual server add, chat with a raw
-# IRC peer, restore-on-relaunch, ZNC bouncer, navigation guards) and account
-# flows (sign-up + email confirmation, handle setup, the backend directory).
+# Drives the BUILT desktop app: desktop/ as a server-mode binary (the real Go
+# services and in-process engine, serving the renderer from
+# client/out-e2e/ — or $$E2E_OUT_DIR — over HTTP), in Playwright's Chromium:
+# guest flows (manual server add, chat with a raw IRC peer,
+# restore-on-relaunch, ZNC bouncer, navigation guards) and account flows
+# (sign-up + email confirmation, handle setup, the backend directory). What
+# needs the native window is checked by hand on a native build.
 #
 # test-e2e-app-up brings up the whole isolated e2e stack
 # (client/scripts/e2e-stack.mjs): compose project boson-e2e (ergo :16667,
@@ -252,7 +254,7 @@ test-e2e: engine-build
 # from this checkout, run on the host). None of it touches the dev stack's
 # containers, ports, volumes or Supabase project; endpoints are in
 # infra/e2e/stack.json. Each test runs the app with a throwaway HOME /
-# XDG_RUNTIME_DIR / userData, so ~/.boson and the real app profile are left
+# XDG_RUNTIME_DIR / data dir, so the real app's data and keychain are left
 # alone. The stack stays up afterwards for quick reruns
 # (`cd client && npm run test:e2e:app`); `make test-e2e-app-down` stops it
 # and drops its state.
@@ -265,30 +267,15 @@ test-e2e-app: test-e2e-app-up
 	cd client && npm run build:e2e-app
 	cd client && npm run test:e2e:app
 
-# Same suite with code coverage for all four layers (renderer, Electron main
-# + preload, Go engine, Go backend) → client/coverage/e2e/ (HTML + lcov per
-# layer, summary.md). Brings the stack up with a coverage-built backend (so
+# Same suite with code coverage for all three layers (renderer, the Go app +
+# engine, Go backend) → client/coverage/e2e/ (HTML + lcov per layer,
+# summary.md). Brings the stack up with a coverage-built backend (so
 # its counters cover just this run) and leaves a coverage build in out-e2e;
 # the next `make test-e2e-app` rebuilds both normally.
 test-e2e-app-coverage:
 	E2E_COVERAGE=1 $(E2E_STACK) up
 	cd client && E2E_COVERAGE=1 npm run build:e2e-app
 	cd client && npm run test:e2e:app:coverage
-
-# The same suite against the Wails desktop shell (desktop/), built as a
-# server-mode binary (the real Go services + in-process engine, serving the
-# renderer over HTTP) and driven in Playwright's Chromium. What CI runs
-# (.github/workflows/e2e.yml). Specs that need a native window or Electron
-# itself skip (client/tests/e2e-app/wails-shell.ts). Same stack.
-test-e2e-wails: test-e2e-app-up
-	cd client && npm run build:e2e-wails
-	cd client && npm run test:e2e:wails
-
-# With coverage: renderer, the Go shell + engine binary, Go backend.
-test-e2e-wails-coverage:
-	E2E_COVERAGE=1 $(E2E_STACK) up
-	cd client && E2E_COVERAGE=1 npm run build:e2e-wails
-	cd client && npm run test:e2e:wails:coverage
 
 test-e2e-app-down:
 	$(E2E_STACK) down
@@ -311,7 +298,7 @@ test-e2e-app-down:
 #
 # After the engine-level Go tests pass, we ALSO run the Playwright
 # spec (tests/e2e/nickserv-flow.spec.ts) parameterized at this
-# stack's IRC endpoint. That's the full Electron → IPC → engine →
+# stack's IRC endpoint. That's the full renderer → WebSocket → engine →
 # IRC → reply → renderer round-trip; the Go suite only proves the
 # bottom half of the pipeline.
 test-e2e-services-ergo: ergo-up engine-build seed-dev

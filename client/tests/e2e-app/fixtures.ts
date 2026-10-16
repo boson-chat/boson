@@ -1,43 +1,39 @@
-// Shared fixtures for the real-app Electron e2e suite.
+// Shared fixtures for the real-app e2e suite: the desktop app (desktop/)
+// built in server mode and driven in Chromium (desktop-app.ts).
 //
 // Every test gets a throwaway profile directory holding:
-//   home/      → $HOME          (engine discovery file fallback, dotfiles)
-//   run/       → $XDG_RUNTIME_DIR (engine writes run/boson/engine.json here)
-//   userData/  → --user-data-dir (Electron userData: localStorage, the
-//                secure-store file, the persisted renderer port, …)
-// so nothing touches the developer's ~/.boson, real app profile, or keychain
-// (--use-mock-keychain on macOS; the basic password store on Linux).
+//   home/      → $HOME
+//   run/       → $XDG_RUNTIME_DIR
+//   userData/  → the app's data dir (BOSON_DATA_DIR: the secure-store file,
+//                the theme folder) and the browser profile (web storage)
+// so nothing touches the developer's real app data or keychain (the secure
+// store uses its derived-key mode).
 //
 // `launchApp()` can be called repeatedly with the same profile to test
 // restore-on-relaunch. Apps are closed and the profile is deleted in
-// teardown; on failure, main-process logs (incl. the engine sidecar's) and a
-// trace + screenshot of the main window are attached to the report.
+// teardown; on failure, the app's log (Go services, engine, renderer
+// console) and a screenshot are attached to the report.
 //
 // With E2E_COVERAGE=1 every launch also collects code coverage for the
-// renderer, main/preload and engine (see coverage/config.ts).
+// renderer and the Go app + engine (see coverage/config.ts).
 //
 // Account-mode fixtures (createAccount / account / backendApi / mailpit)
 // need the full e2e stack (`make test-e2e-app-up`); zncUser leases one of
 // the ZNC users so tests can run in parallel. See README.md next to this
 // file for the whole fixture/helper API.
-import { test as base, expect, _electron, type ElectronApplication, type Page, type Locator } from '@playwright/test';
-import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from 'node:fs';
+import { test as base, expect, type Page, type Locator } from '@playwright/test';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { COVERAGE, ELECTRON_HOOK, RAW, RENDERER_CHUNK_URL, isPreloadUrl } from './coverage/config';
+import { join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { APP_DIR, STACK } from './stack';
 import { BackendApi, provisionIdentity, randomHandle } from './helpers/backend';
 import { Mailpit } from './helpers/mailpit';
 import { createConfirmedUser, deleteAuthUser, type AuthUser } from './helpers/supabase';
 import { leaseZncUser, resetZncUser, type ZncUser } from './helpers/znc';
-import { WAILS_SHELL, launchWails, type WailsLaunch } from './wails-shell';
+import { launchDesktopApp, type App, type DesktopLaunch } from './desktop-app';
 
 export { APP_DIR, STACK };
-
-// Stubs the app's OS boson:// handler registration (see the file).
-const SANDBOX_HOOK = join(dirname(fileURLToPath(import.meta.url)), 'electron-sandbox-hook.cjs');
 
 // Test IRC infra (infra/e2e/docker-compose.yml). The app's engine and the
 // peer bot both reach ergo on the host port; ZNC reaches it as `ergo` on the
@@ -64,10 +60,10 @@ export interface Profile {
 }
 
 export interface LaunchedApp {
-  app: ElectronApplication;
+  app: App;
   page: Page;
-  // URLs the app tried to hand to the OS browser (shell.openExternal is
-  // stubbed so a test never opens the developer's browser).
+  // URLs the app tried to hand to the OS browser (the e2e build records
+  // them instead, so a test never opens the developer's browser).
   openedExternally: () => Promise<string[]>;
 }
 
@@ -78,35 +74,6 @@ function makeProfile(): Profile {
   const p = { root, home: join(root, 'home'), runtime: join(root, 'run'), userData: join(root, 'userData') };
   for (const d of [p.home, p.runtime, p.userData]) mkdirSync(d, { recursive: true, mode: 0o700 });
   return p;
-}
-
-// The main window loads the renderer from the loopback server
-// (http://127.0.0.1:<port>/index.html). Other windows can exist briefly — the
-// one-time storage-migration probe opens hidden file:// windows — so match on
-// URL rather than taking firstWindow().
-async function mainWindow(app: ElectronApplication, timeoutMs = 30_000): Promise<Page> {
-  const isMain = (p: Page): boolean => /^http:\/\/127\.0\.0\.1:\d+\/index\.html/.test(p.url());
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const found = app.windows().find(isMain);
-    if (found) return found;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`main window never loaded; windows: ${app.windows().map((w) => w.url()).join(', ') || '(none)'}`);
-}
-
-// Coverage mode: take the renderer/preload V8 coverage that electron-hook.cjs
-// has been recording, and keep only the app's own bundles (not Electron's
-// internal sandbox bundle or anonymous eval'd snippets).
-async function saveRendererCoverage(app: ElectronApplication): Promise<void> {
-  const entries = await app
-    .evaluate(() => (globalThis as unknown as { __bosonE2ETakeCoverage: () => Promise<Array<{ url: string }>> }).__bosonE2ETakeCoverage())
-    .catch((err: unknown) => {
-      console.warn(`[e2e-coverage] could not take renderer coverage: ${String(err)}`);
-      return [];
-    });
-  const keep = entries.filter((e) => RENDERER_CHUNK_URL.test(e.url) || isPreloadUrl(e.url));
-  if (keep.length > 0) writeFileSync(join(RAW.renderer, `${randomUUID()}.json`), JSON.stringify(keep));
 }
 
 export interface Account extends AuthUser {
@@ -129,7 +96,7 @@ interface Fixtures {
   // `args`: extra command-line arguments for this launch (e.g. a boson://
   // URL, as the OS passes one on a cold start from a link click). `env`:
   // extra environment for the app (e.g. BOSON_E2E_HOST_MAP, see
-  // electron-sandbox-hook.cjs).
+  // desktop/webfetch.go).
   launchApp: (opts?: { profile?: Profile; args?: string[]; env?: Record<string, string> }) => Promise<LaunchedApp>;
   // A ZNC user (tester1..8) leased for this test and reset to its initial
   // state: network `ergo` disconnected upstream, no channels.
@@ -216,131 +183,33 @@ export const test = base.extend<Fixtures>({
   },
 
   launchApp: async ({ profile }, use, testInfo) => {
-    if (WAILS_SHELL) {
-      const wails: WailsLaunch[] = [];
-      await use(async (opts = {}) => {
-        const p = opts.profile ?? profile;
-        const env: Record<string, string> = {};
-        for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-        Object.assign(env, { HOME: p.home, XDG_RUNTIME_DIR: p.runtime, XDG_CONFIG_HOME: join(p.home, '.config'), BOSON_SECURE_STORE: 'derived', BOSON_DATA_DIR: p.userData, BOSON_E2E_RECORD_LINKS: '1', BOSON_E2E: '1' });
-        if (opts.env) Object.assign(env, opts.env);
-        const launched = await launchWails(p, env, opts.args ?? []);
-        wails.push(launched);
-        return launched;
-      });
-      const failed = testInfo.status !== testInfo.expectedStatus;
-      for (const [i, w] of wails.entries()) {
-        if (failed && !w.page.isClosed()) {
-          const shot = await w.page.screenshot().catch(() => null);
-          if (shot) await testInfo.attach(`screenshot-launch-${i + 1}`, { body: shot, contentType: 'image/png' });
-        }
-        await w.close();
-        if (failed) await testInfo.attach(`wails-log-launch-${i + 1}`, { body: w.logs.join(''), contentType: 'text/plain' });
-      }
-      return;
-    }
-    if (!existsSync(join(APP_DIR, 'package.json'))) {
-      throw new Error(`${APP_DIR} is missing — run \`npm run build:e2e-app\` (or \`make test-e2e-app\`) first.`);
-    }
-    const launched: Array<{ app: ElectronApplication; logs: string[]; n: number }> = [];
-
-    const launch = async (opts: { profile?: Profile; args?: string[]; env?: Record<string, string> } = {}): Promise<LaunchedApp> => {
+    const launched: DesktopLaunch[] = [];
+    await use(async (opts = {}) => {
       const p = opts.profile ?? profile;
       const env: Record<string, string> = {};
       for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
-      // Never let a dev-server URL leak in: the app must serve its own build.
-      delete env['ELECTRON_RENDERER_URL'];
-      delete env['ELECTRON_RUN_AS_NODE'];
       Object.assign(env, {
         HOME: p.home,
         XDG_RUNTIME_DIR: p.runtime,
         XDG_CONFIG_HOME: join(p.home, '.config'),
-        // Make Electron print renderer console output to stdout so it lands
-        // in the attached log.
-        ELECTRON_ENABLE_LOGGING: '1',
+        BOSON_SECURE_STORE: 'derived',
+        BOSON_DATA_DIR: p.userData,
+        BOSON_E2E_RECORD_LINKS: '1',
+        BOSON_E2E: '1',
       });
       if (opts.env) Object.assign(env, opts.env);
-      if (COVERAGE) {
-        // Main process: Node writes V8 coverage here on exit. Engine: the
-        // main process passes its env through to the sidecar.
-        env['NODE_V8_COVERAGE'] = RAW.main;
-        env['GOCOVERDIR'] = RAW.engine;
-        writeFileSync(join(RAW.launches, randomUUID()), '');
-      }
-
-      const args = ['-r', SANDBOX_HOOK, APP_DIR, `--user-data-dir=${p.userData}`];
-      // Preloaded ahead of the app's main bundle so renderer coverage starts
-      // before the first page script runs.
-      if (COVERAGE) args.unshift('-r', ELECTRON_HOOK);
-      if (process.platform === 'darwin') args.push('--use-mock-keychain');
-      if (process.platform === 'linux') {
-        // CI containers lack the setuid sandbox helper + a keyring daemon.
-        args.push('--no-sandbox', '--password-store=basic', '--disable-gpu');
-      }
-      if (opts.args) args.push(...opts.args);
-
-      const app = await _electron.launch({ args, env, timeout: 60_000 });
-      if (COVERAGE) {
-        // Collect before ANY close — the teardown below and specs that close
-        // the app themselves (restore.spec relaunches). close() quits the app
-        // gracefully, which lets the main process and engine flush theirs.
-        const close = app.close.bind(app);
-        let saved = false;
-        app.close = async () => {
-          if (!saved) {
-            saved = true;
-            await saveRendererCoverage(app);
-          }
-          await close();
-        };
-      }
-      const logs: string[] = [];
-      const n = launched.length + 1;
-      launched.push({ app, logs, n });
-      const proc = app.process();
-      proc.stdout?.on('data', (b: Buffer) => logs.push(b.toString()));
-      proc.stderr?.on('data', (b: Buffer) => logs.push(b.toString()));
-
-      // Stub the OS-browser handoff before the renderer can trigger it.
-      await app.evaluate(({ shell }) => {
-        const g = globalThis as unknown as { __e2eOpened: string[] };
-        g.__e2eOpened = [];
-        shell.openExternal = async (url: string) => {
-          g.__e2eOpened.push(url);
-        };
-      });
-
-      const page = await mainWindow(app);
-      await page.waitForLoadState('domcontentloaded');
-      await page.context().tracing.start({ screenshots: true, snapshots: true, title: `${testInfo.title} (launch ${n})` })
-        .catch(() => { /* tracing already running for this context */ });
-
-      return {
-        app,
-        page,
-        openedExternally: () =>
-          app.evaluate(() => (globalThis as unknown as { __e2eOpened: string[] }).__e2eOpened.slice()),
-      };
-    };
-
-    await use(launch);
-
+      const app = await launchDesktopApp(p, env, opts.args ?? []);
+      launched.push(app);
+      return app;
+    });
     const failed = testInfo.status !== testInfo.expectedStatus;
-    for (const { app, logs, n } of launched) {
-      const page = app.windows().find((w) => /\/index\.html/.test(w.url()));
-      if (failed && page && !page.isClosed()) {
-        const shot = await page.screenshot().catch(() => null);
-        if (shot) await testInfo.attach(`screenshot-launch-${n}`, { body: shot, contentType: 'image/png' });
-        const tracePath = testInfo.outputPath(`trace-launch-${n}.zip`);
-        await page.context().tracing.stop({ path: tracePath }).catch(() => {});
-        if (existsSync(tracePath)) await testInfo.attach(`trace-launch-${n}`, { path: tracePath, contentType: 'application/zip' });
+    for (const [i, a] of launched.entries()) {
+      if (failed && !a.page.isClosed()) {
+        const shot = await a.page.screenshot().catch(() => null);
+        if (shot) await testInfo.attach(`screenshot-launch-${i + 1}`, { body: shot, contentType: 'image/png' });
       }
-      await app.close().catch(() => {});
-      if (failed) {
-        const logPath = testInfo.outputPath(`main-process-launch-${n}.log`);
-        writeFileSync(logPath, logs.join(''));
-        await testInfo.attach(`main-process-log-launch-${n}`, { path: logPath, contentType: 'text/plain' });
-      }
+      await a.close();
+      if (failed) await testInfo.attach(`app-log-launch-${i + 1}`, { body: a.logs.join(''), contentType: 'text/plain' });
     }
   },
 });

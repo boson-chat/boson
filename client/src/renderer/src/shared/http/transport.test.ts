@@ -20,7 +20,7 @@ describe('transport', () => {
   describe('defaultApiTransport', () => {
     beforeEach(() => { delete (window as { bosonApi?: unknown }).bosonApi; });
 
-    it('uses the Electron bridge when present', async () => {
+    it('uses the desktop bridge when present', async () => {
       const bridgeFetch = vi.fn().mockResolvedValue({ status: 200, ok: true, statusText: 'OK', text: '{}' });
       (window as { bosonApi?: unknown }).bosonApi = { fetch: bridgeFetch };
       const t = defaultApiTransport();

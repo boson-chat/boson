@@ -18,7 +18,7 @@ import (
 // (<id>.json). The renderer parses and validates them (theme.parse.ts), so
 // this never needs the format. Ids are a file-name-safe alphabet, which also
 // keeps every path inside the folder. Edits on disk (any editor) emit
-// ThemesChangedEvent, so they apply live. A port of client/src/main/themes.ts.
+// ThemesChangedEvent, so they apply live.
 type ThemesService struct {
 	dir string
 

@@ -287,7 +287,7 @@ export class DirectoryBloc {
     // Bouncer profile changes (edited, turned off/on, or arriving late from
     // another device) re-route the connections that use it.
     this.unsubscribeBouncerProfile = getBouncerStore().subscribe(() => this.scheduleBouncerReroute());
-    // The engine is back (its socket reopened — e.g. the sidecar restarted
+    // The engine is back (its socket reopened — e.g. a new engine session
     // after a crash): bring dropped servers back now instead of waiting out
     // their backoff.
     this.unsubscribeEngineReconnect = this.engine?.onReconnect?.(() => this.reconnectDropped()) ?? null;
@@ -1131,7 +1131,7 @@ export class DirectoryBloc {
 
   // Deep-link handler. The marketing site's /discover page links to
   // `boson://join?host=…&port=…&tls=…&name=…` for every directory card;
-  // the main process passes the parsed params here.
+  // the desktop shell catches it and the parsed params land here.
   //
   // Two paths:
   //   1. We already know a server (directory or local) with the same

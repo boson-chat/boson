@@ -9,7 +9,6 @@ import type { Locator, Page } from '@playwright/test';
 import {
   test, expect, uid, field, continueAsGuest, configureBouncerProfile, loginAs, type Profile,
 } from './fixtures';
-import { WAILS_SHELL } from './wails-shell';
 
 async function openBouncerSettings(page: Page): Promise<Locator> {
   await page.getByRole('button', { name: 'User settings' }).click();
@@ -41,12 +40,10 @@ function makeProfile(): Profile {
 
 interface BouncerDTO { ciphertext: string; updated_at: string }
 
-// Secure-store tag on disk: the OS keychain format ("ks1:") where one is
-// available (macOS, mock keychain), else the derived-key fallback ("fb1:") —
-// Linux CI has no keyring. Either way it's ciphertext, never plain text.
-// Electron on macOS uses the (mock) keychain; Linux CI and the Wails e2e
-// build use the derived-key store.
-const STORE_TAG = process.platform === 'darwin' && !WAILS_SHELL ? /^ks1:/ : /^fb1:/;
+// Secure-store tag on disk: the e2e build runs the store in its derived-key
+// mode (BOSON_SECURE_STORE=derived), whose values are "fb1:" ciphertext,
+// never plain text.
+const STORE_TAG = /^fb1:/;
 
 test.describe('bouncer profile', () => {
   test('validation, toggles, Clear, and persistence across a relaunch (encrypted at rest)', async ({ launchApp, profile }) => {

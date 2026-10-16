@@ -1,6 +1,7 @@
 # Real-app e2e: fixtures and helpers
 
-Specs here drive the built Electron app against the e2e stack (endpoints:
+Specs here drive the built desktop app (a server-mode build of `desktop/`,
+in Chromium; see `desktop-app.ts`) against the e2e stack (endpoints:
 `infra/e2e/stack.json`; how to run it: the repo README, "End-to-end tests
 (real app)"). Import everything from `./fixtures`:
 

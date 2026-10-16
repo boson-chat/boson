@@ -204,7 +204,7 @@ services:
   # R2 is S3-compatible, so local dev points the backend's CLOUDFLARE_R2_*
   # config at MinIO instead of real R2 (see backend/config/config.dev.json).
   # The backend runs natively (`make run`) so it reaches MinIO at
-  # localhost:9000; the Electron client loads avatars from the same origin
+  # localhost:9000; the desktop client loads avatars from the same origin
   # (CDN base = http://localhost:9000/boson), which is why the bucket is
   # made anonymously readable below.
   #

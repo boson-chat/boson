@@ -5,7 +5,7 @@
 # pushes a tag (vX.Y.Z), and creates the GitHub Release.
 #
 # Tagging is the trigger for the downstream artifact workflows
-# (release-docker, release-client) — they publish to the GitHub Release
+# (release-docker, desktop) — they publish to the GitHub Release
 # this workflow just opened. No coordination via inputs/outputs needed.
 name: Release
 
@@ -80,5 +80,5 @@ jobs:
         run: |
           set -e
           echo "Dispatching downstream builds for $NEW_TAG"
-          gh workflow run "Release Electron client" --ref "$NEW_TAG"
+          gh workflow run "Desktop app"            --ref "$NEW_TAG"
           gh workflow run "Release Docker images"   --ref "$NEW_TAG"

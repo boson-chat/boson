@@ -16,14 +16,14 @@
 }
 
 /* macOS variant — leave room for the native traffic lights on the left.
-   They sit at x=16 in Electron (trafficLightPosition in src/main/index.ts)
-   and nearer the edge under Wails, and span ~54px; 88px clears both. */
+   They sit near the left edge under Wails and span ~54px; 88px clears
+   them with room to spare. */
 .title-bar-darwin .title-bar-drag {
   padding-left: 88px;
 }
 
-/* The drag region fills the bar minus the controls. -webkit-app-region (Electron)
-   and --wails-draggable (Wails) make this area the OS drag handle. */
+/* The drag region fills the bar minus the controls. --wails-draggable makes
+   this area the OS drag handle (-webkit-app-region is the Chromium spelling). */
 .title-bar-drag {
   flex: 1;
   display: flex;

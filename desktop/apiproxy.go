@@ -20,7 +20,7 @@ import (
 // Because it isn't subject to CORS or the page's CSP, this is a powerful
 // primitive: anything that can call it can make requests from the user's
 // machine. So it only reaches an exact-origin allowlist — our own API — and
-// re-checks that on every redirect hop. A port of client/src/main/api-proxy.ts.
+// re-checks that on every redirect hop.
 type ApiService struct {
 	policy apiPolicy
 	client *http.Client

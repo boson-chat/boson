@@ -9,7 +9,7 @@ import { argon2id } from 'hash-wasm';
 // recovery. hash-wasm computes the identical RFC 9106 Argon2id output (see
 // argon2.test.ts) in ~0.7s, and we run it in a dedicated Web Worker so the UI
 // stays responsive. Where Workers don't exist (unit tests, Node-side test
-// helpers) it runs inline. Electron's BoringSSL has no native Argon2, so
+// helpers) it runs inline. The webview's WebCrypto has no native Argon2, so
 // there's no faster built-in to defer to.
 
 export interface Argon2Params {

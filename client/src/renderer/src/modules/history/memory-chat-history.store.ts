@@ -1,5 +1,5 @@
 // memory-chat-history.store.ts — in-process ChatHistoryStore for tests and as
-// a graceful fallback when IndexedDB is unavailable (e.g. non-Electron sandbox
+// a graceful fallback when IndexedDB is unavailable (e.g. a sandboxed webview
 // or happy-dom's incomplete IDB shim). Mirrors IDBChatHistoryStore semantics:
 // the same LAST_N cap, the same scope partitioning, and the same
 // wipeAllForUser behaviour.

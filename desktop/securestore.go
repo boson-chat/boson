@@ -26,10 +26,10 @@ import (
 //	                             in the OS keychain (preferred)
 //	"fb1:<base64 iv||tag||ct>" — AES-256-GCM under a key derived from the OS
 //	                             user + hostname; for hosts without a keychain
-//	                             (headless Linux). Same format as the Electron
-//	                             build, so those values carry over.
-//	"ks1:…" / untagged          — Electron safeStorage; unreadable here, read as
-//	                             missing (the Electron export brings them over).
+//	                             (headless Linux). Same format as the former
+//	                             Electron build, so those values carry over.
+//	"ks1:…" / untagged          — the former Electron build's safeStorage;
+//	                             unreadable here, read as missing.
 //
 // Only the 32-byte master key goes in the keychain, not the values: Windows
 // Credential Manager caps an entry at ~2.5 KB.
@@ -76,9 +76,9 @@ func (s *SecureStore) mode() string {
 
 func (s *SecureStore) IsAvailable() bool { return s.Mode() != "none" }
 
-// The bound methods take untyped arguments and check them, with the Electron
-// IPC handlers' messages: a broken renderer gets a clear error rather than a
-// silently desynced store.
+// The bound methods take untyped arguments and check them, with the former
+// Electron IPC handlers' messages: a broken renderer gets a clear error
+// rather than a silently desynced store.
 func storeKey(op string, key any) (string, error) {
 	k, ok := key.(string)
 	if !ok || k == "" {
@@ -247,7 +247,7 @@ func (s *SecureStore) masterKey() ([]byte, error) {
 	return k, nil
 }
 
-// fallbackKey matches the Electron build's derived key:
+// fallbackKey matches the former Electron build's derived key:
 // sha256(username::hostname::salt), where username is the bare login name.
 func fallbackKey() ([]byte, error) {
 	u, err := user.Current()
@@ -269,7 +269,7 @@ func fallbackKey() ([]byte, error) {
 	return sum[:], nil
 }
 
-// seal/open: base64(iv(12) || tag(16) || ciphertext), the Electron layout.
+// seal/open: base64(iv(12) || tag(16) || ciphertext), the former Electron layout.
 // Go's GCM appends the tag to the ciphertext, so it's moved in front.
 func seal(key []byte, plaintext string) (string, error) {
 	gcm, err := newGCM(key)
