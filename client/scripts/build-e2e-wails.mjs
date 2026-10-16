@@ -13,7 +13,7 @@
 //
 // Usage: node scripts/build-e2e-wails.mjs [--with-renderer]
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,6 +43,8 @@ if (!existsSync(join(renderer, 'index.html'))) {
 const dist = join(desktopDir, 'frontend', 'dist');
 rmSync(dist, { recursive: true, force: true });
 cpSync(renderer, dist, { recursive: true });
+// The tracked placeholder (desktop/.gitignore), so the tree stays clean.
+writeFileSync(join(dist, '.gitkeep'), '');
 
 // cgo: macOS's server build still links the notifications package's cgo
 // code; elsewhere the server build is pure Go (no GTK/WebKit needed). On
