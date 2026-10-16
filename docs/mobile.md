@@ -7,7 +7,28 @@ The web-client plan (`docs/web-client.md`, draft #27) is parked; mobile goes
 first.
 
 Decided (2026-10-16): **Wails v3 mobile**, **iOS and Android together**,
-plan (this doc) before building.
+plan (this doc) before building. Answers to the review questions:
+
+- **App ID:** `chat.boson.app` on both (Android package and iOS bundle id),
+  as on desktop. Apple ids are per developer account and may span macOS and
+  iOS; the Mac app is outside the App Store, so nothing clashes. When the iOS
+  app is in App Store Connect, untick "make available on Apple Silicon
+  Macs", so a Mac never has two apps with the same id.
+- **Minimum versions:** iOS 16+, Android 8.0 (API 26)+.
+- **Tablets:** yes — iPad and Android tablets, with the desktop-style layout
+  on wide screens and the mobile one on narrow ones (and in split view).
+- **Android background:** the opt-in "Stay connected in the background"
+  foreground service is in v1.
+- **Push notifications:** not in v1.
+- **Reports:** by email. Report opens a pre-filled email to
+  `abuse@boson.chat` (network, channel, nick, the message, app version);
+  the mailbox has to exist and be read. A backend moderation queue can come
+  later.
+- **Distribution for now:** no Google Play account yet. Android builds are
+  sideloadable APKs signed with our own generated key (Android won't install
+  a truly unsigned APK); Play comes later. iOS runs in the simulator; real
+  iPhones need Apple signing, so TestFlight (the existing Apple account) when
+  we want devices.
 
 ## Why Wails mobile
 
@@ -149,13 +170,14 @@ So for v1:
   Developer team (FJY7UPX884) — needs an iOS distribution certificate and an
   App Store provisioning profile; upload to TestFlight with the App Store
   Connect API key we already use for notarization.
-- **Android:** Gradle build on Linux; an upload keystore (new secret), Play
-  App Signing; an AAB for the Play Store and an APK for sideloading.
-- **CI:** a `mobile.yml` workflow like `desktop.yml`: builds on every PR,
-  and on release tags uploads to TestFlight / Play internal testing (store
-  submission stays manual).
-- **Versions:** iOS 16+ (covers ~95% of devices), Android 8.0 (API 26)+ —
-  open question below.
+- **Android:** Gradle build on Linux; for now a sideloadable **APK** signed
+  with our own release key (a new CI secret), attached to each GitHub
+  Release. Later, with a Play Console account: an AAB and Play App Signing.
+- **CI:** a `mobile.yml` workflow like `desktop.yml`: builds on every PR
+  (an iOS simulator build and the Android APK); on release tags it attaches
+  the APK to the GitHub Release, and — once we want devices — uploads the
+  iOS build to TestFlight. Store submission stays manual.
+- **Versions:** iOS 16+, Android 8.0 (API 26)+ (decided).
 
 ## Testing
 
@@ -196,26 +218,19 @@ So for v1:
 - Mobile viewport e2e projects; native smoke tests; `mobile.yml`.
 
 ### Phase 4: signing and beta (~1 week)
-- iOS certificates/profiles, Android keystore, TestFlight and Play internal
-  testing from release tags; store listings, privacy forms, EULA.
+- Android release key; APKs on GitHub Releases from release tags.
+- iOS certificates/profiles and TestFlight from release tags (when we want
+  real devices); the `abuse@boson.chat` mailbox; EULA and privacy text.
 
-### Phase 5: store release
-- Review feedback, then public release on both stores.
+### Phase 5: store release (later)
+- Google Play Console account; App Store listing; review feedback; public
+  release on both stores.
 
 Rough size: 7–9 weeks. The interface is the largest part; the Go side is
 mostly done already.
 
-## Open questions for review
+## Still open
 
-1. **Store accounts:** the Apple Developer account exists (team FJY7UPX884);
-   is there a **Google Play Console** account ($25 one-time)? Who owns it?
-2. **Bundle id:** reuse `chat.boson.app` on iOS and Android, or a separate
-   id for mobile?
-3. **Minimum versions:** iOS 16+ and Android 8.0+ OK?
-4. **Background on Android:** offer the opt-in foreground service in v1?
-5. **Push notifications:** confirm they're out of v1 (they need a small
-   push relay server).
-6. **Tablets:** iPad/Android tablets in v1 (they'd get the desktop-style
-   layout on wide screens), or phones only?
-7. **Report destination:** where do Report actions go (an email address, or
-   a backend endpoint and a moderation queue)?
+- The `abuse@boson.chat` mailbox (or another address) — needs creating.
+- When to start TestFlight (needs an iOS distribution certificate and an App
+  Store Connect app record under the existing team).
