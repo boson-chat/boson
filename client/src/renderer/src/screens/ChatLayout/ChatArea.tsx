@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { PlugZap, Settings, ShieldAlert, Unplug } from 'lucide-preact';
+import { ChevronLeft, PlugZap, Settings, ShieldAlert, Unplug, Users } from 'lucide-preact';
 import { BarLoader } from '@boson/shared';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
@@ -98,6 +98,20 @@ interface ChatAreaProps {
   // (serverInfo.bouncerCert). Without them the strip shows no buttons.
   onTrustBouncerCert?: () => void;
   onRejectBouncerCert?: () => void;
+  // Phone layout (one pane at a time): back to the channel list, and the
+  // member list as its own pane. Absent on wide layouts.
+  onBack?: () => void;
+  onShowMembers?: () => void;
+}
+
+// The phone layout's way back to the channel list, at the start of a header.
+function PaneBackButton({ onBack }: { onBack?: () => void }) {
+  if (!onBack) return null;
+  return (
+    <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Back to channels">
+      <ChevronLeft size={20} aria-hidden="true" />
+    </button>
+  );
 }
 
 export function ChatArea({
@@ -126,6 +140,8 @@ export function ChatArea({
   onBouncerConnect,
   onTrustBouncerCert,
   onRejectBouncerCert,
+  onBack,
+  onShowMembers,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -212,6 +228,7 @@ export function ChatArea({
         <EngineHeader
           title={isReconnecting ? 'Reconnecting' : (isAttempting ? 'Connecting' : 'Disconnected')}
           serverName={serverName}
+          onBack={onBack}
         />
         <div class="chat-engine-splash">
           <div class={`chat-engine-dot ${dotClass}`} />
@@ -284,6 +301,7 @@ export function ChatArea({
     <main class="chat-area">
       <div class="chat-header">
         <div class="chat-header-left">
+          <PaneBackButton onBack={onBack} />
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
           {topic && (
@@ -297,6 +315,17 @@ export function ChatArea({
           )}
         </div>
         <div class="chat-header-right">
+          {onShowMembers && (
+            <button
+              type="button"
+              class="chat-icon-btn chat-pane-members"
+              onClick={onShowMembers}
+              title="Members"
+              aria-label={`Members (${channel.members.length})`}
+            >
+              <Users size={16} aria-hidden="true" />
+            </button>
+          )}
           {onOpenChannelSettings && (
             <button
               type="button"
@@ -393,12 +422,14 @@ function TypingIndicator({ nicks }: TypingIndicatorProps) {
 interface EngineHeaderProps {
   title: string;
   serverName: string | undefined;
+  onBack?: () => void;
 }
 
-function EngineHeader({ title, serverName }: EngineHeaderProps) {
+function EngineHeader({ title, serverName, onBack }: EngineHeaderProps) {
   return (
     <div class="chat-header">
       <div class="chat-header-left">
+        <PaneBackButton onBack={onBack} />
         <span class="chat-channel-label">{title}</span>
         {serverName && <span class="chat-engine-server-name">{serverName}</span>}
       </div>

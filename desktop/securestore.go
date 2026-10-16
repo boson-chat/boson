@@ -14,8 +14,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-
-	"github.com/zalando/go-keyring"
 )
 
 // SecureStore keeps short secrets (identity, bouncer and services
@@ -226,14 +224,14 @@ func (s *SecureStore) masterKey() ([]byte, error) {
 	if s.key != nil {
 		return s.key, nil
 	}
-	enc, err := keyring.Get(keyringService, keyringMasterKey)
-	if errors.Is(err, keyring.ErrNotFound) {
+	enc, err := keychainGet(keyringService, keyringMasterKey)
+	if errors.Is(err, errKeychainNotFound) {
 		k := make([]byte, 32)
 		if _, err := rand.Read(k); err != nil {
 			return nil, err
 		}
 		enc = base64.StdEncoding.EncodeToString(k)
-		if err := keyring.Set(keyringService, keyringMasterKey, enc); err != nil {
+		if err := keychainSet(keyringService, keyringMasterKey, enc); err != nil {
 			return nil, err
 		}
 	} else if err != nil {

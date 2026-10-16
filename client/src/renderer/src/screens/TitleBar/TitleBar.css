@@ -195,3 +195,11 @@
   border-radius: 999px;
   pointer-events: none;
 }
+
+/* Phones: the bar must fit the screen — a long account name (an email)
+   otherwise widens the page, which WebKit then lets scroll sideways. */
+@media (max-width: 700px) {
+  .title-bar { overflow: hidden; }
+  .title-bar-drag { min-width: 0; }
+  .title-bar-user-name { max-width: 30vw; }
+}

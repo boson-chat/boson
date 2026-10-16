@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 // Real-app e2e: drives the BUILT desktop app (desktop/, as a server-mode
 // binary embedding out-e2e/renderer, from `npm run build:e2e-app`) in
@@ -30,6 +30,22 @@ export default defineConfig({
   fullyParallel: true,
   workers: Number(process.env['E2E_WORKERS'] || (process.env['CI'] ? 1 : 4)),
   retries: process.env['CI'] ? 1 : 0,
+  // desktop: every spec at a desktop window size. mobile: the phone-layout
+  // specs (mobile-*.spec.ts) at an iPhone's viewport, with touch — the e2e
+  // app runs in Chromium, so this checks the responsive layout, not WebKit.
+  projects: [
+    { name: 'desktop', testIgnore: /mobile-.*\.spec\.ts/ },
+    {
+      name: 'mobile',
+      testMatch: /mobile-.*\.spec\.ts/,
+      use: {
+        viewport: devices['iPhone 15'].viewport,
+        deviceScaleFactor: devices['iPhone 15'].deviceScaleFactor,
+        isMobile: true,
+        hasTouch: true,
+      },
+    },
+  ],
   reporter: process.env['CI']
     ? [['github'], ['list'], ['html', { open: 'never', outputFolder: 'playwright-report/e2e-app' }]]
     : [['list']],

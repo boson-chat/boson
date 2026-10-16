@@ -12,6 +12,9 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, #app { height: 100%; }
+/* The app never scrolls as a page (panes scroll inside); on iOS an
+   overflowing element would otherwise let the whole page pan sideways. */
+html { overflow: hidden; }
 
 /* Phones draw edge to edge (the iOS shell lays the webview under the status
    bar and home indicator): keep content clear of them. The insets are 0 on

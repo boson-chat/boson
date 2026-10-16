@@ -13,6 +13,7 @@ import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/pan
 import type { ChannelOpActions } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
+import { useNarrow } from '../../shared/narrow';
 import './ChatLayout.css';
 
 interface Props {
@@ -99,6 +100,21 @@ export function ChatLayout({
   const [membersW, setMembersW] = useState(() => getPanelWidth('members'));
 
   const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
+
+  // Phones (and narrow windows): one pane at a time — the server rail with
+  // the channel list, the chat, or the member list. Picking a channel opens
+  // the chat; the chat header leads back, or on to the members.
+  const narrow = useNarrow();
+  const [pane, setPane] = useState<'nav' | 'chat' | 'members'>(() => (active ? 'chat' : 'nav'));
+  const shownPane = !narrow ? null : (pane !== 'nav' && !active ? 'nav' : pane);
+  // A newly active channel — picked, joined, or opened from elsewhere — is
+  // what the user wants to see: show the chat.
+  const activeName = state.activeChannel;
+  const [lastActive, setLastActive] = useState(activeName);
+  if (activeName !== lastActive) {
+    setLastActive(activeName);
+    if (activeName) setPane('chat');
+  }
   const supportsOwnerAdmin = /[qa]/.test(state.serverInfo.prefix?.modes ?? 'qa');
   // Our rank in the active channel. `typeof` guard keeps hand-rolled test fakes
   // (no myRank method) working — they read as rank 0.
@@ -132,7 +148,7 @@ export function ChatLayout({
   const avatarFor = useAvatarFor(activeServerId ?? null);
 
   return (
-    <div class="app-shell">
+    <div class={`app-shell${shownPane ? ` is-narrow pane-${shownPane}` : ''}`}>
       <ServerRail
         servers={servers}
         activeServerId={activeServerId}
@@ -150,7 +166,7 @@ export function ChatLayout({
         bannerUrl={bannerUrl}
         channels={state.channels}
         activeChannel={state.activeChannel}
-        onSelect={(name) => chat.setActive(name)}
+        onSelect={(name) => { chat.setActive(name); setPane('chat'); }}
         onJoin={(name) => chat.join(name)}
         onPart={(name) => chat.part(name)}
         channelDirectory={state.channelDirectory.entries}
@@ -221,6 +237,8 @@ export function ChatLayout({
         onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
         onTrustBouncerCert={typeof chat.trustBouncerCert === 'function' ? () => chat.trustBouncerCert() : undefined}
         onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
+        onBack={narrow ? () => setPane('nav') : undefined}
+        onShowMembers={narrow && isChannel ? () => setPane('members') : undefined}
       />
       <ResizeHandle
         side="right"
@@ -232,7 +250,13 @@ export function ChatLayout({
         onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
         ariaLabel="Resize member list"
       />
-      <UserPanel channel={active} nickActions={nickActions} avatarFor={avatarFor} width={membersW} />
+      <UserPanel
+        channel={active}
+        nickActions={nickActions}
+        avatarFor={avatarFor}
+        width={membersW}
+        onBack={narrow ? () => setPane('chat') : undefined}
+      />
 
       <Modal
         open={helpCommands !== null}

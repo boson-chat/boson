@@ -76,3 +76,25 @@
 }
 .kick-modal-confirm { color: var(--danger, #f85149); border-color: var(--danger, #f85149); }
 .kick-modal-confirm:hover { opacity: 0.85; }
+
+/* Phone layout (shared/narrow.ts, ≤ 700px): one pane at a time. `pane-nav`
+   is the server rail with the channel list (the sidebar fills the width),
+   `pane-chat` the chat, `pane-members` the member list. Drag handles and
+   the panels' saved widths don't apply. */
+.app-shell.is-narrow .resize-handle { display: none; }
+.app-shell.is-narrow .channel-sidebar,
+.app-shell.is-narrow .user-panel,
+.app-shell.is-narrow .chat-area { flex: 1 1 auto; width: auto !important; min-width: 0; }
+.app-shell.is-narrow.pane-nav .chat-area,
+.app-shell.is-narrow.pane-nav .user-panel { display: none; }
+.app-shell.is-narrow.pane-chat .server-rail,
+.app-shell.is-narrow.pane-chat .channel-sidebar,
+.app-shell.is-narrow.pane-chat .user-panel { display: none; }
+.app-shell.is-narrow.pane-members .server-rail,
+.app-shell.is-narrow.pane-members .channel-sidebar,
+.app-shell.is-narrow.pane-members .chat-area { display: none; }
+
+/* The panes' back buttons sit at the start of their headers. */
+.chat-pane-back { margin-left: calc(-1 * var(--space-2)); flex-shrink: 0; }
+.user-panel-header .chat-pane-back { margin-right: var(--space-1); }
+.app-shell.is-narrow .user-panel-header { display: flex; align-items: center; }
