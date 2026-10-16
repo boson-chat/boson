@@ -44,6 +44,12 @@ func main() {
 	}
 	dev := devBuild == "true"
 	e2e := dev && os.Getenv("BOSON_E2E") == "1"
+	// boson.chat's YouTube wrapper; the e2e build serves its own (it stubs
+	// YouTube, and can't depend on the website).
+	youtubeWrapper := youtubeWrapperRemote
+	if e2e {
+		youtubeWrapper = ""
+	}
 	links := NewLinksService(dev)
 	api := NewApiService(apiBase, dev)
 	deepLinks := &DeepLinkService{}
@@ -77,7 +83,7 @@ func main() {
 			application.NewService(deepLinks),
 			application.NewService(notify),
 			application.NewService(updater),
-			application.NewService(NewYouTubeService(dist)),
+			application.NewService(NewYouTubeService(dist, youtubeWrapper)),
 			application.NewService(NewE2EService(dev, e2eTargets{links, deepLinks, api, engine, spotify, updater})),
 		},
 		Assets: application.AssetOptions{

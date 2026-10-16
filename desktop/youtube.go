@@ -12,31 +12,45 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// YouTubeService serves the YouTube wrapper page (the renderer's
-// public/youtube-embed.html and .js) over loopback http. YouTube refuses to
-// play in a page whose origin is wails://localhost (error 153), so the
-// renderer frames the wrapper from here and the wrapper frames YouTube.
-// Only those two files are served. The renderer gets the origin to use
-// from WrapperOrigin (platform/wails.ts → Embed.tsx).
+// YouTubeService names the YouTube wrapper page (the renderer's
+// public/youtube-embed.html and .js): YouTube refuses to play in a page
+// whose origin is wails://localhost (error 153), so the renderer frames the
+// wrapper and the wrapper frames YouTube. The renderer gets the origin from
+// WrapperOrigin (platform/wails.ts → Embed.tsx).
+//
+// The app uses the copy boson.chat hosts (website/public/): under WebKit
+// even a *.localhost loopback page gets 153 for some videos, and a real
+// https site is what YouTube expects. The e2e build, which stubs YouTube,
+// serves the two files itself over loopback http instead.
 type YouTubeService struct {
 	dist   fs.FS
 	host   string
+	remote string
 	origin string
 	srv    *http.Server
 }
+
+// youtubeWrapperRemote is where the app's wrapper lives.
+const youtubeWrapperRemote = "https://boson.chat"
 
 // youtubeWrapperHost: a *.localhost name resolves to loopback in the
 // webview without any DNS, and isn't a bare loopback address, which YouTube
 // refuses for some (label) videos.
 const youtubeWrapperHost = "youtube-embed.localhost"
 
-func NewYouTubeService(dist fs.FS) *YouTubeService {
-	return &YouTubeService{dist: dist, host: youtubeWrapperHost}
+// NewYouTubeService frames YouTube via remote (an https origin hosting the
+// wrapper), or, with remote empty, via its own loopback server.
+func NewYouTubeService(dist fs.FS, remote string) *YouTubeService {
+	return &YouTubeService{dist: dist, host: youtubeWrapperHost, remote: remote}
 }
 
 func (y *YouTubeService) WrapperOrigin() string { return y.origin }
 
 func (y *YouTubeService) ServiceStartup(context.Context, application.ServiceOptions) error {
+	if y.remote != "" {
+		y.origin = y.remote
+		return nil
+	}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return nil // no wrapper: the renderer embeds YouTube directly

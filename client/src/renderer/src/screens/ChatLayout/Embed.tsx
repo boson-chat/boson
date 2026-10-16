@@ -128,9 +128,11 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
 // (src/main/youtube-embed.ts; keep the hostname in sync). The wrapper posts a
 // ready message; without one in time we embed YouTube directly, which plays
 // most videos. Outside a loopback origin (web build, tests) it's direct. The
-// Wails shell serves the wrapper from its own loopback server under
-// youtube-embed.localhost (desktop/youtube.go) — a wails:// page can't play
-// YouTube at all.
+// Wails shell names its wrapper (desktop/youtube.go): boson.chat, where the
+// website hosts the same two files. A wails:// page can't play YouTube at
+// all, so there the fallback is the video on YouTube, never a direct embed.
+// The wrapper also passes on the player's errors (embedding refused, 153),
+// which turn the player back into a "watch on YouTube" card.
 export const YOUTUBE_EMBED_HOST = 'youtube-embed.invalid';
 export const YOUTUBE_WRAPPER_TIMEOUT_MS = 6_000;
 
@@ -165,22 +167,33 @@ function YouTubeEmbed({
   const direct = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&origin=${encodeURIComponent(origin)}`;
   const wrapperOrigin = youtubeWrapperOrigin();
   const [viaWrapper, setViaWrapper] = useState(wrapperOrigin !== null);
+  // YouTube won't play it here: show the card, which opens it on YouTube.
+  const [failed, setFailed] = useState(false);
+  // Under the Wails shell embedding YouTube directly can only fail (153).
+  const directWorks = typeof window === 'undefined' || !(window as { bosonYouTube?: unknown }).bosonYouTube;
   const src = viaWrapper && wrapperOrigin ? `${wrapperOrigin}/youtube-embed.html?v=${encodeURIComponent(id)}` : direct;
   const frame = useRef<HTMLIFrameElement>(null);
 
-  // Playing through the wrapper: wait for its ready message, else go direct.
+  // Playing through the wrapper: wait for its ready message, else go direct
+  // (or, where that can't work, to the card). A player error → the card.
   useEffect(() => {
-    if (stage !== 'play' || !viaWrapper) return;
+    if (stage !== 'play' || !viaWrapper || failed) return;
     let ready = false;
     const onMessage = (e: MessageEvent): void => {
       if (e.origin !== wrapperOrigin || e.source !== frame.current?.contentWindow) return;
       const d = e.data as { type?: unknown; v?: unknown } | null;
-      if (d?.type === 'boson-youtube-ready' && d.v === id) ready = true;
+      if (d?.v !== id) return;
+      if (d.type === 'boson-youtube-ready') ready = true;
+      if (d.type === 'boson-youtube-error') setFailed(true);
     };
     window.addEventListener('message', onMessage);
-    const timer = setTimeout(() => { if (!ready) setViaWrapper(false); }, YOUTUBE_WRAPPER_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      if (ready) return;
+      if (directWorks) setViaWrapper(false);
+      else setFailed(true);
+    }, YOUTUBE_WRAPPER_TIMEOUT_MS);
     return () => { window.removeEventListener('message', onMessage); clearTimeout(timer); };
-  }, [stage, viaWrapper, id, wrapperOrigin]);
+  }, [stage, viaWrapper, failed, id, wrapperOrigin, directWorks]);
 
   // Once past the inert chip, fetch the video title (OG) for the card header.
   useEffect(() => {
@@ -215,12 +228,13 @@ function YouTubeEmbed({
             {card.date && formatDate(card.date)}
           </span>
         )}
-        {stage === 'facade' ? (
+        {stage === 'facade' || failed ? (
           <button
             type="button"
             class="embed-yt-thumb"
-            onClick={() => (canInline ? setStage('play') : openExternal(c.url))}
-            aria-label={canInline ? 'Play video' : 'Watch on YouTube'}
+            onClick={() => (canInline && !failed ? setStage('play') : openExternal(c.url))}
+            aria-label={canInline && !failed ? 'Play video' : 'Watch on YouTube'}
+            title={failed ? "YouTube won't play this video here. Watch it on YouTube." : undefined}
           >
             <img class="embed-img" src={card?.image ?? thumb} alt="" loading="lazy" />
             <span class="embed-yt-play" aria-hidden="true" />

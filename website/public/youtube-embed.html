@@ -1,0 +1,30 @@
+<!doctype html>
+<!--
+  YouTube player host for inline video embeds. YouTube refuses some videos
+  (label / VEVO music videos: "This video is unavailable"), or every video
+  (error 153), when the page around its player is a local or app-scheme
+  page. So the player is framed by this page under an ordinary hostname:
+    - Electron: http://youtube-embed.invalid:<port>, a reserved name main
+      maps to its loopback server (host-resolver-rules);
+    - Wails: https://boson.chat (website/public/ holds a copy; keep them in
+      sync, Embed.test.tsx checks), or the e2e build's own loopback server.
+  Takes ?v=<11-char id>[&t=<seconds>]; anything else is refused.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src https://www.youtube-nocookie.com; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>YouTube</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #000; color: #aaa; font: 13px system-ui, sans-serif; overflow: hidden; }
+      iframe { display: block; width: 100%; height: 100%; border: 0; }
+    </style>
+  </head>
+  <body>
+    <script src="youtube-embed.js"></script>
+  </body>
+</html>
