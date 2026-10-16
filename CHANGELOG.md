@@ -1,3 +1,9 @@
+## [0.37.0](https://github.com/boson-chat/boson/compare/v0.36.4...v0.37.0) (2026-10-16)
+
+### Features
+
+* **desktop:** migrate to Wails v3 — plan, engine transport, shell, e2e in CI ([#22](https://github.com/boson-chat/boson/issues/22)) ([9fc595a](https://github.com/boson-chat/boson/commit/9fc595a2d0702a266503c2f869ee40c059cc4cc6)), closes [#23](https://github.com/boson-chat/boson/issues/23)
+
 ## [0.36.4](https://github.com/boson-chat/boson/compare/v0.36.3...v0.36.4) (2026-10-14)
 
 ### Bug Fixes
