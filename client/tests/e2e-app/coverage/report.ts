@@ -4,7 +4,8 @@
 //   coverage/e2e/renderer/  index.html (V8 report) + lcov.info + coverage-summary.json
 //   coverage/e2e/main/      index.html (V8 report) + lcov.info + coverage-summary.json
 //   coverage/e2e/engine/    index.html (go tool cover) + coverage.out + lcov.info
-//                           + packages.txt / functions.txt
+//                           + packages.txt / functions.txt (under Wails: the
+//                           desktop shell + engine binary; no main/ layer)
 //   coverage/e2e/backend/   same as engine/, for the Go API server (only when
 //                           the e2e stack's backend is a coverage build)
 //   coverage/e2e/summary.md per-layer totals + least-covered files
@@ -17,7 +18,7 @@ import { basename, join, relative, resolve } from 'node:path';
 import MCR from 'monocart-coverage-reports';
 import {
   APP_OUT_DIR, BACKEND_COVER_DIR, BACKEND_PID_FILE, CLIENT_DIR, COVERAGE_DIR, RAW, REPO_ROOT,
-  RENDERER_CHUNK_URL, isMainUrl, isPreloadUrl,
+  RENDERER_CHUNK_URL, WAILS_RUN, isMainUrl, isPreloadUrl,
 } from './config';
 
 type V8Entry = MCR.V8CoverageEntry;
@@ -180,19 +181,28 @@ async function flushBackendCoverage(timeoutMs = 10_000): Promise<'none' | 'flush
   return 'flushed';
 }
 
-function goLayer(opts: { layer: 'engine' | 'backend'; name: string; scope: string; rawDir: string }): LayerSummary | null {
+// Root module path: profile paths are reported relative to the repo root.
+const ROOT_MODULE = 'github.com/boson-chat/boson';
+
+function goLayer(opts: {
+  layer: 'engine' | 'backend'; name: string; scope: string; rawDir: string;
+  // Where the go tools resolve the profile's packages (the desktop module
+  // for the Wails binary, which the root module doesn't contain).
+  cwd?: string;
+}): LayerSummary | null {
   if (!listFiles(opts.rawDir).some((f) => basename(f).startsWith('covmeta.'))) return null;
   const outputDir = join(COVERAGE_DIR, opts.layer);
   mkdirSync(outputDir, { recursive: true });
   const profile = join(outputDir, 'coverage.out');
-  writeFileSync(join(outputDir, 'packages.txt'), go(['tool', 'covdata', 'percent', '-i', opts.rawDir]));
-  go(['tool', 'covdata', 'textfmt', '-i', opts.rawDir, '-o', profile]);
-  go(['tool', 'cover', `-html=${profile}`, '-o', join(outputDir, 'index.html')]);
-  writeFileSync(join(outputDir, 'functions.txt'), go(['tool', 'cover', `-func=${profile}`]));
+  const cwd = opts.cwd ?? REPO_ROOT;
+  writeFileSync(join(outputDir, 'packages.txt'), go(['tool', 'covdata', 'percent', '-i', opts.rawDir], cwd));
+  go(['tool', 'covdata', 'textfmt', '-i', opts.rawDir, '-o', profile], cwd);
+  go(['tool', 'cover', `-html=${profile}`, '-o', join(outputDir, 'index.html')], cwd);
+  writeFileSync(join(outputDir, 'functions.txt'), go(['tool', 'cover', `-func=${profile}`], cwd));
 
   // Profile lines: <import path>/<file>.go:<l0>.<c0>,<l1>.<c1> <stmts> <count>
   // (blocks from several processes are already merged by textfmt).
-  const modulePath = go(['list', '-m']).trim();
+  const modulePath = ROOT_MODULE;
   const files = new Map<string, { stmts: Metric; lines: Map<number, number> }>();
   for (const line of readFileSync(profile, 'utf8').split('\n').slice(1)) {
     const m = line.match(/^(.+\.go):(\d+)\.\d+,(\d+)\.\d+ (\d+) (\d+)$/);
@@ -236,7 +246,7 @@ function goLayer(opts: { layer: 'engine' | 'backend'; name: string; scope: strin
 
 function markdown(layers: LayerSummary[], top = 15): string {
   const out: string[] = [
-    '## E2E coverage (real Electron app)',
+    `## E2E coverage (real ${WAILS_RUN ? 'Wails' : 'Electron'} app)`,
     '',
     '| Layer | Scope | Lines | Statements | Functions | Branches |',
     '| --- | --- | --- | --- | --- | --- |',
@@ -283,15 +293,22 @@ export async function generateE2eCoverageReport(): Promise<void> {
   await attempt('renderer', () => v8Layer({
     layer: 'renderer', name: 'Renderer', scope: 'src/renderer/src', entries: renderer,
   }));
-  await attempt('main', () => v8Layer({
-    layer: 'main', name: 'Main + preload', scope: 'src/main, src/preload', entries: preload, nodeCoverageDir: RAW.main,
-  }));
+  if (!WAILS_RUN) {
+    await attempt('main', () => v8Layer({
+      layer: 'main', name: 'Main + preload', scope: 'src/main, src/preload', entries: preload, nodeCoverageDir: RAW.main,
+    }));
+  }
   await waitForEngineFlush();
   await attempt('engine', () => {
-    const layer = goLayer({
-      layer: 'engine', name: 'Engine (Go)', scope: 'engine/... packages linked into the sidecar', rawDir: RAW.engine,
-    });
-    if (!layer) console.warn('[e2e-coverage] no engine coverage — was the sidecar built with E2E_COVERAGE=1?');
+    const layer = WAILS_RUN
+      ? goLayer({
+        layer: 'engine', name: 'Shell + engine (Go)', scope: 'desktop/ and the engine/... packages it links in',
+        rawDir: RAW.engine, cwd: join(REPO_ROOT, 'desktop'),
+      })
+      : goLayer({
+        layer: 'engine', name: 'Engine (Go)', scope: 'engine/... packages linked into the sidecar', rawDir: RAW.engine,
+      });
+    if (!layer) console.warn('[e2e-coverage] no engine coverage — was it built with E2E_COVERAGE=1?');
     return layer;
   });
   // Optional layer: guest-only runs don't need the backend at all.

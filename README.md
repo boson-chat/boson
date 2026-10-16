@@ -193,8 +193,13 @@ Isolation, so it can run next to a live dev stack:
 
 Failures leave a screenshot, a Playwright trace and the main-process +
 engine log in `client/test-results/e2e-app/` (`npx playwright show-trace
-<zip>`); the backend logs to `infra/e2e/.run/backend.log`. CI runs the same
-suite on Linux under Xvfb (`.github/workflows/e2e.yml`).
+<zip>`); the backend logs to `infra/e2e/.run/backend.log`.
+
+CI runs the suite against the Wails desktop shell instead
+(`.github/workflows/e2e.yml`, locally `make test-e2e-wails`, or
+`make test-e2e-wails-coverage`): `desktop/` built as a server-mode binary,
+driven in headless Chromium on Linux. Specs that need a native window or
+Electron itself skip there.
 
 #### Coverage
 

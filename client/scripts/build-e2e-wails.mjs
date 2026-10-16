@@ -8,6 +8,9 @@
 //
 //   out-e2e/renderer  →  desktop/frontend/dist  →  desktop/bin/boson-e2e-server
 //
+// With E2E_COVERAGE=1 the binary is a `go build -cover` build of the shell and
+// the engine (tests/e2e-app/coverage), and the renderer gets source maps.
+//
 // Usage: node scripts/build-e2e-wails.mjs [--with-renderer]
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, readFileSync, rmSync } from 'node:fs';
@@ -41,9 +44,11 @@ const dist = join(desktopDir, 'frontend', 'dist');
 rmSync(dist, { recursive: true, force: true });
 cpSync(renderer, dist, { recursive: true });
 
-// cgo: on macOS the selected Command Line Tools may not match the SDK, so
-// prefer Xcode's toolchain when it's installed.
-const env = { ...process.env, CGO_ENABLED: '1' };
+// cgo: macOS's server build still links the notifications package's cgo
+// code; elsewhere the server build is pure Go (no GTK/WebKit needed). On
+// macOS the selected Command Line Tools may not match the SDK, so prefer
+// Xcode's toolchain when it's installed.
+const env = { ...process.env, CGO_ENABLED: process.platform === 'darwin' ? '1' : '0' };
 if (process.platform === 'darwin') {
   if (!env.DEVELOPER_DIR && existsSync('/Applications/Xcode.app/Contents/Developer')) {
     env.DEVELOPER_DIR = '/Applications/Xcode.app/Contents/Developer';
@@ -58,5 +63,8 @@ const bin = join(desktopDir, 'bin', `boson-e2e-server${process.platform === 'win
 const stack = JSON.parse(readFileSync(join(repoRoot, 'infra', 'e2e', 'stack.json'), 'utf8'));
 const version = JSON.parse(readFileSync(join(clientDir, 'package.json'), 'utf8')).version;
 const ldflags = `-X main.apiBase=${stack.backend.url} -X main.devBuild=true -X main.appVersion=${version}`;
-run('go', ['build', '-tags', 'server', '-ldflags', ldflags, '-o', bin, '.'], { cwd: desktopDir, env });
+const cover = process.env.E2E_COVERAGE === '1'
+  ? ['-cover', '-coverpkg=github.com/boson-chat/boson/desktop,github.com/boson-chat/boson/engine/...']
+  : [];
+run('go', ['build', '-tags', 'server', ...cover, '-ldflags', ldflags, '-o', bin, '.'], { cwd: desktopDir, env });
 console.log(`wails e2e server built: ${bin}`);

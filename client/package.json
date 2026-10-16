@@ -24,6 +24,7 @@
     "test:e2e:app": "playwright test -c playwright.electron.config.ts",
     "build:e2e-wails": "node scripts/build-e2e-wails.mjs --with-renderer",
     "test:e2e:wails": "E2E_SHELL=wails playwright test -c playwright.electron.config.ts",
+    "test:e2e:wails:coverage": "E2E_SHELL=wails E2E_COVERAGE=1 playwright test -c playwright.electron.config.ts",
     "test:e2e:app:coverage": "E2E_COVERAGE=1 playwright test -c playwright.electron.config.ts",
     "build": "tsc --noEmit && electron-vite build",
     "build:installer": "npm run build && electron-builder --config electron-builder.yml --publish never",

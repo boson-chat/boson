@@ -13,6 +13,7 @@ replace github.com/boson-chat/boson => ../
 
 require (
 	al.essio.dev/pkg/shellescape v1.6.0 // indirect
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/coder/websocket v1.8.14 // indirect
 	github.com/danieljoos/wincred v1.2.3 // indirect

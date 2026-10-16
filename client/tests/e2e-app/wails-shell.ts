@@ -11,13 +11,20 @@
 //
 // Specs that reach into the Electron main process (`app.evaluate`) can't run
 // here; `app.evaluate` throws, naming the spec's dependency.
+//
+// With E2E_COVERAGE=1 (a coverage build, see build-e2e-wails.mjs) each launch
+// records the renderer's JS coverage from the first script on, and the Go
+// binary (shell + engine) writes its counters to the engine raw dir when it
+// exits on SIGTERM.
 import { chromium, test, type BrowserContext, type ElectronApplication, type Page } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { LaunchedApp, Profile } from './fixtures';
+import { COVERAGE, RAW, RENDERER_CHUNK_URL } from './coverage/config';
 
 export const WAILS_SHELL = process.env['E2E_SHELL'] === 'wails';
 
@@ -67,7 +74,12 @@ export async function launchWails(p: Profile, env: Record<string, string>, args:
   const port = await profilePort(p);
   const url = `http://127.0.0.1:${port}`;
   const logs: string[] = [];
-  const child = spawn(WAILS_BIN, args, { env: { ...env, BOSON_SERVER_PORT: String(port) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const childEnv: Record<string, string> = { ...env, BOSON_SERVER_PORT: String(port) };
+  if (COVERAGE) {
+    childEnv['GOCOVERDIR'] = RAW.engine;
+    writeFileSync(join(RAW.launches, randomUUID()), '');
+  }
+  const child = spawn(WAILS_BIN, args, { env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   child.stdout?.on('data', (b: Buffer) => logs.push(b.toString()));
   child.stderr?.on('data', (b: Buffer) => logs.push(b.toString()));
   await waitHealthy(url, child, logs);
@@ -77,6 +89,7 @@ export async function launchWails(p: Profile, env: Record<string, string>, args:
   });
   const page: Page = context.pages()[0] ?? (await context.newPage());
   page.on('console', (m) => logs.push(`[renderer ${m.type()}] ${m.text()}\n`));
+  if (COVERAGE) await page.coverage.startJSCoverage({ resetOnNavigation: false });
   await page.goto(`${url}/`);
   // The shell's bridges are installed asynchronously (platform/wails.ts);
   // Electron's preload has them in place before the page runs. Wait, so a
@@ -87,6 +100,14 @@ export async function launchWails(p: Profile, env: Record<string, string>, args:
   const close = async (): Promise<void> => {
     if (closed) return;
     closed = true;
+    if (COVERAGE && !page.isClosed()) {
+      const entries = await page.coverage.stopJSCoverage().catch((err: unknown) => {
+        console.warn(`[e2e-coverage] could not take renderer coverage: ${String(err)}`);
+        return [];
+      });
+      const keep = entries.filter((e) => RENDERER_CHUNK_URL.test(e.url));
+      if (keep.length > 0) writeFileSync(join(RAW.renderer, `${randomUUID()}.json`), JSON.stringify(keep));
+    }
     // Let in-flight chat-history writes land first (closing the browser aborts
     // them; Electron's slower graceful quit hides this). A read-only
     // transaction over the stores is queued behind any pending write. Only

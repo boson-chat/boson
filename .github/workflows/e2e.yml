@@ -1,16 +1,20 @@
-# Real-app e2e: builds the Electron app + its Go engine sidecar for
-# linux/amd64 and drives it with Playwright's _electron API (under Xvfb)
-# against the isolated e2e stack (client/scripts/e2e-stack.mjs): ergo + ZNC +
-# Postgres + Mailpit + MinIO (infra/e2e/docker-compose.yml), the boson-e2e
-# Supabase CLI project (Auth only, infra/e2e/supabase/) and the Go backend.
-# Guest specs and account (signed-in) specs both run. Locally: `make
-# test-e2e-app`. The browser-only Playwright suite (client/tests/e2e/) still
-# needs the full dev stack and isn't run here.
+# Real-app e2e: builds the Wails desktop shell as a server-mode binary
+# (desktop/, `go build -tags server`: the real Go services and in-process
+# engine, serving the renderer over HTTP) for linux/amd64 and drives it with
+# Playwright in headless Chromium against the isolated e2e stack
+# (client/scripts/e2e-stack.mjs): ergo + ZNC + Postgres + Mailpit + MinIO
+# (infra/e2e/docker-compose.yml), the boson-e2e Supabase CLI project (Auth
+# only, infra/e2e/supabase/) and the Go backend. Guest specs and account
+# (signed-in) specs both run. Locally: `make test-e2e-wails`. The specs that
+# need a native window (or Electron itself) skip; see
+# client/tests/e2e-app/wails-shell.ts. The Electron shell's run of the same
+# suite is local only now (`make test-e2e-app`). The browser-only Playwright
+# suite (client/tests/e2e/) still needs the full dev stack and isn't run here.
 #
-# The suite always runs with code coverage (E2E_COVERAGE=1: renderer,
-# Electron main + preload, Go engine, Go backend — ~10% slower than a plain
-# run). The per-layer summary lands in the job summary and the HTML/lcov
-# reports are uploaded as the `e2e-app-coverage` artifact.
+# The suite always runs with code coverage (E2E_COVERAGE=1: renderer, the Go
+# shell + engine binary, Go backend). The per-layer summary lands in the job
+# summary and the HTML/lcov reports are uploaded as the `e2e-app-coverage`
+# artifact.
 name: E2E (real app)
 
 on:
@@ -28,8 +32,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  electron:
-    name: Electron app (Playwright)
+  wails:
+    name: Wails app (Playwright)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -39,6 +43,9 @@ jobs:
         with:
           go-version: '1.27'
           cache: true
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -61,28 +68,36 @@ jobs:
 
       - run: npm ci
 
-      # Xvfb + the shared libraries Electron's Chromium needs. Electron ships
-      # its own browser, so no Playwright browser download.
-      - name: Install Electron system dependencies
-        working-directory: client
-        # openbox: a minimal window manager, so minimize / maximize / restore
-        # behave like on a desktop (bare Xvfb has none and ignores them).
+      # The Go module CI's Go job doesn't cover (desktop/ has its own
+      # go.mod). The server build is pure Go on Linux: no GTK/WebKit.
+      - name: Desktop shell (tidy + vet + test)
+        working-directory: desktop
+        env:
+          CGO_ENABLED: '0'
         run: |
-          npx playwright install-deps chromium
-          sudo apt-get install -y --no-install-recommends openbox
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+          go vet -tags server ./...
+          go test -tags server ./...
+
+      # Headless Chromium (and its system libraries) drives the server-mode
+      # build: no Xvfb, no window manager.
+      - name: Install Playwright Chromium
+        working-directory: client
+        run: npx playwright install --with-deps chromium
 
       - name: Typecheck e2e suite
         working-directory: client
         run: npx tsc -p tests/e2e-app/tsconfig.json
 
-      # Builds client/out-e2e (renderer/main/preload), the linux/amd64 engine
-      # sidecar into out-e2e/resources/engine, and fetches the Electron binary.
-      # Coverage build: source maps + `go build -cover`.
-      - name: Build app + engine sidecar
+      # Builds the e2e renderer bundle (client/out-e2e/renderer, pinned to
+      # the e2e stack) and desktop/bin/boson-e2e-server embedding it.
+      # Coverage build: source maps + `go build -cover` of the shell and engine.
+      - name: Build Wails e2e server
         working-directory: client
         env:
           E2E_COVERAGE: '1'
-        run: npm run build:e2e-app
+        run: npm run build:e2e-wails
 
       - name: Wait for e2e stack
         timeout-minutes: 8
@@ -91,16 +106,14 @@ jobs:
           cat e2e-stack.log
           exit "$(cat e2e-stack.exit)"
 
-      - name: Run Electron e2e suite (with coverage)
+      - name: Run Wails e2e suite (with coverage)
         working-directory: client
-        # ~100 specs with real IRC/ZNC round-trips: serial takes too long.
-        # ubuntu-latest has 4 vCPUs; 3 Electron workers leave room for the
-        # stack. Specs are isolated per test (own users/channels/ZNC lease).
+        # ~110 specs with real IRC/ZNC round-trips: serial takes too long.
+        # ubuntu-latest has 4 vCPUs; 3 workers leave room for the stack.
+        # Specs are isolated per test (own users/channels/ZNC lease).
         env:
           E2E_WORKERS: '3'
-        run: >-
-          xvfb-run -a --server-args="-screen 0 1440x900x24"
-          sh -c 'openbox & sleep 1; npm run test:e2e:app:coverage'
+        run: npm run test:e2e:wails:coverage
 
       - name: Coverage summary
         if: always()

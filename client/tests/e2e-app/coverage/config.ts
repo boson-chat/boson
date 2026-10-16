@@ -19,6 +19,11 @@
 //              waiting for it to exit. Counters cover the backend's whole
 //              lifetime — `make test-e2e-app-coverage` restarts it first.
 //
+// Under the Wails shell (E2E_SHELL=wails) there is no Electron main/preload:
+// the renderer's coverage comes from Playwright (page.coverage, started
+// before the page loads), and engine/ holds the one Go binary — the desktop
+// shell and the engine it links in.
+//
 // Raw data accumulates under .raw/ across every launch (relaunches
 // included); global-teardown.ts turns it into reports via report.ts.
 import { dirname, join, resolve, sep } from 'node:path';
@@ -26,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { APP_DIR, CLIENT_DIR, E2E_RUN_DIR, REPO_ROOT } from '../stack';
 
 export const COVERAGE = process.env['E2E_COVERAGE'] === '1';
+export const WAILS_RUN = process.env['E2E_SHELL'] === 'wails';
 
 export { CLIENT_DIR, REPO_ROOT };
 const here = dirname(fileURLToPath(import.meta.url));
