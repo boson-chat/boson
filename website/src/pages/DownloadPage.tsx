@@ -72,10 +72,13 @@ export function DownloadPage() {
                   <MacIcon />
                   {recommended('mac')}
                   <h3>macOS</h3>
-                  <span class="dl-arch">12.0+ · Apple Silicon and Intel</span>
+                  <span class="dl-arch">12.0+ · Apple Silicon or Intel</span>
                   <div class="dl-actions">
-                    <a class="btn btn-primary" href={DL('Boson-mac-universal.dmg')} rel="noopener">
-                      Download (.dmg)
+                    <a class="btn btn-primary" href={DL('Boson-mac-arm64.dmg')} rel="noopener">
+                      Apple Silicon (.dmg)
+                    </a>
+                    <a class="btn btn-secondary btn-sm" href={DL('Boson-mac-x64.dmg')} rel="noopener">
+                      Intel (.dmg)
                     </a>
                   </div>
                   <span class="dl-bytes">
@@ -179,8 +182,8 @@ export function DownloadPage() {
               <h3 style="margin-bottom: 12px; font-size: 16px;">macOS · Linux</h3>
               <Terminal>
                 <Line><C tone="cmt"># 1. compute the SHA-256 of the package you downloaded</C></Line>
-                <Line prompt>shasum -a 256 Boson-mac-universal.dmg</Line>
-                <Line><C tone="ok">…</C> &nbsp;Boson-mac-universal.dmg</Line>
+                <Line prompt>shasum -a 256 Boson-mac-arm64.dmg</Line>
+                <Line><C tone="ok">…</C> &nbsp;Boson-mac-arm64.dmg</Line>
                 <Line />
                 <Line><C tone="cmt"># 2. compare against the checksum on the release page</C></Line>
                 <Line><C tone="cmt">#    {LATEST_URL}</C></Line>

@@ -1,7 +1,8 @@
 # Builds the desktop app (desktop/, Wails) for macOS, Windows and Linux:
 #
-#   macOS    universal (arm64 + amd64) Boson.app in a DMG, Developer ID
-#            signed with the hardened runtime, notarized and stapled
+#   macOS    Boson.app in a DMG per architecture (Apple Silicon, Intel),
+#            Developer ID signed with the hardened runtime, notarized and
+#            stapled
 #            (desktop/scripts/package-macos.sh)
 #   Windows  Boson.exe (icon + version info embedded) in a zip, unsigned
 #            until an Authenticode certificate is in place
@@ -14,7 +15,8 @@
 # semantic-release's tag push doesn't trigger workflows) the publish job
 # also attaches them to that GitHub Release under fixed names, which the
 # website's download links point at (…/releases/latest/download/<name>):
-#   Boson-mac-universal.dmg, Boson-windows-x64.zip, Boson-linux-x86_64.tar.gz
+#   Boson-mac-arm64.dmg, Boson-mac-x64.dmg, Boson-windows-x64.zip,
+#   Boson-linux-x86_64.tar.gz
 #
 # macOS signing secrets: CSC_LINK (base64 of the "Developer ID Application"
 # .p12), CSC_KEY_PASSWORD, APPLE_API_KEY (the App Store Connect .p8's
@@ -138,10 +140,16 @@ jobs:
         if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
         working-directory: desktop/bin
         run: |
-          codesign --verify --strict --verbose=2 Boson.app
-          codesign -dv --verbose=2 Boson.app 2>&1 | grep -E 'Authority=Developer ID Application|flags=.*runtime'
-          spctl --assess --type execute --verbose=4 Boson.app
-          xcrun stapler validate Boson.app
+          for arch in arm64 x64; do
+            app="mac-$arch/Boson.app"
+            codesign --verify --strict --verbose=2 "$app"
+            codesign -dv --verbose=2 "$app" 2>&1 | grep -E 'Authority=Developer ID Application|flags=.*runtime'
+            spctl --assess --type execute --verbose=4 "$app"
+            xcrun stapler validate "$app"
+          done
+          # Each holds only its own architecture.
+          lipo -archs mac-arm64/Boson.app/Contents/MacOS/Boson | grep -qx arm64
+          lipo -archs mac-x64/Boson.app/Contents/MacOS/Boson | grep -qx x86_64
           for dmg in *.dmg; do
             xcrun stapler validate "$dmg"
             spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
@@ -214,7 +222,8 @@ jobs:
           set -euo pipefail
           ls -la dist
           mkdir release
-          cp dist/*-mac-universal.dmg release/Boson-mac-universal.dmg
+          cp dist/*-mac-arm64.dmg release/Boson-mac-arm64.dmg
+          cp dist/*-mac-x64.dmg release/Boson-mac-x64.dmg
           cp dist/*-windows-amd64.zip release/Boson-windows-x64.zip
           cp dist/*-linux-amd64.tar.gz release/Boson-linux-x86_64.tar.gz
           (cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)

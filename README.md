@@ -62,7 +62,7 @@ make typingbot
 
 The page reads the engine's discovery file (`~/.boson/engine.json`, or `$XDG_RUNTIME_DIR/boson/engine.json`) on every load, so a restarted engine is picked up by a reload.
 
-For the real desktop app (native window, secure store, link previews, notifications…), run `make desktop-dev` instead of 2 and 3: a dev build of `desktop/` with the renderer built against your `client/.env`, the engine in-process. `make desktop-build` makes a release build for your machine in `desktop/bin/` (macOS: a signed universal `.app` + DMG; set `NOTARY_PROFILE` to notarize).
+For the real desktop app (native window, secure store, link previews, notifications…), run `make desktop-dev` instead of 2 and 3: a dev build of `desktop/` with the renderer built against your `client/.env`, the engine in-process. `make desktop-build` makes a release build for your machine in `desktop/bin/` (macOS: a signed `.app` + DMG for Apple Silicon and for Intel; set `NOTARY_PROFILE` to notarize, `ARCHS=arm64` for one).
 
 ### Skip auth (guest mode)
 
@@ -242,8 +242,8 @@ coverage build left in `client/out-e2e` still works for a plain
 
 Every release tag (cut by semantic-release on `main`) builds the desktop app
 on macOS, Windows and Linux (`.github/workflows/desktop.yml`) and attaches it
-to the GitHub Release: `Boson-mac-universal.dmg` (Developer ID signed,
-notarized), `Boson-windows-x64.zip`, `Boson-linux-x86_64.tar.gz` and
+to the GitHub Release: `Boson-mac-arm64.dmg` and `Boson-mac-x64.dmg`
+(Apple Silicon and Intel; Developer ID signed, notarized), `Boson-windows-x64.zip`, `Boson-linux-x86_64.tar.gz` and
 `SHA256SUMS.txt`. The website's download links point at those names.
 
 ## Useful one-shots
