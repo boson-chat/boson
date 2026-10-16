@@ -439,7 +439,7 @@ export class ChatService {
     // (Scroll-back itself is gated on the chathistory / playback capability,
     // not on this — a bouncer with neither offers no scroll-back.)
     if (deps?.bouncer) {
-      this.serverInfo = { ...this.serverInfo, bouncer: true };
+      this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerConfigured: true };
     }
   }
 
@@ -883,10 +883,14 @@ export class ChatService {
     else if (info.registered === true) status = 'registered';
     else return undefined; // registered undefined → couldn't determine
 
+    // Re-read: the INFO round-trip takes a second or more, and the user
+    // may have saved a password meanwhile — merging into the snapshot
+    // taken before the await would silently drop it.
+    const current = store.get(serverId) ?? {};
     store.set(serverId, {
-      ...existing,
-      accountName: existing.accountName || info.accountName || nick,
-      email: existing.email || info.email,
+      ...current,
+      accountName: current.accountName || info.accountName || nick,
+      email: current.email || info.email,
       status,
     });
     return status;

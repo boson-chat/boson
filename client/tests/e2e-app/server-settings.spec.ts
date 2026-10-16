@@ -166,6 +166,12 @@ test('Info, Operators, Log and Actions (reconnect, disconnect)', async ({ launch
     await settingsTab(settings, 'Log').click();
     await expect(settings.locator('.server-settings-log-count')).toHaveText(/^\d+ entries$/);
     await expect(settings.locator('.server-settings-log-row').first()).toBeVisible();
+    // The log is live, and the engine's automatic post-connect queries go out
+    // through its rate-limited send queue as background traffic, seconds after
+    // the JOIN: the self-join MODE (324) and WHO (…315), and the delayed
+    // auto-LIST (…323). Wait for their replies so none lands after Clear.
+    const logKind = (kind: string) => settings.locator('.server-settings-log-kind').getByText(kind, { exact: true });
+    for (const kind of ['324', '315', '323']) await expect(logKind(kind).first()).toBeVisible({ timeout: 30_000 });
     await settings.getByRole('button', { name: 'Clear' }).click();
     await expect(settings.locator('.server-settings-log-count')).toHaveText('No entries yet.');
 

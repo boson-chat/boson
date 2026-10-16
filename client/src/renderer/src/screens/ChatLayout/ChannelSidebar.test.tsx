@@ -56,6 +56,12 @@ describe('ChannelSidebar bouncer upstream meta', () => {
     expect(meta().title).toContain('Connected via bouncer');
   });
 
+  it('configured bouncer, upstream not reported yet: connecting, not Connected', () => {
+    render(<ChannelSidebar {...baseProps} engineState="connected" serverInfo={{ bouncer: true, bouncerConfigured: true }} />);
+    expect(dot().dataset.state).toBe('connecting');
+    expect(dot().getAttribute('aria-label')).toBe('Bouncer connected · network connecting…');
+  });
+
   it('upstream offline: warn dot + "Bouncer connected · network offline" tooltip', () => {
     render(<ChannelSidebar {...baseProps} engineState="connected" serverInfo={{ bouncer: true, bouncerUpstream: 'disconnected' }} />);
     expect(dot().dataset.state).toBe('upstream-offline');

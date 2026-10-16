@@ -40,6 +40,22 @@ describe('MessageEmbeds', () => {
     expect(document.querySelector('.embed-lightbox')).toBeNull();
   });
 
+  it('closes the lightbox on an Escape pressed right after it opens', async () => {
+    render(<MessageEmbeds text="https://i.imgur.com/a.png" />);
+    fireEvent.click(screen.getByRole('button', { name: /click to load/i }));
+    // A plain click, outside act(): the render commits on a microtask and
+    // passive effects wait for the next frame, as in the app. The Escape
+    // comes before that frame.
+    (screen.getByRole('button', { name: 'Open image' }) as HTMLButtonElement).click();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.querySelector('.embed-lightbox')).not.toBeNull();
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(document.querySelector('.embed-lightbox')).toBeNull();
+  });
+
   it('loads an inline <video> player on click for a video file', () => {
     render(<MessageEmbeds text="https://cdn.example.com/clip.mp4" />);
     expect(document.querySelector('video.embed-video-el')).toBeNull();

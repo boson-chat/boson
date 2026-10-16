@@ -84,8 +84,13 @@ export function ChannelSidebar({
   const serverMeta = serverInfo?.version ?? serverInfo?.serverName ?? '';
   // On a bouncer link, engine 'connected' only means the bouncer is reachable;
   // whether the bouncer is attached to the real network is `bouncerUpstream`.
+  // A configured bouncer whose upstream isn't reported yet is still being
+  // worked out: "connecting", not "Connected". The engine's status frame
+  // reaches this view synchronously, while the chat state (where the
+  // upstream report lands) is emitted on a timer, so right after the 001
+  // the two disagree for a render or more.
   const upstream = engineState === 'connected' && serverInfo?.bouncer
-    ? serverInfo.bouncerUpstream
+    ? serverInfo.bouncerUpstream ?? (serverInfo.bouncerConfigured ? 'connecting' : undefined)
     : undefined;
   const statusLabel = engineState === 'connecting' ? 'Connecting…'
     : engineState !== 'connected' ? 'Disconnected'

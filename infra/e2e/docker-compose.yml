@@ -20,6 +20,7 @@
 #   mailpit   127.0.0.1:11025  SMTP  ← ergo's NickServ mailto callback
 #             127.0.0.1:11110  POP3  → backend nick-claim worker (e2e/e2e)
 #             127.0.0.1:18025  HTTP API / UI
+#   mailpit-archive  127.0.0.1:18026  HTTP API: a copy of every catch-all mail
 #   minio     127.0.0.1:19000  S3 API (minioadmin/minioadmin, bucket `boson`)
 #             127.0.0.1:19001  console
 name: boson-e2e
@@ -96,6 +97,27 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: '1'
       MP_SMTP_AUTH_ALLOW_INSECURE: '1'
       MP_POP3_AUTH: 'e2e:e2e'
+      # Copy every message to mailpit-archive (below) as it arrives.
+      MP_SMTP_RELAY_HOST: mailpit-archive
+      MP_SMTP_RELAY_PORT: '1025'
+      MP_SMTP_RELAY_ALL: 'true'
+    depends_on:
+      mailpit-archive:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  # What the tests read NickServ codes from. The catch-all above is the
+  # worker's inbox, and the worker DELEs anything it can't route within ~5s
+  # (every guest REGISTER) — reading it raced the drain. Nothing consumes
+  # this copy, so a code is there for as long as a test needs it.
+  mailpit-archive:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - '127.0.0.1:18026:8025'
     healthcheck:
       test: ['CMD', '/mailpit', 'readyz']
       interval: 1s

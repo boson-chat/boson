@@ -311,6 +311,54 @@ describe('ServerSettings — Identity (account UI)', () => {
     expect(persisted?.email).toBe('alice@example.com');
   });
 
+  function accountSave(container: Element): HTMLButtonElement {
+    const saveBtns = Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === 'Save');
+    return saveBtns[saveBtns.length - 1] as HTMLButtonElement;
+  }
+
+  // Regression (flaky e2e "saved NickServ password"): the subscription's
+  // initial fire runs in an after-paint effect, so on a busy renderer the
+  // user can type before it lands. It must not wipe the typed password —
+  // Save would then see an empty form and clear the credentials.
+  it('a password typed before the store subscription attaches survives it', async () => {
+    const inner = new LocalStorageServiceCredentialsStore(memStorage());
+    const late: Array<() => void> = [];
+    setServiceCredentialsStore({
+      get: (id) => inner.get(id),
+      set: (id, c) => inner.set(id, c),
+      clear: (id) => inner.clear(id),
+      // Defer the initial fire until the test releases it.
+      subscribe: (id, fn) => {
+        let live = false;
+        const off = inner.subscribe(id, (v) => { if (live) fn(v); });
+        live = true;
+        late.push(() => fn(inner.get(id)));
+        return off;
+      },
+    });
+    const { container } = render(<ServerSettings {...baseProps()} />);
+    switchToIdentity();
+    const pwInput = container.querySelector('input[type="password"]') as HTMLInputElement;
+    await userEvent.setup().type(pwInput, 'hunter2');
+    act(() => { for (const fire of late) fire(); });
+    expect(pwInput.value).toBe('hunter2');
+    accountSave(container).click();
+    expect(inner.get('libera')?.nickservPassword).toBe('hunter2');
+  });
+
+  it('a store write that does not touch a field keeps its unsaved draft', async () => {
+    const { container } = render(<ServerSettings {...baseProps()} />);
+    switchToIdentity();
+    const pwInput = container.querySelector('input[type="password"]') as HTMLInputElement;
+    await userEvent.setup().type(pwInput, 'hunter2');
+    // e.g. the classifier recording a status from a NickServ NOTICE.
+    act(() => { getServiceCredentialsStore().set('libera', { status: 'unknown' }); });
+    expect(pwInput.value).toBe('hunter2');
+    // …while a write that does change the password still shows through.
+    act(() => { getServiceCredentialsStore().set('libera', { status: 'unknown', nickservPassword: 'from-elsewhere' }); });
+    expect(pwInput.value).toBe('from-elsewhere');
+  });
+
   it('pre-fills the inputs from the saved credentials on mount', () => {
     getServiceCredentialsStore().set('libera', {
       nickservPassword: 'persisted-pw',

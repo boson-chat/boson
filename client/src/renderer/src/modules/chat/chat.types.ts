@@ -163,6 +163,11 @@ export interface ServerInfo {
   // detected ZNC at runtime. Shown in the server-info badge so the user can
   // confirm they're attached via their bouncer rather than direct.
   bouncer?: boolean;
+  // The connection was routed through the user's bouncer profile (not just
+  // detected as ZNC at runtime). The engine then always reports the upstream
+  // state after its 001, so a missing report means "not known yet" rather
+  // than "this bouncer never reports".
+  bouncerConfigured?: boolean;
   // Whether the bouncer itself is connected to the real IRC network
   // ("upstream"), as reported by the engine's `bouncer-upstream` frames.
   // Undefined for direct connections and until the engine reports.

@@ -50,7 +50,7 @@ const logFile = join(runDir, 'backend.log');
 export const backendCoverDir = join(runDir, 'backend-cover');
 
 const compose = ['compose', '-f', join(e2eDir, 'docker-compose.yml')];
-const COMPOSE_SERVICES = ['ergo', 'znc', 'postgres', 'mailpit', 'minio'];
+const COMPOSE_SERVICES = ['ergo', 'znc', 'postgres', 'mailpit-archive', 'mailpit', 'minio'];
 // Boson only needs Auth (GoTrue) + Kong + the auth Mailpit (+ the DB, which
 // can't be excluded).
 const SUPABASE_EXCLUDE = [
@@ -289,7 +289,7 @@ function status() {
     `  ergo        ${stack.irc.host}:${stack.irc.port}`,
     `  znc         ${stack.znc.host}:${stack.znc.port}  (${stack.znc.users[0]}..${stack.znc.users.at(-1)} / ${stack.znc.password})`,
     `  postgres    ${stack.postgres.host}:${stack.postgres.port}`,
-    `  catch-all   mailpit ${stack.catchallMail.apiUrl}  (smtp :${stack.catchallMail.smtpPort}, pop3 :${stack.catchallMail.pop3Port})`,
+    `  catch-all   mailpit ${stack.catchallMail.apiUrl}  (smtp :${stack.catchallMail.smtpPort}, pop3 :${stack.catchallMail.pop3Port}; copy ${stack.catchallMail.archiveApiUrl})`,
     `  minio       ${stack.minio.endpoint}`,
     `  supabase    ${stack.supabase.apiUrl}  (auth mailpit ${stack.supabase.mailpitUrl})${supabaseStatus() ? '' : '  [not running]'}`,
     `  backend     ${stack.backend.url}  ${pid ? `(pid ${pid})` : '[not running]'}`,

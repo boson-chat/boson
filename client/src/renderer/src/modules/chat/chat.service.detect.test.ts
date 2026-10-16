@@ -116,6 +116,19 @@ describe('ChatService.detectAccountState', () => {
     expect(await p).toBe('registered');
     expect(getServiceCredentialsStore().get('srv-test')?.status).toBe('registered');
   }, 10_000);
+
+  it('keeps a password saved while the INFO probe was in flight', async () => {
+    const { chat, session } = buildChat();
+    const p = chat.detectAccountState('Nyan');
+    await tick();
+    // The user hits Save in the Identity panel mid-probe.
+    getServiceCredentialsStore().set('srv-test', { nickservPassword: 'typed-pw' });
+    emitNotice(session, "Nick Nyan isn't registered.");
+    expect(await p).toBe('no-account');
+    const creds = getServiceCredentialsStore().get('srv-test');
+    expect(creds?.status).toBe('no-account');
+    expect(creds?.nickservPassword).toBe('typed-pw');
+  });
 });
 
 describe('ChatService.resumePendingConfirmation', () => {

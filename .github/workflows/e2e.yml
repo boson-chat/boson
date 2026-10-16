@@ -141,7 +141,7 @@ jobs:
           mkdir -p e2e-docker-logs
           cp e2e-stack.log infra/e2e/.run/backend.log e2e-docker-logs/ 2>/dev/null || true
           docker compose -f infra/e2e/docker-compose.yml ps -a > e2e-docker-logs/ps.txt 2>&1 || true
-          for svc in ergo znc postgres mailpit minio; do
+          for svc in ergo znc postgres mailpit mailpit-archive minio; do
             docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps "$svc" > "e2e-docker-logs/$svc.log" 2>&1 || true
           done
           for c in auth kong db; do
