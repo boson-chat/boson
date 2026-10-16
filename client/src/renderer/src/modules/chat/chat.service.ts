@@ -439,7 +439,7 @@ export class ChatService {
     // (Scroll-back itself is gated on the chathistory / playback capability,
     // not on this — a bouncer with neither offers no scroll-back.)
     if (deps?.bouncer) {
-      this.serverInfo = { ...this.serverInfo, bouncer: true };
+      this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerConfigured: true };
     }
   }
 
