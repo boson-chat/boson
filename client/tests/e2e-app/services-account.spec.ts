@@ -143,6 +143,10 @@ test('member hover cards show services accounts (extended-join and account-notif
     await known.waitFor((l) => l.command === 'NOTICE' && /now logged in/.test(l.params[1] ?? ''), 15_000, 'identify', mark);
     await known.join(channel);
     await fresh.join(channel);
+    // The peer's own JOIN echo can beat the app's: wait for fresh's row before
+    // hovering. It sorts above known's, so if it rendered after the hover it
+    // would slide in under the stationary pointer and take over the card.
+    await expect(memberRow(page, fresh.nick)).toBeVisible();
 
     const card = page.getByRole('tooltip');
     await memberRow(page, knownNick).hover();
