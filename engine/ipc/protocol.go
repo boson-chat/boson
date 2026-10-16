@@ -59,6 +59,9 @@ type PrivmsgParams struct {
 	ServerID string `json:"serverId"`
 	Target   string `json:"target"`
 	Message  string `json:"message"`
+	// Ack, when set, asks for delivery confirmation: an "ACK" event with
+	// this number once the server has the message (irc.Client.PrivmsgAck).
+	Ack uint64 `json:"ack,omitempty"`
 }
 
 // NamesParams targets a single channel for an on-demand NAMES refresh.

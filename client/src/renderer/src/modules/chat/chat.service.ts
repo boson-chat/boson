@@ -104,6 +104,16 @@ export const BLANK_LINE = ' ';
 // (NOTICE chatter + RPL_WELCOME + MOTD + ISUPPORT bursts) plus a chunk of
 // runtime traffic without ballooning memory.
 const SERVER_LOG_CAP = 200;
+// A sent message still unconfirmed after this long (see send()) gets the
+// connection checked: a healthy server answers well within it.
+const ACK_STALL_MS = 4000;
+
+// Stored history never holds the pending flag: it's about this connection.
+function stripPending(m: ChatMessage): ChatMessage {
+  if (!m.pending) return m;
+  const { pending: _p, ...rest } = m;
+  return rest;
+}
 // Default chathistory request size (messages per page), capped by the
 // server's CHATHISTORY=<max> ISUPPORT token when smaller.
 const CHATHISTORY_REQUEST_LIMIT = 50;
@@ -629,6 +639,7 @@ export class ChatService {
     // re-attaches (we don't have a use case for that today, but it's cheap).
     for (const handle of this.typingTimers.values()) clearTimeout(handle);
     this.typingTimers.clear();
+    if (this.ackStallTimer) { clearTimeout(this.ackStallTimer); this.ackStallTimer = null; }
     for (const handle of this.namesRetryTimers.values()) clearTimeout(handle);
     this.namesRetryTimers.clear();
     this.namesRetryCount.clear();
@@ -1262,15 +1273,77 @@ export class ChatService {
     // Whitespace-only is nothing to send, except BLANK_LINE: a paste's blank
     // line (see input()).
     if (!message.trim() && message !== BLANK_LINE) return;
-    this.session.privmsg(channel, message);
-    // Optimistic local echo — IRC doesn't reflect our own PRIVMSGs back.
+    const id = this.id();
+    // Optimistic local echo — IRC doesn't reflect our own PRIVMSGs back —
+    // marked pending until the server confirms it.
     this.appendMessage(channel, {
-      id: this.id(),
+      id,
       kind: 'message',
       from: this.myNick,
       text: message,
       timestamp: Date.now(),
+      pending: true,
     });
+    this.sendTracked(this.channelKey(channel), id, message);
+  }
+
+  // Delivery tracking. A message written to a connection that has silently
+  // died (a phone that left Wi-Fi) would otherwise vanish: each send asks
+  // the engine for an ACK (a PING behind it in the queue; the PONG proves
+  // the server has everything before it). Unconfirmed after
+  // ACK_STALL_MS → probe the connection, which drops a dead one; the
+  // reconnect then resends what's still pending (resendPending).
+  private ackSeq = 0;
+  private unacked: Array<{ seq: number; channel: string; id: string }> = [];
+  private ackStallTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private sendTracked(channel: string, id: string, text: string): void {
+    const seq = ++this.ackSeq;
+    this.unacked.push({ seq, channel, id });
+    this.session.privmsg(channel, text, seq);
+    if (!this.ackStallTimer) {
+      this.ackStallTimer = setTimeout(() => {
+        this.ackStallTimer = null;
+        if (this.unacked.length > 0) this.session.probe?.();
+      }, ACK_STALL_MS);
+    }
+  }
+
+  private confirmSent(upTo: number): void {
+    const done = this.unacked.filter((u) => u.seq <= upTo);
+    if (done.length === 0) return;
+    this.unacked = this.unacked.filter((u) => u.seq > upTo);
+    const byChannel = new Map<string, Set<string>>();
+    for (const u of done) {
+      if (!byChannel.has(u.channel)) byChannel.set(u.channel, new Set());
+      byChannel.get(u.channel)!.add(u.id);
+    }
+    for (const [key, ids] of byChannel) {
+      const ch = this.channels.get(key);
+      if (!ch) continue;
+      ch.messages.value = ch.messages.peek().map((m) => {
+        if (!m.pending || !ids.has(m.id)) return m;
+        const { pending: _sent, ...rest } = m;
+        return rest;
+      });
+    }
+    if (this.unacked.length === 0 && this.ackStallTimer) {
+      clearTimeout(this.ackStallTimer);
+      this.ackStallTimer = null;
+    }
+    this.emit();
+  }
+
+  // After a reconnect: send again what the last connection never confirmed
+  // (carried over by seedConversations), for one conversation — a channel
+  // once rejoined, DMs once registered.
+  private resendPending(key: string): void {
+    const ch = this.channels.get(key);
+    if (!ch) return;
+    const tracked = new Set(this.unacked.map((u) => u.id));
+    for (const m of ch.messages.peek()) {
+      if (m.pending && !tracked.has(m.id)) this.sendTracked(key, m.id, m.text);
+    }
   }
 
   // Route a MemoServ NOTICE into the global Inbox. Picks up whatever
@@ -2106,6 +2179,7 @@ export class ChatService {
     // Chathistory backlog: messages tagged with an active `batch` ref are
     // buffered and inserted as a group on BATCH end — routed away from the
     // live path (no serverLog flood, no unread bump, no inbox mirror).
+    if (e.Kind === 'ACK') { this.confirmSent(Number(e.Message)); return; }
     const batchRef = e.Tags?.batch;
     if (!batchRef) this.noteServerClock(e);
     if (batchRef) {
@@ -2266,6 +2340,7 @@ export class ChatService {
           this.updateSelfIdentity(e.Host, e.Account);
           this.appendSystem(e.Target, `You joined ${e.Target}`);
           if (!this.activeChannel) this.setActive(e.Target);
+          this.resendPending(key);
           // Safety net: if NAMREPLY/ENDOFNAMES never arrive (e.g. drop on
           // the WS), this re-issues NAMES after a short delay.
           setTimeout(() => this.maybeRefreshNames(key), 2500);
@@ -2686,6 +2761,9 @@ export class ChatService {
         this.syncMyNickFromNumeric(e.Target);
         this.welcomed = true;
         this.requestAttachBacklog();
+        for (const key of Array.from(this.channels.keys())) {
+          if (!key.startsWith('#') && !key.startsWith('&')) this.resendPending(key);
+        }
         // A password that arrived between connect and welcome (see
         // watchLatePassword) — the engine wasn't given it, so send it now.
         if (!this.passwordAtConnect) {
@@ -3316,7 +3394,7 @@ export class ChatService {
       const { history, scope } = this.persistence;
       const key = this.channelKey(channel);
       void history
-        .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, msg)
+        .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, stripPending(msg))
         .catch(() => {
           // Storage hiccup — chat keeps going with in-memory state.
         });

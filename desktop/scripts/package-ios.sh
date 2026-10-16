@@ -109,7 +109,7 @@ xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
   -framework UniformTypeIdentifiers \
   -framework LocalAuthentication -framework UserNotifications \
   -framework AVFoundation \
-  -framework CoreLocation -framework CoreMotion -framework SystemConfiguration \
+  -framework CoreLocation -framework CoreMotion -framework SystemConfiguration -framework Network \
   -lresolv \
   ${sim_entitlements[@]+"${sim_entitlements[@]}"} \
   -o "$app/$APP_NAME" \

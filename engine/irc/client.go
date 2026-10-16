@@ -718,6 +718,27 @@ func (c *Client) Privmsg(target, message string) {
 	c.send(&girc.Event{Command: girc.PRIVMSG, Params: []string{target, message}}, classInteractive)
 }
 
+// KindAck is the event for a delivery check's answer: Message is the ack
+// number given to PrivmsgAck. It confirms that message and every earlier one.
+const KindAck = "ACK"
+
+const ackTokenPrefix = "boson-ack-"
+
+// PrivmsgAck sends a message the renderer wants confirmed: a PING follows
+// it in the queue, and the server's PONG (a KindAck event carrying ack)
+// proves the message reached it — lines are handled in order. A message
+// written to a connection that has silently died (a phone that switched
+// networks) gets no ACK, so the renderer can send it again after the
+// reconnect. Successive acks coalesce: while one's PING is still queued, a
+// newer message replaces it, so a paste costs one PING. ack numbers must
+// increase within a connection.
+func (c *Client) PrivmsgAck(target, message string, ack uint64) {
+	c.Privmsg(target, message)
+	if ack > 0 {
+		c.sendq.enqueueAck(&girc.Event{Command: girc.PING, Params: []string{fmt.Sprintf("%s%d", ackTokenPrefix, ack)}})
+	}
+}
+
 // Abort drops the connection without a QUIT, as if the process had died: a
 // bouncer sees the client vanish and keeps the upstream (and buffers). Used
 // to simulate an engine crash in e2e builds; nothing else should need it.
@@ -1146,6 +1167,14 @@ func translate(e girc.Event) Event {
 			out.Args = append([]string(nil), e.Params[1:]...)
 		}
 		out.Message = e.Last()
+	case girc.PONG:
+		// The answer to a delivery check (PrivmsgAck): everything sent
+		// before it reached the server. Other PONGs (keepalive, Probe) are
+		// the engine's business.
+		if n, ok := strings.CutPrefix(e.Last(), ackTokenPrefix); ok {
+			return Event{Kind: KindAck, Message: n}
+		}
+		return Event{}
 	default:
 		// Forward every 3-digit numeric reply — the explicit cases
 		// above handle the ones that need parsing (welcome, ISUPPORT,

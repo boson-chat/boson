@@ -452,6 +452,12 @@
 
 .message-row-grouped:hover .message-row-grouped-time { opacity: 1; }
 
+/* Sent but not yet confirmed by the server (ChatService.send): faded, its
+   time reading "Sending…" until the ACK; resent after a reconnect. */
+.message-row-pending .message-row-text { opacity: 0.55; }
+.message-row-pending .message-row-time,
+.message-row-pending .message-row-grouped-time { opacity: 1; font-style: italic; }
+
 .message-row {
   display: flex;
   align-items: flex-start;

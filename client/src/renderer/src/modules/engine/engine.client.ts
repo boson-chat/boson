@@ -184,11 +184,16 @@ export class ServerSession {
     });
   }
 
-  privmsg(target: string, message: string): void {
+  privmsg(target: string, message: string, ack?: number): void {
     this.engine._sendForSession({
       type: 'privmsg',
-      params: { serverId: this.serverId, target, message },
+      params: { serverId: this.serverId, target, message, ...(ack ? { ack } : {}) },
     });
+  }
+
+  // Check the engine's connections are alive (EngineClient.probe).
+  probe(): void {
+    this.engine.probe();
   }
 
   names(channel: string): void {

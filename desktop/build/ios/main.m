@@ -2,6 +2,7 @@
 // Minimal bootstrap: delegate comes from Go archive (WailsAppDelegate).
 // From Wails' iOS template, plus BosonSceneDelegate and edgeToEdge() below.
 #import <UIKit/UIKit.h>
+#import <Network/Network.h>
 #import <objc/runtime.h>
 #include <stdio.h>
 
@@ -12,6 +13,33 @@
 // status bar and home indicator with env(safe-area-inset-*) (viewport-fit=
 // cover; the webview's scroll view doesn't adjust its own insets).
 // Wails v3 has no option for this (beta.30).
+// The app's webview, once Wails has made it (see edgeToEdge); for
+// watchNetwork. It lives as long as the app.
+static UIView *bosonWebView = nil;
+
+// Tell the page the moment the network changes — Wi-Fi lost, a switch to
+// cellular, back online — so it checks its IRC connections right away
+// (a connection on the old interface is dead, but nothing on the wire says
+// so until the server's ping timeout, minutes later). The page listens for
+// "boson:network" (DirectoryBloc); detail.online says whether there's a
+// usable path at all.
+static void watchNetwork(void) {
+    nw_path_monitor_t monitor = nw_path_monitor_create();
+    nw_path_monitor_set_queue(monitor, dispatch_get_main_queue());
+    __block BOOL first = YES;
+    nw_path_monitor_set_update_handler(monitor, ^(nw_path_t path) {
+        // The first update is the state at start, not a change.
+        if (first) { first = NO; return; }
+        BOOL online = nw_path_get_status(path) == nw_path_status_satisfied;
+        if (![bosonWebView respondsToSelector:@selector(evaluateJavaScript:completionHandler:)]) return;
+        NSString *js = [NSString stringWithFormat:
+            @"window.dispatchEvent(new CustomEvent('boson:network', { detail: { online: %@ } }))",
+            online ? @"true" : @"false"];
+        [(id)bosonWebView evaluateJavaScript:js completionHandler:nil];
+    });
+    nw_path_monitor_start(monitor);
+}
+
 static void edgeToEdge(void) {
     Class vc = NSClassFromString(@"WailsViewController");
     if (!vc) return;
@@ -36,6 +64,10 @@ static void edgeToEdge(void) {
         } @catch (NSException *e) {
         }
         if (web && (!tabBar || tabBar.isHidden)) web.frame = self_.view.bounds;
+        if (web && !bosonWebView) {
+            bosonWebView = web;
+            watchNetwork();
+        }
         // An app, not a web page: no pinch zoom (the viewport meta asks
         // for that too; this holds whatever the page says). On a phone the
         // page is laid out narrower and shown a size up (PHONE_SCALE in

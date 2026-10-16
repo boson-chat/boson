@@ -1388,6 +1388,21 @@ describe('DirectoryBloc', () => {
         vi.useRealTimers();
       });
 
+      it('a network change (Wi-Fi to cellular) probes the connections at once', async () => {
+        vi.useFakeTimers();
+        const { bloc, engine, server } = setup();
+        const probe = vi.spyOn(engine.client, 'probe');
+        await vi.advanceTimersByTimeAsync(0);
+        await bloc.connect(server);
+        await vi.advanceTimersByTimeAsync(0);
+        window.dispatchEvent(new CustomEvent('boson:network', { detail: { online: true } }));
+        expect(probe).toHaveBeenCalledOnce();
+        bloc.dispose();
+        window.dispatchEvent(new CustomEvent('boson:network', { detail: { online: true } }));
+        expect(probe).toHaveBeenCalledOnce();
+        vi.useRealTimers();
+      });
+
       it('a brief glance away does nothing', async () => {
         vi.useFakeTimers();
         const { bloc, engine, server } = setup();

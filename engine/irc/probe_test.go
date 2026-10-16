@@ -77,3 +77,26 @@ func TestProbe_NotConnected(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, c.Probe(100*time.Millisecond))
 }
+
+func TestPrivmsgAck_ConfirmedByThePong(t *testing.T) {
+	c, err := New(Config{Hostname: "127.0.0.1", Port: probeServer(t, true), Nick: "tester"})
+	require.NoError(t, err)
+	acks := make(chan string, 4)
+	c.OnEvent(func(e Event) {
+		if e.Kind == KindAck {
+			acks <- e.Message
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = c.Connect(ctx) }()
+	require.Eventually(t, c.girc.IsConnected, 5*time.Second, 5*time.Millisecond)
+
+	c.PrivmsgAck("#chan", "hello", 7)
+	select {
+	case n := <-acks:
+		assert.Equal(t, "7", n)
+	case <-time.After(5 * time.Second):
+		t.Fatal("no ACK")
+	}
+}

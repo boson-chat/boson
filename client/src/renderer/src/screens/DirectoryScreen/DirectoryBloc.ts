@@ -302,6 +302,13 @@ export class DirectoryBloc {
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', this.onVisibility);
     }
+    // The network changed (the iOS shell's path monitor; a browser's
+    // `online`): connections on the old network are dead though nothing
+    // says so yet — check them now rather than at the ping timeout.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('boson:network', this.onNetworkChange);
+      window.addEventListener('online', this.onNetworkChange);
+    }
 
     void this.loadInitial();
   }
@@ -319,7 +326,12 @@ export class DirectoryBloc {
     if (hiddenFor >= RESUME_AFTER_HIDDEN_MS) this.resume();
   };
 
-  // Back from the background: probe the live connections, retry the dropped.
+  private readonly onNetworkChange = (): void => {
+    if (!this.disposed) this.resume();
+  };
+
+  // Back from the background, or onto a new network: probe the live
+  // connections, retry the dropped.
   private resume(): void {
     this.engine?.probe?.();
     this.reconnectDropped();
@@ -414,6 +426,10 @@ export class DirectoryBloc {
     this.unsubscribeEngineReconnect?.();
     this.unsubscribeEngineReconnect = null;
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('boson:network', this.onNetworkChange);
+      window.removeEventListener('online', this.onNetworkChange);
+    }
     if (this.resumeTimer) clearTimeout(this.resumeTimer);
     if (this.bouncerRerouteTimer) clearTimeout(this.bouncerRerouteTimer);
     if (this.searchTimer) {
