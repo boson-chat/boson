@@ -112,9 +112,10 @@ static void edgeToEdge(void) {
 }
 - (void)sceneDidEnterBackground:(UIScene *)scene {
     [self endGrace];
-    __weak BosonSceneDelegate *weakSelf = self;
+    // (Manual reference counting here, so no __weak; the scene delegate
+    // lives as long as the app anyway.)
     self.grace = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Stay connected"
-                                                            expirationHandler:^{ [weakSelf endGrace]; }];
+                                                            expirationHandler:^{ [self endGrace]; }];
     id d = [self appDelegate];
     if ([d respondsToSelector:@selector(applicationDidEnterBackground:)]) [d applicationDidEnterBackground:UIApplication.sharedApplication];
 }
