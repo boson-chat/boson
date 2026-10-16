@@ -28,7 +28,8 @@ case "$(uname -s)" in
   *) echo "package.sh builds Windows and Linux; on macOS use package-macos.sh" >&2; exit 1 ;;
 esac
 arch="$(go env GOARCH)"
-VERSION="$(node -p "require('$client/package.json').version")"
+# Read from inside client/: under Git Bash, a /d/... path means nothing to Node.
+VERSION="$(cd "$client" && node -p "require('./package.json').version")"
 out="$desktop/bin"
 mkdir -p "$out"
 
