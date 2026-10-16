@@ -76,7 +76,10 @@ echo "building the Go archive ($tags)"
   CGO_LDFLAGS="-isysroot $SDK_PATH -target $TARGET" \
   go build -buildmode=c-archive -tags "$tags" -trimpath -buildvcs=false -ldflags "$ldflags" -o "$out/$APP_NAME.a" .)
 
-# 3. Link with the UIKit bootstrap.
+# 3. Link with the UIKit bootstrap. The entitlements go into the executable
+#    (as Xcode does for the simulator): the Keychain needs an application
+#    identifier, and codesigned entitlements make SpringBoard refuse
+#    simulator apps.
 rm -rf "$app"
 mkdir -p "$app"
 xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
@@ -87,6 +90,8 @@ xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
   -framework AVFoundation \
   -framework CoreLocation -framework CoreMotion -framework SystemConfiguration \
   -lresolv \
+  -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements \
+  -Xlinker "$desktop/build/ios/Simulator.entitlements" \
   -o "$app/$APP_NAME" \
   "$desktop/build/ios/main.m" -Wl,-force_load,"$out/$APP_NAME.a"
 

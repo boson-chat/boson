@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Embedded in simulator builds' executable (__TEXT,__entitlements), as
+     Xcode does: without an application identifier the iOS Keychain refuses
+     the app (errSecMissingEntitlement, -34018), so the secure store has no
+     key and signed-in users have to unlock their identity on every launch.
+     Device builds get theirs from the provisioning profile at signing. -->
+<plist version="1.0">
+<dict>
+    <key>application-identifier</key>
+    <string>FJY7UPX884.chat.boson.app</string>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>FJY7UPX884.chat.boson.app</string>
+    </array>
+</dict>
+</plist>

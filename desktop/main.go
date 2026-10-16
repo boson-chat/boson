@@ -59,6 +59,12 @@ func main() {
 	links := NewLinksService(dev)
 	api := NewApiService(apiBase, dev)
 	deepLinks := &DeepLinkService{}
+	secure := NewSecureStore(dataDir, secureMode)
+	if dev {
+		// Which key protects the secure store, and why not the OS keychain.
+		_, kerr := secure.masterKey()
+		log.Printf("secure store: mode=%s keychain-error=%v data=%s", secure.Mode(), kerr, dataDir)
+	}
 	engine := &EngineService{}
 	spotify := NewSpotifyService()
 	updater := NewUpdaterService(appVersion, !dev, links)
@@ -81,7 +87,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(engine),
 			application.NewService(api),
-			application.NewService(NewSecureStore(dataDir, secureMode)),
+			application.NewService(secure),
 			application.NewService(NewUnfurlService(dev)),
 			application.NewService(spotify),
 			application.NewService(NewThemesService(dataDir)),
