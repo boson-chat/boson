@@ -34,6 +34,12 @@ export function isDarwin(): boolean {
   return getPlatform() === 'darwin';
 }
 
+/** iOS or Android: the window is the screen — no window controls. */
+export function isMobile(): boolean {
+  const p = getPlatform();
+  return p === 'ios' || p === 'android';
+}
+
 /** Get the bridge, or null in tests / browser contexts. */
 export function getWindowBridge(): BosonWindowBridge | null {
   return (typeof window !== 'undefined' && window.bosonWindow) || null;

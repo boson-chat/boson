@@ -737,3 +737,24 @@
   min-width: 0;
 }
 .server-settings-bouncer-upstream > .bds-btn { flex: none; }
+
+/* Phones: as User settings — the section menu scrolls across the top. */
+@media (max-width: 700px) {
+  .server-settings-split { flex-direction: column; }
+  .server-settings-menu {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+    gap: var(--space-1);
+    flex-shrink: 0;
+  }
+  .server-settings-menu-item { flex-shrink: 0; }
+  .server-settings-menu-desc { display: none; }
+  .server-settings-body { padding: var(--space-4); }
+  /* Label above value: a fixed label column leaves values a sliver. */
+  .server-settings-row { grid-template-columns: 1fr; gap: var(--space-1); }
+  .server-settings-card-body { padding: var(--space-3) var(--space-4); }
+}

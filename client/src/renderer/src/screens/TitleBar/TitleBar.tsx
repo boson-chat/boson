@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { BosonGlyph } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
-import { getWindowBridge, isDarwin } from '../../shared/window-controls';
+import { getWindowBridge, isDarwin, isMobile } from '../../shared/window-controls';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -27,7 +27,8 @@ interface TitleBarProps {
 // on Windows/Linux, `titleBarStyle: 'hiddenInset'` on macOS) so we draw our
 // own. On macOS the native traffic-light buttons remain visible, so we only
 // render a draggable region + the app brand; on Windows/Linux we draw all
-// three controls (minimize, maximize/restore, close) on the right.
+// three controls (minimize, maximize/restore, close) on the right. On iOS
+// and Android there's no window to control: no controls at all.
 //
 // Drag region: the title bar element itself sets `-webkit-app-region: drag`
 // via CSS so the user can drag the window from any non-button area. Each
@@ -37,6 +38,7 @@ export function TitleBar({
   onOpenSettings, userLabel, userMode, avatarUrl, onOpenInbox, inboxUnreadCount = 0,
 }: TitleBarProps = {}) {
   const darwin = isDarwin();
+  const mobile = isMobile();
   const bridge = getWindowBridge();
   const [maximized, setMaximized] = useState(false);
 
@@ -51,7 +53,7 @@ export function TitleBar({
   }, [bridge]);
 
   return (
-    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''}`}>
+    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''} ${mobile ? 'title-bar-mobile' : ''}`}>
       <div class="title-bar-drag">
         <BosonGlyph size={16} class="title-bar-mark" />
         <span class="title-bar-title">Boson</span>
@@ -100,7 +102,7 @@ export function TitleBar({
           )}
         </div>
       )}
-      {!darwin && (
+      {!darwin && !mobile && (
         <div class="title-bar-controls">
           <button
             type="button"

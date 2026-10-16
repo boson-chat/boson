@@ -195,6 +195,7 @@ function fakeEngine(): FakeEngine {
     sessions: () => Array.from(sessions.values()) as unknown as ServerSession[],
     getSession: (id: string) => sessions.get(id) as unknown as ServerSession | null,
     onReconnect: () => () => {},
+    probe: () => {},
     onTransportError: () => () => {},
     isOpen: () => true,
     open: async () => {},
@@ -1005,6 +1006,8 @@ describe('DirectoryBloc', () => {
       conn.chat.getState().channels.find((c) => c.name === name)?.messages.map((m) => m.text) ?? [];
     expect(texts('#general')).toContain('read before the drop');
     expect(texts('bob')).toEqual(['a private line']);
+    // Still open on the same channel, not back to the splash.
+    expect(conn.chat.getState().activeChannel).toBe('#general');
 
     // The bouncer replays: one line already shown, one missed.
     const again = engine.sessionFor('libera');
@@ -1323,6 +1326,95 @@ describe('DirectoryBloc', () => {
       expect(session.joinCalls).toContain('#help');
       bloc.dispose();
       vi.useRealTimers();
+    });
+
+    describe('back in the foreground', () => {
+      let visibility: DocumentVisibilityState = 'visible';
+      beforeEach(() => {
+        visibility = 'visible';
+        Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => visibility });
+      });
+      afterEach(() => {
+        delete (document as { visibilityState?: unknown }).visibilityState;
+      });
+      // Hidden for `ms` without any timer running, as when iOS suspends the
+      // app: only the clock moves.
+      const suspend = (ms: number): void => {
+        visibility = 'hidden';
+        document.dispatchEvent(new Event('visibilitychange'));
+        vi.setSystemTime(Date.now() + ms);
+        visibility = 'visible';
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+
+      it('probes the connections, and reconnects a dropped server without waiting out its backoff', async () => {
+        vi.useFakeTimers();
+        const { bloc, engine, server } = setup();
+        const probe = vi.spyOn(engine.client, 'probe');
+        await vi.advanceTimersByTimeAsync(0);
+        await bloc.connect(server);
+        await vi.advanceTimersByTimeAsync(0);
+        engine.sessionFor('libera')._setState('connected');
+        await vi.advanceTimersByTimeAsync(0);
+        engine.sessionFor('libera')._setState('disconnected');
+        await vi.advanceTimersByTimeAsync(0);
+        const baseCalls = engine.connectCalls.length;
+
+        suspend(60_000);
+        await vi.advanceTimersByTimeAsync(0); // (connect is async; the 1s backoff hasn't run)
+        expect(probe).toHaveBeenCalledOnce();
+        expect(engine.connectCalls.length).toBe(baseCalls + 1);
+        bloc.dispose();
+        vi.useRealTimers();
+      });
+
+      it('retries once the probe has had time to drop a dead connection', async () => {
+        vi.useFakeTimers();
+        const { bloc, engine, server } = setup();
+        await vi.advanceTimersByTimeAsync(0);
+        await bloc.connect(server);
+        await vi.advanceTimersByTimeAsync(0);
+        engine.sessionFor('libera')._setState('connected');
+        await vi.advanceTimersByTimeAsync(0);
+
+        suspend(60_000);
+        const baseCalls = engine.connectCalls.length;
+        // The probe finds it dead: the engine reports the drop, and the
+        // recheck brings it back ahead of the backoff's later steps.
+        engine.sessionFor('libera')._setState('disconnected');
+        await vi.advanceTimersByTimeAsync(5_500);
+        expect(engine.connectCalls.length).toBeGreaterThan(baseCalls);
+        bloc.dispose();
+        vi.useRealTimers();
+      });
+
+      it('a network change (Wi-Fi to cellular) probes the connections at once', async () => {
+        vi.useFakeTimers();
+        const { bloc, engine, server } = setup();
+        const probe = vi.spyOn(engine.client, 'probe');
+        await vi.advanceTimersByTimeAsync(0);
+        await bloc.connect(server);
+        await vi.advanceTimersByTimeAsync(0);
+        window.dispatchEvent(new CustomEvent('boson:network', { detail: { online: true } }));
+        expect(probe).toHaveBeenCalledOnce();
+        bloc.dispose();
+        window.dispatchEvent(new CustomEvent('boson:network', { detail: { online: true } }));
+        expect(probe).toHaveBeenCalledOnce();
+        vi.useRealTimers();
+      });
+
+      it('a brief glance away does nothing', async () => {
+        vi.useFakeTimers();
+        const { bloc, engine, server } = setup();
+        const probe = vi.spyOn(engine.client, 'probe');
+        await vi.advanceTimersByTimeAsync(0);
+        await bloc.connect(server);
+        await vi.advanceTimersByTimeAsync(0);
+        suspend(3_000);
+        expect(probe).not.toHaveBeenCalled();
+        bloc.dispose();
+        vi.useRealTimers();
+      });
     });
 
     it('dispose() cancels pending auto-reconnect timers', async () => {

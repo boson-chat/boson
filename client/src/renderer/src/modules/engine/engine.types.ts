@@ -36,7 +36,9 @@ export interface ConnectParams {
 }
 
 export interface JoinParams { serverId: string; channel: string }
-export interface PrivmsgParams { serverId: string; target: string; message: string }
+// ack: ask for delivery confirmation — an 'ACK' event carrying this number
+// once the server has the message (and every one before it).
+export interface PrivmsgParams { serverId: string; target: string; message: string; ack?: number }
 export interface NamesParams { serverId: string; channel: string }
 export interface DisconnectParams { serverId: string }
 export interface TagmsgParams { serverId: string; target: string; tags: Record<string, string> }
@@ -54,7 +56,7 @@ export interface RawParams { serverId: string; line: string }
 export interface BouncerUpstreamParams { serverId: string }
 
 export interface ClientCommand {
-  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickserv-identify' | 'raw' | 'bouncer-connect' | 'bouncer-disconnect';
+  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickserv-identify' | 'raw' | 'bouncer-connect' | 'bouncer-disconnect' | 'probe';
   params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams | NickParams | NickservIdentifyParams | RawParams | BouncerUpstreamParams;
 }
 

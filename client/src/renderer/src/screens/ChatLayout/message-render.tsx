@@ -100,6 +100,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
     mentionsMe ? 'message-row-mention' : '',
     grouped ? 'message-row-grouped' : '',
     fresh ? 'message-fresh' : '',
+    msg.pending ? 'message-row-pending' : '',
   ].filter(Boolean).join(' ');
 
   const badge = ROLE_BADGES[findMemberPrefix(members, msg.from)];
@@ -144,14 +145,14 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
               </span>
             )}
             <span class="message-row-handle">~{msg.from}</span>
-            <span class="message-row-time">{time}</span>
+            <span class="message-row-time">{msg.pending ? 'Sending…' : time}</span>
           </div>
         )}
         <div class={`message-row-text${doc ? ' message-row-doc' : ''}`}>
           {doc
             ? <MarkdownDoc text={msg.text} />
             : <span class="message-row-text-body">{renderedText}</span>}
-          {grouped && <span class="message-row-grouped-time" aria-hidden="true">{time}</span>}
+          {grouped && <span class="message-row-grouped-time" aria-hidden={!msg.pending}>{msg.pending ? 'Sending…' : time}</span>}
         </div>
         {!doc && <MessageEmbeds text={msg.text} />}
       </div>

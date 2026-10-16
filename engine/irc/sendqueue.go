@@ -85,6 +85,8 @@ type outbound struct {
 	at time.Time
 	// free: sent without spending a token (see sendQueue.unpaced).
 	free bool
+	// ack: a delivery check's PING (Client.PrivmsgAck).
+	ack bool
 }
 
 // pacing is a token-bucket configuration. rate <= 0 means unlimited.
@@ -223,6 +225,26 @@ func (q *sendQueue) enqueue(ev *girc.Event, class sendClass, key string) {
 		}
 	}
 	q.queues[class] = append(q.queues[class], outbound{ev: ev, class: class, key: key, at: q.now(), free: free})
+	q.mu.Unlock()
+	q.nudge()
+}
+
+// enqueueAck queues a delivery check's PING behind the interactive lines,
+// unpaced (a PING costs the server nothing). One still queued is dropped:
+// the new one, later in the queue, confirms everything the old one would.
+func (q *sendQueue) enqueueAck(ev *girc.Event) {
+	q.mu.Lock()
+	if !q.active {
+		q.mu.Unlock()
+		return
+	}
+	iq := q.queues[classInteractive][:0:0]
+	for _, o := range q.queues[classInteractive] {
+		if !o.ack {
+			iq = append(iq, o)
+		}
+	}
+	q.queues[classInteractive] = append(iq, outbound{ev: ev, class: classInteractive, at: q.now(), free: true, ack: true})
 	q.mu.Unlock()
 	q.nudge()
 }

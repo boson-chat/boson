@@ -12,6 +12,22 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, #app { height: 100%; }
+/* The app never scrolls as a page (panes scroll inside); on iOS an
+   overflowing element would otherwise let the whole page pan sideways. */
+html { overflow: hidden; }
+/* An app, not a page: no double-tap zoom on phones (pinch is off via the
+   viewport meta, and in the iOS shell natively). */
+html { touch-action: manipulation; }
+
+/* Phones draw edge to edge (the iOS shell lays the webview under the status
+   bar and home indicator): keep content clear of them. The insets are 0 on
+   desktop. The title bar handles the top itself (TitleBar.css), so its
+   background runs under the status bar. */
+#app {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
 
 body {
   margin: 0;

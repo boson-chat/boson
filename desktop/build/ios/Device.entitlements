@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Development builds for a registered iPhone (package-ios.sh with
+     IOS_PLATFORM=device), applied at codesign time; they must match the
+     development provisioning profile (scripts/ios_provision.py). -->
+<plist version="1.0">
+<dict>
+    <key>application-identifier</key>
+    <string>FJY7UPX884.chat.boson.app</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>FJY7UPX884</string>
+    <key>get-task-allow</key>
+    <true/>
+    <key>keychain-access-groups</key>
+    <array>
+        <string>FJY7UPX884.chat.boson.app</string>
+    </array>
+</dict>
+</plist>

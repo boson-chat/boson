@@ -487,3 +487,30 @@ func TestClient_SelfJoinThroughBouncerSkipsMODE(t *testing.T) {
 	require.Len(t, bg, 1)
 	assert.Equal(t, "WHO #chan", bg[0].ev.String())
 }
+
+func ackPing(n int) *girc.Event {
+	return &girc.Event{Command: girc.PING, Params: []string{fmt.Sprintf("boson-ack-%d", n)}}
+}
+
+func TestSendQueue_AckFollowsItsMessageAndCoalesces(t *testing.T) {
+	q, _ := newTestQueue(pacing{burst: 100, rate: 1})
+	// A paste: three messages queued at once → one PING, after the last.
+	for i := 1; i <= 3; i++ {
+		q.enqueue(pm("#chan", fmt.Sprint(i)), classInteractive, "")
+		q.enqueueAck(ackPing(i))
+	}
+	assert.Equal(t, []string{"PRIVMSG #chan 1", "PRIVMSG #chan 2", "PRIVMSG #chan 3", "PING boson-ack-3"}, drain(q))
+
+	// Sent one at a time: each gets its own.
+	q.enqueue(pm("#chan", "4"), classInteractive, "")
+	q.enqueueAck(ackPing(4))
+	assert.Equal(t, []string{"PRIVMSG #chan 4", "PING boson-ack-4"}, drain(q))
+}
+
+func TestSendQueue_AckCostsNoToken(t *testing.T) {
+	q, _ := newTestQueue(pacing{burst: 1, rate: 1})
+	q.enqueue(pm("#chan", "hi"), classInteractive, "")
+	q.enqueueAck(ackPing(1))
+	// One token: the message spends it, the PING still goes.
+	assert.Equal(t, []string{"PRIVMSG #chan hi", "PING boson-ack-1"}, drain(q))
+}

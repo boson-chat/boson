@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { AtomLoader } from '@boson/shared';
+import { ChevronLeft } from 'lucide-preact';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu } from './NickContextMenu';
@@ -11,6 +12,8 @@ export type { NickActions };
 
 interface UserPanelProps {
   channel: ChatChannel | null;
+  /** Phone layout: the member list is its own pane; this returns to the chat. */
+  onBack?: () => void;
   /** Optional callbacks the right-click context menu binds to. When all
    *  are absent the menu is suppressed (right-click falls back to native
    *  browser behaviour). */
@@ -46,7 +49,7 @@ interface HoverState {
 // passing through a row doesn't flash a card.
 const HOVER_OPEN_DELAY_MS = 150;
 
-export function UserPanel({ channel, nickActions, avatarFor, width }: UserPanelProps) {
+export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: UserPanelProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   // Debounce the hover-card open: we capture the row's bounding box on
@@ -82,6 +85,11 @@ export function UserPanel({ channel, nickActions, avatarFor, width }: UserPanelP
   return (
     <aside class="user-panel" aria-label="Members" style={width ? { width: `${width}px` } : undefined}>
       <div class="user-panel-header">
+        {onBack && (
+          <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Back to chat">
+            <ChevronLeft size={20} aria-hidden="true" />
+          </button>
+        )}
         <div class="user-panel-title">
           Members{total > 0 ? ` — ${total}` : ''}
         </div>

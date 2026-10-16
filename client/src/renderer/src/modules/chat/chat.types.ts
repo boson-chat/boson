@@ -16,6 +16,9 @@ export interface ChatMessage {
   // connection, so a bouncer replaying the same line gives it a slightly
   // different `timestamp` each time; this stays put, so dedupe compares it.
   serverTime?: number;
+  // Our own message, not yet confirmed to have reached the server (see
+  // ChatService.send). Resent after a reconnect while still set.
+  pending?: true;
 }
 
 // IRC channel-status prefix sigils. Common: `@` op, `+` voice, `%` halfop,
