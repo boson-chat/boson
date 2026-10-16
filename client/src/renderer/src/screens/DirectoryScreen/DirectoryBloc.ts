@@ -92,6 +92,14 @@ interface AutoReconnectState {
 // keep trying indefinitely without hammering the server. The user
 // can always click Reconnect to skip whatever delay is pending.
 const AUTO_RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+// Back in the foreground after at least this long hidden (a phone app is
+// suspended within seconds of leaving the screen): check the connections
+// are still alive, and bring dropped ones back without waiting out their
+// backoff — its timers were frozen while suspended.
+const RESUME_AFTER_HIDDEN_MS = 10_000;
+// The engine's probe gives a connection 5s to answer; a dead one has been
+// dropped by then, so retry once more just after.
+const RESUME_RECHECK_MS = 5_500;
 
 const BOUNCER_REROUTE_DEBOUNCE_MS = 500;
 // Restoring channels through a bouncer: once it is on the network, wait for
@@ -291,12 +299,36 @@ export class DirectoryBloc {
     // after a crash): bring dropped servers back now instead of waiting out
     // their backoff.
     this.unsubscribeEngineReconnect = this.engine?.onReconnect?.(() => this.reconnectDropped()) ?? null;
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.onVisibility);
+    }
 
     void this.loadInitial();
   }
 
   private unsubscribeBouncerProfile: (() => void) | null = null;
   private unsubscribeEngineReconnect: (() => void) | null = null;
+  private hiddenAt: number | null = null;
+  private resumeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly onVisibility = (): void => {
+    if (this.disposed) return;
+    if (document.visibilityState === 'hidden') { this.hiddenAt = Date.now(); return; }
+    const hiddenFor = this.hiddenAt === null ? 0 : Date.now() - this.hiddenAt;
+    this.hiddenAt = null;
+    if (hiddenFor >= RESUME_AFTER_HIDDEN_MS) this.resume();
+  };
+
+  // Back from the background: probe the live connections, retry the dropped.
+  private resume(): void {
+    this.engine?.probe?.();
+    this.reconnectDropped();
+    if (this.resumeTimer) clearTimeout(this.resumeTimer);
+    this.resumeTimer = setTimeout(() => {
+      this.resumeTimer = null;
+      this.reconnectDropped();
+    }, RESUME_RECHECK_MS);
+  }
 
   private reconnectDropped(): void {
     if (this.disposed) return;
@@ -381,6 +413,8 @@ export class DirectoryBloc {
     this.unsubscribeBouncerProfile = null;
     this.unsubscribeEngineReconnect?.();
     this.unsubscribeEngineReconnect = null;
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
+    if (this.resumeTimer) clearTimeout(this.resumeTimer);
     if (this.bouncerRerouteTimer) clearTimeout(this.bouncerRerouteTimer);
     if (this.searchTimer) {
       clearTimeout(this.searchTimer);

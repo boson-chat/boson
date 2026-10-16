@@ -538,6 +538,15 @@ export class EngineClient {
   // runs whenever the WebSocket reopens *after* an unexpected close — i.e.
   // not on the very first open(). Used by higher layers to re-issue any
   // `connect({...})` command they need to restore IRC session state.
+  // Check every IRC connection is still alive (a PING it must answer within
+  // a few seconds); dead ones drop and report `disconnected`. For when the
+  // app comes back from being suspended — a phone app in the background —
+  // and its sockets may have died without anything noticing.
+  probe(): void {
+    if (this.ws?.readyState !== WS_OPEN) return;
+    this._sendForSession({ type: 'probe' });
+  }
+
   onReconnect(fn: ReconnectListener): () => void {
     this.reconnectListeners.add(fn);
     return () => { this.reconnectListeners.delete(fn); };

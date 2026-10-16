@@ -384,9 +384,15 @@
   border-left: 2px solid transparent;
 }
 
-.channel-item:hover {
-  background: var(--surface-hover);
-  color: var(--fg-2);
+/* Hover effects only for real pointers: on a touch screen iOS treats a tap
+   that changes what's shown on hover as a hover, and wants a second tap. */
+@media (hover: hover) {
+  .channel-item:hover {
+    background: var(--surface-hover);
+    color: var(--fg-2);
+  }
+    .channel-item:hover .channel-unread-dot,
+  .channel-item:hover .channel-mention-count { display: none; }
 }
 
 .channel-item-active {
@@ -515,8 +521,6 @@
 
 /* When the leave-(×) button reveals on hover, suppress the indicator so
    the row doesn't show both at once and feel crowded. */
-.channel-item:hover .channel-unread-dot,
-.channel-item:hover .channel-mention-count { display: none; }
 
 /* The synthetic `~server` pseudo-channel: holds NickServ + server-source
    NOTICEs so they don't pollute real channel + DM lists. Distinct visual
@@ -537,3 +541,18 @@
   color: var(--muted);
 }
 
+
+/* Phones: finger-sized rows. With no hover to reveal it, the leave button
+   stays hidden (an invisible button at the row's edge is a trap). */
+@media (max-width: 700px) {
+  .channel-item {
+    min-height: 44px;
+    font-size: var(--text-lg);
+  }
+  .channel-hash { font-size: var(--text-base); }
+  .channel-join-result { padding-top: 12px; padding-bottom: 12px; }
+  .channel-join-result-name { font-size: var(--text-lg); }
+}
+@media (hover: none) {
+  .channel-leave { display: none; }
+}

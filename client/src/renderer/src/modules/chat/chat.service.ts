@@ -455,12 +455,17 @@ export class ChatService {
   // already read vanishes on a reconnect: in memory only on a bouncer or
   // for a guest, and a bouncer that clears its buffers once played (ZNC's
   // default) won't send those lines again.
-  exportConversations(): Array<{ name: string; messages: ChatMessage[]; older?: ChatMessage[] }> {
-    const out: Array<{ name: string; messages: ChatMessage[]; older?: ChatMessage[] }> = [];
+  // The open conversation is marked `active` (and kept even when empty), so
+  // the reconnect stays on it rather than falling back to the splash.
+  exportConversations(): Array<{ name: string; messages: ChatMessage[]; older?: ChatMessage[]; active?: true }> {
+    const out: Array<{ name: string; messages: ChatMessage[]; older?: ChatMessage[]; active?: true }> = [];
     for (const ch of this.channels.values()) {
       const messages = ch.messages.peek();
       const older = this.older.get(ch.name);
-      if (messages.length > 0 || older) out.push({ name: ch.name, messages, ...(older ? { older } : {}) });
+      const active = ch.name === this.activeChannel;
+      if (messages.length > 0 || older || active) {
+        out.push({ name: ch.name, messages, ...(older ? { older } : {}), ...(active ? { active: true as const } : {}) });
+      }
     }
     return out;
   }
@@ -468,8 +473,12 @@ export class ChatService {
   // Take over a predecessor's conversations (exportConversations). Call
   // before attach(): the reconnect's backlog and rejoins then dedupe
   // against them like any other line already shown.
-  seedConversations(convs: ReadonlyArray<{ name: string; messages: readonly ChatMessage[]; older?: readonly ChatMessage[] }>): void {
+  seedConversations(convs: ReadonlyArray<{ name: string; messages: readonly ChatMessage[]; older?: readonly ChatMessage[]; active?: true }>): void {
     for (const c of convs) {
+      if (c.active && !this.activeChannel) {
+        this.ensureChannel(c.name);
+        this.activeChannel = this.channelKey(c.name);
+      }
       if (c.messages.length === 0 && !c.older?.length) continue;
       const ch = this.ensureChannel(c.name);
       if (c.older?.length) this.stashOlder(this.channelKey(c.name), c.older);

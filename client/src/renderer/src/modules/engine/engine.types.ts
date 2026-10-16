@@ -54,7 +54,7 @@ export interface RawParams { serverId: string; line: string }
 export interface BouncerUpstreamParams { serverId: string }
 
 export interface ClientCommand {
-  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickserv-identify' | 'raw' | 'bouncer-connect' | 'bouncer-disconnect';
+  type: 'connect' | 'disconnect' | 'join' | 'part' | 'privmsg' | 'names' | 'tagmsg' | 'list' | 'away' | 'nick' | 'nickserv-identify' | 'raw' | 'bouncer-connect' | 'bouncer-disconnect' | 'probe';
   params?: ConnectParams | JoinParams | PrivmsgParams | NamesParams | DisconnectParams | TagmsgParams | ListParams | AwayParams | NickParams | NickservIdentifyParams | RawParams | BouncerUpstreamParams;
 }
 

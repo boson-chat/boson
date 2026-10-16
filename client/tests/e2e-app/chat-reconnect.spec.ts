@@ -57,7 +57,7 @@ test.describe('connection drops', () => {
     const channel = randomChannel('drop');
     const peer = await connectPeer();
     peers.push(peer);
-    const { page, nick, serverName } = await connectGuest(launchApp, { port: p.port });
+    const { page, nick } = await connectGuest(launchApp, { port: p.port });
     await joinViaUi(page, channel, nick);
     await peer.join(channel);
     await expect(memberRow(page, peer.nick)).toBeVisible();
@@ -78,21 +78,24 @@ test.describe('connection drops', () => {
     await say(page, 'back again');
     await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'back again', mark);
 
-    // ---- drop while the server refuses: the reconnecting splash ----
+    // ---- drop while the server refuses: the conversation stays on screen,
+    // under a reconnecting strip ----
     p.refuse = true;
     mark = peer.mark();
     p.drop();
     await waitCmd(peer, 'QUIT', nick, () => true, mark);
-    const title = page.locator('.chat-engine-title');
-    await expect(title).toHaveText(new RegExp(`^(Reconnecting to|Disconnected from) ${serverName}`), { timeout: 30_000 });
-    await expect(page.locator('.sidebar-status-dot')).not.toHaveAttribute('data-state', 'connected');
+    const strip = page.locator('.chat-connection-strip');
+    await expect(strip).toContainText(/Reconnecting…|Disconnected/, { timeout: 30_000 });
+    await expect(page.locator('.chat-channel-label')).toHaveText(channel.slice(1));
+    await expect(messages(page).getByText('back again')).toBeVisible();
+    await expect(page.getByPlaceholder('Waiting for the connection…')).toBeDisabled();
     // Cancel the automatic cycle → manual mode.
-    const cancel = page.getByRole('button', { name: 'Cancel', exact: true });
+    const cancel = strip.getByRole('button', { name: 'Cancel', exact: true });
     await expect(cancel).toBeVisible({ timeout: 30_000 });
     await cancel.click();
-    await expect(title).toHaveText(`Disconnected from ${serverName}`);
+    await expect(strip).toContainText('Disconnected');
     await expect(cancel).toHaveCount(0);
-    const reconnect = page.getByRole('button', { name: 'Reconnect', exact: true });
+    const reconnect = strip.getByRole('button', { name: 'Reconnect', exact: true });
     await expect(reconnect).toBeEnabled();
 
     // Server back; the user reconnects by hand.

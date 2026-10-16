@@ -149,6 +149,9 @@ const (
 	CmdRaw               = "raw"
 	CmdBouncerConnect    = "bouncer-connect"
 	CmdBouncerDisconnect = "bouncer-disconnect"
+	// CmdProbe: check every connection is alive (irc.Client.Probe); dead
+	// ones drop and report "disconnected". For an app back from suspension.
+	CmdProbe = "probe"
 )
 
 // Outbound: messages from the engine to the renderer.

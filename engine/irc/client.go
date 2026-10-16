@@ -105,6 +105,9 @@ type Client struct {
 	// aborted: Abort dropped the connection; Connect must not QUIT on the
 	// way out (see Abort).
 	aborted atomic.Bool
+	// Probe's outstanding PINGs, by token; closed when their PONG arrives.
+	probes   map[string]chan struct{}
+	probeSeq atomic.Uint64
 	// lifeCtx is the connection's lifetime context, set at the top of
 	// Connect. Deferred work (the post-welcome LIST timers, the services
 	// probe-timeout fallbacks) selects on its Done so a disconnect within
@@ -237,6 +240,19 @@ func New(cfg Config) (*Client, error) {
 	c.bouncer.after = c.afterConnLifetime
 	c.bouncer.selfNick = c.girc.GetNick
 	c.bouncer.rearm = c.rearmUpstreamSession
+	// A PONG answering a Probe (its token is the PONG's last param).
+	gc.Handlers.Add(girc.PONG, func(_ *girc.Client, e girc.Event) {
+		token := e.Last()
+		c.mu.Lock()
+		ch, ok := c.probes[token]
+		if ok {
+			delete(c.probes, token)
+		}
+		c.mu.Unlock()
+		if ok {
+			close(ch)
+		}
+	})
 	return c, nil
 }
 
@@ -708,6 +724,39 @@ func (c *Client) Privmsg(target, message string) {
 func (c *Client) Abort() {
 	c.aborted.Store(true)
 	c.girc.Close()
+}
+
+// Probe checks the connection is alive: a PING the server must answer within
+// timeout. A connection that doesn't is dropped (without a QUIT — nothing
+// would receive it), so it reports disconnected now rather than after
+// girc's own ping timeout. For when the app comes back from being
+// suspended (a phone app in the background): its sockets may have died
+// meanwhile, and its timers were frozen. Reports whether it answered.
+func (c *Client) Probe(timeout time.Duration) bool {
+	if !c.girc.IsConnected() {
+		return false
+	}
+	token := fmt.Sprintf("boson-probe-%d", c.probeSeq.Add(1))
+	ch := make(chan struct{})
+	c.mu.Lock()
+	if c.probes == nil {
+		c.probes = map[string]chan struct{}{}
+	}
+	c.probes[token] = ch
+	c.mu.Unlock()
+	// Straight to girc, ahead of the paced queue: it must not wait behind a
+	// backlog to be judged.
+	c.girc.Send(&girc.Event{Command: girc.PING, Params: []string{token}})
+	select {
+	case <-ch:
+		return true
+	case <-time.After(timeout):
+		c.mu.Lock()
+		delete(c.probes, token)
+		c.mu.Unlock()
+		c.Abort()
+		return false
+	}
 }
 
 // Quit ends the IRC session with the given reason.

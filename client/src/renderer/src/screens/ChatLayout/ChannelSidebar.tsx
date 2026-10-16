@@ -450,7 +450,10 @@ function JoinChannelBrowser({
               data-idx={idx}
               class={`channel-join-result ${idx === highlight ? 'channel-join-result-active' : ''}`}
               onClick={() => onPick(c.name)}
-              onMouseEnter={() => setHighlight(idx)}
+              // A mouse only: on a touch screen iOS replays a tap as
+              // mouseenter first, and a re-render there makes it swallow
+              // the tap (the user had to tap twice to join).
+              onPointerEnter={(e) => { if (e.pointerType === 'mouse') setHighlight(idx); }}
               title={c.topic || c.name}
             >
               <span class="channel-join-result-name">{c.name}</span>

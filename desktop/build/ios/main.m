@@ -56,9 +56,13 @@ static void edgeToEdge(void) {
 //   - forwards the life-cycle callbacks iOS now sends to the scene, not the
 //     app delegate, to Wails' delegate (its active/background events);
 //   - forwards URLs (boson://), at launch and later, to the app delegate's
-//     application:openURL:options:.
+//     application:openURL:options:;
+//   - asks for background time on leaving the screen, so a quick trip to
+//     another app doesn't drop the IRC connections (iOS suspends an app
+//     within seconds otherwise; this buys about 30s).
 @interface BosonSceneDelegate : UIResponder <UIWindowSceneDelegate>
 @property (strong, nonatomic) UIWindow *window;
+@property (nonatomic) UIBackgroundTaskIdentifier grace;
 @end
 
 @implementation BosonSceneDelegate
@@ -96,11 +100,21 @@ static void edgeToEdge(void) {
     id d = [self appDelegate];
     if ([d respondsToSelector:@selector(applicationWillResignActive:)]) [d applicationWillResignActive:UIApplication.sharedApplication];
 }
+- (void)endGrace {
+    if (self.grace == UIBackgroundTaskInvalid) return;
+    [UIApplication.sharedApplication endBackgroundTask:self.grace];
+    self.grace = UIBackgroundTaskInvalid;
+}
 - (void)sceneWillEnterForeground:(UIScene *)scene {
+    [self endGrace];
     id d = [self appDelegate];
     if ([d respondsToSelector:@selector(applicationWillEnterForeground:)]) [d applicationWillEnterForeground:UIApplication.sharedApplication];
 }
 - (void)sceneDidEnterBackground:(UIScene *)scene {
+    [self endGrace];
+    __weak BosonSceneDelegate *weakSelf = self;
+    self.grace = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Stay connected"
+                                                            expirationHandler:^{ [weakSelf endGrace]; }];
     id d = [self appDelegate];
     if ([d respondsToSelector:@selector(applicationDidEnterBackground:)]) [d applicationDidEnterBackground:UIApplication.sharedApplication];
 }

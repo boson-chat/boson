@@ -203,9 +203,14 @@ export function ChatArea({
   //      because the user cancelled or it's the first render after a
   //      clean disconnect): static down-dot, "Disconnected" title,
   //      enabled Reconnect button, no Cancel.
+  //
+  // Only when there's no conversation to show (a first connect): with a
+  // channel open, a dropped connection keeps the conversation on screen
+  // under a slim ConnectionStrip — a reconnect (an app switch on a phone,
+  // a network blip) shouldn't look like the app reloading.
   const showConnectingSplash = engineState === 'connecting';
   const showDisconnectedSplash = engineState === 'disconnected';
-  if (showConnectingSplash || showDisconnectedSplash) {
+  if ((showConnectingSplash || showDisconnectedSplash) && !channel) {
     const isReconnecting = reconnectActive;
     const isAttempting = engineState === 'connecting';
     let title: string;
@@ -295,6 +300,7 @@ export function ChatArea({
   // A channel stays listed while its JOIN is pending (restore, a bouncer
   // still connecting): nothing typed there would reach it, so hold input.
   const joining = prefix === '#' && !channel.joined;
+  const offline = engineState !== 'connected';
 
   // Topics often carry mIRC colour codes; show the plain text.
   const topic = channel.topic ? stripIrcFormatting(channel.topic).trim() : '';
@@ -341,6 +347,16 @@ export function ChatArea({
         </div>
       </div>
 
+      {offline && (
+        <ConnectionStrip
+          engineState={engineState}
+          reconnectActive={reconnectActive}
+          connectionError={connectionError}
+          onReconnect={onReconnect}
+          onCancelReconnect={onCancelReconnect}
+        />
+      )}
+
       <PendingConfirmationBanner
         serverId={activeServerId ?? null}
         serverName={serverName}
@@ -375,8 +391,8 @@ export function ChatArea({
       <ChatInputBar
         state={state}
         bloc={bloc}
-        placeholder={joining ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
-        disabled={joining}
+        placeholder={offline ? 'Waiting for the connection…' : joining ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
+        disabled={joining || offline}
         bannerError={bannerError}
         onDismissBanner={onDismissBanner}
         myNick={myNick}
@@ -413,6 +429,41 @@ function TypingIndicator({ nicks }: TypingIndicatorProps) {
         <span class="chat-typing-dot" />
       </span>
       <span class="chat-typing-text">{label}</span>
+    </div>
+  );
+}
+
+// The connection is down (or coming back) while a conversation is open: a
+// slim strip under the header, the conversation stays. Same states and
+// actions as the splash.
+interface ConnectionStripProps {
+  engineState: EngineState;
+  reconnectActive?: boolean;
+  connectionError?: string | null;
+  onReconnect?: () => void;
+  onCancelReconnect?: () => void;
+}
+
+function ConnectionStrip({ engineState, reconnectActive, connectionError, onReconnect, onCancelReconnect }: ConnectionStripProps) {
+  const attempting = engineState === 'connecting';
+  const label = reconnectActive ? 'Reconnecting…' : attempting ? 'Connecting…' : 'Disconnected';
+  return (
+    <div class="chat-connection-strip" role="status">
+      <span class={`chat-engine-dot ${reconnectActive || attempting ? 'chat-engine-dot-pulse' : 'chat-engine-dot-down'}`} aria-hidden="true" />
+      <span class="chat-connection-strip-label">{label}</span>
+      {engineState === 'disconnected' && connectionError && (
+        <span class="chat-connection-strip-reason">{connectionError}</span>
+      )}
+      <span class="chat-connection-strip-actions">
+        {(engineState === 'disconnected' || reconnectActive) && onReconnect && (
+          <button type="button" class="chat-connection-strip-btn" onClick={onReconnect} disabled={attempting}>
+            Reconnect
+          </button>
+        )}
+        {reconnectActive && onCancelReconnect && (
+          <button type="button" class="chat-connection-strip-btn" onClick={onCancelReconnect}>Cancel</button>
+        )}
+      </span>
     </div>
   );
 }
