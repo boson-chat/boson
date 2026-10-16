@@ -33,6 +33,9 @@ test('guest registers a NickServ account, verifies the emailed code, and drops i
     await field(settings, 'Password').fill(password);
     await field(settings, 'Email').fill(email);
     await settings.getByRole('button', { name: 'Register new account' }).click();
+    // Start watching for the mailed code right away (awaited below).
+    const code = verificationCode(email);
+    code.catch(() => undefined);
     await expect(settings.getByRole('status').filter({ hasText: `Check ${email} for a confirmation code.` })).toBeVisible();
     await expect(accountBadge(settings)).toHaveText('Confirm your email');
     await expect(settings.getByText(`Registered ${nick} with ${email}.`)).toBeVisible();
@@ -45,7 +48,7 @@ test('guest registers a NickServ account, verifies the emailed code, and drops i
     expect(await whoisAccount(peer, nick)).toBeNull();
 
     // The real one (ergo mailed it to the catch-all) confirms + logs us in.
-    await codeBox.fill(await verificationCode(email));
+    await codeBox.fill(await code);
     await settings.getByRole('button', { name: 'Confirm', exact: true }).click();
     // (The confirm form, and its "Account confirmed." line, unmount as soon as the
     // badge flips to Identified.)

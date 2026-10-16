@@ -8,6 +8,9 @@
 //                       worker polls it over POP3 every 5s and DELETES what it
 //                       consumes (and anything it can't route), so read from
 //                       it promptly or expect messages to vanish.
+//   Mailpit.catchallCopy()  mailpit-archive: the catch-all relays a copy of
+//                       every message here and nothing drains it — read
+//                       NickServ codes from this one.
 //
 // Both speak Mailpit's HTTP API (https://mailpit.axllent.org/docs/api-v1/).
 import { STACK } from '../stack';
@@ -37,6 +40,20 @@ export class Mailpit {
 
   static catchall(): Mailpit {
     return new Mailpit(STACK.catchallMail.apiUrl);
+  }
+
+  static catchallCopy(): Mailpit {
+    return new Mailpit(STACK.catchallMail.archiveApiUrl);
+  }
+
+  // Whether this Mailpit answers at all (e.g. a stack brought up before
+  // mailpit-archive existed has no copy to read).
+  async reachable(): Promise<boolean> {
+    try {
+      return (await fetch(`${this.baseUrl}/readyz`)).ok;
+    } catch {
+      return false;
+    }
   }
 
   private async api<T>(path: string, init?: RequestInit): Promise<T> {

@@ -21,7 +21,7 @@ export interface StackConfig {
   irc: { host: string; port: number };
   znc: { host: string; port: number; users: string[]; password: string; network: string };
   postgres: { host: string; port: number; database: string; user: string; password: string };
-  catchallMail: { smtpPort: number; pop3Port: number; pop3User: string; pop3Password: string; apiUrl: string };
+  catchallMail: { smtpPort: number; pop3Port: number; pop3User: string; pop3Password: string; apiUrl: string; archiveApiUrl: string };
   minio: { endpoint: string; accessKey: string; secretKey: string; bucket: string };
   supabase: { apiUrl: string; dbPort: number; mailpitUrl: string; publishableKey: string; secretKey: string };
   backend: { url: string; port: number };

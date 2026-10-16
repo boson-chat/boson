@@ -24,7 +24,9 @@ import { test, expect, loginAs, seedServer, randomChannel } from './fixtures';
   Search the directory for your server's unique name rather than counting
   cards.
 - The catch-all Mailpit is drained by the backend's nick-claim worker every
-  5s (it deletes what it can't route): read from it promptly.
+  5s (it deletes what it can't route). It relays a copy of every message to
+  `mailpit-archive` (`STACK.catchallMail.archiveApiUrl`), which nothing
+  drains: read NickServ codes from that (`Mailpit.catchallCopy()`).
 
 ## Fixtures
 
@@ -68,7 +70,8 @@ Backend + data (`helpers/backend.ts`, `helpers/supabase.ts`):
 | `createConfirmedUser(opts?)`, `deleteAuthUser(id)`, `findAuthUserByEmail(email)`, `setAuthPassword(id, pw)`, `signInWithPassword(email, password)` | Supabase admin / auth API (`setAuthPassword` = the outcome of a password reset). |
 | `randomEmail()`, `randomPassword()`, `randomHandle()`, `randomChannel()`, `randomNick()`, `uid()` | Unique names. |
 
-Mail (`helpers/mailpit.ts`): `Mailpit.users()` / `Mailpit.catchall()` with
+Mail (`helpers/mailpit.ts`): `Mailpit.users()` / `Mailpit.catchall()` /
+`Mailpit.catchallCopy()` with
 `list(query?)`, `read(id)`, `waitFor({ to?, subject?, timeoutMs? })`,
 `clear(query?)`; `extractLinks(msg)`, `extractCode(msg, re?)`.
 
@@ -79,7 +82,7 @@ ZNC: `leaseZncUser()` / `resetZncUser()` if a test needs more than one.
 
 IRC services (`helpers/services.ts`, imported directly): ergo's NickServ
 mails verification codes to the catch-all — `verificationCode(email)` reads
-one before the POP3 worker drains it; `registerPeerAccount(peer, pw)` /
+one from its undrained copy; `registerPeerAccount(peer, pw)` /
 `preregisterAccount(nick, pw)` make verified accounts; `whoisAccount` /
 `expectWhoisAccount` / `nickServInfo` check the IRC side;
 `openServerSettings(page, section)`, `servicesBadge`, `accountBadge` for the

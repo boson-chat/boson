@@ -3,8 +3,9 @@
 // The e2e ergo runs its built-in NickServ with email verification: codes
 // are mailed to the catch-all Mailpit (STACK.catchallMail), which the
 // backend's nick-claim POP3 worker drains every 5s — it deletes anything it
-// can't route to a claim, so `verificationCode()` polls fast and reads the
-// mail as soon as it lands. Ergo has no MemoServ (and no ChanServ channel
+// can't route to a claim, i.e. every guest / raw-peer REGISTER mail. So
+// `verificationCode()` reads the undrained copy the catch-all relays to
+// mailpit-archive instead. Ergo has no MemoServ (and no ChanServ channel
 // registration / GHOST in this config) — see MemoNet below.
 import { createServer, type Server, type Socket } from 'node:net';
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -17,10 +18,12 @@ const nickOf = (l: IrcLine): string => l.prefix.split('!')[0] ?? '';
 // Ergo's verification mail: "Verification code: <26 lowercase alnum>".
 const CODE_RE = /Verification code:\s*([a-z0-9]+)/i;
 
-// The NickServ code ergo mailed to `email`, read straight from the catch-all.
+// The NickServ code ergo mailed to `email`, read from the catch-all's
+// undrained copy. (Reading the catch-all itself raced the worker's drain:
+// a code read more than a moment after it landed could already be gone.)
 export async function verificationCode(email: string, timeoutMs = 20_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
-  const mail = Mailpit.catchall();
+  const mail = await codeMailbox();
   while (Date.now() < deadline) {
     const hit = (await mail.list(`to:"${email}"`))[0];
     if (hit) {
@@ -31,6 +34,19 @@ export async function verificationCode(email: string, timeoutMs = 20_000): Promi
     await new Promise((r) => setTimeout(r, 100));
   }
   throw new Error(`no NickServ verification mail for ${email} within ${timeoutMs}ms`);
+}
+
+// The copy, or — on a stack brought up before mailpit-archive existed — the
+// drained catch-all (racy; `e2e-stack.mjs up` again to get the copy).
+let mailbox: Promise<Mailpit> | null = null;
+function codeMailbox(): Promise<Mailpit> {
+  mailbox ??= (async () => {
+    const copy = Mailpit.catchallCopy();
+    if (await copy.reachable()) return copy;
+    console.warn(`[e2e] no catch-all copy at ${copy.baseUrl}: reading NickServ codes from the drained catch-all`);
+    return Mailpit.catchall();
+  })();
+  return mailbox;
 }
 
 // Waits for a NOTICE from NickServ to the peer whose text matches `re`.

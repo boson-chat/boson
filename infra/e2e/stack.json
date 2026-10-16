@@ -3,7 +3,7 @@
   "irc": { "host": "127.0.0.1", "port": 16667 },
   "znc": { "host": "127.0.0.1", "port": 16501, "users": ["tester1", "tester2", "tester3", "tester4", "tester5", "tester6", "tester7", "tester8"], "password": "pw", "network": "ergo" },
   "postgres": { "host": "127.0.0.1", "port": 16432, "database": "boson", "user": "boson", "password": "boson" },
-  "catchallMail": { "smtpPort": 11025, "pop3Port": 11110, "pop3User": "e2e", "pop3Password": "e2e", "apiUrl": "http://127.0.0.1:18025" },
+  "catchallMail": { "smtpPort": 11025, "pop3Port": 11110, "pop3User": "e2e", "pop3Password": "e2e", "apiUrl": "http://127.0.0.1:18025", "archiveApiUrl": "http://127.0.0.1:18026" },
   "minio": { "endpoint": "http://127.0.0.1:19000", "accessKey": "minioadmin", "secretKey": "minioadmin", "bucket": "boson" },
   "supabase": {
     "apiUrl": "http://127.0.0.1:55321",
