@@ -390,12 +390,23 @@ function IdentitySection({
   // Form values shadow the saved credentials so the user can edit
   // before committing. The subscribe below keeps everything in sync
   // with ChatService's classifier writes.
-  const [accountName, setAccountName] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [email, setEmail] = useState<string>('');
+  // Seeded synchronously from the store so the first render is already
+  // right (the subscription below only attaches after paint).
+  const initialCreds = (): ServiceCredentials | null => (serverId ? getServiceCredentialsStore().get(serverId) : null);
+  const [accountName, setAccountName] = useState<string>(() => initialCreds()?.accountName ?? '');
+  const [password, setPassword] = useState<string>(() => initialCreds()?.nickservPassword ?? '');
+  const [email, setEmail] = useState<string>(() => initialCreds()?.email ?? '');
   const [confirmCode, setConfirmCode] = useState<string>('');
   const [savedFlash, triggerSavedFlash] = useTransientFlag();
-  const [creds, setCreds] = useState<ServiceCredentials | null>(null);
+  const [creds, setCreds] = useState<ServiceCredentials | null>(initialCreds);
+  // The stored field values the drafts were last synced from (see the
+  // subscription below).
+  const syncedRef = useRef<{ serverId?: string; accountName: string; password: string; email: string }>({
+    serverId,
+    accountName: creds?.accountName ?? '',
+    password: creds?.nickservPassword ?? '',
+    email: creds?.email ?? '',
+  });
   // Password reveal + copy controls — the auto-claim flow generates a
   // random password the user has never seen. They need to see it once
   // (to copy into a password manager) before it gets masked behind a
@@ -414,13 +425,32 @@ function IdentitySection({
     if (!serverId) {
       setCreds(null);
       setAccountName(''); setPassword(''); setEmail('');
+      syncedRef.current = { serverId, accountName: '', password: '', email: '' };
       return;
     }
     return getServiceCredentialsStore().subscribe(serverId, (v) => {
       setCreds(v);
-      setAccountName(v?.accountName ?? '');
-      setPassword(v?.nickservPassword ?? '');
-      setEmail(v?.email ?? '');
+      // Only overwrite a draft whose STORED value actually changed (or on
+      // a server switch). Every store write for this server lands here —
+      // the subscribe's own initial fire, classifier status updates,
+      // detection probes — and resetting all three drafts on each of them
+      // threw away whatever the user had typed but not saved yet. The
+      // initial fire is the sharp case: effects run after paint, so on a
+      // busy renderer a password typed right after opening the tab was
+      // wiped before Save, which then saw an empty form and cleared the
+      // credentials (the flaky "saved NickServ password" e2e).
+      const prev = syncedRef.current;
+      const next = {
+        serverId,
+        accountName: v?.accountName ?? '',
+        password: v?.nickservPassword ?? '',
+        email: v?.email ?? '',
+      };
+      const switched = prev.serverId !== serverId;
+      if (switched || next.accountName !== prev.accountName) setAccountName(next.accountName);
+      if (switched || next.password !== prev.password) setPassword(next.password);
+      if (switched || next.email !== prev.email) setEmail(next.email);
+      syncedRef.current = next;
       // Cancel any in-flight "really drop?" prompt if the underlying
       // creds change out from under us (server flip, classifier wrote
       // a new status, etc.). The user shouldn't accidentally confirm
