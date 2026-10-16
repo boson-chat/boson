@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
-# Builds the Wails desktop app as a signed (and optionally notarized)
-# universal macOS bundle and DMG:
+# Builds the Wails desktop app as signed (and optionally notarized) macOS
+# bundles and DMGs, one per architecture (Apple Silicon, Intel):
 #
 #   client/out/renderer (npm run build, production env)
-#     → desktop/frontend/dist → arm64 + amd64 binaries → lipo
-#     → bin/<APP_NAME>.app → codesign (hardened runtime) → DMG
+#     → desktop/frontend/dist → per arch: binary
+#     → bin/mac-<arch>/<APP_NAME>.app → codesign (hardened runtime)
 #     → notarytool + stapler (with notary credentials, below)
+#     → bin/<APP_NAME>-<version>-mac-<arch>.dmg (signed, notarized)
+#
+# <arch> is arm64 (Apple Silicon) or x64 (Intel).
 #
 # Environment:
 #   APP_NAME        bundle name (default "Boson")
@@ -17,6 +20,7 @@
 #   APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER
 #                   App Store Connect API key (.p8 path), its id and the
 #                   issuer. Neither set skips notarization.
+#   ARCHS           which to build (default "arm64 x64")
 #   SKIP_RENDERER=1 reuse client/out/renderer as it is
 #
 # Usage: desktop/scripts/package-macos.sh
@@ -44,8 +48,6 @@ export CGO_ENABLED=1 MACOSX_DEPLOYMENT_TARGET=12.0
 export CGO_CFLAGS="-mmacosx-version-min=12.0" CGO_LDFLAGS="-mmacosx-version-min=12.0"
 
 out="$desktop/bin"
-app="$out/$APP_NAME.app"
-dmg="$out/$APP_NAME-$VERSION-mac-universal.dmg"
 mkdir -p "$out"
 
 # 1. Renderer: the production bundle (client/.env.production).
@@ -57,25 +59,49 @@ rm -rf "$desktop/frontend/dist"
 cp -R "$client/out/renderer" "$desktop/frontend/dist"
 touch "$desktop/frontend/dist/.gitkeep"
 
-# 2. Binaries: production build (no devtools), both architectures.
 ldflags="-s -w -X main.appVersion=$VERSION"
 # Another YouTube wrapper origin (default https://boson.chat; a PR's website
 # preview to try changes to it). Unset: the build's default.
 [[ -n "${YOUTUBE_WRAPPER:-}" ]] && ldflags="$ldflags -X main.youtubeWrapperOrigin=$YOUTUBE_WRAPPER"
-for arch in arm64 amd64; do
-  echo "building $arch"
-  (cd "$desktop" && GOARCH="$arch" go build -tags production -trimpath -buildvcs=false \
-    -ldflags "$ldflags" -o "$out/$APP_NAME-$arch" .)
-done
-lipo -create -output "$out/$APP_NAME-universal" "$out/$APP_NAME-arm64" "$out/$APP_NAME-amd64"
 
-# 3. Bundle.
-rm -rf "$app"
-mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-mv "$out/$APP_NAME-universal" "$app/Contents/MacOS/$APP_NAME"
-rm -f "$out/$APP_NAME-arm64" "$out/$APP_NAME-amd64"
-cp "$desktop/build/darwin/icons.icns" "$app/Contents/Resources/icons.icns"
-cat > "$app/Contents/Info.plist" <<PLIST
+notary=()
+if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+  notary=(--keychain-profile "$NOTARY_PROFILE")
+elif [[ -n "${APPLE_API_KEY:-}" ]]; then
+  notary=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+fi
+
+notarize() {
+  xcrun notarytool submit "$1" "${notary[@]}" --wait
+  xcrun stapler staple "$2"
+  xcrun stapler validate "$2"
+}
+
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+
+# One architecture: binary → bundle → sign → notarize → DMG.
+package() {
+  local arch="$1" goarch
+  case "$arch" in
+    arm64) goarch=arm64 ;;
+    x64) goarch=amd64 ;;
+    *) echo "unknown arch $arch (arm64 or x64)" >&2; exit 1 ;;
+  esac
+  local app="$out/mac-$arch/$APP_NAME.app"
+  local dmg="$out/$APP_NAME-$VERSION-mac-$arch.dmg"
+
+  # 2. Binary: production build (no devtools).
+  echo "building $arch"
+  rm -rf "$app"
+  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+  (cd "$desktop" && GOARCH="$goarch" go build -tags production -trimpath -buildvcs=false \
+    -ldflags "$ldflags" -o "$app/Contents/MacOS/$APP_NAME" .)
+  lipo -archs "$app/Contents/MacOS/$APP_NAME"
+
+  # 3. Bundle.
+  cp "$desktop/build/darwin/icons.icns" "$app/Contents/Resources/icons.icns"
+  cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -102,52 +128,43 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-plutil -lint "$app/Contents/Info.plist" >/dev/null
+  plutil -lint "$app/Contents/Info.plist" >/dev/null
 
-# 4. Sign: hardened runtime + secure timestamp (both required to notarize).
-if [[ "$SIGN_IDENTITY" == "-" ]]; then
-  codesign --force --sign - "$app"
-else
-  codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$app"
-fi
-codesign --verify --strict --verbose=2 "$app"
+  # 4. Sign: hardened runtime + secure timestamp (both required to notarize).
+  if [[ "$SIGN_IDENTITY" == "-" ]]; then
+    codesign --force --sign - "$app"
+  else
+    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$app"
+  fi
+  codesign --verify --strict --verbose=2 "$app"
 
-notary=()
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
-  notary=(--keychain-profile "$NOTARY_PROFILE")
-elif [[ -n "${APPLE_API_KEY:-}" ]]; then
-  notary=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
-fi
+  # 5. Notarize the app itself, so a copy taken out of the DMG is stapled too.
+  if [[ ${#notary[@]} -gt 0 ]]; then
+    zip="$out/$APP_NAME-notarize.zip"
+    rm -f "$zip"
+    ditto -c -k --keepParent "$app" "$zip"
+    notarize "$zip" "$app"
+    rm -f "$zip"
+    spctl --assess --type execute --verbose=4 "$app"
+  fi
 
-notarize() {
-  xcrun notarytool submit "$1" "${notary[@]}" --wait
-  xcrun stapler staple "$2"
-  xcrun stapler validate "$2"
+  # 6. DMG: the app plus an Applications link to drag it onto.
+  rm -rf "${stage:?}"/*
+  cp -R "$app" "$stage/"
+  ln -s /Applications "$stage/Applications"
+  rm -f "$dmg"
+  hdiutil create -quiet -volname "$APP_NAME $VERSION" -srcfolder "$stage" -fs APFS -format UDZO "$dmg"
+  if [[ "$SIGN_IDENTITY" != "-" ]]; then
+    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"
+  fi
+  if [[ ${#notary[@]} -gt 0 ]]; then
+    notarize "$dmg" "$dmg"
+  fi
+
+  echo "app: $app"
+  echo "dmg: $dmg"
 }
 
-# 5. Notarize the app itself, so a copy taken out of the DMG is stapled too.
-if [[ ${#notary[@]} -gt 0 ]]; then
-  zip="$out/$APP_NAME-notarize.zip"
-  rm -f "$zip"
-  ditto -c -k --keepParent "$app" "$zip"
-  notarize "$zip" "$app"
-  rm -f "$zip"
-  spctl --assess --type execute --verbose=4 "$app"
-fi
-
-# 6. DMG: the app plus an Applications link to drag it onto.
-stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
-cp -R "$app" "$stage/"
-ln -s /Applications "$stage/Applications"
-rm -f "$dmg"
-hdiutil create -quiet -volname "$APP_NAME $VERSION" -srcfolder "$stage" -fs APFS -format UDZO "$dmg"
-if [[ "$SIGN_IDENTITY" != "-" ]]; then
-  codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"
-fi
-if [[ ${#notary[@]} -gt 0 ]]; then
-  notarize "$dmg" "$dmg"
-fi
-
-echo "app: $app"
-echo "dmg: $dmg"
+for arch in ${ARCHS:-arm64 x64}; do
+  package "$arch"
+done

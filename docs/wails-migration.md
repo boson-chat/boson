@@ -12,7 +12,7 @@ Starting point: main at 0.36.4 on Electron 44.7, electron-vite and electron-buil
   - The engine runs in-process over Wails bindings; the WebSocket is one transport (kept for browser dev, `make engine-serve`).
   - Every Electron main-process service has a Go port in `desktop/`.
   - The real-app e2e suite runs against the app's server-mode build, in CI with coverage (`.github/workflows/e2e.yml`). What needs the native window (window controls, notification click → restore, webview permissions) is a manual check on the native build.
-  - Packaging and signing: `.github/workflows/desktop.yml` builds macOS (universal DMG, Developer ID signed, notarized, stapled), Windows (zip) and Linux (tar.gz) on every PR, and attaches them to the GitHub Release on every tag.
+  - Packaging and signing: `.github/workflows/desktop.yml` builds macOS (a DMG each for Apple Silicon and Intel, Developer ID signed, notarized, stapled), Windows (zip) and Linux (tar.gz) on every PR, and attaches them to the GitHub Release on every tag.
   - Electron is gone: `client/src/main`, the preload, electron-vite, electron-builder and the Electron release workflow. The renderer builds with plain Vite.
 - **Phase 0 findings:**
   - YouTube refuses `wails://` (error 153), and in WebKit some videos refuse a loopback wrapper page too. The app frames the wrapper from `https://boson.chat` (`website/public/youtube-embed.*`).

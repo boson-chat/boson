@@ -167,7 +167,8 @@ desktop-dev: client-env
 	cd desktop && go run -ldflags "-X main.devBuild=true -X main.apiBase=http://localhost:3000 -X main.appVersion=$$(node -p "require('../client/package.json').version")" .
 
 # A release build of the desktop app for this machine: macOS → a signed
-# universal .app + DMG (notarized with NOTARY_PROFILE, a `xcrun notarytool
+# .app + DMG for Apple Silicon and for Intel (ARCHS=arm64 for one; notarized
+# with NOTARY_PROFILE, a `xcrun notarytool
 # store-credentials` profile); Windows/Linux → a zip / tar.gz. In desktop/bin/.
 desktop-build:
 	@if [ "$$(uname -s)" = Darwin ]; then desktop/scripts/package-macos.sh; else desktop/scripts/package.sh; fi
