@@ -14,6 +14,7 @@ import {
 import { IrcPeer, type IrcLine } from './irc-peer';
 import { openServerSettings, railContextMenu, railTile } from './helpers/directory';
 import { zncOnIrc } from './helpers/znc-admin';
+import { electronOnly } from './wails-shell';
 
 // How long to keep watching for a QUIT / PART after the app's connection to
 // ZNC went away. ZNC acts on a client QUIT or a closed socket at once, so
@@ -128,6 +129,7 @@ test.describe('bouncer keeps you on the network', () => {
   });
 
   test('the engine dying without a QUIT leaves ZNC on the network, and the app recovers', async ({ launchApp, zncUser }) => {
+    electronOnly('it kills the engine sidecar; the engine is in-process under Wails');
     const channel = `#e2e-crash-${uid(8)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
     try {

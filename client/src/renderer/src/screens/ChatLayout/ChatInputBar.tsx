@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState, useLayoutEffect } from 'preact/hooks';
 import { Smile } from 'lucide-preact';
 import type { ChatInputBloc, ChatInputState } from './ChatInputBloc';
 import {
@@ -89,8 +89,11 @@ export function ChatInputBar({
 
   // Apply any pending cursor placement queued by an autocomplete commit or
   // nick tab-complete. The bloc stashes the target index in state and we
-  // drain it here once the controlled-input value has actually flipped.
-  useEffect(() => {
+  // drain it here once the controlled-input value has actually flipped — in a
+  // layout effect, so the caret is placed before the next keystroke can land
+  // (typing straight after clicking a suggestion otherwise went to the old
+  // caret position).
+  useLayoutEffect(() => {
     if (state.pendingCursor === null) return;
     const el = textareaRef.current;
     if (!el) return;

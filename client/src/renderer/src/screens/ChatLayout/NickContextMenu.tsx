@@ -1,4 +1,4 @@
-import { useEffect } from 'preact/hooks';
+import { useLayoutEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import './NickContextMenu.css';
 
@@ -32,7 +32,9 @@ interface NickContextMenuProps {
 //   - any action's onClick (the caller's onClick is invoked first, then
 //     onClose so the action sees the menu's state before it goes away).
 export function NickContextMenu({ x, y, onClose, title, actions }: NickContextMenuProps) {
-  useEffect(() => {
+  // Layout effect: the listeners are in place before the menu is painted,
+  // so an Escape or outside click right after it appears isn't missed.
+  useLayoutEffect(() => {
     const onDown = (e: MouseEvent): void => {
       const t = e.target as HTMLElement | null;
       if (t && t.closest('.nick-context-menu')) return;

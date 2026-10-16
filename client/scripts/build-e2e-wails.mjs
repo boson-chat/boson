@@ -56,6 +56,7 @@ if (process.platform === 'darwin') {
 const bin = join(desktopDir, 'bin', `boson-e2e-server${process.platform === 'win32' ? '.exe' : ''}`);
 // The e2e bundle talks to the e2e backend; let the API proxy reach it.
 const stack = JSON.parse(readFileSync(join(repoRoot, 'infra', 'e2e', 'stack.json'), 'utf8'));
-const ldflags = `-X main.apiBase=${stack.backend.url} -X main.devBuild=true`;
+const version = JSON.parse(readFileSync(join(clientDir, 'package.json'), 'utf8')).version;
+const ldflags = `-X main.apiBase=${stack.backend.url} -X main.devBuild=true -X main.appVersion=${version}`;
 run('go', ['build', '-tags', 'server', '-ldflags', ldflags, '-o', bin, '.'], { cwd: desktopDir, env });
 console.log(`wails e2e server built: ${bin}`);

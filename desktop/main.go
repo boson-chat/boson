@@ -10,6 +10,7 @@ import (
 	"strconv"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
@@ -20,8 +21,10 @@ var (
 	// apiBase is the Boson API the proxy may reach (default: production).
 	apiBase = ""
 	// devBuild is "true" for dev and e2e builds: the API proxy may also reach
-	// a local backend on any loopback port.
+	// a local backend on any loopback port, and nothing checks for updates.
 	devBuild = "false"
+	// appVersion is the release this build is (client/package.json's version).
+	appVersion = "0.0.0-dev"
 )
 
 func main() {
@@ -39,17 +42,45 @@ func main() {
 	if devBuild == "true" {
 		secureMode = os.Getenv("BOSON_SECURE_STORE")
 	}
+	dev := devBuild == "true"
+	e2e := dev && os.Getenv("BOSON_E2E") == "1"
+	links := NewLinksService(dev)
+	api := NewApiService(apiBase, dev)
+	deepLinks := &DeepLinkService{}
+	native := notifications.New()
+	notify := NewNotifyService(native)
+	// One running app: a second launch (a boson:// click on Windows/Linux)
+	// hands its args over and exits. Its args are untrusted input — parsed
+	// strictly by the renderer, as in the Electron build. Off for e2e runs,
+	// where parallel tests each run their own app.
+	var single *application.SingleInstanceOptions
+	if !e2e {
+		single = &application.SingleInstanceOptions{
+			UniqueID:               "chat.boson.app",
+			OnSecondInstanceLaunch: func(d application.SecondInstanceData) { deepLinks.onSecondInstance(d.Args) },
+		}
+	}
 	app := application.New(application.Options{
 		Name:        "Boson",
 		Description: "Boson chat",
 		Services: []application.Service{
 			application.NewService(&EngineService{}),
-			application.NewService(NewApiService(apiBase, devBuild == "true")),
+			application.NewService(api),
 			application.NewService(NewSecureStore(dataDir, secureMode)),
+			application.NewService(NewUnfurlService(dev)),
+			application.NewService(NewSpotifyService()),
+			application.NewService(NewThemesService(dataDir)),
+			application.NewService(links),
+			application.NewService(deepLinks),
+			application.NewService(notify),
+			application.NewService(NewUpdaterService(appVersion, !dev)),
+			application.NewService(NewYouTubeService(dist)),
+			application.NewService(NewE2EService(dev, links, deepLinks, api)),
 		},
 		Assets: application.AssetOptions{
 			Handler: assetHandler(dist),
 		},
+		SingleInstance: single,
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
@@ -61,7 +92,7 @@ func main() {
 		},
 	})
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Boson",
 		Width:     1280,
 		Height:    800,
@@ -80,6 +111,9 @@ func main() {
 		URL:              "/",
 	})
 
+	deepLinks.attach(app, win, os.Args[1:])
+	notify.win = win
+
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
@@ -96,6 +130,10 @@ func serverPort() int {
 // appDataDir is where the app keeps its files (the secure store, themes):
 // <user config dir>/Boson, e.g. ~/Library/Application Support/Boson.
 func appDataDir() (string, error) {
+	// Dev and e2e builds can point it elsewhere (a test profile).
+	if dir := os.Getenv("BOSON_DATA_DIR"); dir != "" && devBuild == "true" {
+		return dir, os.MkdirAll(dir, 0o700)
+	}
 	base, err := os.UserConfigDir()
 	if err != nil {
 		return "", err

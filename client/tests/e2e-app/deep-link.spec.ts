@@ -9,6 +9,7 @@ import {
   continueAsGuest, randomNick,
 } from './fixtures';
 import { cardIn, directoryCards, expectConnected, railTile, searchDirectory, sidebarServerName } from './helpers/directory';
+import { secondInstance } from './wails-shell';
 
 const joinUrl = (p: Record<string, string>): string => `boson://join?${new URLSearchParams(p)}`;
 
@@ -66,9 +67,7 @@ test('a deep link to a listed host:port connects the directory listing (second-i
 
   // Windows/Linux delivery: a second app instance's argv (case differs —
   // hosts match case-insensitively).
-  await app.evaluate(({ app: electronApp }, url) => {
-    electronApp.emit('second-instance', { preventDefault: () => {} }, [process.execPath, '--some-flag', url], process.cwd(), {});
-  }, joinUrl({ host: host.toUpperCase(), port: '6697', name: 'Ignored label' }));
+  await secondInstance(app, ['--some-flag', joinUrl({ host: host.toUpperCase(), port: '6697', name: 'Ignored label' })]);
 
   // The listing's own name, not the link's label; no local entry minted.
   await expect(sidebarServerName(page)).toHaveText(listed.name, { timeout: 30_000 });

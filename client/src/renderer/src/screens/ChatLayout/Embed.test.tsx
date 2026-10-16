@@ -106,6 +106,19 @@ describe('MessageEmbeds', () => {
     expect(YOUTUBE_EMBED_HOST).toBe(MAIN_YOUTUBE_EMBED_HOST);
   });
 
+  it('uses the wrapper origin the Wails shell serves, whatever the page origin', () => {
+    const w = window as unknown as { bosonYouTube?: { wrapperOrigin: string | null } };
+    try {
+      w.bosonYouTube = { wrapperOrigin: 'http://youtube-embed.localhost:51234' };
+      expect(youtubeWrapperOrigin({ protocol: 'wails:', hostname: 'localhost', port: '' })).toBe('http://youtube-embed.localhost:51234');
+      // The shell couldn't start its server: embed directly.
+      w.bosonYouTube = { wrapperOrigin: null };
+      expect(youtubeWrapperOrigin({ protocol: 'http:', hostname: '127.0.0.1', port: '43117' })).toBeNull();
+    } finally {
+      delete w.bosonYouTube;
+    }
+  });
+
   it('dismisses an embed', () => {
     render(<MessageEmbeds text="https://i.imgur.com/a.png" />);
     expect(screen.queryByRole('button', { name: /click to load/ })).not.toBeNull();

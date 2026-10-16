@@ -703,7 +703,9 @@ type UpdateState =
   | { kind: 'idle' }
   | { kind: 'checking' }
   | { kind: 'up-to-date'; checkedAt: number }
-  | { kind: 'available'; version: string }
+  // manual: this build can't install it itself (the Wails shell, until its
+  // signed update feed); Apply opens the release page instead.
+  | { kind: 'available'; version: string; manual?: boolean }
   | { kind: 'downloading'; version: string; percent: number; bytesPerSecond: number }
   | { kind: 'ready'; version: string }
   | { kind: 'error'; message: string };
@@ -838,7 +840,7 @@ function summariseUpdateError(raw: string): string {
 // compact in the common case (just a "Check for updates" button) and
 // expands into a progress / restart prompt when the lifecycle is
 // actually doing something.
-function UpdateActions({
+export function UpdateActions({
   state,
   onCheck,
   onApply,
@@ -867,6 +869,13 @@ function UpdateActions({
     case 'checking':
       return <span class="user-settings-update-hint">Checking…</span>;
     case 'available':
+      if (state.manual) {
+        return (
+          <span class="user-settings-update-actions">
+            <Button variant="primary" onClick={onApply}>Download v{state.version}</Button>
+          </span>
+        );
+      }
       return (
         <span class="user-settings-update-hint">
           v{state.version} available — downloading.

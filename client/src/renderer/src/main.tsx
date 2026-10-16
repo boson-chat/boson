@@ -7,14 +7,26 @@ import { installDropGuard } from './shared/drop-guard';
 import { getThemeStore } from './modules/ui/theme';
 import './styles.css';
 
+// The Wails shell's bridges (platform/wails.ts) are installed asynchronously;
+// everything below that reads a window.boson* bridge waits for them. Under
+// Electron the preload has already installed them, so it all runs now.
+const shellReady: Promise<void> | null = isWailsPage()
+  ? import('./platform/wails').then((m) => m.installWailsBridges())
+  : null;
+
+function withBridges(fn: () => void): void {
+  if (shellReady) void shellReady.then(fn);
+  else fn();
+}
+
 // Paint the saved theme before anything renders (from the local copy), then
 // load the themes folder and watch it for edits.
-void getThemeStore().init();
+withBridges(() => { void getThemeStore().init(); });
 
 // Attach to the main-process deep-link bridge before any UI mounts so
 // the module-level buffer in deep-link.ts captures any `boson://` URL
 // the OS hands us, even before the directory screen mounts.
-initDeepLinkBridge();
+withBridges(initDeepLinkBridge);
 
 // Keep files/links dropped onto the window from navigating it away from the
 // app (see shared/drop-guard.ts; main also guards will-navigate).
@@ -63,8 +75,7 @@ if (!publishableKey) {
     '</div>';
 } else {
   void (async () => {
-    // The Wails shell installs its bridges before anything reads them.
-    if (isWailsPage()) await (await import('./platform/wails')).installWailsBridges();
+    if (shellReady) await shellReady;
     const { url: engineUrl, token: engineToken, socket: engineSocket } = await resolveEngineDiscovery();
     const props = buildApp({
       supabaseUrl,

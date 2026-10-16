@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
-import { UserSettings } from './UserSettings';
+import { UserSettings, UpdateActions } from './UserSettings';
 import pkg from '../../../../../package.json';
 import { HttpError } from '../../shared/http/http.client';
 import type { DirectoryService } from '../../modules/directory';
@@ -296,5 +296,20 @@ describe('UserSettings — Bouncer panel', () => {
     expect(screen.queryByText(/Skips TLS certificate verification/)).toBeNull();
     fireEvent.click(screen.getByLabelText('Allow self-signed certificate'));
     expect(screen.getByText(/Skips TLS certificate verification/)).toBeInTheDocument();
+  });
+});
+
+describe('UpdateActions', () => {
+  it('offers a download when the build can\'t install the update itself (Wails shell)', () => {
+    const onApply = vi.fn();
+    render(<UpdateActions state={{ kind: 'available', version: '0.37.0', manual: true }} onCheck={vi.fn()} onApply={onApply} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Download v0.37.0' }));
+    expect(onApply).toHaveBeenCalledOnce();
+  });
+
+  it('says it is downloading when the updater fetches it (Electron)', () => {
+    render(<UpdateActions state={{ kind: 'available', version: '0.37.0' }} onCheck={vi.fn()} onApply={vi.fn()} />);
+    expect(screen.getByText('v0.37.0 available — downloading.')).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });

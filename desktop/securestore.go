@@ -76,12 +76,48 @@ func (s *SecureStore) mode() string {
 
 func (s *SecureStore) IsAvailable() bool { return s.Mode() != "none" }
 
-// Get returns the value, or nil when it's missing or can't be decrypted
-// (another user's or machine's ciphertext, a corrupt file).
-func (s *SecureStore) Get(key string) *string {
-	if key == "" {
-		return nil
+// The bound methods take untyped arguments and check them, with the Electron
+// IPC handlers' messages: a broken renderer gets a clear error rather than a
+// silently desynced store.
+func storeKey(op string, key any) (string, error) {
+	k, ok := key.(string)
+	if !ok || k == "" {
+		return "", errors.New("secureStore:" + op + " requires a non-empty string key")
 	}
+	return k, nil
+}
+
+func (s *SecureStore) Get(key any) (*string, error) {
+	k, err := storeKey("get", key)
+	if err != nil {
+		return nil, err
+	}
+	return s.get(k), nil
+}
+
+func (s *SecureStore) Set(key, value any) error {
+	k, err := storeKey("set", key)
+	if err != nil {
+		return err
+	}
+	v, ok := value.(string)
+	if !ok {
+		return errors.New("secureStore:set requires a string value")
+	}
+	return s.set(k, v)
+}
+
+func (s *SecureStore) Remove(key any) error {
+	k, err := storeKey("remove", key)
+	if err != nil {
+		return err
+	}
+	return s.remove(k)
+}
+
+// get returns the value, or nil when it's missing or can't be decrypted
+// (another user's or machine's ciphertext, a corrupt file).
+func (s *SecureStore) get(key string) *string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	raw, ok := s.load()[key]
@@ -108,10 +144,7 @@ func (s *SecureStore) Get(key string) *string {
 	return &v
 }
 
-func (s *SecureStore) Set(key, value string) error {
-	if key == "" {
-		return errors.New("secure store: key is required")
-	}
+func (s *SecureStore) set(key, value string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var tag string
@@ -139,10 +172,7 @@ func (s *SecureStore) Set(key, value string) error {
 	return s.persist(data)
 }
 
-func (s *SecureStore) Remove(key string) error {
-	if key == "" {
-		return nil
-	}
+func (s *SecureStore) remove(key string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	data := s.load()

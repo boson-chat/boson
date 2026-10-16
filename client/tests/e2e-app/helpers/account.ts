@@ -15,6 +15,7 @@
 import type { ElectronApplication, Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { Mailpit, extractLinks } from './mailpit';
+import { WAILS_SHELL, secondInstance } from '../wails-shell';
 
 export interface Credentials {
   email: string;
@@ -39,6 +40,7 @@ export async function signUpViaUi(page: Page, c: Credentials): Promise<void> {
 // on macOS, a second-instance launch (argv) on Windows/Linux. Both land in
 // the main process's dispatchDeepLink.
 export async function deliverDeepLink(app: ElectronApplication, url: string): Promise<void> {
+  if (WAILS_SHELL) return secondInstance(app, [url]);
   await app.evaluate(({ app: electronApp }, { url: u, platform }) => {
     if (platform === 'darwin') {
       electronApp.emit('open-url', { preventDefault: () => {} }, u);

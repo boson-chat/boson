@@ -69,7 +69,7 @@ func TestApiProxy(t *testing.T) {
 				t.Errorf("%s: got %+v", u, got)
 			}
 		}
-		if got := s.Fetch(ctx, ApiRequest{Method: "GET", URL: "file:///etc/passwd"}); got.StatusText != "Bad URL" && got.StatusText != "Bad scheme" {
+		if got := s.Fetch(ctx, ApiRequest{Method: "GET", URL: "file:///etc/passwd"}); got.StatusText != "Bad scheme" {
 			t.Errorf("file url: got %+v", got)
 		}
 	})
@@ -135,7 +135,7 @@ func TestApiProxy(t *testing.T) {
 		if got := s.Fetch(ctx, ApiRequest{}); got.StatusText != "Bad request" {
 			t.Fatalf("got %+v", got)
 		}
-		if got := s.Fetch(ctx, ApiRequest{Method: "GET", URL: "::nope"}); got.StatusText != "Bad URL" {
+		if got := s.Fetch(ctx, ApiRequest{Method: "GET", URL: "not a url"}); got.StatusText != "Bad URL" {
 			t.Fatalf("got %+v", got)
 		}
 	})

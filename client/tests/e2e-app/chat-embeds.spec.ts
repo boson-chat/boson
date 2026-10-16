@@ -11,6 +11,20 @@ import type { AddressInfo } from 'node:net';
 import { test, expect, randomChannel } from './fixtures';
 import { connectGuest, connectPeer, messages, memberRow, joinViaUi } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
+import { request } from 'node:http';
+import { WAILS_SHELL } from './wails-shell';
+
+// GET origin+path on 127.0.0.1 with the origin's Host header (Node can't
+// resolve *.localhost names); resolves to the status code.
+function hostStatus(origin: string, path: string): Promise<number> {
+  const u = new URL(origin);
+  return new Promise((resolve, reject) => {
+    request({ host: '127.0.0.1', port: u.port, path, headers: { Host: u.host } }, (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    }).on('error', reject).end();
+  });
+}
 
 const HOST = 'unfurl.e2e.test';
 // 2x2 red PNG.
@@ -190,8 +204,11 @@ test.describe('embeds', () => {
     const row = messages(page).locator('.message-row').filter({ hasText: 'yt1' });
     await row.getByRole('button', { name: 'Play video' }).click();
 
-    const appPort = new URL(page.url()).port;
-    const wrapperOrigin = `http://youtube-embed.invalid:${appPort}`;
+    // Electron: the app's own server under youtube-embed.invalid. Wails: the
+    // shell's loopback wrapper server under youtube-embed.localhost.
+    const wrapperOrigin = WAILS_SHELL
+      ? await page.evaluate(() => (window as unknown as { bosonYouTube: { wrapperOrigin: string } }).bosonYouTube.wrapperOrigin)
+      : `http://youtube-embed.invalid:${new URL(page.url()).port}`;
     const iframe = row.locator('iframe.embed-yt-iframe');
     await expect(iframe).toHaveAttribute('src', `${wrapperOrigin}/youtube-embed.html?v=KtypSRcwIhA`);
     const player = page.frameLocator('iframe.embed-yt-iframe').frameLocator('iframe');
@@ -203,8 +220,9 @@ test.describe('embeds', () => {
     // Under that hostname the app's own server hands out the wrapper only,
     // never the app. (net.fetch goes through Chromium, which applies the
     // host mapping.)
-    const status = (path: string) =>
-      app.evaluate(async ({ net }, u) => (await net.fetch(u)).status, `${wrapperOrigin}${path}`);
+    const status = (path: string): Promise<number> => WAILS_SHELL
+      ? hostStatus(wrapperOrigin, path)
+      : app.evaluate(async ({ net }, u) => (await net.fetch(u)).status, `${wrapperOrigin}${path}`);
     expect(await status('/youtube-embed.html')).toBe(200);
     expect(await status('/youtube-embed.js')).toBe(200);
     expect(await status('/')).toBe(404);

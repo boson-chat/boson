@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,6 +24,17 @@ import (
 type ApiService struct {
 	policy apiPolicy
 	client *http.Client
+
+	// test, when set (e2e builds), can delay requests, refuse them like a
+	// backend that's down, and logs them — the suite's controlApi.
+	test *apiTestControl
+}
+
+type apiTestControl struct {
+	mu    sync.Mutex
+	down  bool
+	delay time.Duration
+	log   []string
 }
 
 type ApiRequest struct {
@@ -105,12 +117,29 @@ func (s *ApiService) Fetch(ctx context.Context, req ApiRequest) ApiResponse {
 	if req.Method == "" || req.URL == "" {
 		return apiFail("Bad request")
 	}
+	// Like the WHATWG URL parser the Electron build used: anything that isn't
+	// an absolute URL is malformed.
 	u, err := url.Parse(req.URL)
-	if err != nil || u.Host == "" {
+	if err != nil || !u.IsAbs() {
 		return apiFail("Bad URL")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return apiFail("Bad scheme")
+	}
+	if u.Host == "" {
+		return apiFail("Bad URL")
+	}
+	if t := s.test; t != nil {
+		t.mu.Lock()
+		t.log = append(t.log, req.Method+" "+u.RequestURI())
+		down, delay := t.down, t.delay
+		t.mu.Unlock()
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		if down {
+			return apiFail("connection refused")
+		}
 	}
 	if !s.policy.allowed(u) {
 		return apiFail("Blocked host")

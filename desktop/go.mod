@@ -4,7 +4,9 @@ go 1.27.0
 
 require (
 	github.com/boson-chat/boson v0.0.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.30
+	github.com/zalando/go-keyring v0.2.6
 )
 
 replace github.com/boson-chat/boson => ../
@@ -19,6 +21,5 @@ require (
 	github.com/lrstanley/girc v1.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/zalando/go-keyring v0.2.6 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 )

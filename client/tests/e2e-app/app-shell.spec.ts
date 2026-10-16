@@ -24,6 +24,7 @@ import {
   continueAsGuest, addServerManually, serverCard, joinChannel, messageList,
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
+import { WAILS_SHELL, electronOnly } from './wails-shell';
 
 interface WinState { maximized: boolean; minimized: boolean; visible: boolean }
 
@@ -52,10 +53,13 @@ async function connectDirect(page: Page, name: string): Promise<void> {
 // Secure-store tag on disk: the OS keychain format ("ks1:") where one is
 // available (macOS, mock keychain), else the derived-key fallback ("fb1:") —
 // Linux CI has no keyring. Either way it's ciphertext, never plain text.
-const STORE_TAG = process.platform === 'darwin' ? /^ks1:/ : /^fb1:/;
+// Electron on macOS uses the (mock) keychain; Linux CI and the Wails e2e
+// build use the derived-key store.
+const STORE_TAG = process.platform === 'darwin' && !WAILS_SHELL ? /^ks1:/ : /^fb1:/;
 
 test.describe('app shell', () => {
   test('title bar and window controls over the bosonWindow IPC', async ({ launchApp }) => {
+    electronOnly('it checks the native window through the Electron BrowserWindow');
     const { app, page } = await launchApp();
     await continueAsGuest(page, `tb${uid()}`);
     const bar = page.locator('.title-bar');
@@ -118,6 +122,7 @@ test.describe('app shell', () => {
   });
 
   test('About: update states pushed from main drive the version row', async ({ launchApp }) => {
+    electronOnly('it pushes updater states from the Electron main process');
     const { app, page } = await launchApp();
     await continueAsGuest(page, `up${uid()}`);
     const dialog = await openUserSettings(page, /^About/);
@@ -179,6 +184,7 @@ test.describe('app shell', () => {
   });
 
   test('a notification click restores the minimized window and opens the conversation', async ({ launchApp }) => {
+    electronOnly('it checks native window state (minimized/restored)');
     const nick = `nt${uid()}`;
     const serverName = `Notify Ergo ${uid(4)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
@@ -220,6 +226,7 @@ test.describe('app shell', () => {
   });
 
   test('engine sidecar killed: the app shows the lost connection', async ({ launchApp, profile }) => {
+    electronOnly('the engine is in-process under Wails; there is no sidecar to kill');
     const nick = `ek${uid()}`;
     const serverName = `Crash Ergo ${uid(4)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
@@ -294,6 +301,7 @@ function rawGet(port: number, path: string): Promise<{ status: number; type: str
 
 test.describe('renderer server and permissions', () => {
   test('the loopback server serves only the build; a taken port falls back to a fresh one', async ({ launchApp, profile }) => {
+    electronOnly('Wails serves the app itself; there is no loopback renderer server');
     const first = await launchApp();
     const port = Number(readFileSync(join(profile.userData, 'renderer-port'), 'utf8').trim());
     expect(new URL(first.page.url()).port).toBe(String(port));
@@ -326,6 +334,7 @@ test.describe('renderer server and permissions', () => {
   });
 
   test('the app may notify; camera, microphone and location read as denied', async ({ launchApp }) => {
+    electronOnly('permissions come from the native webview, not a browser in server mode');
     const { page } = await launchApp();
     await expect(page.getByRole('button', { name: 'Continue without an account' })).toBeVisible({ timeout: 30_000 });
     // Permission *checks* only (navigator.permissions → main's check
@@ -502,6 +511,7 @@ test.describe('Spotify', () => {
   // (that's its SSRF guard), so the test stubs main's fetch for that one
   // origin instead of redirecting it anywhere.
   test('a Spotify link renders a native card from the embed page; other hosts are never fetched', async ({ launchApp }) => {
+    electronOnly('it stubs Spotify fetches in the Electron main process');
     const playlistId = `PL${uid(10)}`;
     const pages: Record<string, string> = {
       [`https://open.spotify.com/embed/playlist/${playlistId}`]: spotifyEmbedPage({

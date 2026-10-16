@@ -48,10 +48,13 @@ func TestSecureStoreDerivedMode(t *testing.T) {
 
 	// A fresh store (next launch) reads it back.
 	s2 := NewSecureStore(dir, "derived")
-	if v := s2.Get("boson.bouncer.v1"); v == nil || *v != "creds" {
+	if v, _ := s2.Get("boson.bouncer.v1"); v == nil || *v != "creds" {
 		t.Fatalf("reload: %v", v)
 	}
-	if err := s2.Remove("boson.bouncer.v1"); err != nil || s2.Get("boson.bouncer.v1") != nil {
+	if err := s2.Remove("boson.bouncer.v1"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s2.Get("boson.bouncer.v1"); v != nil {
 		t.Fatal("remove failed")
 	}
 }
@@ -61,7 +64,7 @@ func TestSecureStoreUnreadableValuesAreMissing(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, storeFile), []byte(`{"a":"ks1:AAAA","b":"untagged","c":"fb1:!!notbase64","d":7}`), 0o600)
 	s := NewSecureStore(dir, "derived")
 	for _, k := range []string{"a", "b", "c", "d", "missing"} {
-		if v := s.Get(k); v != nil {
+		if v, _ := s.Get(k); v != nil {
 			t.Errorf("%s = %q, want missing", k, *v)
 		}
 	}
@@ -72,7 +75,23 @@ func TestSecureStoreUnreadableValuesAreMissing(t *testing.T) {
 	if err := s.Set("k", "v"); err != nil {
 		t.Fatal(err)
 	}
-	if v := NewSecureStore(dir, "derived").Get("k"); v == nil || *v != "v" {
+	if v, _ := NewSecureStore(dir, "derived").Get("k"); v == nil || *v != "v" {
 		t.Fatalf("after corrupt file: %v", v)
+	}
+}
+
+func TestSecureStoreRejectsMalformedCalls(t *testing.T) {
+	s := NewSecureStore(t.TempDir(), "derived")
+	if _, err := s.Get(""); err == nil || err.Error() != "secureStore:get requires a non-empty string key" {
+		t.Errorf("get empty: %v", err)
+	}
+	if err := s.Set(5, "v"); err == nil || err.Error() != "secureStore:set requires a non-empty string key" {
+		t.Errorf("set non-string key: %v", err)
+	}
+	if err := s.Set("k", 5.0); err == nil || err.Error() != "secureStore:set requires a string value" {
+		t.Errorf("set non-string value: %v", err)
+	}
+	if err := s.Remove(""); err == nil || err.Error() != "secureStore:remove requires a non-empty string key" {
+		t.Errorf("remove empty: %v", err)
 	}
 }

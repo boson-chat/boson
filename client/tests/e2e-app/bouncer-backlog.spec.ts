@@ -10,6 +10,7 @@ import {
 import { IrcPeer } from './irc-peer';
 import { conversation, messages } from './helpers/chat';
 import { withZncAdmin } from './helpers/znc-admin';
+import { electronOnly } from './wails-shell';
 
 async function joinViaBouncer(page: Page, peer: IrcPeer, z: ZncUser, name: string, channel: string): Promise<string> {
   await continueAsGuest(page, `bl${uid()}`);
@@ -75,6 +76,7 @@ test.describe('bouncer backlog', () => {
   });
 
   test('what was said while the connection was down is there once it is back', async ({ launchApp, zncUser }) => {
+    electronOnly('it kills the engine sidecar; the engine is in-process under Wails');
     test.setTimeout(240_000);
     const channel = `#e2e-gap-${uid(8)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });

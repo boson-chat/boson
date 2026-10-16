@@ -127,12 +127,20 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
 // under youtube-embed.invalid, which main maps to 127.0.0.1
 // (src/main/youtube-embed.ts; keep the hostname in sync). The wrapper posts a
 // ready message; without one in time we embed YouTube directly, which plays
-// most videos. Outside a loopback origin (web build, tests) it's direct.
+// most videos. Outside a loopback origin (web build, tests) it's direct. The
+// Wails shell serves the wrapper from its own loopback server under
+// youtube-embed.localhost (desktop/youtube.go) — a wails:// page can't play
+// YouTube at all.
 export const YOUTUBE_EMBED_HOST = 'youtube-embed.invalid';
 export const YOUTUBE_WRAPPER_TIMEOUT_MS = 6_000;
 
 export function youtubeWrapperOrigin(loc: { protocol: string; hostname: string; port: string } | undefined =
   typeof location === 'undefined' ? undefined : location): string | null {
+  // The Wails shell serves the wrapper itself, from its own loopback server.
+  const shell = typeof window !== 'undefined'
+    ? (window as { bosonYouTube?: { wrapperOrigin: string | null } }).bosonYouTube
+    : undefined;
+  if (shell) return shell.wrapperOrigin;
   if (!loc || loc.protocol !== 'http:' || !loc.port) return null;
   if (loc.hostname !== '127.0.0.1' && loc.hostname !== 'localhost') return null;
   return `http://${YOUTUBE_EMBED_HOST}:${loc.port}`;
