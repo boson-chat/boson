@@ -59,8 +59,8 @@ touch "$desktop/frontend/dist/.gitkeep"
 
 # 2. Binaries: production build (no devtools), both architectures.
 ldflags="-s -w -X main.appVersion=$VERSION"
-# A remote YouTube wrapper (e.g. https://boson.chat, once the website serves
-# website/public/youtube-embed.*); unset: the app's own loopback copy.
+# Another YouTube wrapper origin (default https://boson.chat; a PR's website
+# preview to try changes to it). Unset: the build's default.
 [[ -n "${YOUTUBE_WRAPPER:-}" ]] && ldflags="$ldflags -X main.youtubeWrapperOrigin=$YOUTUBE_WRAPPER"
 for arch in arm64 amd64; do
   echo "building $arch"
