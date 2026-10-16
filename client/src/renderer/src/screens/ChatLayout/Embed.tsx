@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { Modal } from '@boson/shared';
 import { classifyMessage, type ClassifiedUrl } from './embeds/classify';
@@ -127,12 +127,22 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
 // under youtube-embed.invalid, which main maps to 127.0.0.1
 // (src/main/youtube-embed.ts; keep the hostname in sync). The wrapper posts a
 // ready message; without one in time we embed YouTube directly, which plays
-// most videos. Outside a loopback origin (web build, tests) it's direct.
+// most videos. Outside a loopback origin (web build, tests) it's direct. The
+// Wails shell names its wrapper (desktop/youtube.go): boson.chat's copy
+// (its e2e build: its own loopback server). A wails:// page can't play YouTube at
+// all, so there the fallback is the video on YouTube, never a direct embed.
+// The wrapper also passes on the player's errors (embedding refused, 153),
+// which turn the player back into a "watch on YouTube" card.
 export const YOUTUBE_EMBED_HOST = 'youtube-embed.invalid';
 export const YOUTUBE_WRAPPER_TIMEOUT_MS = 6_000;
 
 export function youtubeWrapperOrigin(loc: { protocol: string; hostname: string; port: string } | undefined =
   typeof location === 'undefined' ? undefined : location): string | null {
+  // The Wails shell serves the wrapper itself, from its own loopback server.
+  const shell = typeof window !== 'undefined'
+    ? (window as { bosonYouTube?: { wrapperOrigin: string | null } }).bosonYouTube
+    : undefined;
+  if (shell) return shell.wrapperOrigin;
   if (!loc || loc.protocol !== 'http:' || !loc.port) return null;
   if (loc.hostname !== '127.0.0.1' && loc.hostname !== 'localhost') return null;
   return `http://${YOUTUBE_EMBED_HOST}:${loc.port}`;
@@ -157,22 +167,37 @@ function YouTubeEmbed({
   const direct = `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&origin=${encodeURIComponent(origin)}`;
   const wrapperOrigin = youtubeWrapperOrigin();
   const [viaWrapper, setViaWrapper] = useState(wrapperOrigin !== null);
+  // YouTube won't play it here: show the card, which opens it on YouTube.
+  const [failed, setFailed] = useState(false);
+  // Under the Wails shell embedding YouTube directly can only fail (153).
+  const directWorks = typeof window === 'undefined' || !(window as { bosonYouTube?: unknown }).bosonYouTube;
   const src = viaWrapper && wrapperOrigin ? `${wrapperOrigin}/youtube-embed.html?v=${encodeURIComponent(id)}` : direct;
   const frame = useRef<HTMLIFrameElement>(null);
 
-  // Playing through the wrapper: wait for its ready message, else go direct.
-  useEffect(() => {
-    if (stage !== 'play' || !viaWrapper) return;
+  // Playing through the wrapper: wait for its ready message, else go direct
+  // (or, where that can't work, to the card). A player error → the card.
+  // A layout effect: listening must start before the frame can post. From a
+  // loopback server the wrapper reports in ~20 ms after insertion, sooner
+  // than useEffect runs (next animation frame, or 100 ms when frames are
+  // throttled), and a missed "ready" meant a needless fallback.
+  useLayoutEffect(() => {
+    if (stage !== 'play' || !viaWrapper || failed) return;
     let ready = false;
     const onMessage = (e: MessageEvent): void => {
       if (e.origin !== wrapperOrigin || e.source !== frame.current?.contentWindow) return;
       const d = e.data as { type?: unknown; v?: unknown } | null;
-      if (d?.type === 'boson-youtube-ready' && d.v === id) ready = true;
+      if (d?.v !== id) return;
+      if (d.type === 'boson-youtube-ready') ready = true;
+      if (d.type === 'boson-youtube-error') setFailed(true);
     };
     window.addEventListener('message', onMessage);
-    const timer = setTimeout(() => { if (!ready) setViaWrapper(false); }, YOUTUBE_WRAPPER_TIMEOUT_MS);
+    const timer = setTimeout(() => {
+      if (ready) return;
+      if (directWorks) setViaWrapper(false);
+      else setFailed(true);
+    }, YOUTUBE_WRAPPER_TIMEOUT_MS);
     return () => { window.removeEventListener('message', onMessage); clearTimeout(timer); };
-  }, [stage, viaWrapper, id, wrapperOrigin]);
+  }, [stage, viaWrapper, failed, id, wrapperOrigin, directWorks]);
 
   // Once past the inert chip, fetch the video title (OG) for the card header.
   useEffect(() => {
@@ -207,12 +232,13 @@ function YouTubeEmbed({
             {card.date && formatDate(card.date)}
           </span>
         )}
-        {stage === 'facade' ? (
+        {stage === 'facade' || failed ? (
           <button
             type="button"
             class="embed-yt-thumb"
-            onClick={() => (canInline ? setStage('play') : openExternal(c.url))}
-            aria-label={canInline ? 'Play video' : 'Watch on YouTube'}
+            onClick={() => (canInline && !failed ? setStage('play') : openExternal(c.url))}
+            aria-label={canInline && !failed ? 'Play video' : 'Watch on YouTube'}
+            title={failed ? "YouTube won't play this video here. Watch it on YouTube." : undefined}
           >
             <img class="embed-img" src={card?.image ?? thumb} alt="" loading="lazy" />
             <span class="embed-yt-play" aria-hidden="true" />

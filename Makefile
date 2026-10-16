@@ -5,6 +5,7 @@
         engine-build engine-connect engine-serve engine-env sidecar-build \
         test test-go test-client test-e2e hooks-install \
         test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage \
+        test-e2e-wails test-e2e-wails-coverage \
         test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme
 
 setup: tidy up
@@ -273,6 +274,21 @@ test-e2e-app-coverage:
 	E2E_COVERAGE=1 $(E2E_STACK) up
 	cd client && E2E_COVERAGE=1 npm run build:e2e-app
 	cd client && npm run test:e2e:app:coverage
+
+# The same suite against the Wails desktop shell (desktop/), built as a
+# server-mode binary (the real Go services + in-process engine, serving the
+# renderer over HTTP) and driven in Playwright's Chromium. What CI runs
+# (.github/workflows/e2e.yml). Specs that need a native window or Electron
+# itself skip (client/tests/e2e-app/wails-shell.ts). Same stack.
+test-e2e-wails: test-e2e-app-up
+	cd client && npm run build:e2e-wails
+	cd client && npm run test:e2e:wails
+
+# With coverage: renderer, the Go shell + engine binary, Go backend.
+test-e2e-wails-coverage:
+	E2E_COVERAGE=1 $(E2E_STACK) up
+	cd client && E2E_COVERAGE=1 npm run build:e2e-wails
+	cd client && npm run test:e2e:wails:coverage
 
 test-e2e-app-down:
 	$(E2E_STACK) down

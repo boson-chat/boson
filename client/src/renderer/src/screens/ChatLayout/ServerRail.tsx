@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useState, useLayoutEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
 import './ServerRail.css';
@@ -307,7 +307,9 @@ interface ServerRailContextMenuProps {
 function ServerRailContextMenu({
   x, y, onClose, onDetails, onLeave, onBouncerConnect, onBouncerDisconnect,
 }: ServerRailContextMenuProps) {
-  useEffect(() => {
+  // Layout effect: the listeners are in place before the menu is painted,
+  // so an Escape or outside click right after it appears isn't missed.
+  useLayoutEffect(() => {
     const onDown = (e: MouseEvent): void => {
       const t = e.target as HTMLElement | null;
       if (t && t.closest('.server-rail-context-menu')) return;

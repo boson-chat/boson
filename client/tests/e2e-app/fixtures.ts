@@ -32,6 +32,7 @@ import { BackendApi, provisionIdentity, randomHandle } from './helpers/backend';
 import { Mailpit } from './helpers/mailpit';
 import { createConfirmedUser, deleteAuthUser, type AuthUser } from './helpers/supabase';
 import { leaseZncUser, resetZncUser, type ZncUser } from './helpers/znc';
+import { WAILS_SHELL, launchWails, type WailsLaunch } from './wails-shell';
 
 export { APP_DIR, STACK };
 
@@ -215,6 +216,29 @@ export const test = base.extend<Fixtures>({
   },
 
   launchApp: async ({ profile }, use, testInfo) => {
+    if (WAILS_SHELL) {
+      const wails: WailsLaunch[] = [];
+      await use(async (opts = {}) => {
+        const p = opts.profile ?? profile;
+        const env: Record<string, string> = {};
+        for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
+        Object.assign(env, { HOME: p.home, XDG_RUNTIME_DIR: p.runtime, XDG_CONFIG_HOME: join(p.home, '.config'), BOSON_SECURE_STORE: 'derived', BOSON_DATA_DIR: p.userData, BOSON_E2E_RECORD_LINKS: '1', BOSON_E2E: '1' });
+        if (opts.env) Object.assign(env, opts.env);
+        const launched = await launchWails(p, env, opts.args ?? []);
+        wails.push(launched);
+        return launched;
+      });
+      const failed = testInfo.status !== testInfo.expectedStatus;
+      for (const [i, w] of wails.entries()) {
+        if (failed && !w.page.isClosed()) {
+          const shot = await w.page.screenshot().catch(() => null);
+          if (shot) await testInfo.attach(`screenshot-launch-${i + 1}`, { body: shot, contentType: 'image/png' });
+        }
+        await w.close();
+        if (failed) await testInfo.attach(`wails-log-launch-${i + 1}`, { body: w.logs.join(''), contentType: 'text/plain' });
+      }
+      return;
+    }
     if (!existsSync(join(APP_DIR, 'package.json'))) {
       throw new Error(`${APP_DIR} is missing — run \`npm run build:e2e-app\` (or \`make test-e2e-app\`) first.`);
     }

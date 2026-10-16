@@ -1,13 +1,14 @@
 <!doctype html>
 <!--
-  YouTube player host for inline video embeds. Boson's UI is served from a
-  loopback address (http://127.0.0.1:<port>), and YouTube refuses some videos
-  (label / VEVO music videos: "This video is unavailable") when the page
-  around its player is a local address. The app frames this page from
-  http://youtube-embed.invalid:<same port> instead: a hostname the main
-  process maps to 127.0.0.1 (host-resolver-rules), so the player's embedding
-  page has an ordinary name. .invalid is reserved and never resolves on the
-  internet, so the mapping can't shadow a real site.
+  YouTube player host for inline video embeds. YouTube refuses some videos
+  (label / VEVO music videos: "This video is unavailable"), or every video
+  (error 153), when the page around its player is a local or app-scheme
+  page. So the player is framed by this page under an ordinary hostname:
+    - Electron: http://youtube-embed.invalid:<port>, a reserved name main
+      maps to its loopback server (host-resolver-rules);
+    - Wails: https://boson.chat (website/public/ holds a copy; keep them in
+      sync, Embed.test.tsx checks), or in the e2e build the shell's own
+      loopback server under youtube-embed.localhost.
   Takes ?v=<11-char id>[&t=<seconds>]; anything else is refused.
 -->
 <html lang="en">

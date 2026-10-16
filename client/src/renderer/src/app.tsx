@@ -4,7 +4,7 @@ import { AuthProvider, AuthService, useAuthState } from './modules/auth';
 import { signOutAndForget } from './modules/auth/sign-out';
 import { SessionStore } from './modules/session';
 import { DirectoryService } from './modules/directory';
-import { EngineClient } from './modules/engine';
+import { EngineClient, type WebSocketCtor } from './modules/engine';
 import { IDBChatHistoryStore, type ChatHistoryStore } from './modules/history';
 import { IdentityService } from './modules/identity';
 import { NickservSyncService } from './modules/chat/nickserv-sync.service';
@@ -226,6 +226,8 @@ export interface BuildAppOptions {
   bosonUrl: string;
   engineUrl?: string;
   engineToken?: string;
+  // Stands in for WebSocket when the engine isn't reached over one (Wails).
+  engineSocket?: WebSocketCtor;
 }
 
 export function buildApp(opts: BuildAppOptions): AppProps {
@@ -237,7 +239,7 @@ export function buildApp(opts: BuildAppOptions): AppProps {
   // in-memory implementation.
   const identity = new IdentityService(undefined, windowSecureStorage);
   const engine = opts.engineUrl && opts.engineToken
-    ? new EngineClient({ url: opts.engineUrl, token: opts.engineToken })
+    ? new EngineClient({ url: opts.engineUrl, token: opts.engineToken }, opts.engineSocket ? { wsCtor: opts.engineSocket } : undefined)
     : null;
   // IDB store lazy-opens on first use, so constructing it here is free even
   // if the user never goes near chat. Keyed per (userId, serverId, channel)

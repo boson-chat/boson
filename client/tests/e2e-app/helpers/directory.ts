@@ -2,6 +2,7 @@
 import { deflateSync, crc32 } from 'node:zlib';
 import { expect, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { backendSql } from './backend';
+import { WAILS_SHELL } from '../wails-shell';
 
 // Takes over the main process's `api:fetch` IPC handler (the renderer's only
 // route to the backend — see src/main/api-proxy.ts) so a test can make the
@@ -17,6 +18,7 @@ export interface ApiControl {
 }
 
 export async function controlApi(app: ElectronApplication): Promise<ApiControl> {
+  if (WAILS_SHELL) return wailsApiControl(app);
   await app.evaluate(({ ipcMain }) => {
     const g = globalThis as unknown as { __e2eApi?: { down: boolean; delayMs: number; log: string[] } };
     if (g.__e2eApi) return;
@@ -134,4 +136,24 @@ export function png(w: number, h: number, rgb: [number, number, number]): Buffer
 
 function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// The Wails shell's equivalent: the e2e build's API proxy hooks (desktop/e2e.go).
+function wailsApiControl(app: ElectronApplication): ApiControl {
+  type E2E = { setApi: (down: boolean, delayMs: number) => Promise<void>; apiRequests: () => Promise<string[]> };
+  const page = app.windows()[0]!;
+  const ready = page.waitForFunction(() => 'bosonE2E' in window);
+  const state = { down: false, delayMs: 0 };
+  const push = async (): Promise<void> => {
+    await ready;
+    await page.evaluate((s) => (window as unknown as { bosonE2E: E2E }).bosonE2E.setApi(s.down, s.delayMs), state);
+  };
+  return {
+    setDown: (down) => { state.down = down; return push(); },
+    setDelay: (delayMs) => { state.delayMs = delayMs; return push(); },
+    requests: async () => {
+      await ready;
+      return page.evaluate(() => (window as unknown as { bosonE2E: E2E }).bosonE2E.apiRequests());
+    },
+  };
 }
