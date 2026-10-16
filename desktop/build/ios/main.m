@@ -1,6 +1,6 @@
 //go:build ios
 // Minimal bootstrap: delegate comes from Go archive (WailsAppDelegate).
-// From Wails' iOS template, plus edgeToEdge() below.
+// From Wails' iOS template, plus BosonSceneDelegate and edgeToEdge() below.
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #include <stdio.h>
@@ -38,6 +38,65 @@ static void edgeToEdge(void) {
         if (web && (!tabBar || tabBar.isHidden)) web.frame = self_.view.bounds;
     }));
 }
+
+// iOS 27's SDK requires the UIScene life cycle ("Application failed to
+// launch: UIScene life cycle is required for apps built with this SDK");
+// Wails v3 beta.30's iOS host only has an app delegate. Info.plist declares
+// one window scene with this delegate, which:
+//   - shows the window Wails' delegate made in didFinishLaunching (before any
+//     scene connects) in the connected scene;
+//   - forwards the life-cycle callbacks iOS now sends to the scene, not the
+//     app delegate, to Wails' delegate (its active/background events);
+//   - forwards URLs (boson://), at launch and later, to the app delegate's
+//     application:openURL:options:.
+@interface BosonSceneDelegate : UIResponder <UIWindowSceneDelegate>
+@property (strong, nonatomic) UIWindow *window;
+@end
+
+@implementation BosonSceneDelegate
+- (id<UIApplicationDelegate>)appDelegate {
+    return UIApplication.sharedApplication.delegate;
+}
+- (void)openURLContexts:(NSSet<UIOpenURLContext *> *)contexts {
+    id<UIApplicationDelegate> d = [self appDelegate];
+    if (![d respondsToSelector:@selector(application:openURL:options:)]) return;
+    for (UIOpenURLContext *c in contexts) {
+        [d application:UIApplication.sharedApplication openURL:c.URL options:@{}];
+    }
+}
+- (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)options {
+    if (![scene isKindOfClass:[UIWindowScene class]]) return;
+    UIWindow *w = [self appDelegate].window;
+    if (!w) {
+        w = [[UIWindow alloc] init];
+        w.rootViewController = [[UIViewController alloc] init];
+    }
+    w.windowScene = (UIWindowScene *)scene;
+    w.frame = ((UIWindowScene *)scene).coordinateSpace.bounds;
+    self.window = w;
+    [w makeKeyAndVisible];
+    if (options.URLContexts.count > 0) [self openURLContexts:options.URLContexts];
+}
+- (void)scene:(UIScene *)scene openURLContexts:(NSSet<UIOpenURLContext *> *)contexts {
+    [self openURLContexts:contexts];
+}
+- (void)sceneDidBecomeActive:(UIScene *)scene {
+    id d = [self appDelegate];
+    if ([d respondsToSelector:@selector(applicationDidBecomeActive:)]) [d applicationDidBecomeActive:UIApplication.sharedApplication];
+}
+- (void)sceneWillResignActive:(UIScene *)scene {
+    id d = [self appDelegate];
+    if ([d respondsToSelector:@selector(applicationWillResignActive:)]) [d applicationWillResignActive:UIApplication.sharedApplication];
+}
+- (void)sceneWillEnterForeground:(UIScene *)scene {
+    id d = [self appDelegate];
+    if ([d respondsToSelector:@selector(applicationWillEnterForeground:)]) [d applicationWillEnterForeground:UIApplication.sharedApplication];
+}
+- (void)sceneDidEnterBackground:(UIScene *)scene {
+    id d = [self appDelegate];
+    if ([d respondsToSelector:@selector(applicationDidEnterBackground:)]) [d applicationDidEnterBackground:UIApplication.sharedApplication];
+}
+@end
 
 int main(int argc, char * argv[]) {
     @autoreleasepool {

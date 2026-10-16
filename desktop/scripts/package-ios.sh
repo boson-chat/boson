@@ -14,8 +14,8 @@
 #                   reach http://localhost:3000. The simulator shares the
 #                   Mac's network, so localhost is the Mac.
 #   RUN=1           install + launch in the simulator
-#   SIMULATOR       simulator name or UDID (default: the booted one, else the
-#                   first available iPhone)
+#   SIMULATOR       simulator name or UDID (default: the booted one, else an
+#                   iPhone on the newest installed iOS)
 #   EXTRA_TAGS      more Go build tags (e.g. mcp: Wails' test harness)
 #   SKIP_RENDERER=1 reuse client/out/renderer as it is
 #
@@ -117,7 +117,9 @@ if [[ "${RUN:-}" == "1" ]]; then
     sim="$(xcrun simctl list devices booted | grep -oE '[A-F0-9-]{36}' | head -1 || true)"
   fi
   if [[ -z "$sim" ]]; then
-    sim="$(xcrun simctl list devices available | grep -m1 'iPhone' | grep -oE '[A-F0-9-]{36}')"
+    # An iPhone on the newest installed iOS (DeviceHub only drives iOS 18+).
+    runtime="$(xcrun simctl list runtimes | grep -oE '^iOS [0-9.]+' | sort -V | tail -1)"
+    sim="$(xcrun simctl list devices available "$runtime" | grep -m1 'iPhone' | grep -oE '[A-F0-9-]{36}')"
   fi
   xcrun simctl boot "$sim" 2>/dev/null || true
   # Show it: Simulator.app, or DeviceHub.app in newer Xcodes. The simulator
