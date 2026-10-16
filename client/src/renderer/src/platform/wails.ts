@@ -14,23 +14,33 @@ const UPDATER = 'main.UpdaterService';
 
 // The engine runs in the Wails process. This stands in for the WebSocket the
 // engine client would otherwise open: frames go out through a binding and
-// come back as events, carrying the same JSON protocol.
+// come back as events, carrying the same JSON protocol. Each socket is one
+// engine session (desktop/engine.go): it hears only that session's frames,
+// and closes when the session ends — replaced, or the engine crashed.
 class WailsEngineSocket implements WebSocketLike {
   readyState = 0;
   onopen: WebSocketLike['onopen'] = null;
   onclose: WebSocketLike['onclose'] = null;
   onerror: WebSocketLike['onerror'] = null;
   onmessage: WebSocketLike['onmessage'] = null;
-  private off: (() => void) | null = null;
+  private session = 0;
+  private offs: Array<() => void> = [];
 
   constructor(_url: string) {
-    this.off = Events.On('engine:frame', (ev) => {
-      if (this.readyState !== 1) return;
-      this.onmessage?.call(this, new MessageEvent('message', { data: ev.data as string }));
-    });
+    this.offs.push(
+      Events.On('engine:frame', (ev) => {
+        const { session, frame } = ev.data as { session: number; frame: string };
+        if (this.readyState !== 1 || session !== this.session) return;
+        this.onmessage?.call(this, new MessageEvent('message', { data: frame }));
+      }),
+      Events.On('engine:closed', (ev) => {
+        if (this.session !== 0 && ev.data === this.session) this.fail();
+      }),
+    );
     Call.ByName(`${ENGINE}.Open`).then(
-      () => {
+      (id) => {
         if (this.readyState !== 0) return;
+        this.session = id as number;
         this.readyState = 1;
         this.onopen?.call(this, new Event('open'));
       },
@@ -57,8 +67,8 @@ class WailsEngineSocket implements WebSocketLike {
 
   private finish(): void {
     this.readyState = 3;
-    this.off?.();
-    this.off = null;
+    for (const off of this.offs) off();
+    this.offs = [];
     this.onclose?.call(this, new CloseEvent('close'));
   }
 }
@@ -199,6 +209,11 @@ export async function installWailsBridges(): Promise<void> {
       openedLinks: () => Call.ByName('main.E2EService.OpenedLinks'),
       setApi: (down: boolean, delayMs: number) => Call.ByName('main.E2EService.SetApi', down, delayMs),
       apiRequests: () => Call.ByName('main.E2EService.ApiRequests'),
+      crashEngine: () => Call.ByName('main.E2EService.CrashEngine'),
+      engineSession: () => Call.ByName('main.E2EService.EngineSession'),
+      stubSpotify: (pages: Record<string, string>) => Call.ByName('main.E2EService.StubSpotify', pages),
+      spotifyFetched: () => Call.ByName('main.E2EService.SpotifyFetched'),
+      pushUpdaterState: (s: unknown) => Call.ByName('main.E2EService.PushUpdaterState', s),
     };
   }
   w.bosonPlatform = platformName((await System.Environment()).OS);

@@ -47,6 +47,9 @@ func main() {
 	links := NewLinksService(dev)
 	api := NewApiService(apiBase, dev)
 	deepLinks := &DeepLinkService{}
+	engine := &EngineService{}
+	spotify := NewSpotifyService()
+	updater := NewUpdaterService(appVersion, !dev, links)
 	native := notifications.New()
 	notify := NewNotifyService(native)
 	// One running app: a second launch (a boson:// click on Windows/Linux)
@@ -64,18 +67,18 @@ func main() {
 		Name:        "Boson",
 		Description: "Boson chat",
 		Services: []application.Service{
-			application.NewService(&EngineService{}),
+			application.NewService(engine),
 			application.NewService(api),
 			application.NewService(NewSecureStore(dataDir, secureMode)),
 			application.NewService(NewUnfurlService(dev)),
-			application.NewService(NewSpotifyService()),
+			application.NewService(spotify),
 			application.NewService(NewThemesService(dataDir)),
 			application.NewService(links),
 			application.NewService(deepLinks),
 			application.NewService(notify),
-			application.NewService(NewUpdaterService(appVersion, !dev)),
+			application.NewService(updater),
 			application.NewService(NewYouTubeService(dist)),
-			application.NewService(NewE2EService(dev, links, deepLinks, api)),
+			application.NewService(NewE2EService(dev, e2eTargets{links, deepLinks, api, engine, spotify, updater})),
 		},
 		Assets: application.AssetOptions{
 			Handler: assetHandler(dist),

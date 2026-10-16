@@ -22,16 +22,21 @@ import (
 type UpdaterService struct {
 	current string
 	check   bool
+	links   *LinksService
 
 	mu    sync.Mutex
 	state UpdateState
 }
 
 type UpdateState struct {
-	Kind      string `json:"kind"` // idle | checking | up-to-date | available | error
+	Kind      string `json:"kind"` // idle | checking | up-to-date | available | downloading | ready | error
 	Version   string `json:"version,omitempty"`
 	CheckedAt int64  `json:"checkedAt,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// Percent and BytesPerSecond: "downloading" progress (Phase 5's in-place
+	// updates; the e2e suite drives the About row through them already).
+	Percent        float64 `json:"percent,omitempty"`
+	BytesPerSecond float64 `json:"bytesPerSecond,omitempty"`
 	// Manual: this build can't install it itself; Apply opens the release page.
 	Manual bool `json:"manual,omitempty"`
 }
@@ -44,8 +49,8 @@ const (
 	updateInterval    = 6 * time.Hour
 )
 
-func NewUpdaterService(current string, checkOnline bool) *UpdaterService {
-	return &UpdaterService{current: current, check: checkOnline, state: UpdateState{Kind: "idle"}}
+func NewUpdaterService(current string, checkOnline bool, links *LinksService) *UpdaterService {
+	return &UpdaterService{current: current, check: checkOnline, links: links, state: UpdateState{Kind: "idle"}}
 }
 
 func (u *UpdaterService) GetState() UpdateState {
@@ -81,7 +86,7 @@ func (u *UpdaterService) CheckNow(ctx context.Context) {
 
 // ApplyDownloadedUpdate opens the release page (see the type comment).
 func (u *UpdaterService) ApplyDownloadedUpdate() error {
-	return application.Get().Browser.OpenURL(releasesPage)
+	return u.links.Open(releasesPage)
 }
 
 func (u *UpdaterService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {

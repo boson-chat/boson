@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/lrstanley/girc"
@@ -101,6 +102,9 @@ type Client struct {
 	// from Connect, the deferred-timer goroutines and tests, so keep the lock
 	// rather than reason about which access happens on which goroutine.
 	mu sync.Mutex
+	// aborted: Abort dropped the connection; Connect must not QUIT on the
+	// way out (see Abort).
+	aborted atomic.Bool
 	// lifeCtx is the connection's lifetime context, set at the top of
 	// Connect. Deferred work (the post-welcome LIST timers, the services
 	// probe-timeout fallbacks) selects on its Done so a disconnect within
@@ -658,6 +662,11 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		if c.aborted.Load() {
+			c.girc.Close()
+			<-errCh
+			return nil
+		}
 		// girc closes the link once its send loop has written the QUIT, but
 		// a stalled peer (full TCP window, half-dead link) can hold that
 		// write for its 30s timeout. Send it off this goroutine and give it
@@ -691,6 +700,14 @@ func (c *Client) Part(channel string) {
 // their order.
 func (c *Client) Privmsg(target, message string) {
 	c.send(&girc.Event{Command: girc.PRIVMSG, Params: []string{target, message}}, classInteractive)
+}
+
+// Abort drops the connection without a QUIT, as if the process had died: a
+// bouncer sees the client vanish and keeps the upstream (and buffers). Used
+// to simulate an engine crash in e2e builds; nothing else should need it.
+func (c *Client) Abort() {
+	c.aborted.Store(true)
+	c.girc.Close()
 }
 
 // Quit ends the IRC session with the given reason.

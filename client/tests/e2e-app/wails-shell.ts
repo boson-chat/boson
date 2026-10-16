@@ -158,3 +158,13 @@ export async function secondInstance(app: ElectronApplication, args: string[]): 
 export function electronOnly(reason: string): void {
   test.skip(WAILS_SHELL, `Electron only: ${reason}`);
 }
+
+// Calls one of the e2e build's hooks (window.bosonE2E, desktop/e2e.go) in the
+// Wails app's page.
+export async function wailsE2E<T = unknown>(app: ElectronApplication, method: string, ...args: unknown[]): Promise<T> {
+  const page = app.windows()[0]!;
+  return page.evaluate(
+    ({ m, a }) => (window as unknown as { bosonE2E: Record<string, (...x: unknown[]) => Promise<unknown>> }).bosonE2E[m]!(...a),
+    { m: method, a: args },
+  ) as Promise<T>;
+}

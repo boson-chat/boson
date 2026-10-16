@@ -734,9 +734,12 @@ function AboutSection() {
   const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
   useEffect(() => {
     if (!updater) return;
+    // A push is newer than the initial read, whichever lands first (under
+    // Wails the read and the pushes arrive by separate routes).
     let unsubscribed = false;
-    void updater.getState().then((s) => { if (!unsubscribed) setUpdateState(s); });
-    const off = updater.onState(setUpdateState);
+    let pushed = false;
+    void updater.getState().then((s) => { if (!unsubscribed && !pushed) setUpdateState(s); });
+    const off = updater.onState((s) => { pushed = true; setUpdateState(s); });
     return () => { unsubscribed = true; off(); };
   }, [updater]);
 

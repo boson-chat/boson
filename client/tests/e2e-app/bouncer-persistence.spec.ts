@@ -5,8 +5,7 @@
 // bouncer's nick, and WHOIS / NAMES still list it), after a settle period
 // so a late QUIT can't slip past. Only "Disconnect network" (bouncer.spec)
 // takes ZNC off the network.
-import { execFileSync } from 'node:child_process';
-import type { ElectronApplication, Locator, Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import {
   test, expect, uid, IRC_HOST, IRC_PORT, type ZncUser, field,
   continueAsGuest, configureBouncerProfile, joinChannel, addServerManually, serverCard, sendMessage,
@@ -14,7 +13,7 @@ import {
 import { IrcPeer, type IrcLine } from './irc-peer';
 import { openServerSettings, railContextMenu, railTile } from './helpers/directory';
 import { zncOnIrc } from './helpers/znc-admin';
-import { electronOnly } from './wails-shell';
+import { crashEngine, engineId } from './helpers/engine';
 
 // How long to keep watching for a QUIT / PART after the app's connection to
 // ZNC went away. ZNC acts on a client QUIT or a closed socket at once, so
@@ -100,17 +99,6 @@ const nickOf = (l: IrcLine): string => l.prefix.split('!')[0]!;
 const joined = (channel: string) => (l: IrcLine): boolean =>
   l.command === 'JOIN' && (l.params[0] ?? '').toLowerCase() === channel.toLowerCase();
 
-// PID of the engine sidecar the app's main process spawned.
-function enginePid(app: ElectronApplication): number {
-  const main = app.process().pid!;
-  const rows = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' }).split('\n');
-  for (const row of rows) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(row);
-    if (m && Number(m[2]) === main && /engine-[a-z]+-[a-z0-9]+/.test(m[3]!)) return Number(m[1]);
-  }
-  throw new Error(`no engine child of Electron main process ${main}`);
-}
-
 test.describe('bouncer keeps you on the network', () => {
   test('closing the app detaches from ZNC; ZNC stays on the network and in the channel', async ({ launchApp, zncUser }) => {
     const channel = `#e2e-keep-${uid(8)}`;
@@ -129,7 +117,6 @@ test.describe('bouncer keeps you on the network', () => {
   });
 
   test('the engine dying without a QUIT leaves ZNC on the network, and the app recovers', async ({ launchApp, zncUser }) => {
-    electronOnly('it kills the engine sidecar; the engine is in-process under Wails');
     const channel = `#e2e-crash-${uid(8)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
     try {
@@ -138,17 +125,15 @@ test.describe('bouncer keeps you on the network', () => {
       const nick = await joinViaBouncer(page, peer, zncUser, `ZNC Crash ${uid(4)}`, channel);
 
       const mark = peer.mark();
-      const killed = enginePid(app);
-      process.kill(killed, 'SIGKILL');
+      const killed = await crashEngine(app);
       // The app notices its engine is gone.
       await expect(page.locator('.sidebar-status-dot')).not.toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
       await expectStillOnNetwork(peer, zncUser, nick, channel, mark);
 
       // The app restarts its engine and gets back on its own: same channel,
       // messages flow again through ZNC.
-      await expect.poll(() => { try { return enginePid(app); } catch { return 0; } }, { timeout: 30_000 })
-        .not.toBe(0);
-      expect(enginePid(app)).not.toBe(killed);
+      await expect.poll(() => engineId(app).catch(() => 0), { timeout: 30_000 }).not.toBe(0);
+      expect(await engineId(app)).not.toBe(killed);
       await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 60_000 });
       const back = `after the crash ${uid()}`;
       await sendMessage(page, channel, back);

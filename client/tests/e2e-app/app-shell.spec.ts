@@ -13,7 +13,6 @@
 // the bouncer specs exercise).
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
 import { createConnection } from 'node:net';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
@@ -24,7 +23,8 @@ import {
   continueAsGuest, addServerManually, serverCard, joinChannel, messageList,
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
-import { WAILS_SHELL, electronOnly } from './wails-shell';
+import { WAILS_SHELL, electronOnly, wailsE2E } from './wails-shell';
+import { crashEngine, engineId } from './helpers/engine';
 
 interface WinState { maximized: boolean; minimized: boolean; visible: boolean }
 
@@ -58,9 +58,8 @@ async function connectDirect(page: Page, name: string): Promise<void> {
 const STORE_TAG = process.platform === 'darwin' && !WAILS_SHELL ? /^ks1:/ : /^fb1:/;
 
 test.describe('app shell', () => {
-  test('title bar and window controls over the bosonWindow IPC', async ({ launchApp }) => {
-    electronOnly('it checks the native window through the Electron BrowserWindow');
-    const { app, page } = await launchApp();
+  // The shell reports the OS (bosonPlatform), and the title bar follows it.
+  async function titleBar(page: Page): Promise<Locator> {
     await continueAsGuest(page, `tb${uid()}`);
     const bar = page.locator('.title-bar');
     await expect(bar.locator('.title-bar-title')).toHaveText('Boson');
@@ -77,6 +76,18 @@ test.describe('app shell', () => {
       await expect(bar.getByRole('button', { name: 'Minimize' })).toBeVisible();
       await expect(bar.getByRole('button', { name: 'Maximize' })).toBeVisible();
     }
+    return bar;
+  }
+
+  test('the title bar follows the platform', async ({ launchApp }) => {
+    const { page } = await launchApp();
+    await titleBar(page);
+  });
+
+  test('window controls over the bosonWindow IPC', async ({ launchApp }) => {
+    electronOnly('it checks the native window, which a server-mode build does not have');
+    const { app, page } = await launchApp();
+    const bar = await titleBar(page);
 
     // The same IPC the drawn buttons use. Maximize/restore round-trips and
     // the renderer hears each change (the drawn button swaps its icon).
@@ -122,17 +133,19 @@ test.describe('app shell', () => {
   });
 
   test('About: update states pushed from main drive the version row', async ({ launchApp }) => {
-    electronOnly('it pushes updater states from the Electron main process');
-    const { app, page } = await launchApp();
+    const { app, page, openedExternally } = await launchApp();
     await continueAsGuest(page, `up${uid()}`);
     const dialog = await openUserSettings(page, /^About/);
     const row = dialog.locator('.user-settings-version-row');
     await expect(row.getByRole('button', { name: 'Check for updates' })).toBeVisible();
 
-    const push = (state: Record<string, unknown>): Promise<void> => app.evaluate(({ BrowserWindow }, s) => {
-      const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes('/index.html'))!;
-      w.webContents.send('updater:state', s);
-    }, state);
+    // The state as main (Electron) or the Go updater (Wails) pushes it.
+    const push = (state: Record<string, unknown>): Promise<void> => WAILS_SHELL
+      ? wailsE2E(app, 'pushUpdaterState', state)
+      : app.evaluate(({ BrowserWindow }, s) => {
+        const w = BrowserWindow.getAllWindows().find((x) => x.webContents.getURL().includes('/index.html'))!;
+        w.webContents.send('updater:state', s);
+      }, state);
 
     await push({ kind: 'checking' });
     await expect(row).toContainText('Checking…');
@@ -143,9 +156,13 @@ test.describe('app shell', () => {
     await expect(row).toContainText('Downloading v99.0.0 · 42%');
     await push({ kind: 'ready', version: '99.0.0' });
     // "Restart to apply" calls updater:apply — a no-op without a packaged
-    // updater, so the app stays up.
+    // updater, so the app stays up. The Wails build can't install in place
+    // yet (docs/wails-migration.md, Phase 5): it opens the release page.
     await row.getByRole('button', { name: 'Restart to apply v99.0.0' }).click();
     await expect(row.getByRole('button', { name: 'Restart to apply v99.0.0' })).toBeVisible();
+    if (WAILS_SHELL) {
+      await expect.poll(() => openedExternally()).toContain('https://github.com/boson-chat/boson/releases/latest');
+    }
 
     // Error verdicts are summarised for humans; the raw text never shows.
     await push({ kind: 'error', message: 'HttpError: 404 \n"method: GET url: https://x/latest-mac.yml"' });
@@ -225,8 +242,7 @@ test.describe('app shell', () => {
     }
   });
 
-  test('engine sidecar killed: the app shows the lost connection', async ({ launchApp, profile }) => {
-    electronOnly('the engine is in-process under Wails; there is no sidecar to kill');
+  test('engine killed: the app shows the lost connection', async ({ launchApp }) => {
     const nick = `ek${uid()}`;
     const serverName = `Crash Ergo ${uid(4)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
@@ -239,14 +255,8 @@ test.describe('app shell', () => {
       await joinChannel(page, channel);
       await peer.waitForJoin(channel, nick);
 
-      // The engine writes its discovery file (with its PID) into THIS test's
-      // XDG_RUNTIME_DIR; make sure it's really this app's child before
-      // killing it.
-      const discovery = JSON.parse(readFileSync(join(profile.runtime, 'boson', 'engine.json'), 'utf8')) as { pid: number };
-      const ppid = Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(discovery.pid)]).toString().trim());
-      expect(ppid).toBe(app.process().pid);
       const quitMark = peer.mark();
-      process.kill(discovery.pid, 'SIGKILL');
+      await crashEngine(app);
 
       // The IRC connection dies with it…
       await peer.waitFor(
@@ -262,17 +272,17 @@ test.describe('app shell', () => {
     }
   });
 
-  // Known gap: main spawns the engine once and never restarts it (engine.ts
-  // only logs the child's exit), so after a crash the renderer retries a
-  // dead socket forever and the session never comes back without an app
-  // restart.
-  test.fixme('engine sidecar killed: it is restarted and the session recovers', async ({ launchApp, profile }) => {
-    const { page } = await launchApp();
+  // Electron's main restarts the engine process; under Wails the renderer
+  // reconnects to a new in-process session. Either way the app is back on
+  // its own.
+  test('engine killed: a new one starts and the session recovers', async ({ launchApp }) => {
+    const { app, page } = await launchApp();
     await continueAsGuest(page, `er${uid()}`);
     await connectDirect(page, `Recover Ergo ${uid(4)}`);
-    const { pid } = JSON.parse(readFileSync(join(profile.runtime, 'boson', 'engine.json'), 'utf8')) as { pid: number };
-    process.kill(pid, 'SIGKILL');
+    const killed = await crashEngine(app);
+    await expect(page.locator('.sidebar-status-dot')).not.toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
     await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 60_000 });
+    expect(await engineId(app)).not.toBe(killed);
   });
 });
 
@@ -499,7 +509,7 @@ test.describe('API proxy', () => {
   });
 });
 
-// ---- Spotify (main/spotify.ts) ---------------------------------------------
+// ---- Spotify (main/spotify.ts, desktop/spotify.go) --------------------------
 
 function spotifyEmbedPage(entity: Record<string, unknown>): string {
   const data = { props: { pageProps: { state: { data: { entity } } } } };
@@ -509,9 +519,9 @@ function spotifyEmbedPage(entity: Record<string, unknown>): string {
 test.describe('Spotify', () => {
   // main fetches https://open.spotify.com/embed/<type>/<id> — a fixed host
   // (that's its SSRF guard), so the test stubs main's fetch for that one
-  // origin instead of redirecting it anywhere.
+  // origin instead of redirecting it anywhere. Under Wails the e2e build's
+  // StubSpotify hook serves the pages in place of that fetch.
   test('a Spotify link renders a native card from the embed page; other hosts are never fetched', async ({ launchApp }) => {
-    electronOnly('it stubs Spotify fetches in the Electron main process');
     const playlistId = `PL${uid(10)}`;
     const pages: Record<string, string> = {
       [`https://open.spotify.com/embed/playlist/${playlistId}`]: spotifyEmbedPage({
@@ -533,7 +543,8 @@ test.describe('Spotify', () => {
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
     try {
       const { app, page } = await launchApp();
-      await app.evaluate((_e, stubPages) => {
+      if (WAILS_SHELL) await wailsE2E(app, 'stubSpotify', pages);
+      else await app.evaluate((_e, stubPages) => {
         const g = globalThis as unknown as { fetch: typeof fetch; __spotifyFetched: string[] };
         const real = g.fetch;
         g.__spotifyFetched = [];
@@ -547,7 +558,9 @@ test.describe('Spotify', () => {
           return real(input, init);
         }) as typeof fetch;
       }, pages);
-      const fetched = (): Promise<string[]> => app.evaluate(() => (globalThis as unknown as { __spotifyFetched: string[] }).__spotifyFetched.slice());
+      const fetched = (): Promise<string[]> => WAILS_SHELL
+        ? wailsE2E<string[]>(app, 'spotifyFetched')
+        : app.evaluate(() => (globalThis as unknown as { __spotifyFetched: string[] }).__spotifyFetched.slice());
       const info = (url: string): Promise<unknown> =>
         page.evaluate((u) => (window as unknown as { bosonSpotify: { fetch: (x: string) => Promise<unknown> } }).bosonSpotify.fetch(u), url);
 

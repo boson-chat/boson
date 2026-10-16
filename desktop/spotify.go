@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,6 +20,27 @@ import (
 type SpotifyService struct {
 	web   *webFetcher
 	cache *ttlCache[*SpotifyInfo]
+	// test, in e2e builds: embed pages served from a stub instead of the
+	// network (E2EService.StubSpotify), and a log of what was asked for.
+	test *spotifyTestControl
+}
+
+type spotifyTestControl struct {
+	mu      sync.Mutex
+	pages   map[string]string
+	fetched []string
+}
+
+// get serves an embed page from the stub; a page it doesn't have is a 404.
+func (c *spotifyTestControl) get(url string) ([]byte, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.fetched = append(c.fetched, url)
+	body, ok := c.pages[url]
+	if !ok {
+		return nil, errors.New("404")
+	}
+	return []byte(body), nil
 }
 
 type SpotifyTrack struct {
@@ -74,7 +97,14 @@ func (s *SpotifyService) Fetch(ctx context.Context, raw string) *SpotifyInfo {
 		return info
 	}
 	var info *SpotifyInfo
-	if body, _, _, err := s.web.get(ctx, embed, "text/html", 2*1024*1024); err == nil {
+	get := func() ([]byte, error) {
+		body, _, _, err := s.web.get(ctx, embed, "text/html", 2*1024*1024)
+		return body, err
+	}
+	if s.test != nil {
+		get = func() ([]byte, error) { return s.test.get(embed) }
+	}
+	if body, err := get(); err == nil {
 		info = parseSpotifyNextData(string(body), raw)
 	}
 	s.cache.put(embed, info)

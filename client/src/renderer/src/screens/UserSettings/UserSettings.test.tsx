@@ -99,6 +99,31 @@ describe('UserSettings — About panel', () => {
       `https://github.com/boson-chat/boson/releases/tag/v${pkg.version}`,
     );
   });
+
+  it('keeps a pushed update state when the initial read lands after it', async () => {
+    let resolveRead!: (s: { kind: string }) => void;
+    let push!: (s: { kind: string; version?: string }) => void;
+    const w = window as unknown as { bosonUpdater?: unknown };
+    w.bosonUpdater = {
+      getState: () => new Promise((r) => { resolveRead = r; }),
+      onState: (fn: typeof push) => { push = fn; return () => {}; },
+      checkNow: vi.fn(),
+      applyDownloadedUpdate: vi.fn(),
+    };
+    try {
+      renderSettings();
+      await userEvent.setup().click(screen.getByRole('tab', { name: /About/ }));
+      await waitFor(() => expect(push).toBeTypeOf('function'));
+      push({ kind: 'checking' });
+      await screen.findByText('Checking…');
+      resolveRead({ kind: 'idle' });
+      await new Promise((r) => setTimeout(r, 0));
+      expect(screen.getByText('Checking…')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
+    } finally {
+      delete w.bosonUpdater;
+    }
+  });
 });
 
 describe('UserSettings — Identity panel (account mode)', () => {

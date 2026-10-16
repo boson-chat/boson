@@ -186,7 +186,11 @@ func (s *session) run(ctx context.Context) {
 	for {
 		data, err := s.t.Read(ctx)
 		if err != nil {
-			s.shutdownAll()
+			if errors.Is(err, ErrAborted) {
+				s.abortAll()
+			} else {
+				s.shutdownAll()
+			}
 			return
 		}
 		var msg ClientMessage
@@ -610,6 +614,28 @@ func (s *session) shutdownAll() {
 	s.clients = make(map[string]*engineClient)
 	s.mu.Unlock()
 	for _, ec := range clients {
+		if ec.cancel != nil {
+			ec.cancel()
+		}
+	}
+}
+
+// ErrAborted, returned by a Transport's Read, ends the session as a crash
+// would: every IRC connection is dropped without a QUIT (irc.Client.Abort).
+// For simulating an engine crash under test; a closed transport otherwise
+// QUITs cleanly (shutdownAll).
+var ErrAborted = errors.New("ipc: session aborted")
+
+// abortAll drops every IRC client owned by this session without a QUIT.
+func (s *session) abortAll() {
+	s.mu.Lock()
+	clients := s.clients
+	s.clients = make(map[string]*engineClient)
+	s.mu.Unlock()
+	for _, ec := range clients {
+		if ec.client != nil {
+			ec.client.Abort()
+		}
 		if ec.cancel != nil {
 			ec.cancel()
 		}

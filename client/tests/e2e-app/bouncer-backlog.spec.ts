@@ -1,8 +1,7 @@
 // Backlog from the bouncer: what was said while the app was away (closed,
 // or its engine gone) shows up once it attaches to ZNC again, in the right
 // conversation, in order, once.
-import { execFileSync } from 'node:child_process';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import {
   test, expect, uid, IRC_HOST, IRC_PORT, type ZncUser,
   continueAsGuest, configureBouncerProfile, joinChannel,
@@ -10,7 +9,7 @@ import {
 import { IrcPeer } from './irc-peer';
 import { conversation, messages } from './helpers/chat';
 import { withZncAdmin } from './helpers/znc-admin';
-import { electronOnly } from './wails-shell';
+import { crashEngine } from './helpers/engine';
 
 async function joinViaBouncer(page: Page, peer: IrcPeer, z: ZncUser, name: string, channel: string): Promise<string> {
   await continueAsGuest(page, `bl${uid()}`);
@@ -29,17 +28,6 @@ async function joinViaBouncer(page: Page, peer: IrcPeer, z: ZncUser, name: strin
     30_000, `bouncer joining ${channel}`, mark,
   );
   return join.prefix.split('!')[0]!;
-}
-
-// PID of the engine sidecar the app's main process spawned.
-function enginePid(app: ElectronApplication): number {
-  const main = app.process().pid!;
-  const rows = execFileSync('ps', ['-A', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' }).split('\n');
-  for (const row of rows) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(row);
-    if (m && Number(m[2]) === main && /engine-[a-z]+-[a-z0-9]+/.test(m[3]!)) return Number(m[1]);
-  }
-  throw new Error(`no engine child of Electron main process ${main}`);
 }
 
 test.describe('bouncer backlog', () => {
@@ -76,7 +64,6 @@ test.describe('bouncer backlog', () => {
   });
 
   test('what was said while the connection was down is there once it is back', async ({ launchApp, zncUser }) => {
-    electronOnly('it kills the engine sidecar; the engine is in-process under Wails');
     test.setTimeout(240_000);
     const channel = `#e2e-gap-${uid(8)}`;
     const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: `peer${uid()}` });
@@ -89,7 +76,7 @@ test.describe('bouncer backlog', () => {
       await expect(messages(page).getByText(before)).toHaveCount(1);
 
       // The engine dies without a QUIT; ZNC keeps buffering for us.
-      process.kill(enginePid(app), 'SIGKILL');
+      await crashEngine(app);
       await expect(page.locator('.sidebar-status-dot')).not.toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
       const gap = `during the drop ${uid()}`;
       peer.privmsg(channel, gap);

@@ -105,13 +105,9 @@ test.describe('connection drops', () => {
     await expect(messages(page).getByText('welcome back')).toBeVisible();
   });
 
-  // PRODUCT BUG (reported): every reconnect — automatic or manual — tears the
-  // connection down and mints a fresh ChatService (DirectoryBloc.connect →
-  // teardownConnection → connectWith). Signed-in users get their channels'
-  // messages back from the local history store, but a guest has no store, so
-  // a network blip wipes every conversation's scrollback, and open DMs
-  // disappear for everyone (only joined channels are re-joined).
-  test.fixme('a guest keeps the conversation and DMs across a reconnect', async ({ launchApp }) => {
+  // A network blip keeps a guest's scrollback and open DMs (a guest has no
+  // local history store to restore them from).
+  test('a guest keeps the conversation and DMs across a reconnect', async ({ launchApp }) => {
     const p = proxy!;
     const channel = randomChannel('keep');
     const peer = await connectPeer();
