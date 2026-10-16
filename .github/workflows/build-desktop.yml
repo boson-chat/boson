@@ -1,0 +1,180 @@
+# Builds the Wails desktop app (desktop/) for macOS, Windows and Linux, and
+# uploads the results as workflow artifacts (`boson-desktop-<os>`):
+#
+#   macOS    universal (arm64 + amd64) Boson.app in a DMG, Developer ID
+#            signed with the hardened runtime, notarized and stapled
+#            (desktop/scripts/package-macos.sh)
+#   Windows  Boson.exe (icon + version info embedded) in a zip, unsigned
+#            until an Authenticode certificate is in place
+#   Linux    the binary + .desktop entry + icon in a tar.gz (GTK 4 /
+#            WebKitGTK 6.0)
+#            (both: desktop/scripts/package.sh)
+#
+# Not attached to GitHub Releases yet: the Electron build still ships there
+# and feeds existing users' auto-updates. Wails replaces it once the update
+# feed and the Electron → Wails data migration exist (docs/wails-migration.md,
+# Phases 5–6).
+#
+# macOS signing uses the same repository secrets as the Electron release
+# (CSC_LINK, CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_KEY_ID,
+# APPLE_API_ISSUER). Without them (forks, Dependabot) the build is ad-hoc
+# signed and not notarized.
+name: Desktop (Wails)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'client/**'
+      - 'engine/**'
+      - 'go.mod'
+      - 'go.sum'
+      - '.github/workflows/build-desktop.yml'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    env:
+      # 'true' only when every macOS signing/notarization secret is present.
+      MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
+      # Vite bakes these into the renderer: the production backend.
+      VITE_BOSON_API_URL: https://api.boson.chat
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.27'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
+
+      - name: install
+        run: npm ci
+
+      # ---- macOS ------------------------------------------------------------
+
+      - name: macOS notarization key
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        env:
+          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          key="$RUNNER_TEMP/AuthKey.p8"
+          printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key"
+          chmod 600 "$key"
+          echo "APPLE_API_KEY=$key" >> "$GITHUB_ENV"
+
+      # The Developer ID cert in a dedicated keychain (as release-client.yml).
+      - name: macOS signing keychain
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          kc_pass="$(openssl rand -hex 24)"
+          p12="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$CSC_LINK" | base64 --decode > "$p12"
+          security create-keychain -p "$kc_pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kc_pass" "$keychain"
+          security import "$p12" -k "$keychain" -P "$CSC_KEY_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          rm -f "$p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kc_pass" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain" | grep -q 'Developer ID Application' \
+            || { echo "::error::Developer ID Application identity not found after import"; exit 1; }
+          echo "SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+
+      - name: build (macOS)
+        if: runner.os == 'macOS'
+        env:
+          # Ad hoc without the secrets; package-macos.sh otherwise finds the
+          # Developer ID identity in the keychain above.
+          SIGN_IDENTITY: ${{ env.MAC_SIGNING != 'true' && '-' || '' }}
+          APPLE_API_KEY_ID: ${{ env.MAC_SIGNING == 'true' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ env.MAC_SIGNING == 'true' && secrets.APPLE_API_ISSUER || '' }}
+        run: desktop/scripts/package-macos.sh
+
+      - name: remove macOS signing keychain
+        if: always() && runner.os == 'macOS' && env.SIGNING_KEYCHAIN != ''
+        run: security delete-keychain "$SIGNING_KEYCHAIN" || true
+
+      # Fail rather than hand out a bundle Gatekeeper would reject.
+      - name: verify macOS signature + notarization
+        if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
+        working-directory: desktop/bin
+        run: |
+          codesign --verify --strict --verbose=2 Boson.app
+          codesign -dv --verbose=2 Boson.app 2>&1 | grep -E 'Authority=Developer ID Application|flags=.*runtime'
+          spctl --assess --type execute --verbose=4 Boson.app
+          xcrun stapler validate Boson.app
+          for dmg in *.dmg; do
+            xcrun stapler validate "$dmg"
+            spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg"
+          done
+
+      # ---- Windows ----------------------------------------------------------
+
+      # The wails3 CLI embeds the icon, version info and manifest (.syso).
+      - name: wails3 CLI
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.30
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: build (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: desktop/scripts/package.sh
+
+      # ---- Linux ------------------------------------------------------------
+
+      - name: GTK 4 + WebKitGTK 6.0
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: build (Linux)
+        if: runner.os == 'Linux'
+        run: desktop/scripts/package.sh
+
+      # ---- all --------------------------------------------------------------
+
+      - name: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: boson-desktop-${{ runner.os }}
+          path: |
+            desktop/bin/*.dmg
+            desktop/bin/*.zip
+            desktop/bin/*.tar.gz
+          retention-days: 14
+          if-no-files-found: error

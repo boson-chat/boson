@@ -6,10 +6,10 @@
 		"0409": {
 			"ProductVersion": "0.1.0",
 			"CompanyName": "Boson",
-			"FileDescription": "A desktop application",
-			"LegalCopyright": "© 2026, My Company",
+			"FileDescription": "Boson chat",
+			"LegalCopyright": "Copyright © 2026 Boson",
 			"ProductName": "Boson",
-			"Comments": "This is a comment"
+			"Comments": "Boson chat"
 		}
 	}
 }

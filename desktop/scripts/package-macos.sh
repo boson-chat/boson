@@ -5,7 +5,7 @@
 #   client/out/renderer (npm run build, production env)
 #     → desktop/frontend/dist → arm64 + amd64 binaries → lipo
 #     → bin/<APP_NAME>.app → codesign (hardened runtime) → DMG
-#     → notarytool + stapler (when NOTARY_PROFILE is set)
+#     → notarytool + stapler (with notary credentials, below)
 #
 # Environment:
 #   APP_NAME        bundle name (default "Boson")
@@ -13,7 +13,10 @@
 #   SIGN_IDENTITY   codesign identity (default: the keychain's Developer ID
 #                   Application identity; "-" signs ad hoc)
 #   NOTARY_PROFILE  notarytool keychain profile (xcrun notarytool
-#                   store-credentials); unset skips notarization
+#                   store-credentials), or, as CI passes them:
+#   APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER
+#                   App Store Connect API key (.p8 path), its id and the
+#                   issuer. Neither set skips notarization.
 #   SKIP_RENDERER=1 reuse client/out/renderer as it is
 #
 # Usage: desktop/scripts/package-macos.sh
@@ -69,7 +72,6 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 mv "$out/$APP_NAME-universal" "$app/Contents/MacOS/$APP_NAME"
 rm -f "$out/$APP_NAME-arm64" "$out/$APP_NAME-amd64"
 cp "$desktop/build/darwin/icons.icns" "$app/Contents/Resources/icons.icns"
-cp "$desktop/build/darwin/Assets.car" "$app/Contents/Resources/Assets.car"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -83,7 +85,6 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>$VERSION</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleIconFile</key><string>icons</string>
-  <key>CFBundleIconName</key><string>appicon</string>
   <key>LSMinimumSystemVersion</key><string>12.0.0</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
@@ -108,14 +109,21 @@ else
 fi
 codesign --verify --strict --verbose=2 "$app"
 
+notary=()
+if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+  notary=(--keychain-profile "$NOTARY_PROFILE")
+elif [[ -n "${APPLE_API_KEY:-}" ]]; then
+  notary=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
+fi
+
 notarize() {
-  xcrun notarytool submit "$1" --keychain-profile "$NOTARY_PROFILE" --wait
+  xcrun notarytool submit "$1" "${notary[@]}" --wait
   xcrun stapler staple "$2"
   xcrun stapler validate "$2"
 }
 
 # 5. Notarize the app itself, so a copy taken out of the DMG is stapled too.
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+if [[ ${#notary[@]} -gt 0 ]]; then
   zip="$out/$APP_NAME-notarize.zip"
   rm -f "$zip"
   ditto -c -k --keepParent "$app" "$zip"
@@ -134,7 +142,7 @@ hdiutil create -quiet -volname "$APP_NAME $VERSION" -srcfolder "$stage" -fs APFS
 if [[ "$SIGN_IDENTITY" != "-" ]]; then
   codesign --force --timestamp --sign "$SIGN_IDENTITY" "$dmg"
 fi
-if [[ -n "${NOTARY_PROFILE:-}" ]]; then
+if [[ ${#notary[@]} -gt 0 ]]; then
   notarize "$dmg" "$dmg"
 fi
 
