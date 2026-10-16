@@ -1,32 +1,37 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { act, render, screen } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
-import { ChatArea } from './ChatArea';
+import { ChatArea, STRIP_DELAY_MS } from './ChatArea';
 import type { ChatChannel } from '../../modules/chat';
 
 // With a channel open, losing the connection keeps the conversation on
-// screen: a strip under the header says so (and offers Reconnect), and the
-// composer waits for the connection. The full splash is for no channel.
+// screen. A strip under the header says so once it's taking a while (or at
+// once when it needs the user); the composer stays usable — messages wait
+// until the connection is back. The full splash is for no channel.
 
 const chan: ChatChannel = {
   name: '#general', joined: true, members: [], typing: [], unread: 0, mentions: 0, topic: '',
   messages: [{ id: '1', kind: 'message', from: 'bob', text: 'still here', timestamp: 1000 } as ChatChannel['messages'][number]],
 };
 
+afterEach(() => { vi.useRealTimers(); });
+
 describe('ChatArea — reconnecting with a channel open', () => {
-  it('keeps the messages and shows the strip instead of the splash', () => {
+  it('keeps the messages; the strip only once the reconnect takes a while', () => {
+    vi.useFakeTimers();
     const { container } = render(
       <ChatArea channel={chan} myNick="me" onSend={vi.fn()} engineState="connecting" reconnectActive serverName="HQ" serverLog={[]} />,
     );
     expect(screen.getByText('still here')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent('Reconnecting…');
     expect(screen.queryByText(/Connecting to HQ/)).toBeNull();
+    expect(container.querySelector('.chat-connection-strip')).toBeNull();
+    act(() => { vi.advanceTimersByTime(STRIP_DELAY_MS); });
+    expect(screen.getByRole('status')).toHaveTextContent('Reconnecting…');
     const box = container.querySelector('.chat-textarea') as HTMLTextAreaElement;
-    expect(box.disabled).toBe(true);
-    expect(box.placeholder).toBe('Waiting for the connection…');
+    expect(box.disabled).toBe(false);
   });
 
-  it('offers Reconnect when disconnected, with the reason', async () => {
+  it('a disconnect that has stopped retrying shows at once', async () => {
     const onReconnect = vi.fn();
     render(
       <ChatArea channel={chan} myNick="me" onSend={vi.fn()} engineState="disconnected" connectionError="ping timeout"

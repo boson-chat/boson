@@ -1284,6 +1284,8 @@ export class ChatService {
       timestamp: Date.now(),
       pending: true,
     });
+    // Sent while a reconnect is still under way, it goes nowhere; it stays
+    // pending and resendPending sends it once registered / rejoined.
     this.sendTracked(this.channelKey(channel), id, message);
   }
 
@@ -1334,15 +1336,17 @@ export class ChatService {
     this.emit();
   }
 
-  // After a reconnect: send again what the last connection never confirmed
-  // (carried over by seedConversations), for one conversation — a channel
-  // once rejoined, DMs once registered.
+  // Send again what's still pending in one conversation: a channel once
+  // (re)joined, DMs once registered. That's what the last connection never
+  // confirmed (carried over by seedConversations), and anything typed
+  // before this one could carry it (dropped: no registered connection, or
+  // not in the channel yet).
   private resendPending(key: string): void {
     const ch = this.channels.get(key);
     if (!ch) return;
-    const tracked = new Set(this.unacked.map((u) => u.id));
+    this.unacked = this.unacked.filter((u) => u.channel !== key);
     for (const m of ch.messages.peek()) {
-      if (m.pending && !tracked.has(m.id)) this.sendTracked(key, m.id, m.text);
+      if (m.pending) this.sendTracked(key, m.id, m.text);
     }
   }
 

@@ -145,6 +145,11 @@ export function ChatArea({
   onShowMembers,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // A quick reconnect (an app switch, a network hop) shows nothing; the
+  // strip only once it's taking a while — or at once when it needs the
+  // user (stopped trying).
+  const slowReconnect = useAfter(engineState !== 'connected', STRIP_DELAY_MS);
+  const needsUser = engineState === 'disconnected' && !reconnectActive;
 
   // Refs around the latest props so the bloc — which is constructed once
   // per onSend identity — always sees the freshest member / channel lists
@@ -301,6 +306,8 @@ export function ChatArea({
   // still connecting): nothing typed there would reach it, so hold input.
   const joining = prefix === '#' && !channel.joined;
   const offline = engineState !== 'connected';
+  // Typing is fine while reconnecting: a message waits ("Sending…") and goes
+  // out once the channel is rejoined (ChatService.send).
 
   // Topics often carry mIRC colour codes; show the plain text.
   const topic = channel.topic ? stripIrcFormatting(channel.topic).trim() : '';
@@ -347,7 +354,7 @@ export function ChatArea({
         </div>
       </div>
 
-      {offline && (
+      {offline && (slowReconnect || needsUser) && (
         <ConnectionStrip
           engineState={engineState}
           reconnectActive={reconnectActive}
@@ -391,8 +398,8 @@ export function ChatArea({
       <ChatInputBar
         state={state}
         bloc={bloc}
-        placeholder={offline ? 'Waiting for the connection…' : joining ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
-        disabled={joining || offline}
+        placeholder={joining && !offline ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
+        disabled={joining && !offline}
         bannerError={bannerError}
         onDismissBanner={onDismissBanner}
         myNick={myNick}
@@ -436,6 +443,20 @@ function TypingIndicator({ nicks }: TypingIndicatorProps) {
 // The connection is down (or coming back) while a conversation is open: a
 // slim strip under the header, the conversation stays. Same states and
 // actions as the splash.
+// How long a reconnect runs before the strip says so.
+export const STRIP_DELAY_MS = 3000;
+
+/** True once `on` has held for `ms`; false again as soon as it doesn't. */
+function useAfter(on: boolean, ms: number): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!on) { setHeld(false); return; }
+    const t = setTimeout(() => setHeld(true), ms);
+    return () => clearTimeout(t);
+  }, [on, ms]);
+  return on && held;
+}
+
 interface ConnectionStripProps {
   engineState: EngineState;
   reconnectActive?: boolean;

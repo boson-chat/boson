@@ -94,7 +94,6 @@ test.describe('connection drops', () => {
     await expect(strip).toContainText(/Reconnecting…|Disconnected/, { timeout: 30_000 });
     await expect(page.locator('.chat-channel-label')).toHaveText(channel.slice(1));
     await expect(messages(page).getByText('back again')).toBeVisible();
-    await expect(page.getByPlaceholder('Waiting for the connection…')).toBeDisabled();
     // Cancel the automatic cycle → manual mode.
     const cancel = strip.getByRole('button', { name: 'Cancel', exact: true });
     await expect(cancel).toBeVisible({ timeout: 30_000 });
