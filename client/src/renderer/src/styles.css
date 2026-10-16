@@ -13,6 +13,16 @@
 
 html, body, #app { height: 100%; }
 
+/* Phones draw edge to edge (the iOS shell lays the webview under the status
+   bar and home indicator): keep content clear of them. The insets are 0 on
+   desktop. The title bar handles the top itself (TitleBar.css), so its
+   background runs under the status bar. */
+#app {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
 body {
   margin: 0;
   font-family: var(--font-body);
