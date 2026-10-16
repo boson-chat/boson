@@ -36,6 +36,14 @@ static void edgeToEdge(void) {
         } @catch (NSException *e) {
         }
         if (web && (!tabBar || tabBar.isHidden)) web.frame = self_.view.bounds;
+        // An app, not a web page: no pinch zoom (the viewport meta asks
+        // for that too; this holds whatever the page says).
+        if ([web respondsToSelector:@selector(scrollView)]) {
+            UIScrollView *sv = [(id)web scrollView];
+            sv.minimumZoomScale = 1.0;
+            sv.maximumZoomScale = 1.0;
+            sv.bouncesZoom = NO;
+        }
     }));
 }
 

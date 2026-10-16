@@ -15,6 +15,9 @@ html, body, #app { height: 100%; }
 /* The app never scrolls as a page (panes scroll inside); on iOS an
    overflowing element would otherwise let the whole page pan sideways. */
 html { overflow: hidden; }
+/* An app, not a page: no double-tap zoom on phones (pinch is off via the
+   viewport meta, and in the iOS shell natively). */
+html { touch-action: manipulation; }
 
 /* Phones draw edge to edge (the iOS shell lays the webview under the status
    bar and home indicator): keep content clear of them. The insets are 0 on
