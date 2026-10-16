@@ -1,3 +1,9 @@
+## [0.38.0](https://github.com/boson-chat/boson/compare/v0.37.0...v0.38.0) (2026-10-16)
+
+### Features
+
+* **desktop:** ship the Wails app; remove the Electron client ([#24](https://github.com/boson-chat/boson/issues/24)) ([bf87cf5](https://github.com/boson-chat/boson/commit/bf87cf52b010fcdc6b6e0513e6181ab2394892e6))
+
 ## [0.37.0](https://github.com/boson-chat/boson/compare/v0.36.4...v0.37.0) (2026-10-16)
 
 ### Features
