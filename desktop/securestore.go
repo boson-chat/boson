@@ -38,6 +38,9 @@ type SecureStore struct {
 	mu    sync.Mutex
 	cache map[string]string
 	key   []byte // keychain master key, once read or created
+	// keyErr: why the keychain last couldn't give the master key (nil when
+	// it could, or wasn't asked — forced "derived").
+	keyErr error
 }
 
 const (
@@ -62,7 +65,9 @@ func (s *SecureStore) Mode() string {
 
 func (s *SecureStore) mode() string {
 	if s.forced != "derived" {
-		if _, err := s.masterKey(); err == nil {
+		_, err := s.masterKey()
+		s.keyErr = err
+		if err == nil {
 			return "keychain"
 		}
 	}
@@ -73,6 +78,19 @@ func (s *SecureStore) mode() string {
 }
 
 func (s *SecureStore) IsAvailable() bool { return s.Mode() != "none" }
+
+// modeReport is Mode plus why the keychain wasn't used, for dev logs. It
+// never asks the keychain when the store is forced to "derived" (e2e
+// builds, whose throwaway HOME has no keychain: asking makes macOS prompt).
+func (s *SecureStore) modeReport() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.mode()
+	if s.keyErr != nil {
+		return m + " (keychain: " + s.keyErr.Error() + ")"
+	}
+	return m
+}
 
 // The bound methods take untyped arguments and check them, with the former
 // Electron IPC handlers' messages: a broken renderer gets a clear error

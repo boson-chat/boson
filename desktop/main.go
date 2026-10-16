@@ -61,9 +61,8 @@ func main() {
 	deepLinks := &DeepLinkService{}
 	secure := NewSecureStore(dataDir, secureMode)
 	if dev {
-		// Which key protects the secure store, and why not the OS keychain.
-		_, kerr := secure.masterKey()
-		log.Printf("secure store: mode=%s keychain-error=%v data=%s", secure.Mode(), kerr, dataDir)
+		// Which key protects the secure store (and why not the OS keychain).
+		log.Printf("secure store: mode=%s data=%s", secure.modeReport(), dataDir)
 	}
 	engine := &EngineService{}
 	spotify := NewSpotifyService()

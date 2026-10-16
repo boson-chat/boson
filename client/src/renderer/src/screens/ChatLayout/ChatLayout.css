@@ -77,24 +77,53 @@
 .kick-modal-confirm { color: var(--danger, #f85149); border-color: var(--danger, #f85149); }
 .kick-modal-confirm:hover { opacity: 0.85; }
 
-/* Phone layout (shared/narrow.ts, ≤ 700px): one pane at a time. `pane-nav`
-   is the server rail with the channel list (the sidebar fills the width),
-   `pane-chat` the chat, `pane-members` the member list. Drag handles and
-   the panels' saved widths don't apply. */
+/* Phone layout (shared/narrow.ts, ≤ 700px), Discord style: the chat
+   (.mobile-main) fills the screen; under it sit two drawers — the server
+   rail with the channel list on the left, the member list on the right.
+   Swiping the chat aside (useSwipeDrawers) or the header buttons slide it
+   over, leaving a sliver (PEEK = 56px) that taps or swipes back. */
+.app-shell.is-narrow { position: relative; }
 .app-shell.is-narrow .resize-handle { display: none; }
-.app-shell.is-narrow .channel-sidebar,
-.app-shell.is-narrow .user-panel,
-.app-shell.is-narrow .chat-area { flex: 1 1 auto; width: auto !important; min-width: 0; }
-.app-shell.is-narrow.pane-nav .chat-area,
-.app-shell.is-narrow.pane-nav .user-panel { display: none; }
-.app-shell.is-narrow.pane-chat .server-rail,
-.app-shell.is-narrow.pane-chat .channel-sidebar,
-.app-shell.is-narrow.pane-chat .user-panel { display: none; }
-.app-shell.is-narrow.pane-members .server-rail,
-.app-shell.is-narrow.pane-members .channel-sidebar,
-.app-shell.is-narrow.pane-members .chat-area { display: none; }
+.mobile-under {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc(100% - 56px);
+  display: flex;
+  background: var(--bg);
+  visibility: hidden;
+}
+.mobile-under-nav { left: 0; }
+.mobile-under-members { right: 0; }
+.app-shell.reveal-nav .mobile-under-nav,
+.app-shell.reveal-members .mobile-under-members { visibility: visible; }
+.mobile-under .channel-sidebar,
+.mobile-under .user-panel { flex: 1 1 auto; width: auto !important; min-width: 0; }
+.mobile-main {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  background: var(--bg);
+  z-index: 1;
+  transition: transform var(--motion-medium, 220ms) var(--ease-in-out, ease);
+  will-change: transform;
+}
+.mobile-main .chat-area { flex: 1 1 auto; min-width: 0; }
+.app-shell.drawer-nav .mobile-main { transform: translateX(calc(100% - 56px)); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35); }
+.app-shell.drawer-members .mobile-main { transform: translateX(calc(-100% + 56px)); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35); }
+.app-shell.is-dragging .mobile-main { box-shadow: 0 0 24px rgba(0, 0, 0, 0.35); }
+/* Over the chat sliver while a drawer is open: a tap closes it. */
+.mobile-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border: none;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.app-shell.is-narrow .user-panel-header { display: flex; align-items: center; }
 
-/* The panes' back buttons sit at the start of their headers. */
+/* The header buttons that open the drawers sit at the start of headers. */
 .chat-pane-back { margin-left: calc(-1 * var(--space-2)); flex-shrink: 0; }
 .user-panel-header .chat-pane-back { margin-right: var(--space-1); }
-.app-shell.is-narrow .user-panel-header { display: flex; align-items: center; }
