@@ -1,3 +1,9 @@
+## [0.39.0](https://github.com/boson-chat/boson/compare/v0.38.0...v0.39.0) (2026-10-16)
+
+### Features
+
+* **desktop:** separate Apple Silicon and Intel macOS builds ([#25](https://github.com/boson-chat/boson/issues/25)) ([2714e7c](https://github.com/boson-chat/boson/commit/2714e7ce92a2d6a1a8f62baf4457fb386475aa78))
+
 ## [0.38.0](https://github.com/boson-chat/boson/compare/v0.37.0...v0.38.0) (2026-10-16)
 
 ### Features
