@@ -360,7 +360,10 @@ function SpotifyIcon() {
 
 // Full-screen image viewer, portaled to <body>; close on backdrop click / Esc.
 function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
-  useEffect(() => {
+  // Layout effect, not a passive one: Preact defers passive effects to the
+  // next animation frame, so an Escape pressed right after the lightbox
+  // appears would otherwise land before the listener exists and be lost.
+  useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
