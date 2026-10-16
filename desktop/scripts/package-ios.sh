@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Builds the app for iOS (Wails v3 mobile) as a simulator .app, and with
-# RUN=1 installs and launches it in a booted (or newly booted) simulator:
+# Builds the app for iOS (Wails v3 mobile) as a simulator .app — or, with
+# IOS_PLATFORM=device, a development-signed .app for a registered iPhone —
+# and with RUN=1 installs and launches it:
 #
 #   client/out/renderer → desktop/frontend/dist
 #     → go build -buildmode=c-archive (GOOS=ios) → bin/ios/Boson.a
@@ -18,9 +19,16 @@
 #                   iPhone on the newest installed iOS)
 #   EXTRA_TAGS      more Go build tags (e.g. mcp: Wails' test harness)
 #   SKIP_RENDERER=1 reuse client/out/renderer as it is
-#
-# Simulator only for now: device builds need an Apple Development identity
-# and a provisioning profile (docs/mobile.md, Phase 4).
+#   IOS_PLATFORM    simulator (default) or device. A device build signs with
+#                   an Apple Development identity and a development profile
+#                   covering the device: Xcode's team profile when Xcode
+#                   manages one (sign in to Xcode, then run any automatic-
+#                   signing build for the device once), else one that
+#                   scripts/ios_provision.py makes through the App Store
+#                   Connect API (APPLE_API_KEY, APPLE_API_KEY_ID,
+#                   APPLE_API_ISSUER; needs an Admin or App Manager key).
+#   PROVISIONING_PROFILE / CODESIGN_IDENTITY  use these instead
+#   DEVICE_ID       the iPhone's UDID (default: the first connected one)
 #
 # Usage: desktop/scripts/package-ios.sh
 set -euo pipefail
@@ -36,11 +44,19 @@ fi
 
 APP_NAME=Boson
 MIN_IOS=16.0
-SDK=iphonesimulator
-TARGET="arm64-apple-ios$MIN_IOS-simulator"
+PLATFORM="${IOS_PLATFORM:-simulator}"
+if [[ "$PLATFORM" == "device" ]]; then
+  SDK=iphoneos
+  TARGET="arm64-apple-ios$MIN_IOS"
+  VERSION_MIN="-miphoneos-version-min=$MIN_IOS"
+else
+  SDK=iphonesimulator
+  TARGET="arm64-apple-ios$MIN_IOS-simulator"
+  VERSION_MIN="-mios-simulator-version-min=$MIN_IOS"
+fi
 SDK_PATH="$(xcrun --sdk "$SDK" --show-sdk-path)"
 VERSION="$(cd "$client" && node -p "require('./package.json').version")"
-out="$desktop/bin/ios"
+out="$desktop/bin/ios-$PLATFORM"
 app="$out/$APP_NAME.app"
 mkdir -p "$out"
 
@@ -72,14 +88,19 @@ fi
 echo "building the Go archive ($tags)"
 (cd "$desktop" && GOOS=ios GOARCH=arm64 CGO_ENABLED=1 \
   CC="$(xcrun --sdk "$SDK" --find clang)" \
-  CGO_CFLAGS="-isysroot $SDK_PATH -target $TARGET -mios-simulator-version-min=$MIN_IOS" \
+  CGO_CFLAGS="-isysroot $SDK_PATH -target $TARGET $VERSION_MIN" \
   CGO_LDFLAGS="-isysroot $SDK_PATH -target $TARGET" \
   go build -buildmode=c-archive -tags "$tags" -trimpath -buildvcs=false -ldflags "$ldflags" -o "$out/$APP_NAME.a" .)
 
-# 3. Link with the UIKit bootstrap. The entitlements go into the executable
-#    (as Xcode does for the simulator): the Keychain needs an application
-#    identifier, and codesigned entitlements make SpringBoard refuse
-#    simulator apps.
+# 3. Link with the UIKit bootstrap. Simulator builds carry their
+#    entitlements in the executable (as Xcode does): the Keychain needs an
+#    application identifier, and codesigned entitlements make SpringBoard
+#    refuse simulator apps. Device builds get theirs at signing (step 5).
+sim_entitlements=()
+if [[ "$PLATFORM" != "device" ]]; then
+  sim_entitlements=(-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements
+    -Xlinker "$desktop/build/ios/Simulator.entitlements")
+fi
 rm -rf "$app"
 mkdir -p "$app"
 xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
@@ -90,8 +111,7 @@ xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
   -framework AVFoundation \
   -framework CoreLocation -framework CoreMotion -framework SystemConfiguration \
   -lresolv \
-  -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements \
-  -Xlinker "$desktop/build/ios/Simulator.entitlements" \
+  ${sim_entitlements[@]+"${sim_entitlements[@]}"} \
   -o "$app/$APP_NAME" \
   "$desktop/build/ios/main.m" -Wl,-force_load,"$out/$APP_NAME.a"
 
@@ -111,12 +131,49 @@ cp "$ac"/*.png "$app/" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Merge $ac/partial.plist" "$app/Info.plist" >/dev/null
 plutil -lint "$app/Info.plist" >/dev/null
 
-# 5. Ad-hoc sign (the simulator accepts it; no entitlements on simulator builds).
-codesign --force --sign - "$app"
+# 5. Sign. Simulator: ad hoc. Device: the development identity, with the
+#    profile embedded and the matching entitlements.
+if [[ "$PLATFORM" == "device" ]]; then
+  if [[ -z "${DEVICE_ID:-}" ]]; then
+    DEVICE_ID="$(xcrun devicectl list devices --hide-headers 2>/dev/null | awk '/physical/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')"
+  fi
+  [[ -n "${DEVICE_ID:-}" ]] || { echo "no iPhone connected (or pass DEVICE_ID=<UDID>)" >&2; exit 1; }
+  profile="${PROVISIONING_PROFILE:-}"
+  identity="${CODESIGN_IDENTITY:-}"
+  if [[ -z "$profile" ]]; then
+    # An Xcode-managed profile for our team that includes this device.
+    team="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$desktop/build/ios/Device.entitlements" | cut -d. -f1)"
+    for f in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision; do
+      [[ -f "$f" ]] || continue
+      plist="$(security cms -D -i "$f" 2>/dev/null)" || continue
+      appid="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<<"$plist" 2>/dev/null || true)"
+      if [[ ( "$appid" == "$team.*" || "$appid" == "$team.chat.boson.app" ) && "$plist" == *"$DEVICE_ID"* ]]; then
+        profile="$f"
+        break
+      fi
+    done
+  fi
+  if [[ -n "$profile" && -z "$identity" ]]; then
+    identity="$(security find-identity -v -p codesigning | awk '/Apple Development/ { print $2; exit }')"
+  fi
+  if [[ -z "$profile" || -z "$identity" ]]; then
+    identity="$(python3 "$here/ios_provision.py" --udid "$DEVICE_ID" --out "$out/development.mobileprovision")"
+    profile="$out/development.mobileprovision"
+  fi
+  cp "$profile" "$app/embedded.mobileprovision"
+  codesign --force --sign "$identity" --entitlements "$desktop/build/ios/Device.entitlements" --timestamp=none "$app"
+else
+  codesign --force --sign - "$app"
+fi
+codesign --verify --verbose=1 "$app"
 echo "app: $app"
 
 # 6. Run.
-if [[ "${RUN:-}" == "1" ]]; then
+if [[ "${RUN:-}" == "1" && "$PLATFORM" == "device" ]]; then
+  bundle="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")"
+  xcrun devicectl device install app --device "$DEVICE_ID" "$app"
+  xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing "$bundle"
+elif [[ "${RUN:-}" == "1" ]]; then
   sim="${SIMULATOR:-}"
   if [[ -z "$sim" ]]; then
     sim="$(xcrun simctl list devices booted | grep -oE '[A-F0-9-]{36}' | head -1 || true)"
