@@ -135,7 +135,7 @@ plutil -lint "$app/Info.plist" >/dev/null
 #    profile embedded and the matching entitlements.
 if [[ "$PLATFORM" == "device" ]]; then
   if [[ -z "${DEVICE_ID:-}" ]]; then
-    DEVICE_ID="$(xcrun devicectl list devices --hide-headers 2>/dev/null | awk '/physical/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')"
+    DEVICE_ID="$(xcrun devicectl list devices --hide-headers 2>/dev/null | awk '/physical|paired/ && !/simulated/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')"
   fi
   [[ -n "${DEVICE_ID:-}" ]] || { echo "no iPhone connected (or pass DEVICE_ID=<UDID>)" >&2; exit 1; }
   profile="${PROVISIONING_PROFILE:-}"
