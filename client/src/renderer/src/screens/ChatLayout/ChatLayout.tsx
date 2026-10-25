@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatService, ChatState } from '../../modules/chat';
 import { banMask } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
@@ -13,6 +13,8 @@ import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/pan
 import type { ChannelOpActions } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
+import { useNarrow } from '../../shared/narrow';
+import { useSwipeDrawers } from './useSwipeDrawers';
 import './ChatLayout.css';
 
 interface Props {
@@ -99,6 +101,28 @@ export function ChatLayout({
   const [membersW, setMembersW] = useState(() => getPanelWidth('members'));
 
   const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
+
+  // Phones (and narrow windows), Discord style: the chat fills the screen;
+  // the server rail with the channel list and the member list are drawers
+  // under it, revealed by swiping the chat aside (useSwipeDrawers) or from
+  // the chat header. With no channel open yet, the channels show.
+  const narrow = useNarrow();
+  const shellRef = useRef<HTMLDivElement>(null);
+  const swipe = useSwipeDrawers(shellRef, narrow, active ? 'none' : 'nav', isChannel);
+  const { drawer, setDrawer } = swipe;
+  // A newly active channel — picked, joined, or opened from elsewhere — is
+  // what the user wants to see: close the drawer onto it.
+  const activeName = state.activeChannel;
+  const [lastActive, setLastActive] = useState(activeName);
+  if (activeName !== lastActive) {
+    setLastActive(activeName);
+    if (activeName) setDrawer('none');
+  }
+  // No channel to show (none joined yet, or it was closed): the channels.
+  const shownDrawer = narrow && !active && drawer === 'none' && swipe.dragX === null ? 'nav' : drawer;
+  // The drawer under the chat that's showing (or being dragged into view).
+  const revealed = swipe.dragX !== null ? swipe.reveal : shownDrawer === 'none' ? null : shownDrawer;
+
   const supportsOwnerAdmin = /[qa]/.test(state.serverInfo.prefix?.modes ?? 'qa');
   // Our rank in the active channel. `typeof` guard keeps hand-rolled test fakes
   // (no myRank method) working — they read as rank 0.
@@ -131,108 +155,156 @@ export function ChatLayout({
   // (own avatar + presence matches), shared by the chat stream + member list.
   const avatarFor = useAvatarFor(activeServerId ?? null);
 
+  const rail = (
+        <ServerRail
+          servers={servers}
+          activeServerId={activeServerId}
+          activeServerName={serverName}
+          onSelectServer={onSelectServer}
+          onBrowseServers={onBrowseServers}
+          onOpenServerSettings={onOpenServerSettings}
+          onLeaveServer={onLeaveServer}
+          onBouncerConnect={onBouncerConnect}
+          onBouncerDisconnect={onBouncerDisconnect}
+          onReorderServers={onReorderServers}
+        />
+  );
+  const sidebar = (
+        <ChannelSidebar
+          serverName={serverName}
+          bannerUrl={bannerUrl}
+          channels={state.channels}
+          activeChannel={state.activeChannel}
+          onSelect={(name) => { chat.setActive(name); setDrawer('none'); }}
+          onJoin={(name) => chat.join(name)}
+          onPart={(name) => chat.part(name)}
+          channelDirectory={state.channelDirectory.entries}
+          onOpenSettings={
+            onOpenServerSettings && activeServerId
+              ? () => onOpenServerSettings(activeServerId)
+              : undefined
+          }
+          serverInfo={state.serverInfo}
+          engineState={engineState}
+          width={channelsW}
+        />
+  );
+  const chatArea = (
+        <ChatArea
+          channel={active}
+          // Prefer the live per-server IRC nick (collision-adjusted / NickServ /
+          // server-forced renames differ from the global account nick). Falls
+          // back to the passed-in nick before the server reports one.
+          myNick={state.myNick || myNick}
+          // Channels available for `#name` autocomplete / `/join` Tab-complete:
+          // joined channels first (most relevant), then anything the server
+          // advertised via LIST. De-duped, lowercase comparison.
+          knownChannels={mergeKnownChannels(state.channels, state.channelDirectory.entries)}
+          bannerError={bannerError}
+          onDismissBanner={() => layoutBloc.dismissBanner()}
+          onSend={(msg) => chat.input(msg)}
+          onTyping={(typing) => {
+            if (state.activeChannel) chat.sendTyping(state.activeChannel, typing);
+          }}
+          engineState={engineState}
+          serverName={serverName}
+          // Active server id + open-settings handler thread through so the
+          // pending-confirmation banner (below the chat header) can
+          // subscribe to the right credentials entry + jump the user to
+          // Advanced → Services on click.
+          activeServerId={activeServerId}
+          onOpenServerSettings={
+            onOpenServerSettings && activeServerId
+              ? () => onOpenServerSettings(activeServerId)
+              : undefined
+          }
+          onReconnect={onReconnect}
+          onCancelReconnect={onCancelReconnect}
+          reconnectActive={reconnectActive}
+          connectionError={connectionError}
+          serverLog={state.serverLog}
+          serverInfo={state.serverInfo}
+          nickActions={nickActions}
+          avatarFor={avatarFor}
+          onLoadOlder={(name) => chat.loadOlderHistory(name)}
+          // Live per-channel message signal for fine-grained re-renders. Guard
+          // with typeof so hand-rolled test fakes (no messagesSignal) fall back
+          // to rendering channel.messages from the snapshot.
+          messagesSignal={
+            active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
+          }
+          onOpenChannelSettings={isChannel ? () => setChannelSettingsOpen(true) : undefined}
+          // `typeof` guard: hand-rolled test fakes have no bouncerConnect.
+          onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
+          onTrustBouncerCert={typeof chat.trustBouncerCert === 'function' ? () => chat.trustBouncerCert() : undefined}
+          onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
+          onBack={narrow ? () => setDrawer('nav') : undefined}
+          onShowMembers={narrow && isChannel ? () => setDrawer('members') : undefined}
+        />
+  );
+  const userPanel = (
+        <UserPanel
+          channel={active}
+          nickActions={nickActions}
+          avatarFor={avatarFor}
+          width={membersW}
+          onBack={narrow ? () => setDrawer('none') : undefined}
+        />
+  );
+
   return (
-    <div class="app-shell">
-      <ServerRail
-        servers={servers}
-        activeServerId={activeServerId}
-        activeServerName={serverName}
-        onSelectServer={onSelectServer}
-        onBrowseServers={onBrowseServers}
-        onOpenServerSettings={onOpenServerSettings}
-        onLeaveServer={onLeaveServer}
-        onBouncerConnect={onBouncerConnect}
-        onBouncerDisconnect={onBouncerDisconnect}
-        onReorderServers={onReorderServers}
-      />
-      <ChannelSidebar
-        serverName={serverName}
-        bannerUrl={bannerUrl}
-        channels={state.channels}
-        activeChannel={state.activeChannel}
-        onSelect={(name) => chat.setActive(name)}
-        onJoin={(name) => chat.join(name)}
-        onPart={(name) => chat.part(name)}
-        channelDirectory={state.channelDirectory.entries}
-        onOpenSettings={
-          onOpenServerSettings && activeServerId
-            ? () => onOpenServerSettings(activeServerId)
-            : undefined
-        }
-        serverInfo={state.serverInfo}
-        engineState={engineState}
-        width={channelsW}
-      />
-      <ResizeHandle
-        side="left"
-        width={channelsW}
-        min={PANEL_BOUNDS.channels.min}
-        max={PANEL_BOUNDS.channels.max}
-        onChange={setChannelsW}
-        onCommit={(w) => setChannelsW(setPanelWidth('channels', w))}
-        onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
-        ariaLabel="Resize channel list"
-      />
-      <ChatArea
-        channel={active}
-        // Prefer the live per-server IRC nick (collision-adjusted / NickServ /
-        // server-forced renames differ from the global account nick). Falls
-        // back to the passed-in nick before the server reports one.
-        myNick={state.myNick || myNick}
-        // Channels available for `#name` autocomplete / `/join` Tab-complete:
-        // joined channels first (most relevant), then anything the server
-        // advertised via LIST. De-duped, lowercase comparison.
-        knownChannels={mergeKnownChannels(state.channels, state.channelDirectory.entries)}
-        bannerError={bannerError}
-        onDismissBanner={() => layoutBloc.dismissBanner()}
-        onSend={(msg) => chat.input(msg)}
-        onTyping={(typing) => {
-          if (state.activeChannel) chat.sendTyping(state.activeChannel, typing);
-        }}
-        engineState={engineState}
-        serverName={serverName}
-        // Active server id + open-settings handler thread through so the
-        // pending-confirmation banner (below the chat header) can
-        // subscribe to the right credentials entry + jump the user to
-        // Advanced → Services on click.
-        activeServerId={activeServerId}
-        onOpenServerSettings={
-          onOpenServerSettings && activeServerId
-            ? () => onOpenServerSettings(activeServerId)
-            : undefined
-        }
-        onReconnect={onReconnect}
-        onCancelReconnect={onCancelReconnect}
-        reconnectActive={reconnectActive}
-        connectionError={connectionError}
-        serverLog={state.serverLog}
-        serverInfo={state.serverInfo}
-        nickActions={nickActions}
-        avatarFor={avatarFor}
-        onLoadOlder={(name) => chat.loadOlderHistory(name)}
-        // Live per-channel message signal for fine-grained re-renders. Guard
-        // with typeof so hand-rolled test fakes (no messagesSignal) fall back
-        // to rendering channel.messages from the snapshot.
-        messagesSignal={
-          active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
-        }
-        onOpenChannelSettings={isChannel ? () => setChannelSettingsOpen(true) : undefined}
-        // `typeof` guard: hand-rolled test fakes have no bouncerConnect.
-        onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
-        onTrustBouncerCert={typeof chat.trustBouncerCert === 'function' ? () => chat.trustBouncerCert() : undefined}
-        onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
-      />
-      <ResizeHandle
-        side="right"
-        width={membersW}
-        min={PANEL_BOUNDS.members.min}
-        max={PANEL_BOUNDS.members.max}
-        onChange={setMembersW}
-        onCommit={(w) => setMembersW(setPanelWidth('members', w))}
-        onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
-        ariaLabel="Resize member list"
-      />
-      <UserPanel channel={active} nickActions={nickActions} avatarFor={avatarFor} width={membersW} />
+    <div
+      ref={shellRef}
+      class={`app-shell${narrow ? ` is-narrow drawer-${shownDrawer}${swipe.dragX !== null ? ' is-dragging' : ''}${revealed ? ` reveal-${revealed}` : ''}` : ''}`}
+    >
+      {narrow ? (
+        <>
+          {/* Under the chat: the drawer it's being slid aside to show. */}
+          <div class="mobile-under mobile-under-nav" inert={revealed !== 'nav'}>
+            {rail}
+            {sidebar}
+          </div>
+          <div class="mobile-under mobile-under-members" inert={revealed !== 'members'}>
+            {userPanel}
+          </div>
+          <div
+            class="mobile-main"
+            style={swipe.dragX !== null ? { transform: `translateX(${swipe.dragX}px)`, transition: 'none' } : undefined}
+          >
+            {chatArea}
+            {shownDrawer !== 'none' && active && (
+              <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          {rail}
+          {sidebar}
+          <ResizeHandle
+            side="left"
+            width={channelsW}
+            min={PANEL_BOUNDS.channels.min}
+            max={PANEL_BOUNDS.channels.max}
+            onChange={setChannelsW}
+            onCommit={(w) => setChannelsW(setPanelWidth('channels', w))}
+            onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
+            ariaLabel="Resize channel list"
+          />
+          {chatArea}
+          <ResizeHandle
+            side="right"
+            width={membersW}
+            min={PANEL_BOUNDS.members.min}
+            max={PANEL_BOUNDS.members.max}
+            onChange={setMembersW}
+            onCommit={(w) => setMembersW(setPanelWidth('members', w))}
+            onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
+            ariaLabel="Resize member list"
+          />
+          {userPanel}
+        </>
+      )}
 
       <Modal
         open={helpCommands !== null}

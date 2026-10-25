@@ -50,6 +50,10 @@ type Config struct {
 	// at attach time, send `connect` to the status bot automatically (once
 	// per engine connection, never after an explicit BouncerDisconnect).
 	BouncerAutoConnect bool
+	// BouncerNoFloodControl: the user turned flood control off for their
+	// bouncer, so lines to it go out unpaced (the bouncer still applies its
+	// own flood control upstream). Direct connections are always paced.
+	BouncerNoFloodControl bool
 }
 
 type SASLPlain struct {
@@ -105,6 +109,9 @@ type Client struct {
 	// aborted: Abort dropped the connection; Connect must not QUIT on the
 	// way out (see Abort).
 	aborted atomic.Bool
+	// Probe's outstanding PINGs, by token; closed when their PONG arrives.
+	probes   map[string]chan struct{}
+	probeSeq atomic.Uint64
 	// lifeCtx is the connection's lifetime context, set at the top of
 	// Connect. Deferred work (the post-welcome LIST timers, the services
 	// probe-timeout fallbacks) selects on its Done so a disconnect within
@@ -237,6 +244,19 @@ func New(cfg Config) (*Client, error) {
 	c.bouncer.after = c.afterConnLifetime
 	c.bouncer.selfNick = c.girc.GetNick
 	c.bouncer.rearm = c.rearmUpstreamSession
+	// A PONG answering a Probe (its token is the PONG's last param).
+	gc.Handlers.Add(girc.PONG, func(_ *girc.Client, e girc.Event) {
+		token := e.Last()
+		c.mu.Lock()
+		ch, ok := c.probes[token]
+		if ok {
+			delete(c.probes, token)
+		}
+		c.mu.Unlock()
+		if ok {
+			close(ch)
+		}
+	})
 	return c, nil
 }
 
@@ -702,12 +722,66 @@ func (c *Client) Privmsg(target, message string) {
 	c.send(&girc.Event{Command: girc.PRIVMSG, Params: []string{target, message}}, classInteractive)
 }
 
+// KindAck is the event for a delivery check's answer: Message is the ack
+// number given to PrivmsgAck. It confirms that message and every earlier one.
+const KindAck = "ACK"
+
+const ackTokenPrefix = "boson-ack-"
+
+// PrivmsgAck sends a message the renderer wants confirmed: a PING follows
+// it in the queue, and the server's PONG (a KindAck event carrying ack)
+// proves the message reached it — lines are handled in order. A message
+// written to a connection that has silently died (a phone that switched
+// networks) gets no ACK, so the renderer can send it again after the
+// reconnect. Successive acks coalesce: while one's PING is still queued, a
+// newer message replaces it, so a paste costs one PING. ack numbers must
+// increase within a connection.
+func (c *Client) PrivmsgAck(target, message string, ack uint64) {
+	c.Privmsg(target, message)
+	if ack > 0 {
+		c.sendq.enqueueAck(&girc.Event{Command: girc.PING, Params: []string{fmt.Sprintf("%s%d", ackTokenPrefix, ack)}})
+	}
+}
+
 // Abort drops the connection without a QUIT, as if the process had died: a
 // bouncer sees the client vanish and keeps the upstream (and buffers). Used
 // to simulate an engine crash in e2e builds; nothing else should need it.
 func (c *Client) Abort() {
 	c.aborted.Store(true)
 	c.girc.Close()
+}
+
+// Probe checks the connection is alive: a PING the server must answer within
+// timeout. A connection that doesn't is dropped (without a QUIT — nothing
+// would receive it), so it reports disconnected now rather than after
+// girc's own ping timeout. For when the app comes back from being
+// suspended (a phone app in the background): its sockets may have died
+// meanwhile, and its timers were frozen. Reports whether it answered.
+func (c *Client) Probe(timeout time.Duration) bool {
+	if !c.girc.IsConnected() {
+		return false
+	}
+	token := fmt.Sprintf("boson-probe-%d", c.probeSeq.Add(1))
+	ch := make(chan struct{})
+	c.mu.Lock()
+	if c.probes == nil {
+		c.probes = map[string]chan struct{}{}
+	}
+	c.probes[token] = ch
+	c.mu.Unlock()
+	// Straight to girc, ahead of the paced queue: it must not wait behind a
+	// backlog to be judged.
+	c.girc.Send(&girc.Event{Command: girc.PING, Params: []string{token}})
+	select {
+	case <-ch:
+		return true
+	case <-time.After(timeout):
+		c.mu.Lock()
+		delete(c.probes, token)
+		c.mu.Unlock()
+		c.Abort()
+		return false
+	}
 }
 
 // Quit ends the IRC session with the given reason.
@@ -1097,6 +1171,14 @@ func translate(e girc.Event) Event {
 			out.Args = append([]string(nil), e.Params[1:]...)
 		}
 		out.Message = e.Last()
+	case girc.PONG:
+		// The answer to a delivery check (PrivmsgAck): everything sent
+		// before it reached the server. Other PONGs (keepalive, Probe) are
+		// the engine's business.
+		if n, ok := strings.CutPrefix(e.Last(), ackTokenPrefix); ok {
+			return Event{Kind: KindAck, Message: n}
+		}
+		return Event{}
 	default:
 		// Forward every 3-digit numeric reply — the explicit cases
 		// above handle the ones that need parsing (welcome, ISUPPORT,

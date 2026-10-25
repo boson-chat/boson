@@ -324,7 +324,9 @@
 
 .chat-header-left {
   display: flex;
-  align-items: baseline;
+  /* Centred, not baseline: the icon buttons (☰ on a phone) and the text
+     share one middle line with the header's right-hand icons. */
+  align-items: center;
   gap: var(--space-3);
   min-width: 0;
 }
@@ -452,6 +454,12 @@
 
 .message-row-grouped:hover .message-row-grouped-time { opacity: 1; }
 
+/* Sent but not yet confirmed by the server (ChatService.send): faded, its
+   time reading "Sending…" until the ACK; resent after a reconnect. */
+.message-row-pending .message-row-text { color: var(--muted); opacity: 0.7; }
+.message-row-pending .message-row-time,
+.message-row-pending .message-row-grouped-time { opacity: 1; font-style: italic; }
+
 .message-row {
   display: flex;
   align-items: flex-start;
@@ -463,7 +471,11 @@
   transition: background var(--motion-fast) var(--ease-standard);
 }
 
-.message-row:hover { background: var(--surface-hover); }
+/* Hover-capable pointers only: on a touch screen the highlight would stick
+   to the last row tapped. */
+@media (hover: hover) {
+  .message-row:hover { background: var(--surface-hover); }
+}
 
 /* Avatar gutter — fixed width so grouped follow-ups (empty gutter) keep
    their text aligned under the leading avatar, Discord-style. */
@@ -1520,3 +1532,48 @@
 }
 .emoji-picker-item:hover { background: var(--surface-hover, rgba(127,127,127,0.18)); }
 .emoji-picker-empty { color: var(--fg-3); font-size: var(--text-xs); padding: var(--space-2); }
+
+/* Connection down with a conversation open: a slim strip under the header
+   instead of the full splash (ChatArea.tsx, ConnectionStrip). */
+.chat-connection-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-4);
+  min-height: 32px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-2);
+  flex-shrink: 0;
+}
+.chat-connection-strip .chat-engine-dot { width: 8px; height: 8px; flex-shrink: 0; }
+.chat-connection-strip-reason {
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.chat-connection-strip-actions { margin-left: auto; display: flex; gap: var(--space-2); flex-shrink: 0; }
+.chat-connection-strip-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--fg-2);
+  font: inherit;
+  padding: 2px var(--space-2);
+}
+.chat-connection-strip-btn:disabled { opacity: 0.5; }
+
+/* Phones: a long press opens the message sheet (Copy text, Reply, …)
+   instead of selecting text or raising iOS's callout. */
+@media (max-width: 700px) {
+  .message-row,
+  .message-action {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}

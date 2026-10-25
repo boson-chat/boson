@@ -607,6 +607,10 @@
   .directory-header { margin-bottom: var(--space-5); }
   .directory-filters { margin-bottom: var(--space-5); }
   .directory-search { min-width: 0; width: 100%; }
+  /* Refresh + "Add your server to the community" wrap instead of running
+     off a phone's edge. */
+  .directory-header-actions { flex-wrap: wrap; }
+  .directory-header-actions > * { white-space: normal; max-width: 100%; }
 
   .directory-list-header,
   .directory-list-item {

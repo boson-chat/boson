@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { PlugZap, Settings, ShieldAlert, Unplug } from 'lucide-preact';
+import { Menu, PlugZap, Settings, ShieldAlert, Unplug, Users } from 'lucide-preact';
 import { BarLoader } from '@boson/shared';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
@@ -98,6 +98,21 @@ interface ChatAreaProps {
   // (serverInfo.bouncerCert). Without them the strip shows no buttons.
   onTrustBouncerCert?: () => void;
   onRejectBouncerCert?: () => void;
+  // Phone layout: reveal the server rail + channels drawer, or the member
+  // list drawer (both also open with a swipe). Absent on wide layouts.
+  onBack?: () => void;
+  onShowMembers?: () => void;
+}
+
+// The phone layout's channels drawer (servers + channels), at the start of
+// a header — what a swipe to the right shows too.
+function PaneBackButton({ onBack }: { onBack?: () => void }) {
+  if (!onBack) return null;
+  return (
+    <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Channels">
+      <Menu size={20} aria-hidden="true" />
+    </button>
+  );
 }
 
 export function ChatArea({
@@ -126,8 +141,15 @@ export function ChatArea({
   onBouncerConnect,
   onTrustBouncerCert,
   onRejectBouncerCert,
+  onBack,
+  onShowMembers,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // A quick reconnect (an app switch, a network hop) shows nothing; the
+  // strip only once it's taking a while — or at once when it needs the
+  // user (stopped trying).
+  const slowReconnect = useAfter(engineState !== 'connected', STRIP_DELAY_MS);
+  const needsUser = engineState === 'disconnected' && !reconnectActive;
 
   // Refs around the latest props so the bloc — which is constructed once
   // per onSend identity — always sees the freshest member / channel lists
@@ -171,6 +193,18 @@ export function ChatArea({
     [messagesSignal, channel?.messages],
   );
 
+  // Mention (and a message's Reply) puts `@nick ` at the front of the input
+  // and focuses it, keeping whatever was already typed.
+  const rowNickActions = useMemo<NickActions | undefined>(() => nickActions && {
+    ...nickActions,
+    onMention: (nick: string) => {
+      const tag = `@${nick} `;
+      const input = bloc.getState().input;
+      if (!input.startsWith(tag)) bloc.insertAtCursor(tag, 0, 0);
+      else bloc.insertAtCursor('', input.length, input.length); // already there: just focus
+    },
+  }, [nickActions, bloc]);
+
   // Connecting + disconnected splash. Three visual modes, all routed
   // through the same panel so a state flip (disconnected → connecting
   // → disconnected → connecting → connected) doesn't visually thrash:
@@ -186,9 +220,14 @@ export function ChatArea({
   //      because the user cancelled or it's the first render after a
   //      clean disconnect): static down-dot, "Disconnected" title,
   //      enabled Reconnect button, no Cancel.
+  //
+  // Only when there's no conversation to show (a first connect): with a
+  // channel open, a dropped connection keeps the conversation on screen
+  // under a slim ConnectionStrip — a reconnect (an app switch on a phone,
+  // a network blip) shouldn't look like the app reloading.
   const showConnectingSplash = engineState === 'connecting';
   const showDisconnectedSplash = engineState === 'disconnected';
-  if (showConnectingSplash || showDisconnectedSplash) {
+  if ((showConnectingSplash || showDisconnectedSplash) && !channel) {
     const isReconnecting = reconnectActive;
     const isAttempting = engineState === 'connecting';
     let title: string;
@@ -212,6 +251,7 @@ export function ChatArea({
         <EngineHeader
           title={isReconnecting ? 'Reconnecting' : (isAttempting ? 'Connecting' : 'Disconnected')}
           serverName={serverName}
+          onBack={onBack}
         />
         <div class="chat-engine-splash">
           <div class={`chat-engine-dot ${dotClass}`} />
@@ -277,6 +317,9 @@ export function ChatArea({
   // A channel stays listed while its JOIN is pending (restore, a bouncer
   // still connecting): nothing typed there would reach it, so hold input.
   const joining = prefix === '#' && !channel.joined;
+  const offline = engineState !== 'connected';
+  // Typing is fine while reconnecting: a message waits ("Sending…") and goes
+  // out once the channel is rejoined (ChatService.send).
 
   // Topics often carry mIRC colour codes; show the plain text.
   const topic = channel.topic ? stripIrcFormatting(channel.topic).trim() : '';
@@ -284,6 +327,7 @@ export function ChatArea({
     <main class="chat-area">
       <div class="chat-header">
         <div class="chat-header-left">
+          <PaneBackButton onBack={onBack} />
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
           {topic && (
@@ -297,6 +341,17 @@ export function ChatArea({
           )}
         </div>
         <div class="chat-header-right">
+          {onShowMembers && (
+            <button
+              type="button"
+              class="chat-icon-btn chat-pane-members"
+              onClick={onShowMembers}
+              title="Members"
+              aria-label={`Members (${channel.members.length})`}
+            >
+              <Users size={16} aria-hidden="true" />
+            </button>
+          )}
           {onOpenChannelSettings && (
             <button
               type="button"
@@ -310,6 +365,16 @@ export function ChatArea({
           )}
         </div>
       </div>
+
+      {offline && (slowReconnect || needsUser) && (
+        <ConnectionStrip
+          engineState={engineState}
+          reconnectActive={reconnectActive}
+          connectionError={connectionError}
+          onReconnect={onReconnect}
+          onCancelReconnect={onCancelReconnect}
+        />
+      )}
 
       <PendingConfirmationBanner
         serverId={activeServerId ?? null}
@@ -330,7 +395,7 @@ export function ChatArea({
         members={channel.members}
         myNick={myNick}
         scrollRef={scrollRef}
-        nickActions={nickActions}
+        nickActions={rowNickActions}
         channelName={channel.name}
         avatarFor={avatarFor}
         onLoadOlder={onLoadOlder ? () => onLoadOlder(channel.name) : undefined}
@@ -345,8 +410,8 @@ export function ChatArea({
       <ChatInputBar
         state={state}
         bloc={bloc}
-        placeholder={joining ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
-        disabled={joining}
+        placeholder={joining && !offline ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
+        disabled={joining && !offline}
         bannerError={bannerError}
         onDismissBanner={onDismissBanner}
         myNick={myNick}
@@ -387,18 +452,69 @@ function TypingIndicator({ nicks }: TypingIndicatorProps) {
   );
 }
 
+// The connection is down (or coming back) while a conversation is open: a
+// slim strip under the header, the conversation stays. Same states and
+// actions as the splash.
+// How long a reconnect runs before the strip says so.
+export const STRIP_DELAY_MS = 3000;
+
+/** True once `on` has held for `ms`; false again as soon as it doesn't. */
+function useAfter(on: boolean, ms: number): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!on) { setHeld(false); return; }
+    const t = setTimeout(() => setHeld(true), ms);
+    return () => clearTimeout(t);
+  }, [on, ms]);
+  return on && held;
+}
+
+interface ConnectionStripProps {
+  engineState: EngineState;
+  reconnectActive?: boolean;
+  connectionError?: string | null;
+  onReconnect?: () => void;
+  onCancelReconnect?: () => void;
+}
+
+function ConnectionStrip({ engineState, reconnectActive, connectionError, onReconnect, onCancelReconnect }: ConnectionStripProps) {
+  const attempting = engineState === 'connecting';
+  const label = reconnectActive ? 'Reconnecting…' : attempting ? 'Connecting…' : 'Disconnected';
+  return (
+    <div class="chat-connection-strip" role="status">
+      <span class={`chat-engine-dot ${reconnectActive || attempting ? 'chat-engine-dot-pulse' : 'chat-engine-dot-down'}`} aria-hidden="true" />
+      <span class="chat-connection-strip-label">{label}</span>
+      {engineState === 'disconnected' && connectionError && (
+        <span class="chat-connection-strip-reason">{connectionError}</span>
+      )}
+      <span class="chat-connection-strip-actions">
+        {(engineState === 'disconnected' || reconnectActive) && onReconnect && (
+          <button type="button" class="chat-connection-strip-btn" onClick={onReconnect} disabled={attempting}>
+            Reconnect
+          </button>
+        )}
+        {reconnectActive && onCancelReconnect && (
+          <button type="button" class="chat-connection-strip-btn" onClick={onCancelReconnect}>Cancel</button>
+        )}
+      </span>
+    </div>
+  );
+}
+
 // Shared header for the connecting / disconnected splashes. Keeps the chat
 // shell's visual rhythm (border-bottom, padding) consistent with the active-
 // channel header.
 interface EngineHeaderProps {
   title: string;
   serverName: string | undefined;
+  onBack?: () => void;
 }
 
-function EngineHeader({ title, serverName }: EngineHeaderProps) {
+function EngineHeader({ title, serverName, onBack }: EngineHeaderProps) {
   return (
     <div class="chat-header">
       <div class="chat-header-left">
+        <PaneBackButton onBack={onBack} />
         <span class="chat-channel-label">{title}</span>
         {serverName && <span class="chat-engine-server-name">{serverName}</span>}
       </div>

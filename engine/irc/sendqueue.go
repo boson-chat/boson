@@ -85,6 +85,8 @@ type outbound struct {
 	at time.Time
 	// free: sent without spending a token (see sendQueue.unpaced).
 	free bool
+	// ack: a delivery check's PING (Client.PrivmsgAck).
+	ack bool
 }
 
 // pacing is a token-bucket configuration. rate <= 0 means unlimited.
@@ -121,6 +123,10 @@ var (
 	// Lines for the bouncer itself (*status, *playback) never reach the
 	// network and are not paced at all (see sendQueue.unpaced).
 	bouncerPacing = pacing{burst: 9, rate: 0.5}
+
+	// noPacing: no client-side limit, for a bouncer the user turned flood
+	// control off for (Config.BouncerNoFloodControl).
+	noPacing = pacing{}
 )
 
 // droppableMinTokens: a droppable line is sent only while at least this many
@@ -227,6 +233,26 @@ func (q *sendQueue) enqueue(ev *girc.Event, class sendClass, key string) {
 	q.nudge()
 }
 
+// enqueueAck queues a delivery check's PING behind the interactive lines,
+// unpaced (a PING costs the server nothing). One still queued is dropped:
+// the new one, later in the queue, confirms everything the old one would.
+func (q *sendQueue) enqueueAck(ev *girc.Event) {
+	q.mu.Lock()
+	if !q.active {
+		q.mu.Unlock()
+		return
+	}
+	iq := q.queues[classInteractive][:0:0]
+	for _, o := range q.queues[classInteractive] {
+		if !o.ack {
+			iq = append(iq, o)
+		}
+	}
+	q.queues[classInteractive] = append(iq, outbound{ev: ev, class: classInteractive, at: q.now(), free: true, ack: true})
+	q.mu.Unlock()
+	q.nudge()
+}
+
 func (q *sendQueue) nudge() {
 	select {
 	case q.wake <- struct{}{}:
@@ -315,8 +341,50 @@ func (q *sendQueue) next() (*girc.Event, time.Duration) {
 		if limited {
 			q.bucket.tokens--
 		}
-		return q.popLocked(class).ev, 0
+		o := q.popLocked(class)
+		if o.ev.Command == girc.JOIN {
+			return q.mergeJoinsLocked(class, o.ev), 0
+		}
+		return o.ev, 0
 	}
+}
+
+// joinBatchMax{Channels,Bytes} bound one merged JOIN line: well inside the
+// 512-byte line limit, and few enough channels for servers that cap a
+// JOIN's targets (none of the common ones do; irssi and WeeChat merge too).
+const (
+	joinBatchMaxChannels = 10
+	joinBatchMaxBytes    = 400
+)
+
+// mergeJoinsLocked folds the keyless JOINs queued right behind first into
+// one `JOIN #a,#b,#c` line, so restoring N channels costs one token instead
+// of N (seconds of pacing on a direct connection: 1 line/s past the burst).
+// Only consecutive JOINs merge, so ordering against other lines holds; a
+// JOIN with a key stays on its own line, as `JOIN #a,#b key` would apply the
+// key to #a.
+func (q *sendQueue) mergeJoinsLocked(class int, first *girc.Event) *girc.Event {
+	if len(first.Params) != 1 || len(first.Tags) > 0 {
+		return first
+	}
+	chans := []string{first.Params[0]}
+	size := len(first.Params[0])
+	for len(q.queues[class]) > 0 && len(chans) < joinBatchMaxChannels {
+		next := q.queues[class][0]
+		if next.free || next.ack || next.ev.Command != girc.JOIN || len(next.ev.Params) != 1 || len(next.ev.Tags) > 0 {
+			break
+		}
+		if size+1+len(next.ev.Params[0]) > joinBatchMaxBytes {
+			break
+		}
+		chans = append(chans, next.ev.Params[0])
+		size += 1 + len(next.ev.Params[0])
+		q.popLocked(class)
+	}
+	if len(chans) == 1 {
+		return first
+	}
+	return &girc.Event{Command: girc.JOIN, Params: []string{strings.Join(chans, ",")}}
 }
 
 // available returns the current token balance (after refill). For tests and
@@ -439,6 +507,9 @@ func (c *Client) bouncerLocal(ev *girc.Event) bool {
 
 func (c *Client) pacing() pacing {
 	if c.bouncer.isBouncer() {
+		if c.cfg.BouncerNoFloodControl {
+			return noPacing
+		}
 		return bouncerPacing
 	}
 	return directPacing

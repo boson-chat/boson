@@ -219,3 +219,52 @@ describe('UserPanel custom hover card', () => {
     expect(card.textContent).not.toContain('alice');
   });
 });
+
+describe('UserPanel on a phone', () => {
+  let matchMedia: typeof window.matchMedia;
+  beforeEach(() => {
+    matchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: true, media: query, onchange: null,
+      addEventListener: () => {}, removeEventListener: () => {},
+      addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    })) as typeof window.matchMedia;
+  });
+  afterEach(() => {
+    window.matchMedia = matchMedia;
+    document.body.querySelectorAll('.bottom-sheet-backdrop').forEach((n) => n.remove());
+  });
+
+  it('opens the nick sheet on tap instead of the hover card', () => {
+    const onSendMessage = vi.fn();
+    render(
+      <UserPanel
+        channel={makeChannel({ members: [makeMember({ nick: 'bob', prefix: '@', account: 'bobacct' })] })}
+        nickActions={{ onSendMessage }}
+      />,
+    );
+    const row = document.querySelector('.user-panel-item')!;
+    hoverRow(row);
+    expect(document.querySelector('.nick-hovercard')).toBeNull();
+
+    fireEvent.click(row);
+    const sheet = document.querySelector('.bottom-sheet');
+    expect(sheet).not.toBeNull();
+    expect(sheet!.textContent).toContain('Operator');
+    expect(sheet!.textContent).toContain('bobacct');
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Send message' }));
+    expect(onSendMessage).toHaveBeenCalledWith('bob');
+    // Slides out, then unmounts.
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(document.querySelector('.bottom-sheet')).toBeNull();
+  });
+
+  it('closes when the backdrop is tapped', () => {
+    render(<UserPanel channel={makeChannel({ members: [makeMember({ nick: 'bob' })] })} />);
+    fireEvent.click(document.querySelector('.user-panel-item')!);
+    fireEvent.click(document.querySelector('.bottom-sheet-backdrop')!);
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(document.querySelector('.bottom-sheet')).toBeNull();
+  });
+});

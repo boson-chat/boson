@@ -55,11 +55,24 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   const [memos, setMemos] = useState<ReadonlyArray<Memo>>(() => getMemoStore().list());
   useEffect(() => getMemoStore().subscribe(setMemos), []);
   const unreadCount = memos.reduce((n, m) => n + (m.read ? 0 : 1), 0);
+  // The signed-in user's Boson handle (their nick), from the directory
+  // profile; refreshed when settings close, where it can be changed.
+  const [profileHandle, setProfileHandle] = useState<string | null>(null);
+  const userId = session?.user?.id ?? null;
+  useEffect(() => {
+    if (!userId || settingsOpen) return;
+    let live = true;
+    directory.getMe().then((u) => { if (live) setProfileHandle(u?.handle ?? null); }).catch(() => {});
+    return () => { live = false; };
+  }, [userId, settingsOpen, directory]);
   // Title-bar label preference:
   //   guest mode → guest nick + "guest" tag
-  //   signed-in  → handle from metadata, fallback to email
+  //   signed-in  → the handle (session metadata, which a rename updates at
+  //                once; else the profile's); the email only until one is
+  //                known
   //   neither    → null (TitleBar falls back to "Settings")
-  const authedHandle = (session?.user?.user_metadata?.handle as string | undefined) ?? null;
+  const authedHandle = (session?.user?.user_metadata?.handle as string | undefined)
+    ?? (userId ? profileHandle : null);
   const authedAvatar = (session?.user?.user_metadata?.avatar_url as string | undefined) ?? null;
   const userLabel = guest ? guest.nick : (authedHandle ?? session?.user?.email ?? null);
   const userMode: 'guest' | 'account' | null = guest ? 'guest' : (session ? 'account' : null);

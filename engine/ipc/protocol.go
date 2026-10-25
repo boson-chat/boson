@@ -43,6 +43,8 @@ type ConnectParams struct {
 	// BouncerAutoConnect: if the bouncer reports its upstream disconnected
 	// at attach time, the engine sends `connect` to the status bot itself.
 	BouncerAutoConnect bool `json:"bouncerAutoConnect,omitempty"`
+	// BouncerNoFloodControl: send to the bouncer unpaced (user setting).
+	BouncerNoFloodControl bool `json:"bouncerNoFloodControl,omitempty"`
 }
 
 type SASLPlain struct {
@@ -59,6 +61,9 @@ type PrivmsgParams struct {
 	ServerID string `json:"serverId"`
 	Target   string `json:"target"`
 	Message  string `json:"message"`
+	// Ack, when set, asks for delivery confirmation: an "ACK" event with
+	// this number once the server has the message (irc.Client.PrivmsgAck).
+	Ack uint64 `json:"ack,omitempty"`
 }
 
 // NamesParams targets a single channel for an on-demand NAMES refresh.
@@ -149,6 +154,9 @@ const (
 	CmdRaw               = "raw"
 	CmdBouncerConnect    = "bouncer-connect"
 	CmdBouncerDisconnect = "bouncer-disconnect"
+	// CmdProbe: check every connection is alive (irc.Client.Probe); dead
+	// ones drop and report "disconnected". For an app back from suspension.
+	CmdProbe = "probe"
 )
 
 // Outbound: messages from the engine to the renderer.

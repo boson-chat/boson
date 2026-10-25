@@ -181,5 +181,5 @@ export class BouncerSyncService {
 }
 
 function profileKey(p: BouncerProfile): string {
-  return JSON.stringify([p.enabled, p.host, p.port, p.tls, p.tlsInsecure, p.username, p.password]);
+  return JSON.stringify([p.enabled, p.host, p.port, p.tls, p.tlsInsecure, p.username, p.password, p.floodControl !== false]);
 }

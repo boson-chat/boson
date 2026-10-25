@@ -198,7 +198,8 @@ export const test = base.extend<Fixtures>({
         BOSON_E2E: '1',
       });
       if (opts.env) Object.assign(env, opts.env);
-      const app = await launchDesktopApp(p, env, opts.args ?? []);
+      const { viewport, deviceScaleFactor, isMobile, hasTouch, userAgent } = testInfo.project.use;
+      const app = await launchDesktopApp(p, env, opts.args ?? [], { viewport, deviceScaleFactor, isMobile, hasTouch, userAgent });
       launched.push(app);
       return app;
     });

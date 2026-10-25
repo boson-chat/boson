@@ -89,6 +89,10 @@
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
 }
+/* A section's flat card has no edge, so its padding plus the body's only
+   indents the controls away from the heading. Line them up with it. */
+.user-settings-section .bds-card-flat { padding: 0; }
+.user-settings-section .bds-card-flat > .user-settings-card-body { padding: var(--space-2) 0; }
 
 .user-settings-row {
   display: grid;
@@ -435,3 +439,22 @@
   text-align: right;
 }
 .user-settings-update-error { color: var(--danger, #ef4444); }
+
+/* Phones: the section menu becomes a scrolling strip above the section, so
+   the section gets the full width (the modal is a full-screen sheet). */
+@media (max-width: 700px) {
+  .user-settings { flex-direction: column; height: 100%; min-height: 0; }
+  .user-settings-menu {
+    width: auto;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0 0 var(--space-2);
+    border-right: none;
+    border-bottom: 1px solid var(--border-soft);
+    gap: var(--space-1);
+  }
+  .user-settings-menu-item { flex-shrink: 0; }
+  .user-settings-menu-desc { display: none; }
+  .user-settings-body { padding-left: 0; padding-top: var(--space-4); }
+}

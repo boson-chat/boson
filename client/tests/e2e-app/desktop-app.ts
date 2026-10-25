@@ -73,7 +73,19 @@ async function waitHealthy(url: string, child: ChildProcess, logs: string[]): Pr
   throw new Error(`app not healthy at ${url} after 30s:\n${logs.join('')}`);
 }
 
-export async function launchDesktopApp(p: Profile, env: Record<string, string>, args: string[] = []): Promise<DesktopLaunch> {
+// The page's device: a desktop window by default; the mobile project
+// (playwright.app.config.ts) passes a phone's viewport, touch and scale.
+export interface DeviceOptions {
+  viewport?: { width: number; height: number } | null;
+  deviceScaleFactor?: number;
+  isMobile?: boolean;
+  hasTouch?: boolean;
+  userAgent?: string;
+}
+
+export async function launchDesktopApp(
+  p: Profile, env: Record<string, string>, args: string[] = [], device: DeviceOptions = {},
+): Promise<DesktopLaunch> {
   if (!existsSync(APP_BIN)) {
     throw new Error(`${APP_BIN} is missing — run \`npm run build:e2e-app\` first.`);
   }
@@ -92,6 +104,7 @@ export async function launchDesktopApp(p: Profile, env: Record<string, string>, 
 
   const context: BrowserContext = await chromium.launchPersistentContext(join(p.userData, 'browser'), {
     viewport: { width: 1280, height: 800 },
+    ...device,
   });
   const page: Page = context.pages()[0] ?? (await context.newPage());
   page.on('console', (m) => logs.push(`[renderer ${m.type()}] ${m.text()}\n`));

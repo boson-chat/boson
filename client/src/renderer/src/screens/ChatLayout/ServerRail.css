@@ -277,3 +277,14 @@
 }
 .server-item-drop-before::after { top: calc(-1 * var(--space-2) / 2 - 2px); }
 .server-item-drop-after::after { bottom: calc(-1 * var(--space-2) / 2 - 2px); }
+
+.server-rail-sheet-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -59,6 +59,11 @@ func main() {
 	links := NewLinksService(dev)
 	api := NewApiService(apiBase, dev)
 	deepLinks := &DeepLinkService{}
+	secure := NewSecureStore(dataDir, secureMode)
+	if dev {
+		// Which key protects the secure store (and why not the OS keychain).
+		log.Printf("secure store: mode=%s data=%s", secure.modeReport(), dataDir)
+	}
 	engine := &EngineService{}
 	spotify := NewSpotifyService()
 	updater := NewUpdaterService(appVersion, !dev, links)
@@ -69,7 +74,7 @@ func main() {
 	// strictly by the renderer (deep-link.ts). Off for e2e runs,
 	// where parallel tests each run their own app.
 	var single *application.SingleInstanceOptions
-	if !e2e {
+	if !e2e && !mobileOS {
 		single = &application.SingleInstanceOptions{
 			UniqueID:               "chat.boson.app",
 			OnSecondInstanceLaunch: func(d application.SecondInstanceData) { deepLinks.onSecondInstance(d.Args) },
@@ -81,7 +86,7 @@ func main() {
 		Services: []application.Service{
 			application.NewService(engine),
 			application.NewService(api),
-			application.NewService(NewSecureStore(dataDir, secureMode)),
+			application.NewService(secure),
 			application.NewService(NewUnfurlService(dev)),
 			application.NewService(spotify),
 			application.NewService(NewThemesService(dataDir)),
@@ -96,6 +101,8 @@ func main() {
 			Handler: assetHandler(dist),
 		},
 		SingleInstance: single,
+		// iOS/Android own the process's signals; Wails' handlers crash there.
+		DisableDefaultSignalHandler: mobileOS,
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
@@ -107,12 +114,17 @@ func main() {
 		},
 	})
 
+	// A phone or tablet window is the screen; no size or minimum.
+	width, height, minWidth, minHeight := 1280, 800, 900, 600
+	if mobileOS {
+		width, height, minWidth, minHeight = 0, 0, 0, 0
+	}
 	win := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:     "Boson",
-		Width:     1280,
-		Height:    800,
-		MinWidth:  900,
-		MinHeight: 600,
+		Width:     width,
+		Height:    height,
+		MinWidth:  minWidth,
+		MinHeight: minHeight,
 		// The renderer draws its own 32px title bar. On macOS the native
 		// traffic lights stay, over it: the plain hidden style (no toolbar
 		// inset) centres them in a 28px strip, close enough to ours — Wails

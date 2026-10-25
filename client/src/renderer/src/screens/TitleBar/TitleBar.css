@@ -4,7 +4,10 @@
    height so the brand mark and buttons line up visually. */
 
 .title-bar {
-  height: 32px;
+  /* Under a phone's status bar: grow by the top inset (0 on desktop) so the
+     bar's background fills it and the content sits below it. */
+  height: calc(32px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
   display: flex;
   align-items: stretch;
   background: var(--surface);
@@ -191,4 +194,12 @@
   letter-spacing: -0.02em;
   border-radius: 999px;
   pointer-events: none;
+}
+
+/* Phones: the bar must fit the screen — a long account name (an email)
+   otherwise widens the page, which WebKit then lets scroll sideways. */
+@media (max-width: 700px) {
+  .title-bar { overflow: hidden; }
+  .title-bar-drag { min-width: 0; }
+  .title-bar-user-name { max-width: 30vw; }
 }

@@ -146,6 +146,11 @@ type engineClient struct {
 // to actually close (QUIT sent, socket shut) before confirming it.
 const disconnectWait = 5 * time.Second
 
+// probeTimeout bounds CmdProbe's wait for a PONG: long enough for a slow
+// mobile network, short enough that a dead connection is noticed while the
+// user is looking.
+const probeTimeout = 5 * time.Second
+
 type session struct {
 	t Transport
 
@@ -327,7 +332,7 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 			return
 		}
 		if c := s.clientFor(p.ServerID); c != nil {
-			c.Privmsg(p.Target, p.Message)
+			c.PrivmsgAck(p.Target, p.Message, p.Ack)
 		}
 	case CmdNames:
 		var p NamesParams
@@ -392,6 +397,19 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 		if c := s.clientFor(p.ServerID); c != nil {
 			c.SendRaw(p.Line)
 		}
+	case CmdProbe:
+		s.mu.Lock()
+		clients := make([]*irc.Client, 0, len(s.clients))
+		for _, ec := range s.clients {
+			if ec.client != nil {
+				clients = append(clients, ec.client)
+			}
+		}
+		s.mu.Unlock()
+		for _, c := range clients {
+			go c.Probe(probeTimeout)
+		}
+
 	case CmdBouncerConnect, CmdBouncerDisconnect:
 		var p BouncerParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
@@ -446,15 +464,16 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 	s.mu.Unlock()
 
 	cfg := irc.Config{
-		Hostname:           p.Hostname,
-		Port:               p.Port,
-		TLS:                p.TLS,
-		Nick:               p.Nick,
-		NickservPassword:   p.NickservPassword,
-		ServerPass:         p.ServerPass,
-		TLSInsecure:        p.TLSInsecure,
-		Bouncer:            p.Bouncer,
-		BouncerAutoConnect: p.BouncerAutoConnect,
+		Hostname:              p.Hostname,
+		Port:                  p.Port,
+		TLS:                   p.TLS,
+		Nick:                  p.Nick,
+		NickservPassword:      p.NickservPassword,
+		ServerPass:            p.ServerPass,
+		TLSInsecure:           p.TLSInsecure,
+		Bouncer:               p.Bouncer,
+		BouncerAutoConnect:    p.BouncerAutoConnect,
+		BouncerNoFloodControl: p.BouncerNoFloodControl,
 	}
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}
