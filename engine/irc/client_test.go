@@ -101,6 +101,7 @@ func TestTranslate_ForwardsHostFromSource(t *testing.T) {
 		Params:  []string{"#general", "hi"},
 	})
 	assert.Equal(t, "user/bob", got.Host)
+	assert.Equal(t, "b", got.User)
 }
 
 func TestTranslate_AccountTag(t *testing.T) {
@@ -123,6 +124,7 @@ func TestTranslate_ExtendedJoinAccountAndHost(t *testing.T) {
 	assert.Equal(t, "JOIN", got.Kind)
 	assert.Equal(t, "aliceacct", got.Account)
 	assert.Equal(t, "cloak/alice", got.Host)
+	assert.Equal(t, "Alice Real", got.Message)
 
 	// Not-identified joiner: "*" normalizes to empty.
 	loggedOut := translate(girc.Event{
@@ -142,6 +144,20 @@ func TestTranslate_WhoReplyHost(t *testing.T) {
 	assert.Equal(t, "#general", got.Target)
 	assert.Equal(t, "bob", got.From)
 	assert.Equal(t, "user/bob", got.Host)
+	assert.Equal(t, "b", got.User)
+	assert.Equal(t, []string{"H", "irc.x"}, got.Args)
+	assert.Equal(t, "0 Bob", got.Message)
+}
+
+func TestTranslate_SetName(t *testing.T) {
+	got := translate(girc.Event{
+		Command: "SETNAME",
+		Source:  &girc.Source{Name: "bob", Ident: "b", Host: "user/bob"},
+		Params:  []string{"Bob Builder"},
+	})
+	assert.Equal(t, "SETNAME", got.Kind)
+	assert.Equal(t, "bob", got.From)
+	assert.Equal(t, "Bob Builder", got.Message)
 }
 
 func TestTranslate_AccountNotify(t *testing.T) {
@@ -172,6 +188,7 @@ func TestTranslate_ChgHost(t *testing.T) {
 	assert.Equal(t, "CHGHOST", got.Kind)
 	assert.Equal(t, "bob", got.From)
 	assert.Equal(t, "new/host", got.Host)
+	assert.Equal(t, "newuser", got.User)
 }
 
 func TestTranslate_YoureOper(t *testing.T) {

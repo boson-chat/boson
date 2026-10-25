@@ -567,3 +567,30 @@ func TestSendQueue_JoinMergeRespectsLineLength(t *testing.T) {
 	assert.Equal(t, "JOIN "+long+","+long+"2", got[0])
 	assert.Equal(t, "JOIN "+long+"3", got[1])
 }
+
+func TestClientBouncerLocal_SojuProtocolWho(t *testing.T) {
+	c, err := New(Config{Hostname: "evrd.example", Port: 6697, Nick: "me", Bouncer: true})
+	require.NoError(t, err)
+	who := &girc.Event{Command: girc.WHO, Params: []string{"#chat"}}
+	require.False(t, c.bouncerLocal(who), "paced until the bouncer shows it speaks soju's protocol")
+
+	require.False(t, isSojuCapLS(girc.Event{Command: girc.CAP, Params: []string{"*", "LS", "batch znc.in/playback server-time"}}))
+	ls := girc.Event{Command: girc.CAP, Params: []string{"*", "LS", "batch soju.im/bouncer-networks server-time"}}
+	require.True(t, isSojuCapLS(ls))
+	c.sojuProto.Store(true)
+	require.True(t, c.bouncerLocal(who))
+	// Anything that reaches the network keeps its pacing.
+	require.False(t, c.bouncerLocal(&girc.Event{Command: girc.PRIVMSG, Params: []string{"#chat", "hi"}}))
+}
+
+func TestClientBouncerLocal_ChatHistory(t *testing.T) {
+	history := &girc.Event{Command: "CHATHISTORY", Params: []string{"LATEST", "#chat", "*", "100"}}
+	bouncer, err := New(Config{Hostname: "znc.example", Port: 6697, Nick: "me", Bouncer: true})
+	require.NoError(t, err)
+	require.True(t, bouncer.bouncerLocal(history))
+
+	// A network's own history costs it work: paced.
+	direct, err := New(Config{Hostname: "irc.example", Port: 6697, Nick: "me"})
+	require.NoError(t, err)
+	require.False(t, direct.bouncerLocal(history))
+}

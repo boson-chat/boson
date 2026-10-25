@@ -91,8 +91,10 @@ import type {
   MemberPrefix,
   ServerInfo,
   ServerLogEntry,
+  WhoisInfo,
 } from './chat.types';
 import { prefixRank, banMask } from './channel-ops';
+import { WHOIS_REPLIES, WHOIS_ONLY_WHILE_LOADING, applyWhoisReply } from './whois';
 
 // IRC can't carry an empty line, so a blank line inside a multi-line paste
 // goes out as a single space: other clients show an empty line, and Boson
@@ -341,7 +343,16 @@ export class ChatService {
   // can be processed before the post-JOIN NAMES burst. We buffer flags
   // keyed by (channelKey, lower(nick)) and apply them whenever the
   // member surface (NAMREPLY commit OR member-update push) catches up.
-  private pendingAwayFlags = new Map<string, Map<string, string>>();
+  private pendingWhoReplies = new Map<string, Map<string, WhoReply>>();
+
+  // The channel to show once it's joined (restoreActiveChannel), and the
+  // fallback timer armed when another channel joins first.
+  private preferredActive: string | null = null;
+  private preferredTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // WHOIS results by lower(nick), for profiles. A signal so the profile on
+  // screen re-renders as each reply lands, without a whole-chat emit.
+  readonly whois = signal<ReadonlyMap<string, WhoisInfo>>(new Map());
 
   // IRC server software / network identity, captured from RPL_MYINFO (004)
   // and RPL_ISUPPORT (005). Surfaced in the chat header as a small "via
@@ -645,6 +656,7 @@ export class ChatService {
     this.namesRetryCount.clear();
     for (const t of this.loadOlderTimers.values()) clearTimeout(t);
     this.loadOlderTimers.clear();
+    if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
     // Drop the engine's services-framework subscription so a fresh
     // service-framework event after detach can't fire emit() against
     // a torn-down chat service.
@@ -705,14 +717,14 @@ export class ChatService {
 
   // Update a member's host/account across every channel they're in (from
   // ACCOUNT / CHGHOST / account-tag). Emits only on a real change.
-  private updateMemberField(nick: string, patch: { hostname?: string; account?: string }): void {
+  private updateMemberField(nick: string, patch: Pick<Partial<ChatMember>, 'user' | 'hostname' | 'account' | 'realname'>): void {
     let changed = false;
     for (const ch of this.channels.values()) {
       const idx = ch.members.findIndex((m) => m.nick === nick);
       if (idx < 0) continue;
       const cur = ch.members[idx]!;
       const next = { ...cur, ...patch };
-      if (next.hostname !== cur.hostname || next.account !== cur.account) {
+      if (next.hostname !== cur.hostname || next.account !== cur.account || next.user !== cur.user || next.realname !== cur.realname) {
         ch.members = ch.members.map((m, i) => (i === idx ? next : m));
         changed = true;
       }
@@ -1885,7 +1897,29 @@ export class ChatService {
     this.emitFeedback({ kind: 'error', text });
   }
 
+  /**
+   * On a fresh start, show `channel` (the one the user was last in) once
+   * it's joined, rather than whichever channel joins first. Falls back to
+   * the first joined channel if it hasn't joined within a few seconds (we
+   * left it, or it's a conversation that won't be joined).
+   */
+  restoreActiveChannel(channel: string): void {
+    if (this.activeChannel || !/^[#&]/.test(channel)) return;
+    this.preferredActive = this.channelKey(channel);
+  }
+
+  private awaitPreferredActive(firstJoined: string): void {
+    if (this.preferredTimer) return;
+    this.preferredTimer = setTimeout(() => {
+      this.preferredTimer = null;
+      if (this.preferredActive && !this.activeChannel) this.setActive(firstJoined);
+    }, PREFERRED_ACTIVE_WAIT_MS);
+  }
+
   setActive(channel: string | null): void {
+    // Any pick, the user's or ours, settles what's shown.
+    this.preferredActive = null;
+    if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
     const key = channel == null ? null : this.channelKey(channel);
     if (this.activeChannel === key) return;
     this.activeChannel = key;
@@ -2016,19 +2050,49 @@ export class ChatService {
   // Returns true if any member's awayMessage changed. Used both when a
   // 352 arrives after the member list is already committed, and when 366
   // commits the member list with 352s buffered ahead of it.
-  private applyAwayFlags(ch: InternalChannel, flags: Map<string, string>): boolean {
+  private applyWhoReplies(ch: InternalChannel, replies: Map<string, WhoReply>): boolean {
     let touched = false;
-    for (const m of ch.members) {
-      const f = flags.get(m.nick.toLowerCase());
-      if (f === undefined) continue;
-      const isAway = f.startsWith('G');
-      const next = isAway ? (m.awayMessage ?? '') : null;
-      if (m.awayMessage !== next) {
-        m.awayMessage = next;
-        touched = true;
-      }
-    }
+    ch.members = ch.members.map((m) => {
+      const r = replies.get(m.nick.toLowerCase());
+      const next = r ? withWhoReply(m, r) : null;
+      if (!next) return m;
+      touched = true;
+      return next;
+    });
     return touched;
+  }
+
+  // Profiles ----------------------------------------------------------------
+
+  /**
+   * WHOIS `nick` for their profile, unless we did within the last minute
+   * (or one is still out). Results land in `whois` reply by reply.
+   */
+  requestWhois(nick: string): void {
+    const key = nick.toLowerCase();
+    const cur = this.whois.peek().get(key);
+    const age = cur ? Date.now() - cur.requestedAt : Infinity;
+    if (cur && age < (cur.loading ? WHOIS_RETRY_MS : WHOIS_FRESH_MS)) return;
+    this.setWhois(key, { nick, loading: true, requestedAt: Date.now() });
+    this.session.raw(`WHOIS ${nick}`);
+  }
+
+  private setWhois(key: string, info: WhoisInfo): void {
+    const next = new Map(this.whois.peek());
+    next.set(key, info);
+    this.whois.value = next;
+  }
+
+  private noteWhoisReply(e: IrcEvent): void {
+    const args = e.Args ?? [];
+    const nick = args[0];
+    if (!nick) return;
+    const key = nick.toLowerCase();
+    const cur = this.whois.peek().get(key);
+    if (WHOIS_ONLY_WHILE_LOADING.has(e.Kind) && !cur?.loading) return;
+    // A /whois typed by hand fills a profile too.
+    const base = cur ?? { nick, loading: true, requestedAt: Date.now() };
+    this.setWhois(key, applyWhoisReply(base, e.Kind, args, e.Message ?? ''));
   }
 
   // Observation -------------------------------------------------------------
@@ -2219,6 +2283,7 @@ export class ChatService {
     // Latch ZNC detection (vendor caps / control bots) for the "via bouncer"
     // server-info badge.
     this.noteZncIfApplicable(e);
+    if (WHOIS_REPLIES.has(e.Kind)) this.noteWhoisReply(e);
     switch (e.Kind) {
       case 'PRIVMSG':
       case 'NOTICE': {
@@ -2343,7 +2408,11 @@ export class ChatService {
           // most reliable way to learn our cloak/account for presence.
           this.updateSelfIdentity(e.Host, e.Account);
           this.appendSystem(e.Target, `You joined ${e.Target}`);
-          if (!this.activeChannel) this.setActive(e.Target);
+          if (this.preferredActive === key) this.setActive(e.Target);
+          else if (!this.activeChannel) {
+            if (this.preferredActive) this.awaitPreferredActive(e.Target);
+            else this.setActive(e.Target);
+          }
           this.resendPending(key);
           // Safety net: if NAMREPLY/ENDOFNAMES never arrive (e.g. drop on
           // the WS), this re-issues NAMES after a short delay.
@@ -2360,8 +2429,11 @@ export class ChatService {
           if (ch && !ch.members.some((m) => m.nick === e.From)) {
             ch.members = [...ch.members, {
               nick: e.From, prefix: '', joinedAt: Date.now(),
+              ...(e.User ? { user: e.User } : {}),
               ...(e.Host ? { hostname: e.Host } : {}),
               ...(e.Account ? { account: e.Account } : {}),
+              // extended-join carries the realname as the trailing param.
+              ...(e.Message ? { realname: e.Message } : {}),
             }];
           }
           this.appendMessage(e.Target, {
@@ -2384,7 +2456,12 @@ export class ChatService {
       case 'CHGHOST': {
         // Host changed (cloak grant / vhost). Track for self + the member.
         if (e.From === this.myNick) { this.updateSelfIdentity(e.Host, undefined); break; }
-        if (e.Host) this.updateMemberField(e.From, { hostname: e.Host });
+        if (e.Host) this.updateMemberField(e.From, { hostname: e.Host, ...(e.User ? { user: e.User } : {}) });
+        break;
+      }
+      case 'SETNAME': {
+        // setname: a user changed their realname.
+        if (e.From && e.From !== this.myNick) this.updateMemberField(e.From, { realname: e.Message || undefined });
         break;
       }
       case 'BATCH': {
@@ -2605,9 +2682,9 @@ export class ChatService {
         if (ch) {
           ch.members = dedupeMembers(pending);
           ch.namesLoaded = true;
-          const pendingFlags = this.pendingAwayFlags.get(key);
-          if (pendingFlags && pendingFlags.size > 0) {
-            this.applyAwayFlags(ch, pendingFlags);
+          const pendingWho = this.pendingWhoReplies.get(key);
+          if (pendingWho && pendingWho.size > 0) {
+            this.applyWhoReplies(ch, pendingWho);
           }
           // Populated → cancel any pending self-heal retry. If it somehow
           // committed empty, leave the retry armed to try again.
@@ -2710,17 +2787,38 @@ export class ChatService {
         //      member record (case-insensitive nick compare; servers
         //      can normalise casing differently between NAMES and WHO).
         //   2. NAMREPLY hasn't committed yet → stash the flag in
-        //      pendingAwayFlags so 366 picks it up.
+        //      pendingWhoReplies so 366 picks it up.
+        //
+        // Each line also carries the member's mask, server and realname
+        // (Args[1] = server; Message = "<hopcount> <realname>").
         if (!e.Target || !e.From) return;
         const key = this.channelKey(e.Target);
-        const flags = (e.Args ?? [])[0] ?? '';
         const nickLower = e.From.toLowerCase();
-        const pending = this.pendingAwayFlags.get(key) ?? new Map<string, string>();
-        pending.set(nickLower, flags);
-        this.pendingAwayFlags.set(key, pending);
+        const pending = this.pendingWhoReplies.get(key) ?? new Map<string, WhoReply>();
+        const reply: WhoReply = {
+          flags: (e.Args ?? [])[0] ?? '',
+          user: e.User || undefined,
+          host: e.Host || undefined,
+          server: (e.Args ?? [])[1] || undefined,
+          realname: (e.Message ?? '').replace(/^\d+\s?/, '') || undefined,
+        };
+        pending.set(nickLower, reply);
+        this.pendingWhoReplies.set(key, pending);
+        // Only this line's member: a big channel's WHO is thousands of
+        // lines, and a pass over the whole list per line stalls the app
+        // long enough for a bouncer to drop us for not reading.
         const ch = this.channels.get(key);
         if (ch && ch.members.length > 0) {
-          if (this.applyAwayFlags(ch, pending)) this.emit();
+          // Exact first: servers mostly spell a nick the same in NAMES and
+          // WHO, and comparing as-is skips lowercasing every member.
+          let idx = ch.members.findIndex((m) => m.nick === e.From);
+          if (idx < 0) idx = ch.members.findIndex((m) => m.nick.toLowerCase() === nickLower);
+          const next = idx < 0 ? null : withWhoReply(ch.members[idx]!, reply);
+          if (next) {
+            ch.members = ch.members.slice();
+            ch.members[idx] = next;
+            this.emit();
+          }
         }
         break;
       }
@@ -3587,6 +3685,41 @@ function normaliseChannel(name: string): string {
   return trimmed.startsWith('#') || trimmed.startsWith('&') ? trimmed : `#${trimmed}`;
 }
 
+// One RPL_WHOREPLY (352) line, as held until the member list is in.
+interface WhoReply {
+  flags: string;
+  user?: string;
+  host?: string;
+  server?: string;
+  realname?: string;
+}
+
+// `m` with a WHO reply applied, or null when it changes nothing. Flags: H
+// (here) / G (gone), then `*` for an IRC operator, `B` for a bot, and the
+// channel prefix sigils.
+function withWhoReply(m: ChatMember, r: WhoReply): ChatMember | null {
+  const awayMessage = r.flags.startsWith('G') ? (m.awayMessage ?? '') : null;
+  const oper = r.flags.includes('*') || undefined;
+  const bot = r.flags.slice(1).includes('B') || undefined;
+  const user = r.user ?? m.user;
+  const hostname = r.host ?? m.hostname;
+  const server = r.server ?? m.server;
+  const realname = r.realname ?? m.realname;
+  if (
+    awayMessage === m.awayMessage && oper === m.oper && bot === m.bot && user === m.user &&
+    hostname === m.hostname && server === m.server && realname === m.realname
+  ) return null;
+  return { ...m, awayMessage, oper, bot, user, hostname, server, realname };
+}
+
+// A profile's WHOIS is reused for a minute; one with no end in sight is
+// re-sent after this long.
+const WHOIS_FRESH_MS = 60_000;
+// How long a restored active channel may take to join before the first
+// joined channel is shown instead.
+const PREFERRED_ACTIVE_WAIT_MS = 4_000;
+const WHOIS_RETRY_MS = 10_000;
+
 // Sigils in priority order — highest-rank first. When a server lists multiple
 // (e.g. multi-prefix CAP gives `~@nick`), we keep the first and skip the rest.
 const PREFIX_SIGILS = new Set(['~', '&', '@', '%', '+']);
@@ -3606,7 +3739,8 @@ function parseMemberToken(token: string): ChatMember {
     const userhost = rest.slice(bangIdx + 1);
     const atIdx = userhost.indexOf('@');
     const hostname = atIdx > 0 ? userhost.slice(atIdx + 1) : undefined;
-    return hostname ? { nick, prefix, hostname } : { nick, prefix };
+    const user = atIdx > 0 ? userhost.slice(0, atIdx) : undefined;
+    return hostname ? { nick, prefix, user, hostname } : { nick, prefix };
   }
   return { nick: rest, prefix };
 }

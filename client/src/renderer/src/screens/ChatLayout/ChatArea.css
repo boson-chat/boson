@@ -726,7 +726,12 @@
   font-weight: 600;
   font-style: normal;
   color: var(--fg);
+  cursor: pointer;
 }
+.message-action-name:hover { color: var(--accent); }
+
+/* The author's avatar opens their profile, as the name does. */
+.message-avatar-btn { cursor: pointer; display: inline-flex; }
 
 .message-action-mine .message-action-name { color: var(--accent); }
 
@@ -1009,6 +1014,15 @@
 .chat-token { white-space: inherit; font-weight: inherit; font-style: inherit; }
 .chat-token-text    { color: inherit; }
 .chat-token-mention { color: var(--accent); }
+/* In a message a mention is a nick you can click for their profile. */
+.chat-token-mention[data-nick] {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.chat-token-mention[data-nick]:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .chat-token-channel { color: var(--info); }
 .chat-token-command { color: var(--accent); }
 

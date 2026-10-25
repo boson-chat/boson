@@ -16,6 +16,7 @@ import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
+import { NickProfileCard, anchorOf, profileRows, type ProfileAnchor } from './nick-profile';
 import { MessageSheet } from './MessageSheet';
 import type { SheetAction } from './BottomSheet';
 import { useLongPress } from './long-press';
@@ -63,10 +64,10 @@ const HOVER_OPEN_DELAY_MS = 150;
 export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
-  // Phone layout: a tap on the author opens the nick sheet in place of hover
-  // + menu, and a long press on the message opens the message sheet in place
-  // of a text selection.
-  const [sheet, setSheet] = useState(false);
+  // A click on a nick (the author, or one mentioned in the text) opens their
+  // profile: a card under it, or on a phone the nick sheet. A long press on
+  // the message opens the message sheet in place of a text selection.
+  const [profile, setProfile] = useState<{ nick: string; anchor?: ProfileAnchor } | null>(null);
   const [msgSheet, setMsgSheet] = useState(false);
   const longPress = useLongPress(isNarrow)(() => setMsgSheet(true));
   // Debounce-on-enter timer for the hover card — see `UserPanel.tsx`.
@@ -78,6 +79,19 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
     }
   };
 
+  const openProfile = (nick: string, el: Element): void => {
+    if (isNarrow()) { setProfile({ nick }); return; }
+    cancelPendingOpen();
+    setHover(null);
+    setProfile({ nick, anchor: anchorOf(el) });
+  };
+  // Mentions in the text carry their nick (see renderRichText).
+  const onTextClick = (e: MouseEvent): void => {
+    const mention = (e.target as Element | null)?.closest?.('.chat-token-mention[data-nick]');
+    if (mention) openProfile(mention.getAttribute('data-nick')!, mention);
+  };
+  const profileMember = profile ? members.find((m) => m.nick === profile.nick) ?? null : null;
+
   const messageActions = (): SheetAction[] => {
     const theirs = msg.from !== myNick;
     const out: SheetAction[] = [];
@@ -86,7 +100,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
     if (theirs && nickActions?.onSendMessage) {
       out.push({ label: `Message ${msg.from}`, onClick: () => nickActions.onSendMessage!(msg.from) });
     }
-    out.push({ label: 'View profile', onClick: () => setSheet(true) });
+    out.push({ label: 'View profile', onClick: () => setProfile({ nick: msg.from }) });
     return out;
   };
   const sheets = (
@@ -99,13 +113,25 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
           onClose={() => setMsgSheet(false)}
         />
       )}
-      {sheet && (
+      {profile && !profile.anchor && (
         <NickSheet
-          nick={msg.from}
-          member={members.find((m) => m.nick === msg.from) ?? null}
-          avatarUrl={avatarFor?.(msg.from)}
-          actions={buildNickContextActions(msg.from, nickActions)}
-          onClose={() => setSheet(false)}
+          nick={profile.nick}
+          member={profileMember}
+          avatarUrl={avatarFor?.(profile.nick)}
+          actions={buildNickContextActions(profile.nick, nickActions)}
+          profiles={nickActions?.profiles}
+          onClose={() => setProfile(null)}
+        />
+      )}
+      {profile?.anchor && (
+        <NickProfileCard
+          nick={profile.nick}
+          member={profileMember}
+          avatarUrl={avatarFor?.(profile.nick)}
+          anchor={profile.anchor}
+          actions={buildNickContextActions(profile.nick, nickActions)}
+          profiles={nickActions?.profiles}
+          onClose={() => setProfile(null)}
         />
       )}
     </>
@@ -130,8 +156,8 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
     return (
       <div class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`} {...longPress}>
         <span class="message-action-star">*</span>
-        <span class="message-action-name">{msg.from}</span>
-        <span class="message-action-text">{renderedText}</span>
+        <span class="message-action-name" onClick={(e) => openProfile(msg.from, e.currentTarget as Element)}>{msg.from}</span>
+        <span class="message-action-text" onClick={onTextClick}>{renderedText}</span>
         <span class="message-row-time">{time}</span>
         {sheets}
       </div>
@@ -156,7 +182,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
           grouped follow-ups keep the gutter empty so text stays aligned. */}
       <div class="message-row-gutter">
         {!grouped && (
-          <span onClick={() => { if (isNarrow()) setSheet(true); }}>
+          <span class="message-avatar-btn" onClick={(e) => openProfile(msg.from, e.currentTarget as Element)}>
             <Avatar nick={msg.from} url={avatarFor?.(msg.from)} size={30} class="message-avatar" />
           </span>
         )}
@@ -171,10 +197,11 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
                 if (isNarrow()) return;
                 setMenu({ nick: msg.from, x: e.clientX, y: e.clientY });
               }}
-              onClick={() => { if (isNarrow()) setSheet(true); }}
+              onClick={(e) => openProfile(msg.from, e.currentTarget as Element)}
               onMouseEnter={(e) => {
                 // A tap on a phone emulates mouseenter; the sheet covers it.
-                if (isNarrow()) return;
+                // An open profile card covers it too.
+                if (isNarrow() || profile) return;
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const snapshot = { nick: msg.from, top: r.top, left: r.left };
                 cancelPendingOpen();
@@ -199,7 +226,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
             <span class="message-row-time">{msg.pending ? 'Sending…' : time}</span>
           </div>
         )}
-        <div class={`message-row-text${doc ? ' message-row-doc' : ''}`}>
+        <div class={`message-row-text${doc ? ' message-row-doc' : ''}`} onClick={onTextClick}>
           {doc
             ? <MarkdownDoc text={msg.text} />
             : <span class="message-row-text-body">{renderedText}</span>}
@@ -245,11 +272,7 @@ function MessageNickHoverCard({
   const cardTop = Math.min(window.innerHeight - 16, top + 24);
   const cardLeft = Math.max(8, Math.min(left, window.innerWidth - CARD_WIDTH - 8));
   const role = ROLE_BADGES[member?.prefix ?? ''];
-  const meta: { label: string; value: string }[] = [];
-  if (member?.account) meta.push({ label: 'Account', value: member.account });
-  if (member?.hostname) meta.push({ label: 'Host', value: member.hostname });
-  if (member?.realname) meta.push({ label: 'Real name', value: member.realname });
-  if (member?.awayMessage) meta.push({ label: 'Away', value: member.awayMessage });
+  const meta = profileRows(nick, member);
   return (
     <div
       class="nick-hovercard nick-hovercard-portal"
@@ -853,7 +876,8 @@ export function renderRichText(
   members: { nick: string }[],
 ): preact.ComponentChildren {
   if (!text) return text;
-  const memberSet = new Set(members.map((m) => m.nick.toLowerCase()));
+  // lower(nick) → the nick as the member list spells it.
+  const memberSet = new Map(members.map((m) => [m.nick.toLowerCase(), m.nick]));
   const out: preact.ComponentChildren[] = [];
   let last = 0;
   let key = 0;
@@ -884,7 +908,11 @@ export function renderRichText(
         }
         // Our own nick is a member too — keep the self-mention highlight on it.
         const self = !!myNick && candidate === myNick.toLowerCase();
-        out.push(<span key={key++} class={self ? 'chat-token-mention mention-self' : 'chat-token-mention'}>{tokenText}</span>);
+        out.push(
+          <span key={key++} class={self ? 'chat-token-mention mention-self' : 'chat-token-mention'} data-nick={memberSet.get(candidate)}>
+            {tokenText}
+          </span>,
+        );
         last = m.index + tokenText.length;
         consumed = true;
       }

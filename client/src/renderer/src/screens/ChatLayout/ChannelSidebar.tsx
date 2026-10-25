@@ -231,14 +231,17 @@ interface ChannelRowProps {
 }
 
 // How far a channel has got since we asked to be in it: `joining` until the
-// server confirms the JOIN, `loading` until the member list and members' away
-// status have arrived, then `ready`. DMs are always ready.
+// server confirms the JOIN, `loading` until the member list has arrived (it
+// follows the JOIN), then `ready`. Members' away status and details come from
+// a WHO that's paced behind every other channel's — up to a minute on a
+// bouncer with many channels — and fill in when they land, so they don't
+// hold the channel up. DMs are always ready.
 export type ChannelSync = 'joining' | 'loading' | 'ready';
 
 export function channelSync(channel: ChatChannel): ChannelSync {
   if (!/^[#&]/.test(channel.name)) return 'ready';
   if (!channel.joined) return 'joining';
-  if (channel.namesLoaded === false || channel.whoLoaded === false) return 'loading';
+  if (channel.namesLoaded === false) return 'loading';
   return 'ready';
 }
 

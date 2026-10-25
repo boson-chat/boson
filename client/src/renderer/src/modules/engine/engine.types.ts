@@ -75,6 +75,8 @@ export interface IrcEvent {
   // Source hostname from the nick!user@host prefix, when present (NAMES with
   // userhost-in-names, JOIN, messages, WHO 352, CHGHOST). Drives presence.
   Host?: string;
+  // Source's ident (the "user" in nick!user@host); also from WHO and CHGHOST.
+  User?: string;
   // Source's services account when known (account-tag / extended-join /
   // ACCOUNT); empty/absent = not identified.
   Account?: string;

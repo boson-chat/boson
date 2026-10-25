@@ -72,6 +72,9 @@ type Event struct {
 	// Host is the source's hostname (from the nick!user@host prefix), when
 	// the wire carried one. Powers Boson-member presence matching.
 	Host string `json:"Host,omitempty"`
+	// User is the source's ident (the "user" in nick!user@host), with Host
+	// the rest of the user's mask. Also set from WHO (352) and CHGHOST.
+	User string `json:"User,omitempty"`
 	// Account is the source's services account name when known (from the
 	// account-tag, extended-join, or an ACCOUNT event); empty = not logged in.
 	Account string `json:"Account,omitempty"`
@@ -129,6 +132,10 @@ type Client struct {
 	// Bouncer (ZNC) upstream tracking — decides whether a 001 is the real
 	// network's welcome or ZNC's synthetic one. See bouncer.go.
 	bouncer *bouncerState
+	// sojuProto: the server's CAP LS offered soju.im/ caps — a bouncer that
+	// speaks soju's protocol (soju, evrd). Those answer WHO from their own
+	// member cache, so WHO goes out unpaced.
+	sojuProto atomic.Bool
 	// autoListDelay is initialAutoListDelay; a field so tests can shorten it.
 	autoListDelay time.Duration
 	// dispatch carries callback invocations (onEvent, onChannelDirectory,
@@ -201,6 +208,8 @@ func New(cfg Config) (*Client, error) {
 		//   chghost          — server pushes CHGHOST when a user's host
 		//                       changes (cloak grant, vhost), keeping the
 		//                       host current.
+		//   setname          — server pushes SETNAME when a user changes
+		//                       their realname, keeping profiles current.
 		// These identity signals back the "is this a Boson member?" presence
 		// matching. Servers that don't advertise a cap silently ignore it.
 		SupportedCaps: map[string][]string{
@@ -212,6 +221,7 @@ func New(cfg Config) (*Client, error) {
 			"extended-join":     nil,
 			"account-notify":    nil,
 			"chghost":           nil,
+			"setname":           nil,
 			// batch + chathistory power message backlog/scrollback. We
 			// request both the ratified `chathistory` and the older
 			// `draft/chathistory` so servers on either name negotiate it;
@@ -352,6 +362,9 @@ func tlsConfigFor(cfg Config) *tls.Config {
 func (c *Client) OnEvent(fn EventHandler) {
 	c.onEvent = fn
 	c.girc.Handlers.Add(girc.ALL_EVENTS, func(_ *girc.Client, e girc.Event) {
+		if e.Command == girc.CAP && isSojuCapLS(e) {
+			c.sojuProto.Store(true)
+		}
 		forwarded := false
 		forward := func() {
 			forwarded = true
@@ -933,6 +946,7 @@ func translate(e girc.Event) Event {
 	out := Event{Kind: e.Command, Raw: e.String()}
 	if e.Source != nil {
 		out.From = e.Source.Name
+		out.User = e.Source.Ident
 		out.Host = e.Source.Host
 	}
 	// Forward any IRCv3 tags girc parsed off the wire. We keep client tags
@@ -969,6 +983,9 @@ func translate(e girc.Event) Event {
 		// self-join). Plain JOIN has only the channel param, so this no-ops.
 		if e.Command == girc.JOIN && len(e.Params) >= 2 {
 			out.Account = normalizeAccount(e.Params[1])
+			if len(e.Params) >= 3 {
+				out.Message = e.Params[2] // realname
+			}
 		}
 	case girc.QUIT:
 		out.Message = e.Last()
@@ -1010,11 +1027,14 @@ func translate(e girc.Event) Event {
 		// state CHANGES, not the current state at join). Status field is
 		// 'H' here / 'G' gone (away), followed by optional sigils.
 		if len(e.Params) >= 7 {
-			out.Target = e.Params[1]         // channel
-			out.Host = e.Params[3]           // host — for presence matching
-			out.From = e.Params[5]           // nick
-			out.Args = []string{e.Params[6]} // status flags
-			slog.Info("irc: forwarding RPL_WHOREPLY",
+			out.Target = e.Params[1] // channel
+			out.User = e.Params[2]   // ident
+			out.Host = e.Params[3]   // host — for presence matching
+			out.From = e.Params[5]   // nick
+			// Status flags, then the server the user is on. Message is
+			// the trailing "<hopcount> <realname>".
+			out.Args = []string{e.Params[6], e.Params[4]}
+			slog.Debug("irc: forwarding RPL_WHOREPLY",
 				"channel", out.Target, "nick", out.From, "flags", e.Params[6])
 		} else {
 			slog.Warn("irc: 352 too short", "params", e.Params)
@@ -1030,9 +1050,13 @@ func translate(e girc.Event) Event {
 		// :nick!user@host CHGHOST <newuser> <newhost> — push the new host so
 		// presence matching tracks cloak/vhost changes.
 		if len(e.Params) >= 2 {
+			out.User = e.Params[0]
 			out.Host = e.Params[1]
 			out.Args = append([]string(nil), e.Params...)
 		}
+	case "SETNAME":
+		// setname: :nick!user@host SETNAME :<new realname>
+		out.Message = e.Last()
 	case "BATCH":
 		// BATCH +<ref> <type> [params...]  /  BATCH -<ref>
 		// Frames grouped messages (chathistory replies, etc.). Forward the
@@ -1261,4 +1285,10 @@ func isUpstreamEvidence(e girc.Event, self string) bool {
 // isZncHost: irc.znc.in (ZNC's own replies) or znc.in (its modules).
 func isZncHost(h string) bool {
 	return strings.EqualFold(h, zncServerName) || strings.EqualFold(h, zncStatusHost)
+}
+
+// isSojuCapLS reports a `CAP * LS` line offering a soju.im/ capability: a
+// bouncer speaking soju's protocol (soju itself, or one like evrd).
+func isSojuCapLS(e girc.Event) bool {
+	return len(e.Params) >= 2 && e.Params[1] == "LS" && strings.Contains(e.Last(), "soju.im/")
 }

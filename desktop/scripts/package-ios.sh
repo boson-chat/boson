@@ -108,7 +108,7 @@ xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
   -framework Security -framework CoreFoundation \
   -framework UniformTypeIdentifiers \
   -framework LocalAuthentication -framework UserNotifications \
-  -framework AVFoundation \
+  -framework AVFoundation -framework SafariServices \
   -framework CoreLocation -framework CoreMotion -framework SystemConfiguration -framework Network \
   -lresolv \
   ${sim_entitlements[@]+"${sim_entitlements[@]}"} \

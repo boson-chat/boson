@@ -5,11 +5,10 @@ import (
 	"net/url"
 	"os"
 	"sync"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// LinksService opens web links in the user's browser. The renderer routes
+// LinksService opens web links in the user's browser (on iOS, in an in-app
+// Safari view: links_ios.go). The renderer routes
 // window.open and any navigation away from the app here (platform/wails.ts):
 // Wails can't intercept them natively. Only http(s) URLs are opened; other
 // schemes are dropped.
@@ -40,7 +39,7 @@ func (l *LinksService) Open(raw string) error {
 		l.mu.Unlock()
 		return nil
 	}
-	return application.Get().Browser.OpenURL(u.String())
+	return openLink(u.String())
 }
 
 // Opened returns the recorded URLs (e2e builds only; empty otherwise).

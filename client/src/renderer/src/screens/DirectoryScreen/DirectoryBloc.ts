@@ -1705,6 +1705,11 @@ export class DirectoryBloc {
       onBouncerUpstreamWanted: (wanted) => this.rememberUpstreamWanted(server.id, wanted),
     });
     if (opts.carry) chat.seedConversations(opts.carry);
+    else {
+      // A fresh start: back to the channel the user was last reading.
+      const lastActive = this.sessionStore.load()?.servers.find((s) => s.server.id === server.id)?.activeChannel;
+      if (lastActive) chat.restoreActiveChannel(lastActive);
+    }
     chat.attach();
     chat.setNotifier((ev) => getNotifier().notify(ev));
 
