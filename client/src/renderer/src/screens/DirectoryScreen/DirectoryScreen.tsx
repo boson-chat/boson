@@ -13,6 +13,7 @@ import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
 import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
+import { useNarrow } from '../../shared/narrow';
 import { AtomLoader, Badge, BarLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { HostServerModal } from './HostServerModal';
@@ -113,6 +114,8 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
   // a server-rail tile and picks "Server details". Null otherwise; we render
   // the normal chat layout. The id is the connection's serverId.
   const [serverSettingsForId, setServerSettingsForId] = useState<string | null>(null);
+  // Phones: server settings take the whole screen, without the rail.
+  const narrow = useNarrow();
 
   const { me, showChat, restoring, serverBrowserOpen, connections, activeServerId } = state;
   const active = activeConnection(state);
@@ -121,7 +124,8 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
   // If the user opens server-settings, replace the channel sidebar + chat
   // area + user panel with the settings page. The server rail stays so the
   // user can switch servers (which closes settings) or open settings for a
-  // different server via right-click.
+  // different server via right-click. On a phone the page is full screen
+  // instead: the rail would leave it a sliver, and its back button returns.
   if (serverSettingsForId !== null) {
     const target = connections.find((c) => c.serverId === serverSettingsForId);
     if (!target || !me?.handle) {
@@ -130,7 +134,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
       const chatState = target.chat.getState();
       return (
         <div class="app-shell">
-          <ServerRail
+          {!narrow && <ServerRail
             servers={connections.map((c) => {
               const chs = c.chat.getState().channels;
               let unread = 0;
@@ -159,7 +163,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
             onBouncerConnect={(id) => bloc.bouncerConnect(id)}
             onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
             onReorderServers={(ids) => bloc.reorderServers(ids)}
-          />
+          />}
           <ServerSettings
             serverDisplayName={target.server.name}
             myNick={chatState.myNick || me.handle}

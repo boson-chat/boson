@@ -1,6 +1,9 @@
 import { useState, useLayoutEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
+import { isNarrow } from '../../shared/narrow';
+import { BottomSheet, type SheetAction } from './BottomSheet';
+import { useLongPress } from './long-press';
 import './ServerRail.css';
 
 export interface ServerRailTile {
@@ -71,9 +74,14 @@ export function ServerRail({
   // Right-click context menu state. Anchored to the tile, positioned at the
   // event's client coords so the menu pops up under the cursor.
   const [menu, setMenu] = useState<{ serverId: string; x: number; y: number } | null>(null);
+  // Phone layout: a long press on a tile opens the same actions in a sheet.
+  const [sheet, setSheet] = useState<string | null>(null);
+  const longPress = useLongPress(isNarrow);
+  const hasActions = !!(onOpenServerSettings || onLeaveServer || onBouncerConnect || onBouncerDisconnect);
   const handleContextMenu = (e: MouseEvent, serverId: string): void => {
-    if (!onOpenServerSettings && !onLeaveServer && !onBouncerConnect && !onBouncerDisconnect) return;
+    if (!hasActions) return;
     e.preventDefault();
+    if (isNarrow()) return;
     setMenu({ serverId, x: e.clientX, y: e.clientY });
   };
   const closeMenu = (): void => setMenu(null);
@@ -181,6 +189,8 @@ export function ServerRail({
         // we render ONE position:fixed bubble (below) positioned from the
         // hovered tile's rect.
         const showName = (e: MouseEvent): void => {
+          // No hover on a phone; a tap's emulated mouseenter would strand it.
+          if (isNarrow()) return;
           const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
           // Center the flyout on the tile's vertical midpoint; the CSS
           // translateY(-50%) does the rest. left = just past the tile's right edge.
@@ -201,6 +211,7 @@ export function ServerRail({
               aria-label={`${t.name}${titleSuffix}`}
               aria-current={isActive ? 'true' : undefined}
               onClick={() => onSelectServer(t.serverId)}
+              {...(hasActions ? longPress(() => setSheet(t.serverId)) : {})}
               onContextMenu={(e) => handleContextMenu(e, t.serverId)}
               onMouseEnter={showName}
               onMouseLeave={hideName}
@@ -228,6 +239,7 @@ export function ServerRail({
             class={cls}
             aria-label={t.name}
             aria-current={isActive ? 'true' : undefined}
+            {...(hasActions ? longPress(() => setSheet(t.serverId)) : {})}
             onContextMenu={(e) => handleContextMenu(e, t.serverId)}
             onMouseEnter={showName}
             onMouseLeave={hideName}
@@ -252,6 +264,28 @@ export function ServerRail({
       >
         +
       </button>
+
+      {sheet && (() => {
+        const tile = tiles.find((t) => t.serverId === sheet);
+        if (!tile) return null;
+        const upstream = tile.engineState === 'connected' ? tile.bouncerUpstream ?? null : null;
+        const id = tile.serverId;
+        const actions: SheetAction[] = [];
+        if (onOpenServerSettings) actions.push({ label: 'Server details', onClick: () => onOpenServerSettings(id) });
+        if (upstream === 'disconnected' && onBouncerConnect) actions.push({ label: 'Connect network', onClick: () => onBouncerConnect(id) });
+        if ((upstream === 'connected' || upstream === 'connecting') && onBouncerDisconnect) {
+          actions.push({ label: 'Disconnect network', onClick: () => onBouncerDisconnect(id) });
+        }
+        if (onLeaveServer) actions.push({ label: 'Leave server', danger: true, onClick: () => onLeaveServer(id) });
+        return (
+          <BottomSheet
+            label={tile.name}
+            header={<div class="server-rail-sheet-title">{tile.name}</div>}
+            actions={actions}
+            onClose={() => setSheet(null)}
+          />
+        );
+      })()}
 
       {menu && (() => {
         const tile = tiles.find((t) => t.serverId === menu.serverId);

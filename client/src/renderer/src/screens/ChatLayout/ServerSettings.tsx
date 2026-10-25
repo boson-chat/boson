@@ -15,6 +15,8 @@ import { Avatar } from '../../shared/Avatar/Avatar';
 import { HttpError } from '../../shared/http/http.client';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
 import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
+import { ChevronLeft } from 'lucide-preact';
+import { useNarrow } from '../../shared/narrow';
 import './ServerSettings.css';
 
 // Server settings screen. Renders to the right of the persistent ServerRail
@@ -186,6 +188,9 @@ export function ServerSettings({
   bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
+  // Phones: full screen, so a back chevron leads the header (as on the chat
+  // panes) in place of the corner ×.
+  const narrow = useNarrow();
   // Hide the owner-only tabs (Edit + Operators) when the parent didn't pass
   // ownership context. Filtering at render time keeps the menu uncluttered
   // for the 99% of viewers who don't own the row.
@@ -195,19 +200,26 @@ export function ServerSettings({
   return (
     <main class="server-settings">
       <header class="server-settings-header">
+        {narrow && (
+          <button type="button" class="chat-icon-btn chat-pane-back" onClick={onClose} aria-label="Close settings">
+            <ChevronLeft size={20} aria-hidden="true" />
+          </button>
+        )}
         <div class="server-settings-header-left">
           <span class="server-settings-eyebrow">Server settings</span>
           <h1 class="server-settings-title">{serverDisplayName}</h1>
         </div>
-        <button
-          type="button"
-          class="server-settings-close"
-          onClick={onClose}
-          aria-label="Close settings"
-          title="Back to chat"
-        >
-          ×
-        </button>
+        {!narrow && (
+          <button
+            type="button"
+            class="server-settings-close"
+            onClick={onClose}
+            aria-label="Close settings"
+            title="Back to chat"
+          >
+            ×
+          </button>
+        )}
       </header>
 
       <div class="server-settings-split">

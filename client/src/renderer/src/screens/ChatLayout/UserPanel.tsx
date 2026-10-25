@@ -5,6 +5,8 @@ import { ChevronLeft } from 'lucide-preact';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu } from './NickContextMenu';
+import { NickSheet, memberActivity, memberMeta, prefixClass, roleLabel } from './NickSheet';
+import { isNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
 import './UserPanel.css';
 
@@ -52,6 +54,8 @@ const HOVER_OPEN_DELAY_MS = 150;
 export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: UserPanelProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
+  // Phone layout: a tap opens the nick sheet in place of hover + menu.
+  const [sheet, setSheet] = useState<string | null>(null);
   // Debounce the hover-card open: we capture the row's bounding box on
   // mouseenter (which has to happen synchronously while the event still
   // owns the element) but defer flipping the state until the cursor has
@@ -115,7 +119,10 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
                 <div
                   key={m.nick}
                   class={`user-panel-item user-panel-item-${prefixClass(m.prefix)} user-panel-item-${presence}`}
+                  onClick={() => { if (isNarrow()) setSheet(m.nick); }}
                   onMouseEnter={(e) => {
+                    // A tap on a phone emulates mouseenter; the sheet covers it.
+                    if (isNarrow()) return;
                     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     const snapshot: HoverState = { member: m, rowTop: r.top, rowLeft: r.left };
                     cancelPendingOpen();
@@ -130,6 +137,7 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
+                    if (isNarrow()) return;
                     setMenu({ nick: m.nick, x: e.clientX, y: e.clientY });
                   }}
                 >
@@ -162,30 +170,17 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
           onClose={() => setMenu(null)}
         />
       )}
+      {sheet && (
+        <NickSheet
+          nick={sheet}
+          member={channel?.members.find((m) => m.nick === sheet) ?? null}
+          avatarUrl={avatarFor?.(sheet)}
+          actions={buildNickContextActions(sheet, nickActions)}
+          onClose={() => setSheet(null)}
+        />
+      )}
     </aside>
   );
-}
-
-function prefixClass(prefix: ChatMember['prefix']): string {
-  switch (prefix) {
-    case '~': return 'founder';
-    case '&': return 'admin';
-    case '@': return 'op';
-    case '%': return 'halfop';
-    case '+': return 'voice';
-    default:  return 'regular';
-  }
-}
-
-function roleLabel(prefix: ChatMember['prefix']): string {
-  switch (prefix) {
-    case '~': return 'Founder';
-    case '&': return 'Admin';
-    case '@': return 'Operator';
-    case '%': return 'Half-op';
-    case '+': return 'Voiced';
-    default:  return 'Member';
-  }
 }
 
 // Hover card rendered via portal at document.body so it can extend
@@ -198,17 +193,8 @@ function NickHoverCard({ member, rowTop, rowLeft }: {
   rowTop: number;
   rowLeft: number;
 }) {
-  const meta: { label: string; value: string }[] = [];
-  if (member.account) meta.push({ label: 'Account', value: member.account });
-  if (member.hostname) meta.push({ label: 'Host', value: member.hostname });
-  if (member.realname) meta.push({ label: 'Real name', value: member.realname });
-  if (member.awayMessage) meta.push({ label: 'Away', value: member.awayMessage });
-  let activity: string | null = null;
-  if (member.lastActiveAt) {
-    activity = `Last spoke ${formatDuration(Math.floor((Date.now() - member.lastActiveAt) / 1000))} ago`;
-  } else if (member.joinedAt) {
-    activity = `Joined ${formatDuration(Math.floor((Date.now() - member.joinedAt) / 1000))} ago`;
-  }
+  const meta = memberMeta(member);
+  const activity = memberActivity(member);
   // Position: card's RIGHT edge sits 8px to the left of the hovered row,
   // vertically aligned at the row's top. Clamp to viewport so we don't
   // overflow off the top edge on a row near y=0.
@@ -240,11 +226,4 @@ function NickHoverCard({ member, rowTop, rowLeft }: {
       )}
     </div>
   );
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
 }

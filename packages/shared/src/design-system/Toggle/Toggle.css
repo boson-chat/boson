@@ -18,6 +18,8 @@
 
 .bds-toggle-track {
   position: relative;
+  /* A long label wraps; the switch keeps its size. */
+  flex-shrink: 0;
   width: 32px;
   height: 18px;
   background: var(--surface-raised);
@@ -68,6 +70,7 @@
 .bds-toggle-input:focus-visible + .bds-toggle-track { box-shadow: var(--focus-ring); }
 
 .bds-toggle-label {
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--fg-2);

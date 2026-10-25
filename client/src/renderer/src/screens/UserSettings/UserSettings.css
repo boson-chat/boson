@@ -89,6 +89,10 @@
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
 }
+/* A section's flat card has no edge, so its padding plus the body's only
+   indents the controls away from the heading. Line them up with it. */
+.user-settings-section .bds-card-flat { padding: 0; }
+.user-settings-section .bds-card-flat > .user-settings-card-body { padding: var(--space-2) 0; }
 
 .user-settings-row {
   display: grid;

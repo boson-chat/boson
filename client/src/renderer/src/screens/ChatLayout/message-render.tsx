@@ -15,6 +15,11 @@ import { emojiFor } from './emoji-data';
 import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu } from './NickContextMenu';
+import { NickSheet } from './NickSheet';
+import { MessageSheet } from './MessageSheet';
+import type { SheetAction } from './BottomSheet';
+import { useLongPress } from './long-press';
+import { isNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
 import { resolveScrollTop, AT_BOTTOM_SLACK } from './scroll-resolve';
 
@@ -58,6 +63,12 @@ const HOVER_OPEN_DELAY_MS = 150;
 export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
+  // Phone layout: a tap on the author opens the nick sheet in place of hover
+  // + menu, and a long press on the message opens the message sheet in place
+  // of a text selection.
+  const [sheet, setSheet] = useState(false);
+  const [msgSheet, setMsgSheet] = useState(false);
+  const longPress = useLongPress(isNarrow)(() => setMsgSheet(true));
   // Debounce-on-enter timer for the hover card — see `UserPanel.tsx`.
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelPendingOpen = () => {
@@ -66,6 +77,39 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
       openTimer.current = null;
     }
   };
+
+  const messageActions = (): SheetAction[] => {
+    const theirs = msg.from !== myNick;
+    const out: SheetAction[] = [];
+    if (theirs && nickActions?.onMention) out.push({ label: 'Reply', onClick: () => nickActions.onMention!(msg.from) });
+    out.push({ label: 'Copy text', onClick: () => { void navigator.clipboard?.writeText(stripIrcFormatting(msg.text)); } });
+    if (theirs && nickActions?.onSendMessage) {
+      out.push({ label: `Message ${msg.from}`, onClick: () => nickActions.onSendMessage!(msg.from) });
+    }
+    out.push({ label: 'View profile', onClick: () => setSheet(true) });
+    return out;
+  };
+  const sheets = (
+    <>
+      {msgSheet && (
+        <MessageSheet
+          msg={msg}
+          avatarUrl={avatarFor?.(msg.from)}
+          actions={messageActions()}
+          onClose={() => setMsgSheet(false)}
+        />
+      )}
+      {sheet && (
+        <NickSheet
+          nick={msg.from}
+          member={members.find((m) => m.nick === msg.from) ?? null}
+          avatarUrl={avatarFor?.(msg.from)}
+          actions={buildNickContextActions(msg.from, nickActions)}
+          onClose={() => setSheet(false)}
+        />
+      )}
+    </>
+  );
 
   if (msg.kind === 'system' || msg.kind === 'join' || msg.kind === 'part' || msg.kind === 'quit') {
     return (
@@ -84,11 +128,12 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
 
   if (msg.kind === 'action') {
     return (
-      <div class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`}>
+      <div class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`} {...longPress}>
         <span class="message-action-star">*</span>
         <span class="message-action-name">{msg.from}</span>
         <span class="message-action-text">{renderedText}</span>
         <span class="message-row-time">{time}</span>
+        {sheets}
       </div>
     );
   }
@@ -106,12 +151,14 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
   const badge = ROLE_BADGES[findMemberPrefix(members, msg.from)];
 
   return (
-    <div class={classes}>
+    <div class={classes} {...longPress}>
       {/* Avatar gutter — the initial tile leads the first message of a group;
           grouped follow-ups keep the gutter empty so text stays aligned. */}
       <div class="message-row-gutter">
         {!grouped && (
-          <Avatar nick={msg.from} url={avatarFor?.(msg.from)} size={30} class="message-avatar" />
+          <span onClick={() => { if (isNarrow()) setSheet(true); }}>
+            <Avatar nick={msg.from} url={avatarFor?.(msg.from)} size={30} class="message-avatar" />
+          </span>
         )}
       </div>
       <div class="message-row-body">
@@ -121,9 +168,13 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
               class="message-row-name"
               onContextMenu={(e) => {
                 e.preventDefault();
+                if (isNarrow()) return;
                 setMenu({ nick: msg.from, x: e.clientX, y: e.clientY });
               }}
+              onClick={() => { if (isNarrow()) setSheet(true); }}
               onMouseEnter={(e) => {
+                // A tap on a phone emulates mouseenter; the sheet covers it.
+                if (isNarrow()) return;
                 const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                 const snapshot = { nick: msg.from, top: r.top, left: r.left };
                 cancelPendingOpen();
@@ -165,6 +216,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
           onClose={() => setMenu(null)}
         />
       )}
+      {sheets}
       {hover && createPortal(
         <MessageNickHoverCard
           nick={hover.nick}

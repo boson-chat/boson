@@ -193,6 +193,18 @@ export function ChatArea({
     [messagesSignal, channel?.messages],
   );
 
+  // Mention (and a message's Reply) puts `@nick ` at the front of the input
+  // and focuses it, keeping whatever was already typed.
+  const rowNickActions = useMemo<NickActions | undefined>(() => nickActions && {
+    ...nickActions,
+    onMention: (nick: string) => {
+      const tag = `@${nick} `;
+      const input = bloc.getState().input;
+      if (!input.startsWith(tag)) bloc.insertAtCursor(tag, 0, 0);
+      else bloc.insertAtCursor('', input.length, input.length); // already there: just focus
+    },
+  }, [nickActions, bloc]);
+
   // Connecting + disconnected splash. Three visual modes, all routed
   // through the same panel so a state flip (disconnected → connecting
   // → disconnected → connecting → connected) doesn't visually thrash:
@@ -383,7 +395,7 @@ export function ChatArea({
         members={channel.members}
         myNick={myNick}
         scrollRef={scrollRef}
-        nickActions={nickActions}
+        nickActions={rowNickActions}
         channelName={channel.name}
         avatarFor={avatarFor}
         onLoadOlder={onLoadOlder ? () => onLoadOlder(channel.name) : undefined}
