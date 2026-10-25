@@ -215,8 +215,8 @@ describe('ChatService', () => {
     engine.emit(makeEvent({ Kind: '366', Target: '#general' }));
     const members = chat.getState().channels[0]!.members;
     expect(members).toEqual([
-      { nick: 'james', prefix: '~', hostname: 'host1' },
-      { nick: 'alice', prefix: '@', hostname: 'host2' },
+      { nick: 'james', prefix: '~', user: 'james', hostname: 'host1' },
+      { nick: 'alice', prefix: '@', user: 'alice', hostname: 'host2' },
       { nick: 'bob',   prefix: '+' },
     ]);
   });

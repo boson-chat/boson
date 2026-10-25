@@ -35,19 +35,61 @@ export type MemberPrefix = '@' | '+' | '%' | '~' | '&' | '';
 //   prefix        — RPL_NAMREPLY (353); future: MODE +o/-o updates
 //   joinedAt      — local clock at the moment we saw their JOIN
 //   lastActiveAt  — local clock at their last PRIVMSG/NOTICE/ACTION
-//   realname      — TODO: RPL_WHOISUSER (311) — not yet forwarded by engine
-//   hostname      — TODO: RPL_WHOISUSER (311) — not yet forwarded by engine
-//   account       — TODO: RPL_WHOISACCOUNT (330) or extended-join CAP
-//   awayMessage   — TODO: RPL_AWAY (301); null = explicitly back, undefined = unknown
+//   user, hostname — the nick!user@host mask: NAMES (userhost-in-names),
+//                   JOIN, WHO (352), CHGHOST
+//   realname      — WHO (352), extended-join, SETNAME
+//   server        — WHO (352): the server they're connected to
+//   account       — extended-join, account-tag, ACCOUNT
+//   oper, bot     — WHO (352) flags `*` and `B`
+//   awayMessage   — WHO (352) H/G, away-notify; null = explicitly back,
+//                   undefined = unknown
 export interface ChatMember {
   nick: string;
   prefix: MemberPrefix;
   joinedAt?: number;
   lastActiveAt?: number;
+  /** Ident: the "user" in nick!user@host. */
+  user?: string;
   realname?: string;
   hostname?: string;
+  server?: string;
   account?: string;
+  /** An IRC operator (network staff, not a channel op). */
+  oper?: boolean;
+  /** Marked as a bot (user mode +B). */
+  bot?: boolean;
   awayMessage?: string | null;
+}
+
+// What a WHOIS told us about a nick, filled in reply by reply (311–671)
+// until RPL_ENDOFWHOIS (318). Fields are absent when the server didn't say.
+export interface WhoisInfo {
+  nick: string;
+  user?: string;
+  host?: string;
+  realname?: string;
+  server?: string;
+  serverInfo?: string;
+  account?: string;
+  /** Connected over TLS (671 RPL_WHOISSECURE). */
+  secure?: boolean;
+  /** The operator line, e.g. "is an IRC Operator" (313). */
+  oper?: string;
+  bot?: boolean;
+  idleSeconds?: number;
+  /** When they connected, ms since the epoch (317). */
+  signonAt?: number;
+  /** Channels as the server lists them, with prefixes: "@#ops". */
+  channels?: string[];
+  /** The real host or IP behind a cloak, when we may see it (338/378). */
+  actualHost?: string;
+  away?: string;
+  /** True until 318 arrives. */
+  loading: boolean;
+  /** 401: no such nick (they've gone). */
+  notFound?: boolean;
+  /** When the request went out (local clock). */
+  requestedAt: number;
 }
 
 export interface ChatChannel {

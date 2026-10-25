@@ -5,7 +5,8 @@ import { ChevronLeft } from 'lucide-preact';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu } from './NickContextMenu';
-import { NickSheet, memberActivity, memberMeta, prefixClass, roleLabel } from './NickSheet';
+import { NickSheet } from './NickSheet';
+import { NickProfileCard, anchorOf, memberActivity, prefixClass, profileRows, roleLabel, type ProfileAnchor } from './nick-profile';
 import { isNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
 import './UserPanel.css';
@@ -54,8 +55,10 @@ const HOVER_OPEN_DELAY_MS = 150;
 export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: UserPanelProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
-  // Phone layout: a tap opens the nick sheet in place of hover + menu.
+  // A click opens the nick's profile: a card beside the list, or on a
+  // phone the nick sheet (in place of hover + menu).
   const [sheet, setSheet] = useState<string | null>(null);
+  const [card, setCard] = useState<{ nick: string; anchor: ProfileAnchor } | null>(null);
   // Debounce the hover-card open: we capture the row's bounding box on
   // mouseenter (which has to happen synchronously while the event still
   // owns the element) but defer flipping the state until the cursor has
@@ -119,10 +122,15 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
                 <div
                   key={m.nick}
                   class={`user-panel-item user-panel-item-${prefixClass(m.prefix)} user-panel-item-${presence}`}
-                  onClick={() => { if (isNarrow()) setSheet(m.nick); }}
+                  onClick={(e) => {
+                    if (isNarrow()) { setSheet(m.nick); return; }
+                    cancelPendingOpen();
+                    setHover(null);
+                    setCard({ nick: m.nick, anchor: anchorOf(e.currentTarget as Element) });
+                  }}
                   onMouseEnter={(e) => {
                     // A tap on a phone emulates mouseenter; the sheet covers it.
-                    if (isNarrow()) return;
+                    if (isNarrow() || card) return;
                     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     const snapshot: HoverState = { member: m, rowTop: r.top, rowLeft: r.left };
                     cancelPendingOpen();
@@ -176,7 +184,20 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
           member={channel?.members.find((m) => m.nick === sheet) ?? null}
           avatarUrl={avatarFor?.(sheet)}
           actions={buildNickContextActions(sheet, nickActions)}
+          profiles={nickActions?.profiles}
           onClose={() => setSheet(null)}
+        />
+      )}
+      {card && (
+        <NickProfileCard
+          nick={card.nick}
+          member={channel?.members.find((m) => m.nick === card.nick) ?? null}
+          avatarUrl={avatarFor?.(card.nick)}
+          anchor={card.anchor}
+          side="left"
+          actions={buildNickContextActions(card.nick, nickActions)}
+          profiles={nickActions?.profiles}
+          onClose={() => setCard(null)}
         />
       )}
     </aside>
@@ -193,7 +214,7 @@ function NickHoverCard({ member, rowTop, rowLeft }: {
   rowTop: number;
   rowLeft: number;
 }) {
-  const meta = memberMeta(member);
+  const meta = profileRows(member.nick, member);
   const activity = memberActivity(member);
   // Position: card's RIGHT edge sits 8px to the left of the hovered row,
   // vertically aligned at the row's top. Clamp to viewport so we don't

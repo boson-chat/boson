@@ -2,7 +2,7 @@
 // member list (UserPanel) and message authors (message-render). Keeps the
 // base actions (copy / DM / mention / ignore) and the channel-operator
 // section (op/voice/kick/ban/…) in one place, gated by the caller's rank.
-import type { MemberPrefix } from '../../modules/chat';
+import type { MemberPrefix, WhoisInfo } from '../../modules/chat';
 import {
   prefixRank, canOp, canHalfop, canVoice, canKick, canBan,
 } from '../../modules/chat';
@@ -25,6 +25,13 @@ export interface ChannelOpActions {
   kickBan: (nick: string) => void;
 }
 
+// WHOIS for profiles, from ChatService. `info` reads a signal, so a
+// component calling it in render re-renders as the replies land.
+export interface NickProfiles {
+  info: (nick: string) => WhoisInfo | undefined;
+  request: (nick: string) => void;
+}
+
 export interface NickActions {
   /** Open a DM with this nick. Maps to `/msg <nick>` semantics. */
   onSendMessage?: (nick: string) => void;
@@ -34,6 +41,8 @@ export interface NickActions {
   onIgnore?: (nick: string) => void;
   /** Channel-operator actions, gated by myRank. Absent outside channels. */
   ops?: ChannelOpActions;
+  /** WHOIS lookups for the profile a click on a nick opens. */
+  profiles?: NickProfiles;
 }
 
 const OWNER_RANK = 5;

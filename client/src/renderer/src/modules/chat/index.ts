@@ -23,7 +23,9 @@ export type {
   ChannelModes,
   ChannelListEntry,
   ChannelMemberMode,
+  WhoisInfo,
 } from './chat.types';
+export { formatMask } from './whois';
 export {
   prefixRank,
   banMask,

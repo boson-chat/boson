@@ -147,8 +147,10 @@ describe('UserPanel custom hover card', () => {
             makeMember({
               nick: 'alice',
               account: 'alice!ircaccount',
+              user: '~alice',
               hostname: 'unaffiliated/alice',
               realname: 'Alice Liddell',
+              server: 'tantalum.libera.chat',
               awayMessage: 'bbiab',
             }),
           ],
@@ -157,7 +159,8 @@ describe('UserPanel custom hover card', () => {
     );
     hoverRow(document.querySelector('.user-panel-item')!);
     expect(screen.getByText('alice!ircaccount')).toBeInTheDocument();
-    expect(screen.getByText('unaffiliated/alice')).toBeInTheDocument();
+    expect(screen.getByText('alice!~alice@unaffiliated/alice')).toBeInTheDocument();
+    expect(screen.getByText('tantalum.libera.chat')).toBeInTheDocument();
     expect(screen.getByText('Alice Liddell')).toBeInTheDocument();
     expect(screen.getByText('bbiab')).toBeInTheDocument();
   });

@@ -10,7 +10,7 @@ import { UserPanel } from './UserPanel';
 import { ChannelSettings } from './ChannelSettings';
 import { ResizeHandle } from './ResizeHandle';
 import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/panel-sizes';
-import type { ChannelOpActions } from './nick-actions';
+import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { useNarrow } from '../../shared/narrow';
@@ -148,7 +148,12 @@ export function ChatLayout({
       kick: (n: string) => { setKickReason(''); setKickTarget({ nick: n, ban: false }); },
       kickBan: (n: string) => { setKickReason(''); setKickTarget({ nick: n, ban: true }); },
     } : undefined;
-    return { onSendMessage: (nick: string) => chat.openDM(nick), ops };
+    // WHOIS for the profile a click on a nick opens (absent on test fakes).
+    const profiles: NickProfiles | undefined = typeof chat.requestWhois === 'function' ? {
+      info: (n: string) => chat.whois.value.get(n.toLowerCase()),
+      request: (n: string) => chat.requestWhois(n),
+    } : undefined;
+    return { onSendMessage: (nick: string) => chat.openDM(nick), ops, profiles };
   }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere]);
 
   // Resolves a nick → profile-image URL for Boson members on this server
