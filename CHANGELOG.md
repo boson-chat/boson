@@ -1,3 +1,9 @@
+## [0.41.0](https://github.com/boson-chat/boson/compare/v0.40.0...v0.41.0) (2026-10-25)
+
+### Features
+
+* user profiles, clickable nicks, in-app links, faster channel loading ([#29](https://github.com/boson-chat/boson/issues/29)) ([3971640](https://github.com/boson-chat/boson/commit/3971640b2af6e45faf2aedd25e0b4ee13a0ec03b))
+
 ## [0.40.0](https://github.com/boson-chat/boson/compare/v0.39.1...v0.40.0) (2026-10-25)
 
 ### Features
