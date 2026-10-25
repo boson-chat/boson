@@ -2809,7 +2809,10 @@ export class ChatService {
         // long enough for a bouncer to drop us for not reading.
         const ch = this.channels.get(key);
         if (ch && ch.members.length > 0) {
-          const idx = ch.members.findIndex((m) => m.nick.toLowerCase() === nickLower);
+          // Exact first: servers mostly spell a nick the same in NAMES and
+          // WHO, and comparing as-is skips lowercasing every member.
+          let idx = ch.members.findIndex((m) => m.nick === e.From);
+          if (idx < 0) idx = ch.members.findIndex((m) => m.nick.toLowerCase() === nickLower);
           const next = idx < 0 ? null : withWhoReply(ch.members[idx]!, reply);
           if (next) {
             ch.members = ch.members.slice();
