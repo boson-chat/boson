@@ -1,3 +1,9 @@
+## [0.40.0](https://github.com/boson-chat/boson/compare/v0.39.1...v0.40.0) (2026-10-25)
+
+### Features
+
+* **mobile:** Boson on iOS (Wails v3) — plan, spike and phone UI ([#28](https://github.com/boson-chat/boson/issues/28)) ([1a8e0a5](https://github.com/boson-chat/boson/commit/1a8e0a5502373ded12b9adf68101cb1188c27fe8)), closes [#app](https://github.com/boson-chat/boson/issues/app)
+
 ## [0.39.1](https://github.com/boson-chat/boson/compare/v0.39.0...v0.39.1) (2026-10-16)
 
 ### Bug Fixes

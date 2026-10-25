@@ -1,6 +1,6 @@
 {
   "name": "boson-client",
-  "version": "0.39.1",
+  "version": "0.40.0",
   "private": true,
   "description": "Boson — desktop IRC client (the renderer; the desktop app is desktop/).",
   "homepage": "https://boson.chat",
