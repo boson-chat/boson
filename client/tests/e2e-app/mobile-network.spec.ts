@@ -34,7 +34,7 @@ test.describe('phone network', () => {
   test.beforeEach(async () => { proxy = await startNetProxy(); peer = await connectPeer(); });
   test.afterEach(async () => { await peer.quit(); await proxy.close(); });
 
-  async function setup(launchApp: Parameters<Parameters<typeof test>[1]>[0]['launchApp']) {
+  async function setup(launchApp: Parameters<typeof connectGuest>[0]) {
     const { page } = await connectGuest(launchApp, { port: proxy.port });
     const channel = randomChannel('net');
     await joinChannel(page, channel);
