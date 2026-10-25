@@ -33,6 +33,9 @@ export interface ConnectParams {
   // automatically. At most once per engine connection; never after an
   // explicit `bouncer-disconnect`.
   bouncerAutoConnect?: boolean;
+  // Send to the bouncer unpaced: the user turned flood control off in the
+  // bouncer profile. Only meaningful with `bouncer`.
+  bouncerNoFloodControl?: boolean;
 }
 
 export interface JoinParams { serverId: string; channel: string }

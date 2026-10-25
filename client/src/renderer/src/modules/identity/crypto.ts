@@ -221,6 +221,9 @@ export interface BouncerProfileSecret {
   tlsInsecure: boolean;
   username: string;
   password: string;
+  // Client-side flood control on lines to the bouncer. Absent = on (profiles
+  // saved before the setting existed); false sends them unpaced.
+  floodControl?: boolean;
 }
 
 // bouncerKey = HMAC-SHA256(user_secret, "bouncer-profile-v1"), imported as a

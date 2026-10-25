@@ -383,6 +383,25 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('restores the saved session without waiting for the directory list', async () => {
+    const sessionStore = new SessionStore(memoryStorage());
+    sessionStore.upsertServer({ id: 'libera', name: 'Libera', hostname: 'irc.libera.chat', port: 6697, tls: true });
+    const engine = fakeEngine();
+    // The directory never answers.
+    const listServers = vi.fn(() => new Promise<never>(() => {})) as unknown as DirectoryService['listServers'];
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: fakeDirectory({ user: fakeUser('alice'), list: listServers }),
+      identity: fakeIdentity(),
+      engine: engine.client,
+      sessionStore,
+    });
+    await flushPromises(6);
+    expect(engine.connectCalls.map((c) => c.serverId)).toEqual(['libera']);
+    expect(bloc.getState().servers).toBeNull();
+    bloc.dispose();
+  });
+
   it('flags `searching` while a refetch is in flight', async () => {
     let resolve!: (v: Awaited<ReturnType<DirectoryService['listServers']>>) => void;
     const listServers = vi.fn(async () => [fakeServer('libera')]) as unknown as DirectoryService['listServers'];
@@ -394,7 +413,7 @@ describe('DirectoryBloc', () => {
       engine: null,
       sessionStore: new SessionStore(memoryStorage()),
     });
-    await flushPromises();
+    await flushPromises(4);
     expect(bloc.getState().searching).toBe(false);
 
     (listServers as ReturnType<typeof vi.fn>).mockImplementationOnce(
@@ -1867,6 +1886,18 @@ describe('DirectoryBloc', () => {
       const call = await connectWithRoute({ route: true, network: 'libera', autoConnect: false }, profile);
       expect(call.bouncer).toBe(true);
       expect(call.bouncerAutoConnect).toBe(false);
+    });
+
+    it('keeps flood control on unless the profile turns it off', async () => {
+      const on = await connectWithRoute({ route: true, network: 'libera' }, profile);
+      expect(on.bouncerNoFloodControl).toBeUndefined();
+      const off = await connectWithRoute({ route: true, network: 'libera' }, { ...profile, floodControl: false });
+      expect(off.bouncerNoFloodControl).toBe(true);
+    });
+
+    it('never drops flood control on a direct connection', async () => {
+      const call = await connectWithRoute({ route: false, network: 'libera' }, { ...profile, floodControl: false });
+      expect(call.bouncerNoFloodControl).toBeUndefined();
     });
 
     it('omits the /network when the network name is blank', async () => {

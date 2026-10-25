@@ -43,6 +43,8 @@ type ConnectParams struct {
 	// BouncerAutoConnect: if the bouncer reports its upstream disconnected
 	// at attach time, the engine sends `connect` to the status bot itself.
 	BouncerAutoConnect bool `json:"bouncerAutoConnect,omitempty"`
+	// BouncerNoFloodControl: send to the bouncer unpaced (user setting).
+	BouncerNoFloodControl bool `json:"bouncerNoFloodControl,omitempty"`
 }
 
 type SASLPlain struct {

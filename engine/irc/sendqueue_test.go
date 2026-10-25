@@ -3,6 +3,7 @@ package irc
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -513,4 +514,56 @@ func TestSendQueue_AckCostsNoToken(t *testing.T) {
 	q.enqueueAck(ackPing(1))
 	// One token: the message spends it, the PING still goes.
 	assert.Equal(t, []string{"PRIVMSG #chan hi", "PING boson-ack-1"}, drain(q))
+}
+
+func TestClientPacing_BouncerFloodControlOff(t *testing.T) {
+	paced, err := New(Config{Hostname: "znc.example", Port: 6697, Nick: "me", Bouncer: true})
+	require.NoError(t, err)
+	require.Equal(t, bouncerPacing, paced.pacing())
+
+	off, err := New(Config{Hostname: "znc.example", Port: 6697, Nick: "me", Bouncer: true, BouncerNoFloodControl: true})
+	require.NoError(t, err)
+	require.Equal(t, noPacing, off.pacing())
+
+	// The setting is for bouncers only: a direct server keeps its limit.
+	direct, err := New(Config{Hostname: "irc.example", Port: 6697, Nick: "me", BouncerNoFloodControl: true})
+	require.NoError(t, err)
+	require.Equal(t, directPacing, direct.pacing())
+}
+
+func join(params ...string) *girc.Event {
+	return &girc.Event{Command: girc.JOIN, Params: params}
+}
+
+func TestSendQueue_ConsecutiveJoinsMerge(t *testing.T) {
+	q, _ := newTestQueue(directPacing)
+	for i := 0; i < 12; i++ {
+		q.enqueue(join(fmt.Sprintf("#c%d", i)), classInteractive, "")
+	}
+	q.enqueue(join("#keyed", "secret"), classInteractive, "")
+	q.enqueue(join("#after"), classInteractive, "")
+	q.enqueue(pm("#c0", "hi"), classInteractive, "")
+	q.enqueue(join("#last"), classInteractive, "")
+	assert.Equal(t, []string{
+		"JOIN #c0,#c1,#c2,#c3,#c4,#c5,#c6,#c7,#c8,#c9", // capped at joinBatchMaxChannels
+		"JOIN #c10,#c11",
+		"JOIN #keyed secret", // a key would apply to the wrong channel in a list
+		"JOIN #after",
+		"PRIVMSG #c0 hi",
+		"JOIN #last",
+	}, drain(q))
+	// One token per line, not per channel.
+	assert.InDelta(t, 0, q.available(), 0.01)
+}
+
+func TestSendQueue_JoinMergeRespectsLineLength(t *testing.T) {
+	q, _ := newTestQueue(pacing{})
+	long := "#" + strings.Repeat("x", 149) // two fit in joinBatchMaxBytes, three don't
+	q.enqueue(join(long), classInteractive, "")
+	q.enqueue(join(long+"2"), classInteractive, "")
+	q.enqueue(join(long+"3"), classInteractive, "")
+	got := drain(q)
+	require.Len(t, got, 2)
+	assert.Equal(t, "JOIN "+long+","+long+"2", got[0])
+	assert.Equal(t, "JOIN "+long+"3", got[1])
 }

@@ -564,4 +564,3 @@ func (b *bouncerState) disconnect() {
 	b.mu.Unlock()
 	post.run()
 }
-

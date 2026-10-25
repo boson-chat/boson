@@ -50,6 +50,10 @@ type Config struct {
 	// at attach time, send `connect` to the status bot automatically (once
 	// per engine connection, never after an explicit BouncerDisconnect).
 	BouncerAutoConnect bool
+	// BouncerNoFloodControl: the user turned flood control off for their
+	// bouncer, so lines to it go out unpaced (the bouncer still applies its
+	// own flood control upstream). Direct connections are always paced.
+	BouncerNoFloodControl bool
 }
 
 type SASLPlain struct {

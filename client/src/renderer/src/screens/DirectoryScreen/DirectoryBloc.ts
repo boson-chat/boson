@@ -112,10 +112,10 @@ const BOUNCER_REJOIN_MAX_MS = 30_000;
 // null when the connection doesn't go through one.
 function bouncerTarget(
   route: SavedServerBouncer | undefined,
-  profile: { host: string; port: number; tls: boolean; tlsInsecure?: boolean; username: string; password: string } | null,
+  profile: { host: string; port: number; tls: boolean; tlsInsecure?: boolean; username: string; password: string; floodControl?: boolean } | null,
 ): string {
   if (!route?.route || !profile) return 'direct';
-  return JSON.stringify([profile.host, profile.port, profile.tls, !!profile.tlsInsecure, profile.username, profile.password, (route.network ?? '').trim()]);
+  return JSON.stringify([profile.host, profile.port, profile.tls, !!profile.tlsInsecure, profile.username, profile.password, (route.network ?? '').trim(), profile.floodControl !== false]);
 }
 
 export interface DirectoryState {
@@ -1386,25 +1386,33 @@ export class DirectoryBloc {
   }
 
   private async loadInitial(): Promise<void> {
+    // The public directory is only the browse list: restoring the saved
+    // session doesn't need it, so it loads alongside the IRC connections
+    // instead of holding them back for a round trip (seconds on a phone).
+    // It is optional too: with the backend unreachable (offline, self-hosted
+    // setup, outage) the user must still see + connect to their locally-added
+    // servers. Surface the error but carry on with an empty public list
+    // instead of leaving `servers` null (an endless "Loading directory…" that
+    // hides local entries).
+    const listing = this.directory.listServers().then(
+      (list) => list,
+      (e: unknown) => {
+        if (!this.disposed) this.error = e instanceof Error ? e.message : String(e);
+        return [] as Server[];
+      },
+    );
+    const finishListing = async (): Promise<void> => {
+      const list = await listing;
+      if (this.disposed) return;
+      this.servers = list;
+      this.emit();
+      this.maybeFlushPendingDeepLink();
+    };
     try {
       // Guest mode: synthesise a User from the local nick — no backend /me
       // call. The id `__guest__` is stable across reloads so chat-history
       // scoping has a consistent key for the guest's local-only logs.
       if (this.guestNick) {
-        // The public directory is optional for a guest: with the backend
-        // unreachable (offline, self-hosted setup, outage) they must still
-        // see + connect to their locally-added servers and get their saved
-        // session restored. Surface the error but carry on with an empty
-        // public list instead of leaving `servers` null (an endless
-        // "Loading directory…" that hides local entries and blocks restore).
-        let list: Server[] = [];
-        try {
-          list = await this.directory.listServers();
-        } catch (e) {
-          if (this.disposed) return;
-          this.error = e instanceof Error ? e.message : String(e);
-        }
-        if (this.disposed) return;
         this.me = {
           id: '__guest__',
           handle: this.guestNick,
@@ -1412,15 +1420,13 @@ export class DirectoryBloc {
           encrypted_user_secret: '',
           created_at: new Date().toISOString(),
         };
-        this.servers = list;
         this.emit();
         this.maybeRestoreSession();
-        this.maybeFlushPendingDeepLink();
+        await finishListing();
         return;
       }
-      const [user, list, remoteSession] = await Promise.all([
+      const [user, remoteSession] = await Promise.all([
         this.directory.getMe(),
-        this.directory.listServers(),
         // Cloud-synced saved session for the signed-in user. Returns the
         // last-PUT payload or null if nothing's stored yet. Failures here
         // are non-fatal — we fall back to whatever's in localStorage.
@@ -1428,7 +1434,6 @@ export class DirectoryBloc {
       ]);
       if (this.disposed) return;
       this.me = user;
-      this.servers = list;
       // If the backend has a saved session, adopt it as authoritative —
       // last-write-wins across devices. Use saveSilent so applying the
       // remote state doesn't immediately PUT it back to the server.
@@ -1443,7 +1448,7 @@ export class DirectoryBloc {
       this.attachSessionSync();
       this.emit();
       this.maybeRestoreSession();
-      this.maybeFlushPendingDeepLink();
+      await finishListing();
     } catch (e) {
       if (this.disposed) return;
       this.error = e instanceof Error ? e.message : String(e);
@@ -1616,6 +1621,7 @@ export class DirectoryBloc {
     // True only when the bouncer branch below actually swaps the target —
     // a route on a disabled profile connects directly.
     let viaBouncer = false;
+    let bouncerNoFloodControl = false;
     if (route?.route) {
       const bouncerStore = getBouncerStore();
       await bouncerStore.whenHydrated?.();
@@ -1632,6 +1638,7 @@ export class DirectoryBloc {
         // SASL creds don't apply to that hop, so don't forward them.
         sasl = undefined;
         viaBouncer = true;
+        bouncerNoFloodControl = profile.floodControl === false;
       }
     }
     // Re-check after the awaits above: a concurrent connectWith for this
@@ -1670,7 +1677,12 @@ export class DirectoryBloc {
       // Bouncer hints for the engine: treat this as a bouncer link from the
       // start, and (unless the user opted out per server) ask the bouncer to
       // connect its upstream network when it attaches disconnected.
-      ...(viaBouncer ? { bouncer: true, bouncerAutoConnect: (route?.autoConnect ?? true) && !route?.upstreamOff } : {}),
+      // Flood control stays on unless the user turned it off in the profile.
+      ...(viaBouncer ? {
+        bouncer: true,
+        bouncerAutoConnect: (route?.autoConnect ?? true) && !route?.upstreamOff,
+        ...(bouncerNoFloodControl ? { bouncerNoFloodControl: true } : {}),
+      } : {}),
     });
     // Pass the nick-claim API so signed-in users get the automated
     // claim flow. The interface is the minimal subset of

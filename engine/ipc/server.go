@@ -464,15 +464,16 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 	s.mu.Unlock()
 
 	cfg := irc.Config{
-		Hostname:           p.Hostname,
-		Port:               p.Port,
-		TLS:                p.TLS,
-		Nick:               p.Nick,
-		NickservPassword:   p.NickservPassword,
-		ServerPass:         p.ServerPass,
-		TLSInsecure:        p.TLSInsecure,
-		Bouncer:            p.Bouncer,
-		BouncerAutoConnect: p.BouncerAutoConnect,
+		Hostname:              p.Hostname,
+		Port:                  p.Port,
+		TLS:                   p.TLS,
+		Nick:                  p.Nick,
+		NickservPassword:      p.NickservPassword,
+		ServerPass:            p.ServerPass,
+		TLSInsecure:           p.TLSInsecure,
+		Bouncer:               p.Bouncer,
+		BouncerAutoConnect:    p.BouncerAutoConnect,
+		BouncerNoFloodControl: p.BouncerNoFloodControl,
 	}
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}

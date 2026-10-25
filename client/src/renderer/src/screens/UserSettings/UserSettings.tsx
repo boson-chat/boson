@@ -543,6 +543,13 @@ function BouncerSection({ mode, open }: {
               self-signed cert that you trust. It weakens protection against interception.
             </p>
           )}
+          <Toggle checked={draft.floodControl !== false} onChange={(v) => set('floodControl', v)}
+            label="Flood control" />
+          <p class="user-settings-hint">
+            Paces what Boson sends so the network doesn't disconnect you for flooding. A bouncer
+            paces lines to the network itself, so you can turn this off to send without delay.
+            Reconnects servers that use the bouncer.
+          </p>
           <Field label="Username" hint="Your ZNC username. The per-server ZNC network name is appended automatically.">
             <Input value={draft.username} onInput={(e) => set('username', (e.target as HTMLInputElement).value)}
               placeholder="me" autoComplete="off" spellcheck={false} />
