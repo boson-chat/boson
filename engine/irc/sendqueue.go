@@ -492,19 +492,30 @@ func (c *Client) sendRawLine(line string, class sendClass) {
 	}
 }
 
-// pacing picks the token-bucket profile for this connection: generous for a
-// bouncer (declared by the renderer or detected on the wire), strict for a
-// direct server connection.
-// bouncerLocal reports a line addressed to one of the bouncer's own modules
-// (`*status`, `*playback`, …: ZNC's StatusPrefix, `*` by default), which the
-// bouncer answers itself instead of relaying upstream.
+// bouncerLocal reports a line the bouncer answers itself instead of relaying
+// upstream, which pacing would only delay:
+//   - one addressed to its own modules (`*status`, `*playback`, …: ZNC's
+//     StatusPrefix, `*` by default);
+//   - CHATHISTORY: a bouncer serves history from its own store;
+//   - WHO to a soju-protocol bouncer (soju, evrd), answered from its member
+//     cache. Paced, the per-channel WHO after an attach took a minute to
+//     drain on a bouncer with many channels.
 func (c *Client) bouncerLocal(ev *girc.Event) bool {
+	switch ev.Command {
+	case girc.WHO:
+		return c.sojuProto.Load()
+	case "CHATHISTORY":
+		return c.bouncer.isBouncer()
+	}
 	if ev.Command != girc.PRIVMSG && ev.Command != girc.NOTICE || len(ev.Params) == 0 {
 		return false
 	}
 	return strings.HasPrefix(ev.Params[0], "*") && c.bouncer.isBouncer()
 }
 
+// pacing picks the token-bucket profile for this connection: generous for a
+// bouncer (declared by the renderer or detected on the wire), strict for a
+// direct server connection.
 func (c *Client) pacing() pacing {
 	if c.bouncer.isBouncer() {
 		if c.cfg.BouncerNoFloodControl {

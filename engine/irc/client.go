@@ -132,6 +132,10 @@ type Client struct {
 	// Bouncer (ZNC) upstream tracking — decides whether a 001 is the real
 	// network's welcome or ZNC's synthetic one. See bouncer.go.
 	bouncer *bouncerState
+	// sojuProto: the server's CAP LS offered soju.im/ caps — a bouncer that
+	// speaks soju's protocol (soju, evrd). Those answer WHO from their own
+	// member cache, so WHO goes out unpaced.
+	sojuProto atomic.Bool
 	// autoListDelay is initialAutoListDelay; a field so tests can shorten it.
 	autoListDelay time.Duration
 	// dispatch carries callback invocations (onEvent, onChannelDirectory,
@@ -358,6 +362,9 @@ func tlsConfigFor(cfg Config) *tls.Config {
 func (c *Client) OnEvent(fn EventHandler) {
 	c.onEvent = fn
 	c.girc.Handlers.Add(girc.ALL_EVENTS, func(_ *girc.Client, e girc.Event) {
+		if e.Command == girc.CAP && isSojuCapLS(e) {
+			c.sojuProto.Store(true)
+		}
 		forwarded := false
 		forward := func() {
 			forwarded = true
@@ -1278,4 +1285,10 @@ func isUpstreamEvidence(e girc.Event, self string) bool {
 // isZncHost: irc.znc.in (ZNC's own replies) or znc.in (its modules).
 func isZncHost(h string) bool {
 	return strings.EqualFold(h, zncServerName) || strings.EqualFold(h, zncStatusHost)
+}
+
+// isSojuCapLS reports a `CAP * LS` line offering a soju.im/ capability: a
+// bouncer speaking soju's protocol (soju itself, or one like evrd).
+func isSojuCapLS(e girc.Event) bool {
+	return len(e.Params) >= 2 && e.Params[1] == "LS" && strings.Contains(e.Last(), "soju.im/")
 }

@@ -99,7 +99,8 @@ describe('channel join progress', () => {
 
   it('is loading until both the member list and away status have arrived', () => {
     expect(channelSync(chan({ namesLoaded: false, whoLoaded: false }))).toBe('loading');
-    expect(channelSync(chan({ namesLoaded: true, whoLoaded: false }))).toBe('loading');
+    // The WHO (away status, details) fills in later; it doesn't hold it up.
+    expect(channelSync(chan({ namesLoaded: true, whoLoaded: false }))).toBe('ready');
     expect(channelSync(chan({ namesLoaded: true, whoLoaded: true }))).toBe('ready');
   });
 
@@ -113,7 +114,7 @@ describe('channel join progress', () => {
         {...baseProps}
         channels={[
           chan({ name: '#a', joined: false }),
-          chan({ name: '#b', namesLoaded: true, whoLoaded: false }),
+          chan({ name: '#b', namesLoaded: false, whoLoaded: false }),
           chan({ name: '#c', namesLoaded: true, whoLoaded: true }),
         ]}
       />,
