@@ -1,4 +1,4 @@
-# Builds the desktop app (desktop/, Wails) for macOS, Windows and Linux:
+# Builds the app (desktop/, Wails) for macOS, Windows, Linux and Android:
 #
 #   macOS    Boson.app in a DMG per architecture (Apple Silicon, Intel),
 #            Developer ID signed with the hardened runtime, notarized and
@@ -9,6 +9,8 @@
 #   Linux    the binary + .desktop entry + icon in a tar.gz (GTK 4 /
 #            WebKitGTK 6.0)
 #            (both: desktop/scripts/package.sh)
+#   Android  a sideloadable APK (arm64), signed with our release key
+#            (desktop/scripts/package-android.sh)
 #
 # Every run uploads them as workflow artifacts (`boson-desktop-<os>`). On a
 # release tag (vX.Y.Z: pushed, or dispatched by release.yml, since
@@ -16,13 +18,18 @@
 # also attaches them to that GitHub Release under fixed names, which the
 # website's download links point at (…/releases/latest/download/<name>):
 #   Boson-mac-arm64.dmg, Boson-mac-x64.dmg, Boson-windows-x64.zip,
-#   Boson-linux-x86_64.tar.gz
+#   Boson-linux-x86_64.tar.gz, Boson-android.apk
 #
 # macOS signing secrets: CSC_LINK (base64 of the "Developer ID Application"
 # .p12), CSC_KEY_PASSWORD, APPLE_API_KEY (the App Store Connect .p8's
 # contents), APPLE_API_KEY_ID, APPLE_API_ISSUER. Without them (forks,
 # Dependabot) the build is ad-hoc signed and not notarized, and a release
 # fails rather than publish it.
+#
+# Android signing secrets: ANDROID_KEYSTORE (base64 of the release keystore),
+# ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. Without
+# them the APK is signed with a throwaway debug key, and a release leaves the
+# APK out: one signed with another key can't update an installed copy.
 name: Desktop app
 
 on:
@@ -202,12 +209,91 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  android:
+    name: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    env:
+      ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
+      VITE_BOSON_API_URL: https://api.boson.chat
+      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.27'
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
+
+      # Gradle 9 runs on 17+. The runner image has the Android SDK
+      # ($ANDROID_HOME) and NDKs ($ANDROID_NDK_LATEST_HOME).
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: install
+        run: npm ci
+
+      - name: Android signing key
+        if: env.ANDROID_SIGNING == 'true'
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+        run: |
+          ks="$RUNNER_TEMP/release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE" | base64 --decode > "$ks"
+          echo "ANDROID_KEYSTORE_FILE=$ks" >> "$GITHUB_ENV"
+
+      - name: build (Android)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" desktop/scripts/package-android.sh
+
+      - name: remove Android signing key
+        if: always() && env.ANDROID_KEYSTORE_FILE != ''
+        run: rm -f "$ANDROID_KEYSTORE_FILE"
+
+      # Signed with the release key, or not shipped.
+      - name: verify APK signature
+        if: env.ANDROID_SIGNING == 'true'
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          certs="$("$apksigner" verify --print-certs desktop/bin/android/*.apk)"
+          echo "$certs"
+          if grep -q 'CN=Android Debug' <<<"$certs"; then
+            echo "::error::The APK is signed with the debug key"
+            exit 1
+          fi
+
+      - name: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          # Release-signed builds only join the release (publish).
+          name: ${{ env.ANDROID_SIGNING == 'true' && 'boson-desktop-Android' || 'boson-android-debug' }}
+          path: desktop/bin/android/*.apk
+          retention-days: 14
+          if-no-files-found: error
+
   # Attach the builds to the GitHub Release semantic-release opened for this
-  # tag, under the version-free names the website links to.
+  # tag, under the version-free names the website links to. The APK joins
+  # when the Android job built a release-signed one; its failing doesn't
+  # hold back the desktop builds.
   publish:
     name: attach to the release
-    needs: build
-    if: github.ref_type == 'tag'
+    needs: [build, android]
+    if: github.ref_type == 'tag' && !cancelled() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -226,6 +312,11 @@ jobs:
           cp dist/*-mac-x64.dmg release/Boson-mac-x64.dmg
           cp dist/*-windows-amd64.zip release/Boson-windows-x64.zip
           cp dist/*-linux-amd64.tar.gz release/Boson-linux-x86_64.tar.gz
+          if ls dist/*-android.apk >/dev/null 2>&1; then
+            cp dist/*-android.apk release/Boson-android.apk
+          else
+            echo "::warning::No release-signed APK: the release goes out without Android"
+          fi
           (cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: upload to the release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2

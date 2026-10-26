@@ -33,6 +33,7 @@ var (
 )
 
 func main() {
+	platformEnv()
 	dist, err := fs.Sub(assets, "frontend/dist")
 	if err != nil {
 		log.Fatal(err)
