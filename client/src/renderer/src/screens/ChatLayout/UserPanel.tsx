@@ -6,7 +6,7 @@ import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
-import { NickProfileCard, anchorOf, memberActivity, prefixClass, profileRows, roleLabel, type ProfileAnchor } from './nick-profile';
+import { NickProfileCard, anchorOf, memberActivity, prefixClass, profileRows, roleLabel, useFitInWindow, type ProfileAnchor } from './nick-profile';
 import { isNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
 import './UserPanel.css';
@@ -217,13 +217,16 @@ function NickHoverCard({ member, rowTop, rowLeft }: {
   const meta = profileRows(member.nick, member);
   const activity = memberActivity(member);
   // Position: card's RIGHT edge sits 8px to the left of the hovered row,
-  // vertically aligned at the row's top. Clamp to viewport so we don't
-  // overflow off the top edge on a row near y=0.
+  // vertically aligned at the row's top, and kept inside the window (a row
+  // near the bottom pushes it up).
   const CARD_WIDTH = 240;
   const right = Math.max(8, window.innerWidth - rowLeft + 8);
   const top = Math.max(8, rowTop - 4);
+  const ref = useRef<HTMLDivElement>(null);
+  useFitInWindow(ref, top);
   return (
     <div
+      ref={ref}
       class="nick-hovercard nick-hovercard-portal"
       role="tooltip"
       style={`top: ${top}px; right: ${right}px; width: ${CARD_WIDTH}px;`}

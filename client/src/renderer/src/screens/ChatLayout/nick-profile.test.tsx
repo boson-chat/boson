@@ -169,3 +169,55 @@ describe('Profile on a phone', () => {
     expect(sheet.textContent).toContain('#general #boson');
   });
 });
+
+describe('Hover cards stay inside the window', () => {
+  const CARD_H = 180;
+  let offsetHeight: PropertyDescriptor | undefined;
+  let innerHeight: number;
+  beforeEach(() => {
+    offsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => CARD_H });
+    innerHeight = window.innerHeight;
+    window.innerHeight = 600;
+  });
+  afterEach(() => {
+    if (offsetHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', offsetHeight);
+    window.innerHeight = innerHeight;
+    document.body.querySelectorAll('.nick-hovercard-portal').forEach((n) => n.remove());
+  });
+
+  const rowAt = (el: Element, top: number): void => {
+    el.getBoundingClientRect = () => ({ top, bottom: top + 20, left: 900, right: 1100, width: 200, height: 20, x: 900, y: top, toJSON: () => ({}) });
+  };
+  const hoverCardTop = (): number => parseFloat(document.querySelector<HTMLElement>('[role="tooltip"]')!.style.top);
+
+  it('a member near the bottom pushes the card up', () => {
+    const channel: ChatChannel = {
+      name: '#general', joined: true, members: [bob], messages: [], typing: [], unread: 0, mentions: 0, topic: '',
+    };
+    render(<UserPanel channel={channel} />);
+    const row = document.querySelector('.user-panel-item')!;
+    rowAt(row, 570);
+    fireEvent.mouseEnter(row);
+    act(() => { vi.advanceTimersByTime(200); });
+    expect(hoverCardTop()).toBe(600 - CARD_H - 8);
+  });
+
+  it('a nick in a message near the bottom puts the card above it', () => {
+    render(<MessageRow msg={msg()} myNick="me" members={[bob]} />);
+    const name = document.querySelector('.message-row-name')!;
+    rowAt(name, 560);
+    fireEvent.mouseEnter(name);
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(hoverCardTop()).toBe(560 - 6 - CARD_H);
+  });
+
+  it('one with room below opens below', () => {
+    render(<MessageRow msg={msg()} myNick="me" members={[bob]} />);
+    const name = document.querySelector('.message-row-name')!;
+    rowAt(name, 100);
+    fireEvent.mouseEnter(name);
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(hoverCardTop()).toBe(124);
+  });
+});

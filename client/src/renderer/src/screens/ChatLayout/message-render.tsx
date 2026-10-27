@@ -16,7 +16,7 @@ import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
-import { NickProfileCard, anchorOf, profileRows, type ProfileAnchor } from './nick-profile';
+import { NickProfileCard, anchorOf, profileRows, useFitInWindow, type ProfileAnchor } from './nick-profile';
 import { MessageSheet } from './MessageSheet';
 import type { SheetAction } from './BottomSheet';
 import { useLongPress } from './long-press';
@@ -266,15 +266,17 @@ function MessageNickHoverCard({
   nick, member, top, left,
 }: { nick: string; member: ChatMember | null; top: number; left: number }) {
   // Anchor the card just below the nick by default so it doesn't cover
-  // the message text. Clamp inside the viewport so it can't escape off
-  // the top or bottom edge.
+  // the message text; above it when there's no room below.
   const CARD_WIDTH = 240;
-  const cardTop = Math.min(window.innerHeight - 16, top + 24);
+  const cardTop = top + 24;
   const cardLeft = Math.max(8, Math.min(left, window.innerWidth - CARD_WIDTH - 8));
+  const ref = useRef<HTMLDivElement>(null);
+  useFitInWindow(ref, cardTop, top - 6);
   const role = ROLE_BADGES[member?.prefix ?? ''];
   const meta = profileRows(nick, member);
   return (
     <div
+      ref={ref}
       class="nick-hovercard nick-hovercard-portal"
       role="tooltip"
       style={`top: ${cardTop}px; left: ${cardLeft}px; width: ${CARD_WIDTH}px;`}

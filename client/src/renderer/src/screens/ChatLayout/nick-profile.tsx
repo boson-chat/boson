@@ -173,6 +173,24 @@ export function anchorOf(el: Element): ProfileAnchor {
 const CARD_WIDTH = 300;
 const EDGE = 8;
 
+/**
+ * Keeps a fixed card's top inside the window once it's measured: at `top`
+ * when it fits, else ending at `flipBottom` (above what it hangs off) when
+ * given, else pushed up from the bottom edge.
+ */
+export function useFitInWindow(ref: { current: HTMLElement | null }, top: number, flipBottom?: number): void {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const h = el.offsetHeight;
+    const vh = window.innerHeight;
+    let y = top;
+    if (y + h > vh - EDGE && flipBottom !== undefined) y = flipBottom - h;
+    y = Math.max(EDGE, Math.min(y, vh - h - EDGE));
+    el.style.top = `${y}px`;
+  });
+}
+
 interface NickProfileCardProps {
   nick: string;
   /** The channel's record for the nick; null once they've left it. */

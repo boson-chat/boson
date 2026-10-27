@@ -173,10 +173,14 @@ So for v1:
 - **Android:** Gradle build on Linux; for now a sideloadable **APK** signed
   with our own release key (a new CI secret), attached to each GitHub
   Release. Later, with a Play Console account: an AAB and Play App Signing.
-- **CI:** a `mobile.yml` workflow like `desktop.yml`: builds on every PR
-  (an iOS simulator build and the Android APK); on release tags it attaches
-  the APK to the GitHub Release, and — once we want devices — uploads the
-  iOS build to TestFlight. Store submission stays manual.
+  Built by `desktop/scripts/package-android.sh` (arm64; `ARCHS="arm64 amd64"`
+  adds x86_64 for emulators and Chromebooks, `RUN=1` installs it with adb).
+- **CI:** the Android APK is a job in `desktop.yml`: built on every PR, and
+  on release tags attached to the GitHub Release as `Boson-android.apk`
+  when it was signed with the release key (secrets `ANDROID_KEYSTORE`,
+  `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`).
+  Still to come: an iOS simulator build on PRs and — once we want devices
+  — the iOS build uploaded to TestFlight. Store submission stays manual.
 - **Versions:** iOS 16+, Android 8.0 (API 26)+ (decided).
 
 ## Testing
