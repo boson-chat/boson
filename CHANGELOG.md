@@ -1,3 +1,9 @@
+## [0.42.0](https://github.com/boson-chat/boson/compare/v0.41.0...v0.42.0) (2026-10-27)
+
+### Features
+
+* **android:** APK in releases, and hover cards that stay on screen ([#30](https://github.com/boson-chat/boson/issues/30)) ([bb014e6](https://github.com/boson-chat/boson/commit/bb014e60d8b471925aec8a97ee4e30d13cc4456d))
+
 ## [0.41.0](https://github.com/boson-chat/boson/compare/v0.40.0...v0.41.0) (2026-10-25)
 
 ### Features
