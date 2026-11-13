@@ -1,0 +1,158 @@
+diff --git a/internal/password/password.go b/internal/password/password.go
+index 035d33b..e364fda 100644
+--- a/internal/password/password.go
++++ b/internal/password/password.go
+@@ -1,5 +1,8 @@
+ // Package password hashes passwords with argon2id into PHC strings and
+-// enforces the password policy.
++// enforces the password policy. Verify also accepts bcrypt hashes
++// ($2a$/$2b$/$2y$, as exported from Supabase Auth) so imported accounts can
++// sign in once; a successful bcrypt match always asks for a rehash, and the
++// login path then replaces it with argon2id.
+ package password
+ 
+ import (
+@@ -12,6 +15,7 @@ import (
+ 	"unicode/utf8"
+ 
+ 	"golang.org/x/crypto/argon2"
++	"golang.org/x/crypto/bcrypt"
+ )
+ 
+ const (
+@@ -75,6 +79,9 @@ func (h *Hasher) Hash(pw string) (string, error) {
+ // Verify reports whether pw matches the PHC string, and whether the hash
+ // should be replaced because it uses different parameters than h.
+ func (h *Hasher) Verify(pw, phc string) (ok, needsRehash bool, err error) {
++	if IsBcrypt(phc) {
++		return verifyBcrypt(pw, phc)
++	}
+ 	p, salt, want, err := decode(phc)
+ 	if err != nil {
+ 		return false, false, err
+@@ -84,6 +91,26 @@ func (h *Hasher) Verify(pw, phc string) (ok, needsRehash bool, err error) {
+ 	return ok, ok && p != h.params, nil
+ }
+ 
++// IsBcrypt reports whether hash is a modular-crypt bcrypt hash. These only
++// come from imports (Supabase Auth stores bcrypt); Hash never produces one.
++func IsBcrypt(hash string) bool {
++	return len(hash) == 60 && (strings.HasPrefix(hash, "$2a$") || strings.HasPrefix(hash, "$2b$") || strings.HasPrefix(hash, "$2y$"))
++}
++
++// verifyBcrypt checks an imported bcrypt hash. A match always needs a rehash
++// to argon2id. bcrypt only looks at the first 72 bytes of the password, which
++// is what the exporting system did too.
++func verifyBcrypt(pw, hash string) (ok, needsRehash bool, err error) {
++	switch err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(pw)); {
++	case err == nil:
++		return true, true, nil
++	case errors.Is(err, bcrypt.ErrMismatchedHashAndPassword):
++		return false, false, nil
++	default:
++		return false, false, ErrInvalidHash
++	}
++}
++
+ // VerifyDummy burns the same time as a real Verify. Call it when the account
+ // does not exist so response timing does not reveal that.
+ func (h *Hasher) VerifyDummy(pw string) {
+diff --git a/internal/password/password_test.go b/internal/password/password_test.go
+index a987976..f11d2d1 100644
+--- a/internal/password/password_test.go
++++ b/internal/password/password_test.go
+@@ -3,6 +3,8 @@ package password
+ import (
+ 	"strings"
+ 	"testing"
++
++	"golang.org/x/crypto/bcrypt"
+ )
+ 
+ var fast = Params{MemoryKiB: 1024, Iterations: 1, Parallelism: 1}
+@@ -96,3 +98,32 @@ func TestCheckPolicy(t *testing.T) {
+ 		}
+ 	}
+ }
++
++func TestVerifyImportedBcrypt(t *testing.T) {
++	h, _ := NewHasher(fast)
++	for _, prefix := range []string{"$2a$", "$2b$", "$2y$"} {
++		raw, err := bcrypt.GenerateFromPassword([]byte("supabase password"), bcrypt.MinCost)
++		if err != nil {
++			t.Fatal(err)
++		}
++		hash := prefix + string(raw[4:])
++		if !IsBcrypt(hash) {
++			t.Fatalf("IsBcrypt(%q) = false", hash)
++		}
++		ok, rehash, err := h.Verify("supabase password", hash)
++		if err != nil || !ok || !rehash {
++			t.Fatalf("%s correct: ok=%v rehash=%v err=%v", prefix, ok, rehash, err)
++		}
++		ok, rehash, err = h.Verify("wrong password", hash)
++		if err != nil || ok || rehash {
++			t.Fatalf("%s wrong: ok=%v rehash=%v err=%v", prefix, ok, rehash, err)
++		}
++	}
++	if _, _, err := h.Verify("x", "$2a$10$tooshort"); err == nil {
++		t.Fatal("accepted a truncated bcrypt hash")
++	}
++	phc, _ := h.Hash("whatever password")
++	if IsBcrypt(phc) {
++		t.Fatal("argon2id PHC detected as bcrypt")
++	}
++}
+diff --git a/test/integration/flows_test.go b/test/integration/flows_test.go
+index b070d22..91d010b 100644
+--- a/test/integration/flows_test.go
++++ b/test/integration/flows_test.go
+@@ -1,6 +1,7 @@
+ package integration
+ 
+ import (
++	"database/sql"
+ 	"strconv"
+ 	"strings"
+ 	"testing"
+@@ -10,6 +11,7 @@ import (
+ 	"github.com/boson-chat/auth/config"
+ 	"github.com/boson-chat/auth/internal/services/account"
+ 	"github.com/golang-jwt/jwt/v5"
++	"golang.org/x/crypto/bcrypt"
+ )
+ 
+ func TestRegisterVerifyLoginRefreshReuseLogout(t *testing.T) {
+@@ -493,3 +495,32 @@ func TestHostileBytes(t *testing.T) {
+ 		t.Fatalf("stored user agent %q (len %d)", ua, len(ua))
+ 	}
+ }
++
++// Accounts imported from Supabase carry bcrypt hashes: the first login
++// verifies bcrypt and replaces the hash with argon2id.
++func TestImportedBcryptPasswordUpgradesOnLogin(t *testing.T) {
++	e := newEnv(t)
++	id := e.registerVerified("imported", "imported@example.com")
++	raw, err := bcrypt.GenerateFromPassword([]byte("old supabase pw"), bcrypt.MinCost)
++	if err != nil {
++		t.Fatal(err)
++	}
++	sqldb, err := sql.Open("pgx", e.cfg.DBConfig.URL)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer sqldb.Close()
++	if _, err := sqldb.Exec(`UPDATE password_credentials SET hash = $1 WHERE user_id = $2`, string(raw), id); err != nil {
++		t.Fatal(err)
++	}
++	e.expect(e.login("imported", "wrong password!!"), 401, "invalid_credentials")
++	e.expect(e.login("imported", "old supabase pw"), 200, "")
++	var hash string
++	if err := sqldb.QueryRow(`SELECT hash FROM password_credentials WHERE user_id = $1`, id).Scan(&hash); err != nil {
++		t.Fatal(err)
++	}
++	if !strings.HasPrefix(hash, "$argon2id$") {
++		t.Fatalf("hash not upgraded: %q", hash)
++	}
++	e.expect(e.login("imported@example.com", "old supabase pw"), 200, "")
++}

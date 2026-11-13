@@ -10,10 +10,12 @@ Components in one monorepo:
 desktop/            The desktop app (Wails v3, Go): native window, the engine in-process, OS services
 client/             Preact renderer (the UI the desktop app shows)
 engine/             Go IRC engine — run inside the desktop app; `engine serve` bridges it over a WebSocket for browser dev
-backend/            Go HTTP API — Supabase auth, server directory, user sessions
+backend/            Go HTTP API — verifies auth-service tokens, server directory, user sessions
 packages/shared/    @boson/shared — design system (Button, Card, …) shared with the website
 website/            Public marketing site (Preact + Vite)
 ```
+
+Accounts and sign-in are the boson auth service ([boson-chat/auth](https://github.com/boson-chat/auth)); the move off Supabase Auth is described in [docs/migration-supabase-to-auth.md](./docs/migration-supabase-to-auth.md).
 
 ## Run it locally
 
@@ -22,8 +24,8 @@ website/            Public marketing site (Preact + Vite)
 - **Go** ≥ 1.27
 - **Node** ≥ 22.12 + npm
 - For the desktop app: a cgo toolchain — macOS: Xcode; Linux: GTK 4 + WebKitGTK 6.0 dev packages (`libgtk-4-dev libwebkitgtk-6.0-dev`); Windows: nothing extra (WebView2 ships with Windows 10/11)
-- **Docker** + `docker compose` (Postgres + Supabase Auth + ergo IRCd run in containers)
-- **Supabase CLI** — `brew install supabase/tap/supabase` or `npm i -g supabase`
+- **Docker** + `docker compose` (Postgres + the auth service + ergo IRCd run in containers)
+- **The auth service** — a checkout of [boson-chat/auth](https://github.com/boson-chat/auth) next to this one (`gh repo clone boson-chat/auth ../auth`, or set `AUTH_SRC`). Accounts, sign-in and tokens live there; `make auth-up` builds and runs it.
 
 ### First-time setup
 
@@ -34,12 +36,12 @@ make dev-up
 That single command spins up everything needed:
 
 - Postgres on `:5432` (via `docker compose`)
-- Supabase Auth stack (`supabase start`) — Studio on `http://localhost:54323`
+- The boson auth service on `http://localhost:8080` (`make auth-up`); its mail (verification, password reset) lands in the Mailpit at `http://localhost:8026`
 - Local ergo IRCd on `:6667` (under the `testing` profile, so it doesn't run in production stacks)
 - Runs `migrate-up` on the boson DB
 - Runs `seed-dev` to insert a "Local Ergo" entry into the server directory
 
-You only need to run this once per machine. Subsequent boots are just `make up && make supabase-up && make ergo-up` (or `make dev-up` again — all sub-steps are idempotent).
+You only need to run this once per machine. Subsequent boots are just `make up && make auth-up && make ergo-up` (or `make dev-up` again — all sub-steps are idempotent).
 
 ### Day-to-day: four shells
 
@@ -159,7 +161,7 @@ node scripts/e2e-stack.mjs status            # what's running where
 node scripts/e2e-stack.mjs restart-backend   # after backend code changes
 ```
 
-Needs docker, Go and the Supabase CLI. `make test-e2e-app-up`
+Needs docker, Go and an auth service checkout (`../auth`, or `AUTH_SRC=…`; or `AUTH_IMAGE=…` for a built image). `make test-e2e-app-up`
 (`client/scripts/e2e-stack.mjs up`, ~10s warm, idempotent) brings up the
 isolated stack; endpoints are in `infra/e2e/stack.json`:
 
@@ -170,21 +172,19 @@ isolated stack; endpoints are in `infra/e2e/stack.json`:
 | Postgres | `127.0.0.1:16432` | the backend's DB (`boson`/`boson`), migrated on `up` |
 | Mailpit (catch-all) | SMTP `:11025`, POP3 `:11110`, UI `http://127.0.0.1:18025` | boson.chat catch-all: ergo writes, the backend's nick-claim worker drains |
 | MinIO | `http://127.0.0.1:19000` (console `:19001`) | R2 stand-in, bucket `boson` (public read) |
-| Supabase Auth | `http://127.0.0.1:55321` | CLI project `boson-e2e` (`infra/e2e/supabase/`): Postgres + GoTrue + Kong only; email confirmation on |
-| Mailpit (auth) | `http://127.0.0.1:55324` | the users' inboxes: Supabase confirmation / recovery mail |
+| Auth service | `http://127.0.0.1:18180` | boson auth service (own Postgres on `:16433`), email verification required; admin `e2eadmin` for the tests' lookups |
+| Mailpit (auth) | `http://127.0.0.1:18325` | the users' inboxes: verification / password-reset mail |
 | Backend | `http://127.0.0.1:13000` | built from this checkout (`boson_dev`, `SKIP_DNS_VERIFY`), run on the host |
 
 Isolation, so it can run next to a live dev stack:
 
-- Compose project `boson-e2e` and Supabase project `boson-e2e` (own
-  containers, volumes, network, ports) — the dev `boson-*` containers and
-  the `supabase/` project are never touched. Compose state is tmpfs;
-  `down` stops Supabase with `--no-backup`.
+- Compose project `boson-e2e` (own containers, network, ports) — the dev
+  `boson-*` containers are never touched. Compose state is tmpfs.
 - The backend runs from `infra/e2e/.run/` (binary, pid, log) with all config
   from env, so a local `backend/config/config.dev.json` (which may hold real
   mail credentials) is never loaded; `down` only kills the PID it started.
 - The renderer is built into `client/out-e2e/` (`E2E_OUT_DIR` to change;
-  not `client/out/`) with the backend/Supabase URLs pinned to the e2e
+  not `client/out/`) with the backend/auth URLs pinned to the e2e
   stack, so a local `client/.env` can't leak in.
   Guest specs pass without the stack's account half running.
 - Every test launches the app with a throwaway `HOME`, `XDG_RUNTIME_DIR`,
@@ -263,7 +263,7 @@ make hooks-install      # install the pre-commit hook (go vet + tests + typechec
 
 ## Troubleshooting
 
-- **"Supabase not running"** — start it: `make supabase-up`.
+- **Sign-in says it can't reach the sign-in service** — start the auth service: `make auth-up` (and `make client-env`).
 - **`make seed-dev` errors** — Postgres isn't up yet; run `make up` first.
 - **Engine log panel inside Server settings shows "no entries"** — the engine binary isn't running, or the discovery file at `~/.boson/engine.json` is stale. Restart `make engine-serve`.
 - **Connection drops with no error in the splash** — open Server settings → Engine log. The raw IRC frames are there, including any 4xx/5xx server replies.
