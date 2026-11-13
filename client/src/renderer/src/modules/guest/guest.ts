@@ -1,11 +1,11 @@
-// Guest mode: lets users use Boson without a Supabase account. Stores just
+// Guest mode: lets users use Boson without an account. Stores just
 // the chosen IRC nick in localStorage. No backend /me call, no identity
 // unlock, no encrypted keys — guests can browse the server directory + IRC
 // freely, but features that need an account (server registration, etc.)
 // stay unavailable.
 //
 // Toggled by the LoginScreen's "Continue as guest" path. App router checks
-// `loadGuestSession()` and bypasses the Supabase + identity gates when set.
+// `loadGuestSession()` and bypasses the auth + identity gates when set.
 
 const STORAGE_KEY = 'boson:guest:v1';
 

@@ -4,9 +4,8 @@
 // IDBChatHistoryStore rows survive a reload. The keychain doesn't, so the
 // user must re-type their password — that's the only manual step.
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { signUpVerified, TEST_PASSWORD } from './auth-helper';
 
-const SUPABASE_URL = 'http://localhost:54321';
 const BOSON_URL = 'http://localhost:3000';
 const ERGO_HOST = 'localhost';
 const ERGO_PORT = 6667;
@@ -15,23 +14,9 @@ function uniqueEmail(prefix = 'hist'): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10_000)}@local.dev`;
 }
 
-async function readAnonKey(): Promise<string> {
-  if (process.env.VITE_SUPABASE_ANON_KEY) return process.env.VITE_SUPABASE_ANON_KEY;
-  const env = readFileSync('.env', 'utf8');
-  const m = env.match(/^VITE_SUPABASE_ANON_KEY=(.+)$/m);
-  if (!m) throw new Error('VITE_SUPABASE_ANON_KEY not found');
-  return m[1]!.trim();
-}
 
 async function setupUserAndServer(request: APIRequestContext) {
-  const anon = await readAnonKey();
-  const email = uniqueEmail();
-  const sign = await request.post(`${SUPABASE_URL}/auth/v1/signup`, {
-    headers: { 'Content-Type': 'application/json', apikey: anon },
-    data: { email, password: 'testtest' },
-  });
-  expect(sign.ok()).toBeTruthy();
-  const token = (await sign.json()).access_token as string;
+  const { email, token } = await signUpVerified(request, uniqueEmail());
   const handle = 'h' + Date.now().toString().slice(-9);
   const meRes = await request.post(`${BOSON_URL}/me`, {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -61,8 +46,8 @@ test.describe('IDB-backed channel scrollback', () => {
 
     // ---- Initial session: connect, join, send 3 messages.
     await page.goto('/');
-    await page.getByPlaceholder('email').fill(email);
-    await page.getByPlaceholder('password').fill('testtest');
+    await page.getByPlaceholder('username or email').fill(email);
+    await page.getByPlaceholder('password').fill(TEST_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByText(`@${handle}`)).toBeVisible({ timeout: 10_000 });
 
@@ -99,9 +84,9 @@ test.describe('IDB-backed channel scrollback', () => {
 
     // Reload — IdentityService is in-memory only so we end up on LoginScreen.
     await page.reload();
-    await expect(page.getByPlaceholder('email')).toBeVisible({ timeout: 10_000 });
-    await page.getByPlaceholder('email').fill(email);
-    await page.getByPlaceholder('password').fill('testtest');
+    await expect(page.getByPlaceholder('username or email')).toBeVisible({ timeout: 10_000 });
+    await page.getByPlaceholder('username or email').fill(email);
+    await page.getByPlaceholder('password').fill(TEST_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByText(`@${handle}`)).toBeVisible({ timeout: 10_000 });
 

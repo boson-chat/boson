@@ -1,8 +1,11 @@
+/* Centered, but scrollable when the form is taller than the window (the
+   sign-up form on a short window): margin:auto centers the container
+   without clipping its top the way align-items:center would. */
 .login-screen {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   background: var(--bg);
   padding: var(--space-4);
 }
@@ -10,6 +13,7 @@
 .login-container {
   width: 100%;
   max-width: 400px;
+  margin: auto;
   padding: var(--space-8);
 }
 
@@ -125,4 +129,25 @@
   display: flex;
   justify-content: center;
   margin-top: var(--space-2);
+}
+
+/* Info line (reset / verification email sent). */
+.login-notice {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--accent);
+  background: color-mix(in oklab, var(--accent), transparent 92%);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: var(--space-4) 0;
+}
+
+.login-forgot {
+  display: block;
+  margin: var(--space-3) auto 0;
+}
+
+.login-confirm-actions {
+  gap: var(--space-2);
+  flex-wrap: wrap;
 }

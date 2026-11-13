@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -53,6 +54,25 @@ func TestApiProxy(t *testing.T) {
 		}
 		if got := NewApiService("https://api.boson.chat", true).Fetch(ctx, ApiRequest{Method: "GET", URL: srv.URL}); got.Text != "ok" {
 			t.Fatalf("dev build: %+v", got)
+		}
+	})
+
+	t.Run("allows the auth service origin as an extra base", func(t *testing.T) {
+		auth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("auth")) }))
+		defer auth.Close()
+		if got := NewApiService("https://api.boson.chat", false, auth.URL).Fetch(ctx, ApiRequest{Method: "POST", URL: auth.URL + "/v1/login", Body: str("{}")}); got.Text != "auth" {
+			t.Fatalf("auth origin: %+v", got)
+		}
+		p := newAPIPolicy("", false, defaultAuthBase)
+		for _, u := range []string{"https://auth.boson.chat/v1/login", "https://api.boson.chat/me"} {
+			if pu, _ := url.Parse(u); !p.allowed(pu) {
+				t.Errorf("%s blocked", u)
+			}
+		}
+		for _, u := range []string{"https://auth.boson.chat.evil.com/", "http://auth.boson.chat/"} {
+			if pu, _ := url.Parse(u); p.allowed(pu) {
+				t.Errorf("%s allowed", u)
+			}
 		}
 	})
 

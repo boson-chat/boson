@@ -8,9 +8,8 @@
 //   2. After reload the renderer lands on LoginScreen — documented gap;
 //      the desktop app would skip straight back into chat.
 import { test, expect, type APIRequestContext } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { signUpVerified, TEST_PASSWORD } from './auth-helper';
 
-const SUPABASE_URL = 'http://localhost:54321';
 const BOSON_URL = 'http://localhost:3000';
 const ERGO_HOST = 'localhost';
 const ERGO_PORT = 6667;
@@ -19,26 +18,12 @@ function uniqueEmail(prefix = 'kchain'): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10_000)}@local.dev`;
 }
 
-async function readAnonKey(): Promise<string> {
-  if (process.env.VITE_SUPABASE_ANON_KEY) return process.env.VITE_SUPABASE_ANON_KEY;
-  const env = readFileSync('.env', 'utf8');
-  const m = env.match(/^VITE_SUPABASE_ANON_KEY=(.+)$/m);
-  if (!m) throw new Error('VITE_SUPABASE_ANON_KEY not found');
-  return m[1]!.trim();
-}
 
-// Bootstraps a fresh Supabase user, creates the `/me` row, and registers an
+// Bootstraps a fresh auth-service user, creates the `/me` row, and registers an
 // ergo-pointed server. Mirrors `setupUserAndServer` in chat.spec.ts so the
 // teardown name-prefix sweep covers it (ChatErgo-* is on the cleanup list).
 async function setupUserAndServer(request: APIRequestContext) {
-  const anon = await readAnonKey();
-  const email = uniqueEmail();
-  const sign = await request.post(`${SUPABASE_URL}/auth/v1/signup`, {
-    headers: { 'Content-Type': 'application/json', apikey: anon },
-    data: { email, password: 'testtest' },
-  });
-  expect(sign.ok()).toBeTruthy();
-  const token = (await sign.json()).access_token as string;
+  const { email, token } = await signUpVerified(request, uniqueEmail());
   const handle = 'k' + Date.now().toString().slice(-9);
   const meRes = await request.post(`${BOSON_URL}/me`, {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -63,12 +48,12 @@ async function setupUserAndServer(request: APIRequestContext) {
 }
 
 test.describe('Saved-session restore (vite-preview limited)', () => {
-  test('reload preserves Supabase session, attempts identity restore, falls back to login', async ({ page, request }) => {
+  test('reload keeps the session, attempts identity restore, falls back to login', async ({ page, request }) => {
     const { email, handle, serverName } = await setupUserAndServer(request);
 
     await page.goto('/');
-    await page.getByPlaceholder('email').fill(email);
-    await page.getByPlaceholder('password').fill('testtest');
+    await page.getByPlaceholder('username or email').fill(email);
+    await page.getByPlaceholder('password').fill(TEST_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page.getByText(`@${handle}`)).toBeVisible({ timeout: 10_000 });
 
@@ -109,7 +94,7 @@ test.describe('Saved-session restore (vite-preview limited)', () => {
 
     // Documented gap: end state is LoginScreen because the keychain bridge
     // is absent. The desktop app would land directly in chat.
-    await expect(page.getByPlaceholder('email')).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByPlaceholder('username or email')).toBeVisible({ timeout: 10_000 });
     await expect(page.getByPlaceholder('password')).toBeVisible();
   });
 });

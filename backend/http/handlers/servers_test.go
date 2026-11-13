@@ -180,7 +180,7 @@ func TestServerHandler_Post_InternalError(t *testing.T) {
 }
 
 // The public mux only mounts the read-only directory routes — anyone, including
-// guests with no Supabase session, can browse the server list. POST falls
+// guests with no account session, can browse the server list. POST falls
 // through to the catch-all auth-wrapped mux in production; mounted alone here
 // it should 405 because the public mux has no POST handler.
 func TestServerHandler_RegisterPublic_MountsReadOnlyRoutes(t *testing.T) {

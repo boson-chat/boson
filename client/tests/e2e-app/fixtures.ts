@@ -29,7 +29,7 @@ import { randomBytes } from 'node:crypto';
 import { APP_DIR, STACK } from './stack';
 import { BackendApi, provisionIdentity, randomHandle } from './helpers/backend';
 import { Mailpit } from './helpers/mailpit';
-import { createConfirmedUser, deleteAuthUser, type AuthUser } from './helpers/supabase';
+import { createConfirmedUser, deleteAuthUser, type AuthUser } from './helpers/auth';
 import { leaseZncUser, resetZncUser, type ZncUser } from './helpers/znc';
 import { launchDesktopApp, type App, type DesktopLaunch } from './desktop-app';
 
@@ -86,6 +86,7 @@ export interface Account extends AuthUser {
 export interface CreateAccountOptions {
   email?: string;
   password?: string;
+  username?: string;
   // true → random handle; a string → that handle; false (default for
   // createAccount) → no identity yet: the first sign-in shows the setup.
   handle?: boolean | string;
@@ -101,7 +102,7 @@ interface Fixtures {
   // A ZNC user (tester1..8) leased for this test and reset to its initial
   // state: network `ergo` disconnected upstream, no channels.
   zncUser: ZncUser;
-  // Confirmed Supabase users (admin API), deleted after the test.
+  // Verified auth-service users, disabled after the test.
   createAccount: (opts?: CreateAccountOptions) => Promise<Account>;
   // createAccount({ handle: true }): signs straight into the directory.
   account: Account;
@@ -120,10 +121,8 @@ function requireAccountStack(): Promise<void> {
       try { return (await fetch(url, { signal: AbortSignal.timeout(3_000) })).ok; } catch { return false; }
     };
     if (!(await ok(`${STACK.backend.url}/health`))) problems.push(`backend not answering on ${STACK.backend.url}/health`);
-    if (!(await ok(`${STACK.supabase.apiUrl}/auth/v1/health?apikey=${STACK.supabase.publishableKey}`))) {
-      problems.push(`Supabase Auth not answering on ${STACK.supabase.apiUrl}`);
-    }
-    if (!(await ok(`${STACK.supabase.mailpitUrl}/api/v1/info`))) problems.push(`auth Mailpit not answering on ${STACK.supabase.mailpitUrl}`);
+    if (!(await ok(`${STACK.auth.url}/readyz`))) problems.push(`auth service not answering on ${STACK.auth.url}`);
+    if (!(await ok(`${STACK.auth.mailpitUrl}/api/v1/info`))) problems.push(`auth Mailpit not answering on ${STACK.auth.mailpitUrl}`);
     if (problems.length > 0) {
       throw new Error(`account-mode e2e stack is not up:\n  - ${problems.join('\n  - ')}\nRun \`make test-e2e-app-up\` (repo root).`);
     }
@@ -148,7 +147,7 @@ export const test = base.extend<Fixtures>({
     await requireAccountStack();
     const created: Account[] = [];
     await use(async (opts = {}) => {
-      const user = await createConfirmedUser({ email: opts.email, password: opts.password });
+      const user = await createConfirmedUser({ email: opts.email, password: opts.password, username: opts.username });
       const acct: Account = { ...user };
       created.push(acct);
       if (opts.handle) {
@@ -340,8 +339,9 @@ export type { DirectoryServer, SeedServerInput } from './helpers/backend';
 export { Mailpit, extractCode, extractLinks } from './helpers/mailpit';
 export type { MailMessage, MailSummary } from './helpers/mailpit';
 export {
-  createConfirmedUser, deleteAuthUser, findAuthUserByEmail, randomEmail, randomPassword, setAuthPassword, signInWithPassword,
-} from './helpers/supabase';
-export type { AuthUser, AuthSession } from './helpers/supabase';
+  authApi, bosonUserId, createConfirmedUser, deleteAuthUser, emailToken, findAuthUserByEmail, randomEmail, randomPassword,
+  randomUsername, setAuthPassword, signInWithPassword, verifyEmail,
+} from './helpers/auth';
+export type { AuthUser, AuthSession } from './helpers/auth';
 export { leaseZncUser, resetZncUser } from './helpers/znc';
 export type { ZncLease, ZncUser } from './helpers/znc';

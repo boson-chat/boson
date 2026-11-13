@@ -15,11 +15,12 @@ import (
 // ApiService proxies the renderer's API requests, so they aren't subject to
 // the webview's CORS: the page's origin (wails://localhost,
 // http://wails.localhost) isn't one api.boson.chat allows. Go's HTTP client
-// has no CORS notion.
+// has no CORS notion. It carries the auth service's requests
+// (auth.boson.chat: sign-in, refresh, …) the same way.
 //
 // Because it isn't subject to CORS or the page's CSP, this is a powerful
 // primitive: anything that can call it can make requests from the user's
-// machine. So it only reaches an exact-origin allowlist — our own API — and
+// machine. So it only reaches an exact-origin allowlist — our own API and auth service — and
 // re-checks that on every redirect hop.
 type ApiService struct {
 	policy apiPolicy
@@ -59,6 +60,8 @@ const (
 	apiMaxRedirects = 5
 	// defaultAPIBase is used when the build doesn't set one.
 	defaultAPIBase = "https://api.boson.chat"
+	// defaultAuthBase is the auth service, likewise.
+	defaultAuthBase = "https://auth.boson.chat"
 )
 
 // apiPolicy says which origins the proxy may reach: exact origins (the
@@ -70,20 +73,23 @@ type apiPolicy struct {
 	allowLoopback bool
 }
 
-func newAPIPolicy(apiBase string, allowLoopback bool) apiPolicy {
+// extraBases are further exact origins (the auth service).
+func newAPIPolicy(apiBase string, allowLoopback bool, extraBases ...string) apiPolicy {
 	p := apiPolicy{origins: map[string]bool{}, allowLoopback: allowLoopback}
 	if apiBase == "" {
 		apiBase = defaultAPIBase
 	}
-	if u, err := url.Parse(apiBase); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
-		p.origins[origin(u)] = true
+	for _, base := range append([]string{apiBase}, extraBases...) {
+		if u, err := url.Parse(base); err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
+			p.origins[origin(u)] = true
+		}
 	}
 	return p
 }
 
-func NewApiService(apiBase string, allowLoopback bool) *ApiService {
+func NewApiService(apiBase string, allowLoopback bool, extraBases ...string) *ApiService {
 	return &ApiService{
-		policy: newAPIPolicy(apiBase, allowLoopback),
+		policy: newAPIPolicy(apiBase, allowLoopback, extraBases...),
 		client: &http.Client{
 			// Redirects are followed by hand so every hop is checked.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },

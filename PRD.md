@@ -26,7 +26,7 @@ All three components below live in a single monorepo (`boson/`), one top-level f
 - **Local Go process (engine)** → `engine/` (binary at `engine/cmd/engine/`; packages `engine/ipc/`, `engine/irc/`)
 - **Backend** → `backend/` (binary at `backend/cmd/server/`; packages `backend/http/`, `backend/db/`, `backend/internal/`, `backend/config/`)
 
-Supabase + infra (`supabase/`, `infra/`, `Makefile`, `Dockerfile`, `docker-compose.yml`) stay at the repo root.
+Infra (`infra/`, `Makefile`, `Dockerfile`, `docker-compose.yml`) stays at the repo root.
 
 ### Client (desktop app)
 
@@ -47,10 +47,10 @@ Supabase + infra (`supabase/`, `infra/`, `Makefile`, `Dockerfile`, `docker-compo
 
 ### Backend
 
-- **Supabase Auth** for login (email/password, OAuth, TOTP 2FA, password reset, JWT issuance)
+- **The boson auth service** ([boson-chat/auth](https://github.com/boson-chat/auth)) for accounts and login: username + email + password, email verification, password reset, rotating refresh tokens, EdDSA JWTs verified via JWKS. OIDC/SAML and 2FA are on its roadmap. (Replaced Supabase Auth; see docs/migration-supabase-to-auth.md.)
 - **AWS Postgres** for all app data — `users`, `servers`, `user_server_links`, `handle_changes`, `reports`
 - **Lazy user-row creation** on first authenticated API call
-- **Backend service** (Go) sitting in front of Postgres, verifying JWTs, enforcing auth on every query (no RLS since data isn't in Supabase)
+- **Backend service** (Go) sitting in front of Postgres, verifying JWTs, enforcing auth on every query
 
 ### Self-Hosted IRC Servers
 
@@ -92,7 +92,7 @@ Supabase + infra (`supabase/`, `infra/`, `Makefile`, `Dockerfile`, `docker-compo
 
 ```sql
 users(
-  id uuid primary key,                  -- = Supabase auth.users.id
+  id uuid primary key,                  -- Supabase-era accounts: their old auth.users.id; others: UUIDv5 of the auth user id (auth_identities maps them)
   handle text unique not null,          -- network-wide username
   display_name text,                    -- optional, ~32 chars
   avatar_storage_key text,              -- nullable, points to your storage bucket
@@ -199,7 +199,7 @@ reports(
 
 ## Build Order (Suggested)
 
-1. **Auth + identity scaffolding** — Supabase Auth, AWS Postgres `users` table, `encrypted_user_secret` flow end-to-end (no IRC yet)
+1. **Auth + identity scaffolding** — account auth (Supabase Auth at first, now the boson auth service), AWS Postgres `users` table, `encrypted_user_secret` flow end-to-end (no IRC yet)
 2. **Local Go process** — basic IRC client (connect, SASL, send/receive) talking to a known test server
 3. **Electron ↔ Go bridge** — localhost WebSocket, basic chat UI showing messages from Go
 4. **Wire identity to Go** — derive password, SASL into test server using full crypto path

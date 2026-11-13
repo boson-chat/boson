@@ -11,7 +11,7 @@
 #
 # Environment:
 #   DEV=1           a dev build: the renderer from client/.env (local
-#                   backend + Supabase), devBuild=true, API proxy allowed to
+#                   backend + auth service), devBuild=true, API proxy allowed to
 #                   reach http://localhost:3000. The simulator shares the
 #                   Mac's network, so localhost is the Mac.
 #   RUN=1           install + launch in the simulator

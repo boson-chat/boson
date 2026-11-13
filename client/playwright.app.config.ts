@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 // Real-app e2e: drives the BUILT desktop app (desktop/, as a server-mode
 // binary embedding out-e2e/renderer, from `npm run build:e2e-app`) in
 // Chromium, against the isolated e2e stack (scripts/e2e-stack.mjs: ergo,
-// ZNC, Supabase Auth, the backend, … — endpoints in infra/e2e/stack.json).
+// ZNC, the auth service, the backend, … — endpoints in infra/e2e/stack.json).
 // Guest specs only need ergo + ZNC; account specs need all of it.
 //
 //   make test-e2e-app            # stack up + build + run

@@ -20,6 +20,9 @@ var assets embed.FS
 var (
 	// apiBase is the Boson API the proxy may reach (default: production).
 	apiBase = ""
+	// authBase is the auth service the proxy may reach (default: production,
+	// https://auth.boson.chat).
+	authBase = ""
 	// devBuild is "true" for dev and e2e builds: the API proxy may also reach
 	// a local backend on any loopback port, and nothing checks for updates.
 	devBuild = "false"
@@ -58,7 +61,10 @@ func main() {
 		youtubeWrapper = ""
 	}
 	links := NewLinksService(dev)
-	api := NewApiService(apiBase, dev)
+	if authBase == "" {
+		authBase = defaultAuthBase
+	}
+	api := NewApiService(apiBase, dev, authBase)
 	deepLinks := &DeepLinkService{}
 	secure := NewSecureStore(dataDir, secureMode)
 	if dev {

@@ -99,4 +99,28 @@ describe('HttpClient', () => {
     const result = await client.get('/x');
     expect(result).toBeNull();
   });
+
+  it('retries once with a refreshed token after a 401', async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response('expired', { status: 401 }))
+      .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
+    const tokenRejected = vi.fn(async () => 'fresh');
+    const client = new HttpClient('http://api.test', { getToken: async () => 'stale', tokenRejected });
+    expect(await client.post('/me', { a: 1 })).toEqual({ ok: true });
+    expect(tokenRejected).toHaveBeenCalledWith('stale');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ Authorization: 'Bearer fresh' });
+    expect((fetchMock.mock.calls[1][1] as RequestInit).body).toBe('{"a":1}');
+  });
+
+  it('gives up after one retry, and without a new token', async () => {
+    fetchMock.mockImplementation(async () => new Response('no', { status: 401 }));
+    const client = new HttpClient('http://api.test', { getToken: async () => 't', tokenRejected: async () => 't2' });
+    await expect(client.get('/me')).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    fetchMock.mockClear();
+    const none = new HttpClient('http://api.test', { getToken: async () => 't', tokenRejected: async () => null });
+    await expect(none.get('/me')).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

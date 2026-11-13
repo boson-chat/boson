@@ -2,8 +2,8 @@
 // renderer Sign-in → Directory Connect button and assert the engine reaches
 // connected state (signal: ChatLayout's .channel-sidebar mounts).
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { signUpVerified, TEST_PASSWORD } from './auth-helper';
 
-const SUPABASE_URL = 'http://localhost:54321';
 const BOSON_URL = 'http://localhost:3000';
 const ERGO_HOST = 'localhost';
 const ERGO_PORT = 6667;
@@ -22,21 +22,10 @@ interface Bootstrapped {
   ergoServerName: string;
 }
 
-// Sign up a fresh Supabase user, create the boson user row, and register
+// Sign up a fresh auth-service user, create the boson user row, and register
 // an ergo-pointed server. Returns the credentials and the new server's ID.
 async function bootstrap(request: APIRequestContext): Promise<Bootstrapped> {
-  // Read the local Supabase anon key from `supabase status` output via the env
-  // file we already populate for the renderer.
-  const anon = process.env.VITE_SUPABASE_ANON_KEY ?? await readAnonKey(request);
-
-  const email = uniqueEmail();
-  const signupRes = await request.post(`${SUPABASE_URL}/auth/v1/signup`, {
-    headers: { 'Content-Type': 'application/json', apikey: anon },
-    data: { email, password: 'testtest' },
-  });
-  expect(signupRes.ok()).toBeTruthy();
-  const signup = await signupRes.json();
-  const token: string = signup.access_token;
+  const { email, token } = await signUpVerified(request, uniqueEmail());
 
   const handle = 'e' + Date.now().toString().slice(-9);
   const meRes = await request.post(`${BOSON_URL}/me`, {
@@ -66,14 +55,6 @@ async function bootstrap(request: APIRequestContext): Promise<Bootstrapped> {
   return { email, handle, token, ergoServerId: server.id, ergoServerName };
 }
 
-async function readAnonKey(_request: APIRequestContext): Promise<string> {
-  // Lazy import for node-only access.
-  const { readFileSync } = await import('node:fs');
-  const env = readFileSync('.env', 'utf8');
-  const match = env.match(/^VITE_SUPABASE_ANON_KEY=(.+)$/m);
-  if (!match) throw new Error('VITE_SUPABASE_ANON_KEY not in client/.env');
-  return match[1]!.trim();
-}
 
 // Tests -------------------------------------------------------------------
 
@@ -81,11 +62,11 @@ test.describe('Engine bridge', () => {
   test('Connect button drives engine through to ergo and flips status to connected', async ({ page, request }) => {
     const { email, handle, ergoServerName } = await bootstrap(request);
 
-    // Make the renderer pick up the Supabase session by signing in with the
+    // Make the renderer pick up a session by signing in with the
     // user we just created via the API.
     await page.goto('/');
-    await page.getByPlaceholder('email').fill(email);
-    await page.getByPlaceholder('password').fill('testtest');
+    await page.getByPlaceholder('username or email').fill(email);
+    await page.getByPlaceholder('password').fill(TEST_PASSWORD);
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     // We already created the user row, so directory loads directly.

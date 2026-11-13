@@ -1,4 +1,11 @@
-# Supabase email templates
+# Supabase email templates (retired)
+
+> Boson's accounts moved from Supabase Auth to the boson auth service
+> (github.com/boson-chat/auth), which sends its own verification and
+> password-reset mail from `internal/services/email/templates/` in that repo.
+> These files are kept only as the design reference for restyling those
+> templates; delete them once that's done. See
+> docs/migration-supabase-to-auth.md.
 
 Drop-in HTML for the Supabase auth-email screens. Open the [Supabase dashboard → Authentication → Email Templates](https://supabase.com/dashboard/project/_/auth/templates), paste each file's contents into the matching panel, set the **Subject** line from the table below, and save.
 

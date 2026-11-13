@@ -2,6 +2,9 @@ import { type ApiTransport, defaultApiTransport } from './transport';
 
 export interface TokenProvider {
   getToken(): Promise<string | null>;
+  // Called when the API answers 401 to `token`: return a fresh token to
+  // retry once with (AuthService refreshes, single-flight), or null.
+  tokenRejected?(token: string): Promise<string | null>;
 }
 
 export class HttpError extends Error {
@@ -43,28 +46,29 @@ export class HttpClient {
   // request(), the body is sent verbatim, not JSON-encoded. The response is
   // still parsed as JSON.
   async postBlob<T>(path: string, blob: Blob, contentType: string): Promise<T> {
-    const token = await this.tokenProvider.getToken();
-    const headers: Record<string, string> = { 'Content-Type': contentType };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
     // Send raw bytes; the transport (IPC proxy or fetch) carries the buffer.
-    const res = await this.transport({
-      method: 'POST', url: `${this.baseUrl}${path}`, headers, body: await blob.arrayBuffer(),
-    });
-    return this.parse<T>(res);
+    const bytes = await blob.arrayBuffer();
+    return this.send<T>('POST', path, contentType, bytes);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const token = await this.tokenProvider.getToken();
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return this.send<T>(method, path, 'application/json', body !== undefined ? JSON.stringify(body) : null);
+  }
 
-    const res = await this.transport({
-      method,
-      url: `${this.baseUrl}${path}`,
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : null,
-    });
+  // One request, retried once with a refreshed token if the API says 401
+  // (the access token expired or the signing key rotated under us).
+  private async send<T>(method: string, path: string, contentType: string, body: string | ArrayBuffer | null): Promise<T> {
+    const attempt = (token: string | null) => {
+      const headers: Record<string, string> = { 'Content-Type': contentType };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      return this.transport({ method, url: `${this.baseUrl}${path}`, headers, body });
+    };
+    const token = await this.tokenProvider.getToken();
+    let res = await attempt(token);
+    if (res.status === 401 && token && this.tokenProvider.tokenRejected) {
+      const fresh = await this.tokenProvider.tokenRejected(token);
+      if (fresh && fresh !== token) res = await attempt(fresh);
+    }
     return this.parse<T>(res);
   }
 

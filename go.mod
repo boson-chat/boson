@@ -18,6 +18,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lrstanley/girc v1.1.1
 	github.com/miekg/dns v1.1.72
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/rs/zerolog v1.33.0
 	github.com/spf13/cobra v1.9.1
 	github.com/stretchr/testify v1.11.1

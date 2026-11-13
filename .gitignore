@@ -54,11 +54,6 @@ boson_code.txt
 # Local data
 postgres-data/
 
-# Supabase local state (config.toml should be committed)
-supabase/.branches
-supabase/.temp
-.env.supabase
-
 # Release tooling
 CHANGELOG.md.bak
 

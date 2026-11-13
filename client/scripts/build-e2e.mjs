@@ -2,8 +2,8 @@
 // Builds the desktop app for the real-app e2e suite (tests/e2e-app/):
 //
 //   1. the renderer, pinned to the e2e stack (infra/e2e/stack.json: the
-//      backend on 127.0.0.1:13000, the boson-e2e Supabase project on
-//      :55321), into client/out-e2e/renderer (or $E2E_OUT_DIR/renderer).
+//      backend on 127.0.0.1:13000, the auth service on :18180), into
+//      client/out-e2e/renderer (or $E2E_OUT_DIR/renderer).
 //      Process env beats .env in Vite, so a developer's client/.env can't
 //      leak into it.
 //   2. desktop/ as a server-mode binary (`go build -tags server`): the same
@@ -44,9 +44,7 @@ if (!process.argv.includes('--skip-renderer')) {
     env: {
       ...process.env,
       RENDERER_OUT_DIR: renderer,
-      VITE_SUPABASE_URL: stack.supabase.apiUrl,
-      VITE_SUPABASE_PUBLISHABLE_KEY: stack.supabase.publishableKey,
-      VITE_SUPABASE_ANON_KEY: stack.supabase.publishableKey,
+      VITE_AUTH_URL: stack.auth.url,
       VITE_BOSON_API_URL: stack.backend.url,
       // The engine runs in-process; never a developer's `make engine-serve`.
       VITE_ENGINE_URL: '',
@@ -80,9 +78,10 @@ if (process.platform === 'darwin') {
   env.CGO_LDFLAGS = `${env.CGO_LDFLAGS ?? ''} -mmacosx-version-min=12.0`.trim();
 }
 const bin = join(desktopDir, 'bin', `boson-e2e-server${process.platform === 'win32' ? '.exe' : ''}`);
-// The e2e bundle talks to the e2e backend; let the API proxy reach it.
+// The e2e bundle talks to the e2e backend and auth service; let the API
+// proxy reach them.
 const version = JSON.parse(readFileSync(join(clientDir, 'package.json'), 'utf8')).version;
-const ldflags = `-X main.apiBase=${stack.backend.url} -X main.devBuild=true -X main.appVersion=${version}`;
+const ldflags = `-X main.apiBase=${stack.backend.url} -X main.authBase=${stack.auth.url} -X main.devBuild=true -X main.appVersion=${version}`;
 const cover = process.env.E2E_COVERAGE === '1'
   ? ['-cover', '-coverpkg=github.com/boson-chat/boson/desktop,github.com/boson-chat/boson/engine/...']
   : [];

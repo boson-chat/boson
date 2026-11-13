@@ -16,7 +16,7 @@
 // appropriate values + boots the docker profile for that stack.
 //
 // Stack required (`make dev-up` brings it all):
-//   - postgres + supabase + ergo (testing profile)
+//   - postgres + auth service + ergo (testing profile)
 //   - boson backend on :3000 (`make run` in another shell)
 //   - engine + renderer launched by playwright.config.ts webServer
 //
@@ -32,6 +32,7 @@
 // All three skip email confirmation so REGISTER lands at the
 // classifier's `registration-confirmed` kind in one round-trip.
 import { test, expect } from '@playwright/test';
+import { signUpInUi, TEST_PASSWORD } from './auth-helper';
 
 const STACK_NAME = process.env.E2E_STACK_NAME ?? 'ergo';
 
@@ -53,9 +54,9 @@ function uniqueEmail(prefix = 'nickserv'): string {
 }
 
 test.describe(`NickServ flow — full stack against ${STACK_NAME}`, () => {
-  test('register lands the badge at Identified through real IPC + IRC round-trip', async ({ page }) => {
+  test('register lands the badge at Identified through real IPC + IRC round-trip', async ({ page, request }) => {
     const email = uniqueEmail();
-    const password = 'testtest';
+    const password = TEST_PASSWORD;
     const ircPassword = `pw-${Date.now()}`;
     // Ergo with callbacks=none ignores the email; Anope + Atheme
     // with their respective `none` configs also skip the mailer.
@@ -66,15 +67,11 @@ test.describe(`NickServ flow — full stack against ${STACK_NAME}`, () => {
     // placeholder encrypted blob) is flaky because the renderer
     // can't decrypt the placeholder bytes; doing the sign-up via
     // the UI lets the LoginBloc derive a fresh key from the
-    // password and POST the proper ciphertext. The LoginBloc was
-    // patched (same PR as this spec) to also handle the case where
-    // Supabase has email-confirmation disabled and returns a
-    // session immediately on signup.
+    // password and POST the proper ciphertext. The account
+    // signs in after the emailed verification link (signUpInUi).
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Boson' })).toBeVisible();
-    await page.getByPlaceholder('email').fill(email);
-    await page.getByPlaceholder('password').fill(password);
-    await page.getByRole('button', { name: 'Sign up' }).click();
+    await signUpInUi(page, request, email, password);
 
     // After signup the renderer routes through SetupPrompt → fill
     // a handle → Save → DirectoryScreen with @handle visible.

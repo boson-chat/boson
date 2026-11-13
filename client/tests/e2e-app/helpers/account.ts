@@ -1,9 +1,9 @@
 // UI flows for account (signed-in) mode, against the e2e stack.
 //
 //   signUpViaUi          Login screen → Signup tab → "Check your email."
-//   confirmSignup        confirmation mail → GoTrue /verify → the
-//                        boson://auth/confirmed deep link the website's
-//                        /auth/confirmed page would hand the OS → the app
+//   confirmSignup        verification mail → the auth service verifies (what
+//                        its /verify-email page does when the link is
+//                        opened) → Continue on "Check your email."
 //   loginAs              Login tab → email + password → Sign in (unlocks
 //                        the identity with the password); submitLogin
 //                        just submits (for expected failures)
@@ -14,26 +14,31 @@
 //   signOut              directory top bar → Sign out
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
-import { Mailpit, extractLinks } from './mailpit';
 import { secondInstance, type App } from '../desktop-app';
+import { randomUsername, verifyEmail } from './auth';
 
 export interface Credentials {
   email: string;
   password: string;
+  // Sign-up only (a random one when omitted).
+  username?: string;
 }
 
 const loginScreen = (page: Page) => page.locator('.login-screen');
 const setupHeading = (page: Page) => page.getByRole('heading', { name: 'Finish setting up your account' });
 const directoryHeading = (page: Page) => page.getByRole('heading', { name: 'Server Directory' });
 
-export async function signUpViaUi(page: Page, c: Credentials): Promise<void> {
+export async function signUpViaUi(page: Page, c: Credentials): Promise<string> {
+  const username = c.username ?? randomUsername('signup');
   await page.getByRole('tab', { name: 'Signup' }).click();
+  await page.getByPlaceholder('username', { exact: true }).fill(username);
   await page.getByPlaceholder('email', { exact: true }).fill(c.email);
   await page.getByPlaceholder('password', { exact: true }).fill(c.password);
   await page.getByPlaceholder('confirm password').fill(c.password);
   await page.getByRole('button', { name: 'Sign up', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Check your email.' })).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('.login-confirm-email')).toHaveText(c.email);
+  return username;
 }
 
 // Hands a boson:// URL to the running app the way the OS would on
@@ -43,43 +48,20 @@ export function deliverDeepLink(app: App, url: string): Promise<void> {
   return secondInstance(app, [url]);
 }
 
-// What the user's click on the confirmation link ends up as: GoTrue verifies
-// the token and 302s to the marketing site's /auth/confirmed page with the
-// session in the fragment; that page (website/src/pages/AuthConfirmedPage.tsx)
-// merges fragment + query into boson://auth/confirmed?… . Returns that URL.
-export async function confirmationDeepLink(email: string, mail = Mailpit.users()): Promise<string> {
-  const msg = await mail.waitFor({ to: email, subject: 'Confirm your email' });
-  const link = extractLinks(msg).find((l) => l.includes('/auth/v1/verify'));
-  if (!link) throw new Error(`no /verify link in the confirmation mail to ${email}:\n${msg.Text}`);
-  const res = await fetch(link, { redirect: 'manual' });
-  const location = res.headers.get('location');
-  if (res.status !== 303 && res.status !== 302 && res.status !== 301) {
-    throw new Error(`/verify answered ${res.status} (expected a redirect): ${await res.text()}`);
-  }
-  if (!location) throw new Error('/verify redirect without a Location');
-  const landing = new URL(location);
-  if (landing.origin !== 'https://boson.chat' || landing.pathname !== '/auth/confirmed') {
-    throw new Error(`/verify redirected to ${landing.origin}${landing.pathname}, not the website's /auth/confirmed — is it allow-listed in infra/e2e/supabase/config.toml?`);
-  }
-  const merged = new URLSearchParams();
-  new URLSearchParams(landing.hash.replace(/^#/, '')).forEach((v, k) => merged.set(k, v));
-  landing.searchParams.forEach((v, k) => merged.set(k, v));
-  if (merged.has('error')) throw new Error(`confirmation failed: ${merged.get('error_description') ?? merged.get('error')}`);
-  return `boson://auth/confirmed?${merged.toString()}`;
-}
-
-// Confirmation mail → deep link → app. The app then holds a session but no
-// unlocked identity, so it shows the login screen again: follow with
-// loginAs().
-export async function confirmSignup(app: App, email: string): Promise<void> {
-  await deliverDeepLink(app, await confirmationDeepLink(email));
+// The user opens the verification link (the auth service's page verifies
+// the token), comes back and presses Continue: the app signs in with what
+// was typed at sign-up. Resolves like loginAs().
+export async function confirmSignup(page: Page, email: string): Promise<'setup' | 'directory'> {
+  await verifyEmail(email);
+  await page.getByRole('button', { name: 'Continue', exact: true }).click();
+  return waitSignedIn(page);
 }
 
 // Fills + submits the login form without waiting for the outcome (for
 // specs that expect a failure). Most specs want loginAs().
 export async function submitLogin(page: Page, c: Credentials): Promise<void> {
   await page.getByRole('tab', { name: 'Login' }).click();
-  await page.getByPlaceholder('email', { exact: true }).fill(c.email);
+  await page.getByPlaceholder('username or email', { exact: true }).fill(c.email);
   await page.getByPlaceholder('password', { exact: true }).fill(c.password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
@@ -91,6 +73,10 @@ export async function submitLogin(page: Page, c: Credentials): Promise<void> {
 // race against the directory's first paint, as it does on Linux CI).
 export async function loginAs(page: Page, c: Credentials): Promise<'setup' | 'directory'> {
   await submitLogin(page, c);
+  return waitSignedIn(page);
+}
+
+async function waitSignedIn(page: Page): Promise<'setup' | 'directory'> {
   const setup = setupHeading(page);
   const directory = directoryHeading(page);
   const restoredChat = page.getByRole('navigation', { name: 'Servers' });

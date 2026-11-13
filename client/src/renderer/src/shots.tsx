@@ -177,7 +177,7 @@ function installApi(signedIn: boolean): void {
 // ---- Minimal fake AuthService (structurally compatible) ----
 function makeAuth(signedIn: boolean) {
   const session = signedIn
-    ? { access_token: 'jwt', token_type: 'bearer', expires_in: 3600, refresh_token: 'r', user: { id: 'u1', email: 'ada@example.com', user_metadata: { handle: 'ada' } } }
+    ? { access_token: 'jwt', expires_at: Date.now() + 900_000, refresh_token: 'r', session_id: 'ses_1', user: { id: 'usr_1', username: 'ada', email: 'ada@example.com', email_verified: true, role: 'user', user_metadata: { handle: 'ada' } } }
     : null;
   const state = { session, loading: false, error: null };
   return {
@@ -185,9 +185,9 @@ function makeAuth(signedIn: boolean) {
     getState: () => state,
     subscribe: () => () => {},
     getToken: async () => (signedIn ? 'jwt' : null),
-    signIn: async () => {}, signUp: async () => {}, signOut: async () => {},
+    signIn: async () => {}, signUp: async () => ({ verificationRequired: true }), signOut: async () => {},
+    resendVerification: async () => {}, requestPasswordReset: async () => {}, tokenRejected: async () => null,
     updateMetadata: async () => {}, markFatal: () => {},
-    setSessionFromTokens: async () => session, exchangeAuthCode: async () => session,
   } as never;
 }
 

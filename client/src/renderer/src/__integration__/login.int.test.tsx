@@ -6,7 +6,7 @@ import { FakeAuthService, jsonResponse, mockFetch, mountLogin } from './helpers'
 // End-to-end happy-path + wrong-password coverage for the sign-in flow.
 // Exercises the real LoginBloc + real IdentityService + real DirectoryService
 // (over a real HttpClient hitting a mocked fetch). Only AuthService is faked
-// at the structural-interface boundary, since the real one wraps Supabase.
+// at the structural-interface boundary, since the real one talks to the auth service.
 
 describe('login integration', () => {
   let restoreFetch: (() => void) | null = null;
@@ -25,7 +25,7 @@ describe('login integration', () => {
     const { auth, identity } = mountLogin();
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@boson.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@boson.dev');
     await user.type(screen.getByPlaceholderText('password'), 'hunter2');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -65,7 +65,7 @@ describe('login integration', () => {
     const { identity } = mountLogin();
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@boson.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@boson.dev');
     await user.type(screen.getByPlaceholderText('password'), 'WRONG-pw');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -81,7 +81,7 @@ describe('login integration', () => {
     mountLogin({ auth });
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'a@b');
+    await user.type(screen.getByPlaceholderText('username or email'), 'a@b');
     await user.type(screen.getByPlaceholderText('password'), 'nope');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 

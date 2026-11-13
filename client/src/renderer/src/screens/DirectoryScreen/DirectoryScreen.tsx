@@ -58,7 +58,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
       history,
       guestNick,
       // Use a function so the bloc reads the live userId at the moment it
-      // constructs the ChatService. In guest mode no Supabase session
+      // constructs the ChatService. In guest mode no account session
       // exists; ChatService falls back to its in-memory log behaviour.
       getUserId: () => auth.getState().session?.user?.id ?? null,
     }),

@@ -65,10 +65,10 @@ jobs:
     env:
       # 'true' only when every macOS signing/notarization secret is present.
       MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
-      # Vite bakes these into the renderer: the production backend.
+      # Vite bakes these into the renderer: the production backend and
+      # auth service.
       VITE_BOSON_API_URL: https://api.boson.chat
-      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      VITE_AUTH_URL: https://auth.boson.chat
     strategy:
       fail-fast: false
       matrix:
@@ -216,8 +216,7 @@ jobs:
     env:
       ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
       VITE_BOSON_API_URL: https://api.boson.chat
-      VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-      VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+      VITE_AUTH_URL: https://auth.boson.chat
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 

@@ -34,7 +34,7 @@ func RateLimit(window time.Duration, key func(r *http.Request) string) func(http
 			// always chained after the auth middleware), so MustUser
 			// is safe; but we tolerate the missing-principal case so
 			// the unit tests can drive the middleware directly without
-			// a full Supabase JWT.
+			// a full access token.
 			principal, ok := UserFromCtx(r.Context())
 			if !ok {
 				next.ServeHTTP(w, r)

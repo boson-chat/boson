@@ -1,5 +1,5 @@
 // The e2e stack's Go backend (STACK.backend.url), driven over HTTP the way
-// the app does it — bearer token from Supabase — plus fixtures-level
+// the app does it — bearer token from the auth service — plus fixtures-level
 // shortcuts: provision a user's identity (POST /me with a real
 // password-wrapped user_secret, built with the app's own crypto), and seed
 // verified directory servers.
@@ -10,7 +10,7 @@ import {
   base64Encode, encryptUserSecret, generateRecoveryCode, generateUserSecret, wrapUserSecret,
 } from '../../../src/renderer/src/modules/identity/crypto';
 import { E2E_INFRA_DIR, STACK } from '../stack';
-import { createConfirmedUser, signInWithPassword, type AuthUser } from './supabase';
+import { createConfirmedUser, signInWithPassword, type AuthUser } from './auth';
 
 export interface ApiResponse<T = unknown> {
   status: number;
@@ -21,7 +21,7 @@ export interface ApiResponse<T = unknown> {
 export class BackendApi {
   constructor(private readonly token: string | null = null, readonly baseUrl = STACK.backend.url) {}
 
-  // Signs `user` in against Supabase and returns an API client carrying its
+  // Signs `user` in against the auth service and returns an API client carrying its
   // access token.
   static async as(user: Pick<AuthUser, 'email' | 'password'>): Promise<BackendApi> {
     const s = await signInWithPassword(user.email, user.password);

@@ -1,8 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// E2E assumes the full local stack: postgres, supabase, boson backend, AND
-// the local ergo IRCd in docker-compose. Bring it up via:
-//   make dev-up           # postgres + supabase + ergo + migrations
+// E2E assumes the full local stack: postgres, the auth service, boson
+// backend, AND the local ergo IRCd in docker-compose. Bring it up via:
+//   make dev-up           # postgres + auth service + ergo + migrations
 //   make run              # boson backend in another shell
 // Playwright launches the engine and the renderer Vite server itself.
 const TEST_TOKEN = 'e2e-test-token-do-not-use-in-prod';

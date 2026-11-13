@@ -16,7 +16,7 @@ import { InMemorySecureStorage } from '../../shared/secure-storage';
 //    guard against the import path drifting after a file-move).
 // 2. Identity panel for signed-in users shows an editable handle that
 //    fetches the authoritative value from /me on open and persists via
-//    PATCH /me + Supabase user_metadata mirror.
+//    PATCH /me + session user_metadata mirror.
 
 function stubDirectory(overrides: Partial<DirectoryService> = {}): DirectoryService {
   return {
@@ -134,7 +134,7 @@ describe('UserSettings — Identity panel (account mode)', () => {
 
   it('replaces the prefill with the authoritative /me handle once loaded', async () => {
     const directory = stubDirectory({
-      // Backend's view of truth differs from the stale Supabase metadata
+      // Backend's view of truth differs from the stale session metadata
       // cache — the form must trust the backend.
       getMe: vi.fn(async () => ({
         id: '1', handle: 'real-alice', is_discoverable: true,
@@ -157,7 +157,7 @@ describe('UserSettings — Identity panel (account mode)', () => {
     expect(save).toBeDisabled();
   });
 
-  it('PATCHes /me on save and mirrors the new handle into Supabase metadata', async () => {
+  it('PATCHes /me on save and mirrors the new handle into the session metadata', async () => {
     const directory = stubDirectory();
     const auth = stubAuth();
     const { container } = renderSettings({ authedHandle: 'alice', directory, auth });

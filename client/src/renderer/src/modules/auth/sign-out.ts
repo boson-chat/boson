@@ -12,7 +12,7 @@ export interface SignOutDeps {
 
 // Full account sign-out for this device: forget the saved session, the
 // keychain copy of the identity secret and the user's scrollback, lock the
-// in-memory identity, then end the Supabase session. Order matters: the
+// in-memory identity, then end the auth session. Order matters: the
 // keychain + history are keyed by the user id, which is gone once
 // auth.signOut() has run. Mirrors DirectoryBloc.signOut (the directory's
 // own button) for sign-outs started elsewhere, e.g. User settings.

@@ -44,7 +44,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   const guest = useGuestSession();
   // Re-scope the memo store as the auth identity resolves. Guests
   // land on the synthetic `__guest__` userId so their inbox is
-  // separated from any account's; account users key on Supabase id.
+  // separated from any account's; account users key on their auth-service user id.
   useEffect(() => {
     const id = session?.user?.id ?? (guest ? '__guest__' : '');
     getMemoStore().setUserId(id);
@@ -74,7 +74,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   const authedHandle = (session?.user?.user_metadata?.handle as string | undefined)
     ?? (userId ? profileHandle : null);
   const authedAvatar = (session?.user?.user_metadata?.avatar_url as string | undefined) ?? null;
-  const userLabel = guest ? guest.nick : (authedHandle ?? session?.user?.email ?? null);
+  const userLabel = guest ? guest.nick : (authedHandle ?? session?.user?.username ?? session?.user?.email ?? null);
   const userMode: 'guest' | 'account' | null = guest ? 'guest' : (session ? 'account' : null);
   return (
     <div class="app-frame">
@@ -144,7 +144,7 @@ function Router({ directory, engine, identity, history }: {
   const { session, loading, error } = useAuthState();
   const identityUnlocked = useIdentityUnlocked(identity);
   const guest = useGuestSession();
-  // When the user has a persisted Supabase session, try the OS-keychain
+  // When the user has a persisted session, try the OS-keychain
   // restore path before showing the login form. `null` means "haven't tried
   // yet"; we render a loading shim during the single IPC round-trip. After
   // restore the `useIdentityUnlocked` hook flips the route automatically.
@@ -174,7 +174,7 @@ function Router({ directory, engine, identity, history }: {
     key = 'guest';
     content = <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} guestNick={guest.nick} />;
   } else if (session && !identityUnlocked && restoring && lastKey.current !== 'login') {
-    // Supabase may auto-restore a session from localStorage. If the keychain
+    // The auth session is restored from the keychain at launch. If the keychain
     // has the user_secret too, we'll have unlocked the identity above. If not,
     // fall through to LoginScreen — the user needs to type their password.
     key = 'restoring';
@@ -234,8 +234,8 @@ function useIdentityRestore(identity: IdentityService, userId: string | null): R
 }
 
 export interface BuildAppOptions {
-  supabaseUrl: string;
-  anonKey: string;
+  // The boson auth service, e.g. https://auth.boson.chat.
+  authUrl: string;
   bosonUrl: string;
   engineUrl?: string;
   engineToken?: string;
@@ -244,8 +244,14 @@ export interface BuildAppOptions {
 }
 
 export function buildApp(opts: BuildAppOptions): AppProps {
-  const auth = new AuthService(opts.supabaseUrl, opts.anonKey);
-  const http = new HttpClient(opts.bosonUrl, { getToken: () => auth.getToken() });
+  // The refresh token is kept in the OS keychain (secure store), never in
+  // localStorage. Without the desktop shell (vite dev in a browser) the
+  // session lasts until reload.
+  const auth = new AuthService(opts.authUrl, { storage: windowSecureStorage });
+  const http = new HttpClient(opts.bosonUrl, {
+    getToken: () => auth.getToken(),
+    tokenRejected: (t) => auth.tokenRejected(t),
+  });
   const directory = new DirectoryService(http);
   // Pass the real `windowSecureStorage` so the identity can persist to the
   // OS keychain. In tests, callers construct IdentityService with their own
