@@ -79,15 +79,15 @@ export function LoginScreen({ directory, identity }: Props) {
                 Email taking a while? Check spam, send it again, or go back
                 to fix the address.
               </p>
+              <Button type="button" variant="primary" fullWidth disabled={busy} loading={busy} onClick={() => { void bloc.continueAfterVerification(); }}>
+                Continue
+              </Button>
               <div class="login-confirm-actions">
                 <Button type="button" variant="ghost" disabled={busy} onClick={() => bloc.cancelAwaitingConfirmation()}>
                   Back
                 </Button>
                 <Button type="button" variant="ghost" disabled={busy} onClick={() => { void bloc.resendVerification(); }}>
                   Resend email
-                </Button>
-                <Button type="button" variant="primary" disabled={busy} loading={busy} onClick={() => { void bloc.continueAfterVerification(); }}>
-                  Continue
                 </Button>
               </div>
             </div>
