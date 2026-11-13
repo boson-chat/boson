@@ -32,6 +32,10 @@ services:
       DBUSERNAME: boson
       DBPASSWORD: boson
       DBSSLMODE: disable
+      # The dev auth service (profile dev-auth): keys fetched over the
+      # compose network, issuer = its PUBLIC_URL.
+      AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
+      AUTH_ISSUER: http://localhost:8080
     depends_on:
       postgres:
         condition: service_healthy
@@ -255,11 +259,77 @@ services:
     networks:
       - boson-network
 
+  # ---- boson auth service (accounts, sign-in, tokens) -------------------
+  #
+  # github.com/boson-chat/auth, built from a checkout next to this repo
+  # (AUTH_SRC=../auth by default). `make auth-up`. Public API on :8080 —
+  # what the backend (AUTH_JWKS_URL / AUTH_ISSUER) and client/.env
+  # (VITE_AUTH_URL) point at. Its mail (verification, password reset)
+  # goes to its own Mailpit, UI http://localhost:8026: the shared mailpit
+  # above is drained by the backend's nick-claim worker.
+  #
+  # AUTH_KEY_ENCRYPTION_KEY below is a dev-only throwaway; production
+  # generates its own (`auth keys gen-kek`) and keeps it secret.
+  auth-postgres:
+    image: postgres:18-alpine
+    profiles:
+      - dev-auth
+    environment:
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: auth
+      POSTGRES_DB: auth
+    volumes:
+      - auth_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth -d auth"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    networks:
+      - boson-network
+
+  auth-mailpit:
+    image: axllent/mailpit:latest
+    profiles:
+      - dev-auth
+    ports:
+      - '8026:8025'
+    networks:
+      - boson-network
+
+  auth:
+    build:
+      context: ${AUTH_SRC:-../auth}
+    profiles:
+      - dev-auth
+    ports:
+      - '8080:8080'
+    environment:
+      ENV: development
+      PUBLIC_URL: http://localhost:8080
+      COOKIE_SECURE: 'false'
+      DATABASE_URL: postgres://auth:auth@auth-postgres:5432/auth?sslmode=disable
+      AUTH_KEY_ENCRYPTION_KEY: ZGV2LW9ubHkta2V5LWJvc29uLWF1dGgtbG9jYWwtZHY=
+      # The renderer in a browser (`make client-dev`) calls it directly;
+      # the desktop app goes through its API proxy (no CORS).
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      REQUIRE_EMAIL_VERIFICATION: 'true'
+      SMTP_HOST: auth-mailpit
+      SMTP_PORT: '1025'
+      SMTP_TLS: none
+      SMTP_FROM: Boson <no-reply@localhost>
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+    networks:
+      - boson-network
+
 networks:
   boson-network:
 
 volumes:
   postgres_data:
+  auth_postgres_data:
   ergo_data:
   anope_data:
   atheme_data:

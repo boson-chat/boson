@@ -1,5 +1,5 @@
 .PHONY: setup up down logs build tidy run migrate-up migrate-down migrate-create reset \
-        supabase-check supabase-init supabase-up supabase-down supabase-status supabase-reset \
+        auth-up auth-down auth-logs auth-admin \
         ergo-up typingbot seed-dev dev-up dev-down \
         client-install client-env client-dev client-build desktop-dev desktop-build \
         engine-build engine-connect engine-serve engine-env \
@@ -52,48 +52,45 @@ migrate-create:
 
 reset: stack-down setup
 
-# ----- Supabase (local auth stack) -----
+# ----- boson auth service (local accounts + tokens) -----
+#
+# github.com/boson-chat/auth from a checkout next to this repo (override with
+# AUTH_SRC=/path/to/auth). Public API on http://localhost:8080, its mail in
+# the Mailpit at http://localhost:8026. The backend's defaults
+# (AUTH_JWKS_URL / AUTH_ISSUER) and `make client-env` point at it.
 
-supabase-check:
-	@command -v supabase >/dev/null 2>&1 || { \
-		echo "supabase CLI not found."; \
-		echo "Install: brew install supabase/tap/supabase   (or)   npm i -g supabase"; \
-		echo "Or grab a binary: https://github.com/supabase/cli/releases"; \
+AUTH_SRC ?= ../auth
+
+auth-up:
+	@if [ ! -f "$(AUTH_SRC)/Dockerfile" ]; then \
+		echo "No auth service checkout at $(AUTH_SRC)."; \
+		echo "Clone it: gh repo clone boson-chat/auth $(AUTH_SRC)   (or set AUTH_SRC)"; \
 		exit 1; \
-	}
-
-supabase-init: supabase-check
-	@if [ ! -f supabase/config.toml ]; then \
-		echo "==> supabase init"; \
-		supabase init; \
-	else \
-		echo "==> supabase already initialized"; \
 	fi
+	AUTH_SRC=$(AUTH_SRC) docker compose --profile dev-auth up -d --build --wait auth-postgres auth-mailpit auth
+	@echo "auth service is up — API: http://localhost:8080  mail: http://localhost:8026"
 
-supabase-up: supabase-init
-	supabase start
-	@echo ""
-	@echo "Supabase is up. Studio: http://localhost:54323"
-	@echo "Run 'make run' to start boson with the local JWT secret wired in."
+auth-down:
+	docker compose --profile dev-auth stop auth auth-mailpit auth-postgres
 
-supabase-down: supabase-check
-	supabase stop
+auth-logs:
+	docker compose --profile dev-auth logs -f auth
 
-supabase-status: supabase-check
-	supabase status
-
-supabase-reset: supabase-check
-	supabase stop --no-backup || true
+# Create an admin account in the local auth service:
+#   make auth-admin USERNAME=admin EMAIL=admin@example.com
+auth-admin:
+	@if [ -z "$(USERNAME)" ] || [ -z "$(EMAIL)" ]; then echo "usage: make auth-admin USERNAME=admin EMAIL=admin@example.com"; exit 1; fi
+	docker compose --profile dev-auth exec auth ./auth user create --username "$(USERNAME)" --email "$(EMAIL)" --role admin
 
 # ----- Combined dev flows -----
 
-# Full local dev stack: boson Postgres + Supabase Auth + local ergo IRCd
+# Full local dev stack: boson Postgres + the auth service + local ergo IRCd
 # + mailpit (the inbound mailbox the nick-claim IMAP worker reads).
 # ergo and mailpit aren't strictly required for every dev session, but
 # the running cost is low and including them by default makes the
 # nick-claim flow + chat e2e tests "just work" without a separate
 # `docker compose --profile X up` step.
-dev-up: tidy up supabase-up ergo-up mailpit-up minio-up
+dev-up: tidy up auth-up ergo-up mailpit-up minio-up
 	@$(MAKE) migrate-up
 	@$(MAKE) seed-dev
 
@@ -132,18 +129,20 @@ seed-dev:
 typingbot:
 	go run ./engine/cmd/typingbot
 
-dev-down: supabase-down down
+dev-down: down
 
 # ----- Client (renderer) and desktop app -----
 
 client-install:
 	cd client && npm install
 
-# Regenerates client/.env from the local Supabase ANON_KEY. Safe to re-run.
-client-env: supabase-check
-	@ANON=$$(supabase status -o env 2>/dev/null | grep '^ANON_KEY=' | cut -d= -f2- | tr -d '"'); \
-	if [ -z "$$ANON" ]; then echo "Supabase not running. Run 'make supabase-up' first."; exit 1; fi; \
-	printf 'VITE_SUPABASE_URL=http://localhost:54321\nVITE_SUPABASE_ANON_KEY=%s\nVITE_BOSON_API_URL=http://localhost:3000\n' "$$ANON" > client/.env; \
+# Points client/.env at the local auth service + backend (keeps the
+# VITE_ENGINE_* lines `make engine-env` adds). Safe to re-run.
+client-env:
+	@touch client/.env; \
+	grep -v -E '^VITE_(AUTH_URL|BOSON_API_URL|SUPABASE_[A-Z_]*)=' client/.env > client/.env.tmp || true; \
+	printf 'VITE_AUTH_URL=http://localhost:8080\nVITE_BOSON_API_URL=http://localhost:3000\n' >> client/.env.tmp; \
+	mv client/.env.tmp client/.env; \
 	echo "Wrote client/.env"
 
 # The renderer in a browser on :5173 (Vite, hot reload), talking to the
@@ -164,7 +163,7 @@ client-build:
 desktop-dev: client-env
 	cd client && npx vite build --mode development
 	rm -rf desktop/frontend/dist && cp -R client/out/renderer desktop/frontend/dist && touch desktop/frontend/dist/.gitkeep
-	cd desktop && go run -ldflags "-X main.devBuild=true -X main.apiBase=http://localhost:3000 -X main.appVersion=$$(node -p "require('../client/package.json').version")" .
+	cd desktop && go run -ldflags "-X main.devBuild=true -X main.apiBase=http://localhost:3000 -X main.authBase=http://localhost:8080 -X main.appVersion=$$(node -p "require('../client/package.json').version")" .
 
 # A release build of the desktop app for this machine: macOS → a signed
 # .app + DMG for Apple Silicon and for Intel (ARCHS=arm64 for one; notarized
@@ -185,7 +184,7 @@ engine-serve:
 	go run ./engine/cmd/engine serve
 
 # After `make engine-serve` is running, merge engine URL+token into client/.env.
-# Preserves Supabase keys already there.
+# Preserves the other keys already there.
 engine-env:
 	@DISCOVERY="$${XDG_RUNTIME_DIR:-$$HOME/.boson}/boson/engine.json"; \
 	if [ ! -f "$$DISCOVERY" ]; then DISCOVERY="$$HOME/.boson/engine.json"; fi; \
@@ -230,7 +229,7 @@ test-client:
 	cd client && npm test
 
 # Playwright E2E. Requires:
-#   - make dev-up (postgres + supabase + ergo)
+#   - make dev-up (postgres + auth service + ergo)
 #   - make run (boson backend in another shell)
 # Builds the engine binary first so playwright's webServer can launch it
 # without paying the `go run` compile cost on every test run.
@@ -250,10 +249,10 @@ test-e2e: engine-build
 # test-e2e-app-up brings up the whole isolated e2e stack
 # (client/scripts/e2e-stack.mjs): compose project boson-e2e (ergo :16667,
 # ZNC :16501, Postgres :16432, catch-all Mailpit :11025/:11110/:18025, MinIO
-# :19000), the boson-e2e Supabase CLI project in infra/e2e/supabase (Auth +
-# Kong on :55321, auth Mailpit :55324) and the Go backend on :13000 (built
-# from this checkout, run on the host). None of it touches the dev stack's
-# containers, ports, volumes or Supabase project; endpoints are in
+# :19000, the auth service :18180 + its users' Mailpit :18325 — built from
+# $(AUTH_SRC), default ../auth, or $AUTH_IMAGE) and the Go backend on :13000
+# (built from this checkout, run on the host). None of it touches the dev
+# stack's containers, ports or volumes; endpoints are in
 # infra/e2e/stack.json. Each test runs the app with a throwaway HOME /
 # XDG_RUNTIME_DIR / data dir, so the real app's data and keychain are left
 # alone. The stack stays up afterwards for quick reruns

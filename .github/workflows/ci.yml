@@ -1,7 +1,7 @@
 # Gate every PR + main push on the same checks the pre-commit hook runs
 # locally: go vet + go test, client/website typecheck + unit tests. E2E
 # (Playwright) is intentionally out of scope here — it needs the full
-# Supabase + ergo + backend stack and adds ~5 min to every PR.
+# auth service + ergo + backend stack and adds ~5 min to every PR.
 name: CI
 
 on:
