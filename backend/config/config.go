@@ -83,11 +83,17 @@ type DBConfig struct {
 	SSLMode  string `env:"DBSSLMODE" default:"disable"`
 }
 
+// AuthConfig points at the boson auth service (github.com/boson-chat/auth),
+// which issues the EdDSA access tokens the API accepts. Defaults match the
+// auth service's local dev setup (`make run` there, on :8080); production
+// is https://auth.boson.chat.
 type AuthConfig struct {
-	// JWKS URL for verifying Supabase-issued JWTs. Required at server start
-	// (middleware panics if empty). Local default points at the Supabase CLI
-	// stack; in production set to https://<project>.supabase.co/auth/v1/.well-known/jwks.json
-	SupabaseJWKSURL string `env:"SUPABASE_JWKS_URL" default:"http://localhost:54321/auth/v1/.well-known/jwks.json"`
+	// JWKS with the auth service's public signing keys.
+	JWKSURL string `env:"AUTH_JWKS_URL" default:"http://localhost:8080/.well-known/jwks.json"`
+	// Expected `iss`: the auth service's ISSUER (= its PUBLIC_URL).
+	Issuer string `env:"AUTH_ISSUER" default:"http://localhost:8080"`
+	// Expected `aud` of access tokens.
+	Audience string `env:"AUTH_AUDIENCE" default:"boson"`
 }
 
 // LoadConfigOrPanic resolves config from the first matching JSON

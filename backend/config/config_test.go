@@ -12,7 +12,7 @@ import (
 var envKeys = []string{
 	"PORT", "ENV", "ALLOWED_ORIGINS",
 	"DBHOST", "DBPORT", "DBNAME", "DBUSERNAME", "DBPASSWORD", "DBSSLMODE",
-	"SUPABASE_JWKS_URL",
+	"AUTH_JWKS_URL", "AUTH_ISSUER", "AUTH_AUDIENCE",
 }
 
 func TestMain(m *testing.M) {
@@ -44,10 +44,9 @@ func TestLoadConfigOrPanic_Defaults(t *testing.T) {
 	assert.Equal(t, "boson", cfg.DBConfig.User)
 	assert.Equal(t, "disable", cfg.DBConfig.SSLMode)
 
-	assert.Equal(t,
-		"http://localhost:54321/auth/v1/.well-known/jwks.json",
-		cfg.AuthConfig.SupabaseJWKSURL,
-	)
+	assert.Equal(t, "http://localhost:8080/.well-known/jwks.json", cfg.AuthConfig.JWKSURL)
+	assert.Equal(t, "http://localhost:8080", cfg.AuthConfig.Issuer)
+	assert.Equal(t, "boson", cfg.AuthConfig.Audience)
 }
 
 func TestLoadConfigOrPanic_EnvOverrides(t *testing.T) {
@@ -55,7 +54,8 @@ func TestLoadConfigOrPanic_EnvOverrides(t *testing.T) {
 	t.Setenv("ENV", "staging")
 	t.Setenv("DBHOST", "prod-db.internal")
 	t.Setenv("DBPORT", "6432")
-	t.Setenv("SUPABASE_JWKS_URL", "https://proj.supabase.co/auth/v1/.well-known/jwks.json")
+	t.Setenv("AUTH_JWKS_URL", "https://auth.boson.chat/.well-known/jwks.json")
+	t.Setenv("AUTH_ISSUER", "https://auth.boson.chat")
 	t.Setenv("ALLOWED_ORIGINS", "https://app.example.com,https://admin.example.com")
 
 	cfg := LoadConfigOrPanic()
@@ -64,6 +64,8 @@ func TestLoadConfigOrPanic_EnvOverrides(t *testing.T) {
 	assert.Equal(t, "staging", cfg.AppConfig.Env)
 	assert.Equal(t, "prod-db.internal", cfg.DBConfig.Host)
 	assert.EqualValues(t, 6432, cfg.DBConfig.Port)
-	assert.Equal(t, "https://proj.supabase.co/auth/v1/.well-known/jwks.json", cfg.AuthConfig.SupabaseJWKSURL)
+	assert.Equal(t, "https://auth.boson.chat/.well-known/jwks.json", cfg.AuthConfig.JWKSURL)
+	assert.Equal(t, "https://auth.boson.chat", cfg.AuthConfig.Issuer)
+	assert.Equal(t, "boson", cfg.AuthConfig.Audience)
 	assert.Equal(t, "https://app.example.com,https://admin.example.com", cfg.AppConfig.AllowedOrigins)
 }

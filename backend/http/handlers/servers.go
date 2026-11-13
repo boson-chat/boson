@@ -55,7 +55,7 @@ func (h *ServerHandler) enrich(s *server.Server) *server.Server {
 }
 
 // RegisterPublic mounts the read-only directory routes that don't require auth.
-// Anyone — including guest users with no Supabase session — can browse the
+// Anyone — including guest users with no account session — can browse the
 // server directory; auth is only needed to add a new server.
 func (h *ServerHandler) RegisterPublic(mux *stdhttp.ServeMux) {
 	mux.HandleFunc("GET /servers", h.list)

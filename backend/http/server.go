@@ -14,6 +14,7 @@ import (
 	"github.com/boson-chat/boson/backend/http/middleware"
 	"github.com/boson-chat/boson/backend/internal/db"
 	"github.com/boson-chat/boson/backend/internal/logger"
+	"github.com/boson-chat/boson/backend/internal/services/authidentity"
 	"github.com/boson-chat/boson/backend/internal/services/avatar"
 	"github.com/boson-chat/boson/backend/internal/services/bouncersecret"
 	"github.com/boson-chat/boson/backend/internal/services/nickclaim"
@@ -79,7 +80,7 @@ func StartServerWithContext(ctx context.Context) error {
 	presenceHandler := handlers.NewPresenceHandler(presenceService, avatarService)
 
 	// Public routes — health + read-only directory browsing. Guest users
-	// (no Supabase session) hit these without an Authorization header.
+	// (no account session) hit these without an Authorization header.
 	publicMux := stdhttp.NewServeMux()
 	publicMux.HandleFunc("GET /health", healthHandler(database))
 	serverHandler.RegisterPublic(publicMux)
@@ -95,7 +96,14 @@ func StartServerWithContext(ctx context.Context) error {
 	bouncerSecretHandler.Register(protectedMux)
 	presenceHandler.Register(protectedMux)
 
-	root := buildRouter(publicMux, protectedMux, middleware.RequireAuth(cfg.AuthConfig))
+	// Access tokens come from the boson auth service; auth_identities maps
+	// their sub to boson's user ids (imported Supabase accounts keep theirs).
+	tokens, err := middleware.NewVerifier(ctx, cfg.AuthConfig)
+	if err != nil {
+		return fmt.Errorf("auth: %w", err)
+	}
+	identities := authidentity.NewService(database)
+	root := buildRouter(publicMux, protectedMux, middleware.RequireAuth(tokens, identities))
 
 	// Co-resident POP3 worker for the automated NickServ-email-
 	// confirmation flow. Worker no-ops if the PURELYMAIL_POP3_HOST

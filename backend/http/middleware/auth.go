@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"errors"
+	"fmt"
 	stdhttp "net/http"
 	"strings"
 	"time"
@@ -12,13 +13,22 @@ import (
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 type ctxKey struct{}
 
 type Principal struct {
+	// UserID is boson's id for the caller (users.id and every user_id
+	// column), resolved from the token's sub via auth_identities.
 	UserID uuid.UUID
-	Email  string
+	// AuthUserID is the auth service's id (the token's sub, usr_<ULID>).
+	AuthUserID string
+	// Username is the auth-service username (an IRC nick) from the `name`
+	// claim. Informational: boson's handle lives in users.handle.
+	Username string
+	// Role is `user` or `admin` from the token.
+	Role string
 }
 
 func UserFromCtx(ctx context.Context) (Principal, bool) {
@@ -40,55 +50,102 @@ func WithUser(ctx context.Context, p Principal) context.Context {
 	return context.WithValue(ctx, ctxKey{}, p)
 }
 
-// RequireAuth verifies a Supabase-issued JWT against the configured JWKS
-// endpoint and stores the principal in the request context.
-func RequireAuth(cfg config.AuthConfig) func(stdhttp.Handler) stdhttp.Handler {
-	if cfg.SupabaseJWKSURL == "" {
-		panic("SUPABASE_JWKS_URL is required")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	k, err := keyfunc.NewDefaultCtx(ctx, []string{cfg.SupabaseJWKSURL})
-	if err != nil {
-		panic("failed to load JWKS from " + cfg.SupabaseJWKSURL + ": " + err.Error())
-	}
-
-	return func(next stdhttp.Handler) stdhttp.Handler {
-		return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
-			principal, err := verifyBearer(r, k.Keyfunc)
-			if err != nil {
-				stdhttp.Error(w, err.Error(), stdhttp.StatusUnauthorized)
-				return
-			}
-			ctx := context.WithValue(r.Context(), ctxKey{}, principal)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+// UserIDResolver maps an auth-service user id (sub) to the boson user id.
+// Implemented by authidentity.Service.
+type UserIDResolver interface {
+	Resolve(ctx context.Context, authUserID string) (uuid.UUID, error)
 }
 
-func verifyBearer(r *stdhttp.Request, kf jwt.Keyfunc) (Principal, error) {
-	authz := r.Header.Get("Authorization")
-	if !strings.HasPrefix(authz, "Bearer ") {
-		return Principal{}, errors.New("missing bearer token")
-	}
-	tokenStr := strings.TrimPrefix(authz, "Bearer ")
+// accessClaims are the claims of an auth-service access token.
+type accessClaims struct {
+	jwt.RegisteredClaims
+	SessionID string `json:"sid"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+}
 
-	claims := jwt.MapClaims{}
-	_, err := jwt.ParseWithClaims(tokenStr, claims, kf)
-	if err != nil {
-		return Principal{}, err
-	}
+// Verifier checks auth-service access tokens: EdDSA only, a key from the
+// JWKS (cached, refetched on an unknown kid), typ at+jwt, and exp / iss /
+// aud required.
+type Verifier struct {
+	keys     jwt.Keyfunc
+	issuer   string
+	audience string
+}
 
-	sub, _ := claims["sub"].(string)
-	if sub == "" {
-		return Principal{}, errors.New("token missing sub")
+// NewVerifier starts the JWKS cache. The JWKS being unreachable at startup
+// isn't fatal (keyfunc keeps retrying); tokens fail until it loads.
+func NewVerifier(ctx context.Context, cfg config.AuthConfig) (*Verifier, error) {
+	if cfg.JWKSURL == "" {
+		return nil, errors.New("AUTH_JWKS_URL is required")
 	}
-	id, err := uuid.Parse(sub)
+	if cfg.Issuer == "" {
+		return nil, errors.New("AUTH_ISSUER is required")
+	}
+	if cfg.Audience == "" {
+		return nil, errors.New("AUTH_AUDIENCE is required")
+	}
+	k, err := keyfunc.NewDefaultCtx(ctx, []string{cfg.JWKSURL})
 	if err != nil {
-		return Principal{}, errors.New("token sub is not a UUID")
+		return nil, fmt.Errorf("JWKS %s: %w", cfg.JWKSURL, err)
 	}
-	email, _ := claims["email"].(string)
-	return Principal{UserID: id, Email: email}, nil
+	return &Verifier{keys: k.Keyfunc, issuer: cfg.Issuer, audience: cfg.Audience}, nil
+}
+
+// Verify parses and validates an access token.
+func (v *Verifier) Verify(token string) (*accessClaims, error) {
+	var c accessClaims
+	t, err := jwt.ParseWithClaims(token, &c, v.keys,
+		jwt.WithValidMethods([]string{"EdDSA"}),
+		jwt.WithExpirationRequired(),
+		jwt.WithIssuer(v.issuer),
+		jwt.WithAudience(v.audience),
+		jwt.WithLeeway(30*time.Second),
+	)
+	if err != nil {
+		return nil, err
+	}
+	// typ at+jwt keeps other tokens from this issuer (e.g. voice tokens,
+	// which also have a different aud) out.
+	if typ, _ := t.Header["typ"].(string); !strings.EqualFold(typ, "at+jwt") {
+		return nil, errors.New("not an access token")
+	}
+	if c.Subject == "" {
+		return nil, errors.New("token missing sub")
+	}
+	return &c, nil
+}
+
+// RequireAuth verifies an auth-service access token and stores the
+// principal in the request context.
+func RequireAuth(v *Verifier, resolver UserIDResolver) func(stdhttp.Handler) stdhttp.Handler {
+	if v == nil || resolver == nil {
+		panic("RequireAuth needs a verifier and a resolver")
+	}
+	return func(next stdhttp.Handler) stdhttp.Handler {
+		return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+			authz := r.Header.Get("Authorization")
+			if !strings.HasPrefix(authz, "Bearer ") {
+				stdhttp.Error(w, "missing bearer token", stdhttp.StatusUnauthorized)
+				return
+			}
+			c, err := v.Verify(strings.TrimPrefix(authz, "Bearer "))
+			if err != nil {
+				stdhttp.Error(w, "invalid token", stdhttp.StatusUnauthorized)
+				return
+			}
+			if !strings.HasPrefix(c.Subject, "usr_") {
+				stdhttp.Error(w, "invalid token", stdhttp.StatusUnauthorized)
+				return
+			}
+			id, err := resolver.Resolve(r.Context(), c.Subject)
+			if err != nil {
+				log.Error().Err(err).Str("sub", c.Subject).Msg("auth: resolve user id")
+				stdhttp.Error(w, "could not resolve user", stdhttp.StatusInternalServerError)
+				return
+			}
+			p := Principal{UserID: id, AuthUserID: c.Subject, Username: c.Name, Role: c.Role}
+			next.ServeHTTP(w, r.WithContext(WithUser(r.Context(), p)))
+		})
+	}
 }
