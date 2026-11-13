@@ -1,12 +1,12 @@
 # Isolated infra for the real-app (Wails) e2e suite (client/tests/e2e-app/).
 #
-#   node client/scripts/e2e-stack.mjs up     # this file + Supabase + backend
+#   node client/scripts/e2e-stack.mjs up     # this file + backend
 #   node client/scripts/e2e-stack.mjs down
 #
 # (or `make test-e2e-app-up` / `make test-e2e-app-down`). The guest-only
 # specs need just ergo + ZNC; account-mode specs also need Postgres, the
-# catch-all Mailpit, MinIO, the e2e Supabase project (infra/e2e/supabase/)
-# and the Go backend, which e2e-stack.mjs runs on the host.
+# catch-all Mailpit, MinIO, the boson auth service (+ its Postgres and the
+# users' Mailpit) and the Go backend, which e2e-stack.mjs runs on the host.
 #
 # Deliberately a separate compose PROJECT (`name: boson-e2e`) with its own
 # network, no named volumes and non-default host ports, so it can run next to
@@ -23,6 +23,14 @@
 #   mailpit-archive  127.0.0.1:18026  HTTP API: a copy of every catch-all mail
 #   minio     127.0.0.1:19000  S3 API (minioadmin/minioadmin, bucket `boson`)
 #             127.0.0.1:19001  console
+#   auth      127.0.0.1:18180  boson auth service (github.com/boson-chat/auth)
+#   auth-mailpit 127.0.0.1:18325  HTTP API / UI: the users' inboxes
+#   auth-postgres 127.0.0.1:16433  the auth service's DB (auth/auth/auth)
+#
+# The auth service is a private repo, so its image comes from outside:
+# e2e-stack.mjs builds it from a checkout ($AUTH_SRC, default ../auth next
+# to this repo) as boson-e2e-auth:local, or uses $AUTH_IMAGE as given (e.g.
+# harbor.floret.dev/boson/auth:<version>, after `docker login`).
 name: boson-e2e
 
 services:
@@ -64,7 +72,7 @@ services:
       timeout: 2s
       retries: 30
 
-  # The backend's own database (Supabase's Postgres only backs Auth, as in
+  # The backend's own database (the auth service has its own, as in
   # production). Migrated by e2e-stack.mjs (`server migrate up`).
   postgres:
     image: postgres:16-alpine
@@ -85,8 +93,8 @@ services:
   # The boson.chat catch-all mailbox (PurelyMail in production): ergo's
   # NickServ verification mails land here and the backend's nick-claim POP3
   # worker drains it. That worker DELEs every message it can't route, so the
-  # users' own inbox (Supabase auth mails) is a different Mailpit — the one
-  # bundled with the e2e Supabase project (127.0.0.1:55324).
+  # users' own inbox (the auth service's mail) is a different Mailpit —
+  # auth-mailpit below (127.0.0.1:18325).
   mailpit:
     image: axllent/mailpit:v1.31.3
     ports:
@@ -158,3 +166,61 @@ services:
       mc anonymous set download local/boson;
       echo 'minio bucket ready';
       "
+
+  # ---- boson auth service ----------------------------------------------------
+  # Accounts, sign-in, tokens. Its verification / reset links point at its
+  # own built-in pages (APP_URL = PUBLIC_URL). The encryption key below is a
+  # throwaway for this tmpfs-only stack; never reuse it.
+  auth-postgres:
+    image: postgres:18-alpine
+    ports:
+      - '127.0.0.1:16433:5432'
+    environment:
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: auth
+      POSTGRES_DB: auth
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U auth -d auth']
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  auth-mailpit:
+    image: axllent/mailpit:v1.31.3
+    ports:
+      - '127.0.0.1:18325:8025'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  auth:
+    image: ${AUTH_IMAGE:-boson-e2e-auth:local}
+    pull_policy: never
+    ports:
+      - '127.0.0.1:18180:8080'
+    environment:
+      ENV: development
+      PUBLIC_URL: http://127.0.0.1:18180
+      COOKIE_SECURE: 'false'
+      DATABASE_URL: postgres://auth:auth@auth-postgres:5432/auth?sslmode=disable
+      AUTH_KEY_ENCRYPTION_KEY: ZTJlLW9ubHkta2V5LWZvci10aGUtdG1wZnMtc3RhY2s=
+      REGISTRATION: open
+      REQUIRE_EMAIL_VERIFICATION: 'true'
+      SMTP_HOST: auth-mailpit
+      SMTP_PORT: '1025'
+      SMTP_TLS: none
+      SMTP_FROM: Boson <no-reply@boson.test>
+      # Parallel workers sign up / in a lot from one IP.
+      RATE_LIMIT_IP_BURST: '1000'
+      RATE_LIMIT_IP_PER_MINUTE: '1000'
+      RATE_LIMIT_ACCOUNT_BURST: '100'
+      RATE_LIMIT_ACCOUNT_PER_MINUTE: '100'
+    depends_on:
+      auth-postgres:
+        condition: service_healthy
+      auth-mailpit:
+        condition: service_healthy

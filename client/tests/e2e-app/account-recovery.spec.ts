@@ -9,21 +9,21 @@ import {
 test('after a password reset the recovery code unlocks the identity and re-wraps it', async ({ launchApp, account }) => {
   const { page } = await launchApp();
   expect(await loginAs(page, account)).toBe('directory');
-  const wrapBefore = backendSql(`SELECT encode(encrypted_user_secret, 'base64') FROM users WHERE id = '${account.id}'`);
+  const wrapBefore = backendSql(`SELECT encode(encrypted_user_secret, 'base64') FROM users WHERE id = '${account.bosonId}'`);
   expect(wrapBefore.length).toBeGreaterThan(40);
 
   await signOut(page);
   const newPassword = randomPassword();
   await setAuthPassword(account.id, newPassword);
 
-  // The new password signs in to Supabase but can't decrypt the identity.
+  // The new password signs in to the auth service but can't decrypt the identity.
   await submitLogin(page, { email: account.email, password: newPassword });
   await expect(page.locator('.login-error')).toContainText('enter your recovery code');
   await recoverWithCode(page, account.recoveryCode!);
   await expect(page.locator('.directory-handle')).toHaveText(`@${account.handle}`);
 
   // Re-wrapped under the new password on the backend …
-  await expect.poll(() => backendSql(`SELECT encode(encrypted_user_secret, 'base64') FROM users WHERE id = '${account.id}'`))
+  await expect.poll(() => backendSql(`SELECT encode(encrypted_user_secret, 'base64') FROM users WHERE id = '${account.bosonId}'`))
     .not.toBe(wrapBefore);
   // … so the next sign-in needs no recovery code.
   await signOut(page);

@@ -16,7 +16,7 @@ import { test, expect, loginAs, seedServer, randomChannel } from './fixtures';
   nick, email, handle or server name — use `randomChannel()`,
   `randomNick()`, `randomEmail()`, `randomHandle()`, `uid()`. Use the
   `zncUser` fixture for anything ZNC; never hard-code a ZNC user.
-- **The backend DB and Supabase are shared and long-lived** (until
+- **The backend DB and the auth service are shared and long-lived** (until
   `make test-e2e-app-down`). Seeded servers stay listed in everyone's
   directory. The app hides a manually added server when the directory lists
   the same `hostname:port`, so `seedServer()` registers the ergo as
@@ -35,8 +35,8 @@ import { test, expect, loginAs, seedServer, randomChannel } from './fixtures';
 | `launchApp(opts?)` | Launches the app → `{ app, page, openedExternally() }`. Call again (same `profile`) to relaunch. Closed + cleaned up after the test. |
 | `profile` | The test's throwaway HOME / runtime / userData dirs. |
 | `zncUser` | `{ host, port, username, password, network }` — a ZNC user leased for this test and reset (upstream disconnected, no channels). |
-| `account` | A confirmed Supabase user **with** a Boson identity (handle + password-wrapped secret + recovery code): `{ id, email, password, handle, recoveryCode }`. `loginAs(page, account)` lands in the directory. |
-| `createAccount(opts?)` | Factory: `{ email?, password?, handle?: boolean \| string }`. Without `handle` the user is confirmed but has no `/me` yet — the first sign-in shows the handle setup. All created users are deleted after the test. |
+| `account` | A verified auth-service user **with** a Boson identity (handle + password-wrapped secret + recovery code): `{ id, bosonId, username, email, password, handle, recoveryCode }`. `id` is the auth user id (`usr_…`, what the app keys the keychain on); `bosonId` the backend's `users.id`. `loginAs(page, account)` lands in the directory. |
+| `createAccount(opts?)` | Factory: `{ email?, password?, handle?: boolean \| string }`. Without `handle` the user is verified but has no `/me` yet — the first sign-in shows the handle setup. All created users are disabled after the test (the auth service has no delete). |
 | `backendApi(user?)` | `BackendApi` for `STACK.backend.url` — anonymous, or signed in as `user` (`{ email, password }`). |
 | `mailpit` | `{ users, catchall }`: `Mailpit` clients for the auth inbox and the boson.chat catch-all. |
 
@@ -59,7 +59,7 @@ UI flows (`helpers/account.ts`):
 | `signOut(page)` | Directory top bar → Sign out → login screen. |
 | `continueAsGuest(page, nick)`, `addServerManually`, `serverCard`, `joinChannel`, `composer`, `sendMessage`, `memberList`, `messageList`, `configureBouncerProfile`, `field` | Guest / chat UI (see `fixtures.ts`). |
 
-Backend + data (`helpers/backend.ts`, `helpers/supabase.ts`):
+Backend + data (`helpers/backend.ts`, `helpers/auth.ts`):
 
 | Helper | Does |
 | --- | --- |
@@ -67,8 +67,8 @@ Backend + data (`helpers/backend.ts`, `helpers/supabase.ts`):
 | `provisionIdentity(user, handle?)` | `POST /me` with a real secret wrapped under the user's password + a recovery code (the app's own crypto). → `{ handle, recoveryCode }`. |
 | `BackendApi.as(user)` / `.anonymous()` | `get/post/put/patch/delete` (throw on non-2xx), `request` (returns `{ status, ok, body }`). |
 | `backendSql(sql)` | psql against the backend's Postgres (unaligned, tuples-only output). Prefer the API. |
-| `createConfirmedUser(opts?)`, `deleteAuthUser(id)`, `findAuthUserByEmail(email)`, `setAuthPassword(id, pw)`, `signInWithPassword(email, password)` | Supabase admin / auth API (`setAuthPassword` = the outcome of a password reset). |
-| `randomEmail()`, `randomPassword()`, `randomHandle()`, `randomChannel()`, `randomNick()`, `uid()` | Unique names. |
+| `createConfirmedUser(opts?)`, `deleteAuthUser(id)`, `findAuthUserByEmail(email)`, `setAuthPassword(id, pw)`, `signInWithPassword(login, password)`, `verifyEmail(email)`, `emailToken(email, page)`, `bosonUserId(id)` | The auth service's API, its admin API (as the stack's `e2eadmin`) and the users' Mailpit. `setAuthPassword` runs a real forgot → reset (which signs out every session). |
+| `randomEmail()`, `randomPassword()`, `randomUsername()`, `randomHandle()`, `randomChannel()`, `randomNick()`, `uid()` | Unique names. |
 
 Mail (`helpers/mailpit.ts`): `Mailpit.users()` / `Mailpit.catchall()` /
 `Mailpit.catchallCopy()` with

@@ -67,7 +67,7 @@ test('profile image: upload, replace and remove land in object storage and the t
   // An "image" the backend can't decode → 400 → a readable error.
   await file.setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('not really a png') });
   await expect(dialog.locator('.user-settings-error')).toHaveText('That file isn’t a supported image.');
-  expect(avatarKey(account.id)).toBe('');
+  expect(avatarKey(account.bosonId)).toBe('');
 
   // ---- upload ----
   await file.setInputFiles({ name: 'red.png', mimeType: 'image/png', buffer: png(32, 32, [220, 30, 30]) });
@@ -75,7 +75,7 @@ test('profile image: upload, replace and remove land in object storage and the t
   await expect(dialog.locator('.user-settings-error')).toBeHidden();
   const first = await api.get<{ avatar_url?: string }>('/me');
   expect(first.avatar_url).toMatch(new RegExp(`^${STACK.minio.endpoint}/${STACK.minio.bucket}/.+\\.png$`));
-  const firstKey = avatarKey(account.id);
+  const firstKey = avatarKey(account.bosonId);
   expect(first.avatar_url!.endsWith(firstKey)).toBe(true);
   const img = await fetch(first.avatar_url!);
   expect(img.status).toBe(200);
@@ -86,7 +86,7 @@ test('profile image: upload, replace and remove land in object storage and the t
 
   // ---- replace: new object, the old one is deleted ----
   await file.setInputFiles({ name: 'blue.png', mimeType: 'image/png', buffer: png(48, 48, [20, 40, 230]) });
-  await expect.poll(() => avatarKey(account.id), { timeout: 20_000 }).not.toBe(firstKey);
+  await expect.poll(() => avatarKey(account.bosonId), { timeout: 20_000 }).not.toBe(firstKey);
   const second = await api.get<{ avatar_url?: string }>('/me');
   await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('src', second.avatar_url!);
   expect((await fetch(second.avatar_url!)).status).toBe(200);
@@ -96,7 +96,7 @@ test('profile image: upload, replace and remove land in object storage and the t
   await dialog.getByRole('button', { name: 'Remove' }).click();
   await expect(dialog.getByRole('button', { name: 'Upload' })).toBeVisible({ timeout: 20_000 });
   await expect(dialog.locator('.user-settings-avatar img')).toHaveCount(0);
-  expect(avatarKey(account.id)).toBe('');
+  expect(avatarKey(account.bosonId)).toBe('');
   expect((await api.get<{ avatar_url?: string }>('/me')).avatar_url).toBeUndefined();
   expect((await fetch(second.avatar_url!)).status).not.toBe(200);
   await expect(page.locator('.title-bar-user-avatar img')).toHaveCount(0);
@@ -108,7 +108,7 @@ test('profile image: upload, replace and remove land in object storage and the t
 test('regenerating the recovery code replaces the wrap: the old code stops working, the new one unlocks', async ({ launchApp, account }) => {
   const { page } = await launchApp();
   expect(await loginAs(page, account)).toBe('directory');
-  const wrap = (): string => backendSql(`SELECT encode(encrypted_user_secret_recovery, 'base64') FROM users WHERE id = '${account.id}'`);
+  const wrap = (): string => backendSql(`SELECT encode(encrypted_user_secret_recovery, 'base64') FROM users WHERE id = '${account.bosonId}'`);
   const wrapBefore = wrap();
 
   const dialog = await openSettings(page, 'Account');
@@ -144,7 +144,7 @@ test('regenerating the recovery code replaces the wrap: the old code stops worki
 });
 
 test('an account without a recovery code can set one up from settings', async ({ launchApp, account, backendApi }) => {
-  backendSql(`UPDATE users SET encrypted_user_secret_recovery = NULL WHERE id = '${account.id}'`);
+  backendSql(`UPDATE users SET encrypted_user_secret_recovery = NULL WHERE id = '${account.bosonId}'`);
   const { page } = await launchApp();
   expect(await loginAs(page, account)).toBe('directory');
 

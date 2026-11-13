@@ -1,15 +1,13 @@
-// Account mode, end to end against the e2e stack (Supabase Auth + backend):
-// sign up in the UI → confirmation mail → confirm via the boson:// deep link
-// → sign in → pick a handle → the directory lists a seeded, verified server
+// Account mode, end to end against the e2e stack (auth service + backend):
+// sign up in the UI → verification mail → verify, Continue → pick a handle → the directory lists a seeded, verified server
 // → connect → chat with a peer → relaunch restores the signed-in session.
 import {
   test, expect, IRC_HOST, IRC_PORT,
   composer, confirmSignup, completeHandleSetup, findAuthUserByEmail, joinChannel, loginAs, messageList,
   randomChannel, randomEmail, randomHandle, randomNick, randomPassword, seedServer, sendMessage, serverCard,
-  signUpViaUi,
+  signUpViaUi, deleteAuthUser, signInWithPassword,
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
-import { deleteAuthUser } from './helpers/supabase';
 
 test('sign up, confirm by email, set a handle, chat on a directory server, and stay signed in after relaunch', async ({ launchApp, backendApi }) => {
   test.setTimeout(180_000);
@@ -24,26 +22,21 @@ test('sign up, confirm by email, set a handle, chat on a directory server, and s
   try {
     await peer.join(channel);
 
-    // ---- sign up: no session until the email is confirmed ----
+    // ---- sign up: no sign-in until the email is verified ----
     const first = await launchApp();
     const { page } = first;
-    await signUpViaUi(page, { email, password });
+    const username = await signUpViaUi(page, { email, password });
     const pending = await findAuthUserByEmail(email);
-    expect(pending, 'GoTrue created the user').not.toBeNull();
+    expect(pending, 'the auth service created the user').not.toBeNull();
     userId = pending!.id;
-    expect(pending!.email_confirmed_at).toBeNull();
+    expect(pending!.username).toBe(username);
+    expect(pending!.email_verified).toBe(false);
+    await expect(signInWithPassword(username, password)).rejects.toThrow(/email_not_verified/);
 
-    // ---- confirm: mail link → /verify → boson://auth/confirmed → app ----
-    await confirmSignup(first.app, email);
-    expect((await findAuthUserByEmail(email))!.email_confirmed_at).not.toBeNull();
-    // The deep link hands the app a session, but the identity key can only
-    // be created / unlocked with the password: the app asks to sign in.
-    await expect(page.getByRole('tab', { name: 'Login', selected: true })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole('heading', { name: 'Check your email.' })).toBeHidden();
-    await expect(page.getByPlaceholder('email', { exact: true })).toHaveValue(email);
-
-    // ---- sign in → first-sign-in handle setup → directory ----
-    expect(await loginAs(page, { email, password })).toBe('setup');
+    // ---- verify: mail link → the auth service's page; Continue signs in
+    // with what was typed → first-sign-in handle setup → directory ----
+    expect(await confirmSignup(page, email)).toBe('setup');
+    expect((await findAuthUserByEmail(email))!.email_verified).toBe(true);
     const recoveryCode = await completeHandleSetup(page, handle);
     expect(recoveryCode).toMatch(/^[a-z0-9]{4}(-[a-z0-9]{4}){7}$/);
 

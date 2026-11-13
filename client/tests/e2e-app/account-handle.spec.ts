@@ -35,7 +35,7 @@ test('first sign-in handle setup rejects short and taken handles, then accepts a
   await input.fill(other.handle!.toUpperCase());
   await save.click();
   await expect(setupError).toContainText('handle taken');
-  expect(backendSql(`SELECT count(*) FROM users WHERE id = '${fresh.id}'`)).toBe('0');
+  expect(backendSql(`SELECT count(*) FROM users WHERE id = '${fresh.bosonId}'`)).toBe('0');
 
   // The pending identity survives the failed attempts: a free handle works.
   const handle = randomHandle('setup');
@@ -72,7 +72,7 @@ test('renaming the handle in settings: taken and too-short are refused, a free o
   await input.fill('  x  ');
   await save.click();
   await expect(error).toHaveText('Handle must be at least 3 characters.');
-  expect(backendSql(`SELECT handle FROM users WHERE id = '${me.id}'`)).toBe(me.handle);
+  expect(backendSql(`SELECT handle FROM users WHERE id = '${me.bosonId}'`)).toBe(me.handle);
 
   const renamed = randomHandle('ren');
   await input.fill(renamed);
@@ -86,7 +86,7 @@ test('renaming the handle in settings: taken and too-short are refused, a free o
   expect((await api.get<{ handle: string; handle_changed_at: string }>('/me')).handle).toBe(renamed);
   const audit = backendSql(
     `SELECT old_handle || '|' || new_handle || '|' || round(extract(epoch FROM redirect_until - changed_at) / 86400)
-       FROM handle_changes WHERE user_id = '${me.id}'`,
+       FROM handle_changes WHERE user_id = '${me.bosonId}'`,
   );
   expect(audit).toBe(`${me.handle}|${renamed}|90`);
 

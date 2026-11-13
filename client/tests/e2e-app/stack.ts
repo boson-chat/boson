@@ -23,27 +23,8 @@ export interface StackConfig {
   postgres: { host: string; port: number; database: string; user: string; password: string };
   catchallMail: { smtpPort: number; pop3Port: number; pop3User: string; pop3Password: string; apiUrl: string; archiveApiUrl: string };
   minio: { endpoint: string; accessKey: string; secretKey: string; bucket: string };
-  supabase: { apiUrl: string; dbPort: number; mailpitUrl: string; publishableKey: string; secretKey: string };
+  auth: { url: string; mailpitUrl: string; dbPort: number; admin: { username: string; email: string; password: string } };
   backend: { url: string; port: number };
 }
 
 export const STACK = JSON.parse(readFileSync(join(E2E_INFRA_DIR, 'stack.json'), 'utf8')) as StackConfig;
-
-// The Supabase secret (service-role) key isn't in stack.json — GitHub push
-// protection rejects it even though it's the CLI's local key. `e2e-stack.mjs
-// up` writes the running project's key to .run/supabase.json; read it lazily
-// so guest-only runs and global setup don't need the stack up.
-Object.defineProperty(STACK.supabase, 'secretKey', { enumerable: true, get: supabaseSecretKey });
-
-function supabaseSecretKey(): string {
-  const fromEnv = process.env['E2E_SUPABASE_SECRET_KEY'];
-  if (fromEnv) return fromEnv;
-  try {
-    return (JSON.parse(readFileSync(join(E2E_RUN_DIR, 'supabase.json'), 'utf8')) as { secretKey: string }).secretKey;
-  } catch {
-    throw new Error(
-      'Supabase secret key not found: bring the e2e stack up (`make test-e2e-app-up`), which writes ' +
-      'infra/e2e/.run/supabase.json — or set E2E_SUPABASE_SECRET_KEY.',
-    );
-  }
-}

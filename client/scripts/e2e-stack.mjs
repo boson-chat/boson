@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Brings the real-app e2e stack up / down (client/tests/e2e-app/):
 //
-//   node scripts/e2e-stack.mjs up       # compose + Supabase + migrations + backend
+//   node scripts/e2e-stack.mjs up       # compose (incl. auth service) + migrations + backend
 //   node scripts/e2e-stack.mjs down     # stop all of it, drop its state
 //   node scripts/e2e-stack.mjs status
 //   node scripts/e2e-stack.mjs restart-backend
@@ -12,10 +12,12 @@
 // (endpoints in infra/e2e/stack.json):
 //
 //   1. infra/e2e/docker-compose.yml — compose project `boson-e2e`: ergo,
-//      ZNC, the backend's Postgres, the catch-all Mailpit, MinIO (+ bucket).
-//   2. infra/e2e/supabase/ — Supabase CLI project `boson-e2e` (Auth +
-//      Kong + its Mailpit only). Never the dev project in supabase/.
-//   3. The Go backend, built from this checkout into infra/e2e/.run/ and run
+//      ZNC, the backend's Postgres, the catch-all Mailpit, MinIO (+ bucket),
+//      and the boson auth service with its Postgres and the users' Mailpit.
+//      The auth image is built from $AUTH_SRC (default: an `auth` checkout
+//      next to this repo) unless $AUTH_IMAGE names one to use. `up` creates
+//      the stack's admin account (stack.json auth.admin) for the tests.
+//   2. The Go backend, built from this checkout into infra/e2e/.run/ and run
 //      on the host (`serve`, after `migrate up`). Built with the `boson_dev`
 //      tag + SKIP_DNS_VERIFY so directory servers can be verified without
 //      DNS. With E2E_COVERAGE=1 it's a `-cover` build that flushes counters
@@ -28,7 +30,7 @@
 // credentials).
 //
 // `down` only ever stops what this script started: the compose project
-// `boson-e2e`, the Supabase project in infra/e2e, and the backend PID in
+// `boson-e2e` and the backend PID in
 // infra/e2e/.run/backend.pid (after checking its command is our binary).
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,19 +45,17 @@ const stack = JSON.parse(readFileSync(join(e2eDir, 'stack.json'), 'utf8'));
 
 const coverage = process.env.E2E_COVERAGE === '1';
 const GO = process.env.GO ?? 'go';
-const SUPABASE = process.env.SUPABASE ?? 'supabase';
+const AUTH_IMAGE = process.env.AUTH_IMAGE ?? '';
+const AUTH_SRC = process.env.AUTH_SRC ?? join(repoRoot, '..', 'auth');
+const LOCAL_AUTH_IMAGE = 'boson-e2e-auth:local';
 const backendBin = join(runDir, process.platform === 'win32' ? 'boson-e2e-backend.exe' : 'boson-e2e-backend');
 const pidFile = join(runDir, 'backend.pid');
 const logFile = join(runDir, 'backend.log');
 export const backendCoverDir = join(runDir, 'backend-cover');
 
 const compose = ['compose', '-f', join(e2eDir, 'docker-compose.yml')];
-const COMPOSE_SERVICES = ['ergo', 'znc', 'postgres', 'mailpit-archive', 'mailpit', 'minio'];
-// Boson only needs Auth (GoTrue) + Kong + the auth Mailpit (+ the DB, which
-// can't be excluded).
-const SUPABASE_EXCLUDE = [
-  'realtime', 'storage-api', 'imgproxy', 'postgrest', 'postgres-meta', 'studio',
-  'edge-runtime', 'logflare', 'vector', 'supavisor',
+const COMPOSE_SERVICES = [
+  'ergo', 'znc', 'postgres', 'mailpit-archive', 'mailpit', 'minio', 'auth-postgres', 'auth-mailpit', 'auth',
 ];
 
 function log(msg) {
@@ -92,7 +92,10 @@ async function waitFor(what, fn, timeoutMs) {
 // ---- compose ---------------------------------------------------------------
 
 function composeUp() {
-  run('docker', [...compose, 'up', '-d', '--force-recreate', '--wait', '--wait-timeout', '120', ...COMPOSE_SERVICES]);
+  prepareAuthImage();
+  run('docker', [...compose, 'up', '-d', '--force-recreate', '--wait', '--wait-timeout', '120', ...COMPOSE_SERVICES], {
+    env: { ...process.env, AUTH_IMAGE: AUTH_IMAGE || LOCAL_AUTH_IMAGE },
+  });
   // One-shot bucket setup (loops until MinIO answers, then exits).
   run('docker', [...compose, 'run', '--rm', '--build', 'minio-setup']);
 }
@@ -101,59 +104,35 @@ function composeDown() {
   run('docker', [...compose, 'down', '-v', '--remove-orphans']);
 }
 
-// ---- supabase --------------------------------------------------------------
+// ---- auth service ----------------------------------------------------------
 
-function supabaseStatus() {
-  const r = capture(SUPABASE, ['status', '--workdir', e2eDir, '-o', 'json']);
-  if (!r.ok) return null;
-  try {
-    // Older CLIs print notices before the JSON.
-    return JSON.parse(r.out.slice(r.out.indexOf('{')));
-  } catch {
-    return null;
+// The auth service's image: $AUTH_IMAGE (pulled if missing), else built from
+// the $AUTH_SRC checkout.
+function prepareAuthImage() {
+  if (AUTH_IMAGE) {
+    if (!capture('docker', ['image', 'inspect', AUTH_IMAGE]).ok) run('docker', ['pull', AUTH_IMAGE]);
+    return;
   }
+  if (!existsSync(join(AUTH_SRC, 'Dockerfile'))) {
+    throw new Error(`no auth service checkout at ${AUTH_SRC}: clone github.com/boson-chat/auth there, ` +
+      'or set AUTH_SRC to one, or AUTH_IMAGE to a built image');
+  }
+  run('docker', ['build', '-q', '-t', LOCAL_AUTH_IMAGE, AUTH_SRC]);
 }
 
-function supabaseUp() {
-  if (!supabaseStatus()) {
-    try {
-      run(SUPABASE, ['start', '--workdir', e2eDir, '-x', SUPABASE_EXCLUDE.join(',')]);
-    } catch (err) {
-      // Seen once on Docker Desktop (macOS): after a stop, its port forwarder
-      // kept one published port bound with no container — the host can bind
-      // it, docker can't. Only a Docker Desktop restart frees it.
-      throw new Error(`${err.message}. If it says a port is "already in use" but nothing listens on it, ` +
-        'Docker Desktop leaked the binding: restart Docker Desktop, or move that port in ' +
-        'infra/e2e/supabase/config.toml (+ infra/e2e/stack.json).');
-    }
-  } else {
-    log('Supabase project boson-e2e already running');
+async function authUp() {
+  const auth = stack.auth;
+  await waitFor(`auth service on ${auth.url}/readyz`, async () => (await fetch(`${auth.url}/readyz`)).ok, 60_000);
+  // The tests' admin account (looks users up, disables them afterwards).
+  // `user create` marks the email verified; rerunning on a live stack finds
+  // it taken, which is fine.
+  const r = spawnSync('docker', [...compose, 'exec', '-T', 'auth', './auth', 'user', 'create',
+    '--username', auth.admin.username, '--email', auth.admin.email, '--role', 'admin', '--password-stdin'], {
+    input: `${auth.admin.password}\n`, encoding: 'utf8', env: { ...process.env, AUTH_IMAGE: AUTH_IMAGE || LOCAL_AUTH_IMAGE },
+  });
+  if (r.status !== 0 && !/taken|exists/i.test(`${r.stdout}${r.stderr}`)) {
+    throw new Error(`creating the e2e admin failed: ${r.stderr || r.stdout}`);
   }
-  const st = supabaseStatus();
-  if (!st) throw new Error('`supabase status --workdir infra/e2e` failed after start');
-  const want = stack.supabase;
-  const got = {
-    apiUrl: st.API_URL,
-    publishableKey: st.PUBLISHABLE_KEY,
-  };
-  for (const k of Object.keys(got)) {
-    if (got[k] !== want[k]) {
-      throw new Error(`Supabase ${k} is ${got[k]}, infra/e2e/stack.json expects ${want[k]} — update stack.json`);
-    }
-  }
-  // The secret (service-role) key isn't committed — GitHub push protection
-  // flags it even though it's the CLI's local key. Hand the running
-  // project's key to the tests via the gitignored run dir instead.
-  if (!st.SECRET_KEY) throw new Error('`supabase status` reported no SECRET_KEY');
-  mkdirSync(runDir, { recursive: true });
-  writeFileSync(join(runDir, 'supabase.json'), `${JSON.stringify({ secretKey: st.SECRET_KEY })}\n`, { mode: 0o600 });
-}
-
-function supabaseDown() {
-  // --workdir scopes this to the boson-e2e project; the dev project in
-  // supabase/ is never touched.
-  const r = spawnSync(SUPABASE, ['stop', '--workdir', e2eDir, '--no-backup'], { stdio: 'inherit' });
-  if (r.status !== 0) log('supabase stop failed (not running?)');
 }
 
 // ---- backend ---------------------------------------------------------------
@@ -171,7 +150,9 @@ function backendEnv() {
     DBUSERNAME: pg.user,
     DBPASSWORD: pg.password,
     DBSSLMODE: 'disable',
-    SUPABASE_JWKS_URL: `${stack.supabase.apiUrl}/auth/v1/.well-known/jwks.json`,
+    AUTH_JWKS_URL: `${stack.auth.url}/.well-known/jwks.json`,
+    AUTH_ISSUER: stack.auth.url,
+    AUTH_AUDIENCE: 'boson',
     SKIP_DNS_VERIFY: 'true',
     PURELYMAIL_POP3_HOST: '127.0.0.1',
     PURELYMAIL_POP3_PORT: String(mail.pop3Port),
@@ -270,7 +251,7 @@ async function startBackend() {
 async function up() {
   const t0 = Date.now();
   composeUp();
-  supabaseUp();
+  await authUp();
   buildBackend();
   await startBackend();
   log(`up in ${((Date.now() - t0) / 1000).toFixed(1)}s${coverage ? ' (backend coverage build)' : ''}`);
@@ -279,7 +260,6 @@ async function up() {
 
 async function down() {
   await stopBackend();
-  supabaseDown();
   composeDown();
 }
 
@@ -291,7 +271,7 @@ function status() {
     `  postgres    ${stack.postgres.host}:${stack.postgres.port}`,
     `  catch-all   mailpit ${stack.catchallMail.apiUrl}  (smtp :${stack.catchallMail.smtpPort}, pop3 :${stack.catchallMail.pop3Port}; copy ${stack.catchallMail.archiveApiUrl})`,
     `  minio       ${stack.minio.endpoint}`,
-    `  supabase    ${stack.supabase.apiUrl}  (auth mailpit ${stack.supabase.mailpitUrl})${supabaseStatus() ? '' : '  [not running]'}`,
+    `  auth        ${stack.auth.url}  (users' mailpit ${stack.auth.mailpitUrl}; admin ${stack.auth.admin.username})`,
     `  backend     ${stack.backend.url}  ${pid ? `(pid ${pid})` : '[not running]'}`,
   ].join('\n'));
 }

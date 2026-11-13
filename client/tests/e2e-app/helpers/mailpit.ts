@@ -1,8 +1,7 @@
 // Read-only-ish client for the two Mailpit instances of the e2e stack:
 //
-//   Mailpit.users()     the users' own inboxes — Supabase auth mail (sign-up
-//                       confirmation, password recovery, email change).
-//                       Bundled with the boson-e2e Supabase project.
+//   Mailpit.users()     the users' own inboxes — the auth service's mail
+//                       (email verification, password reset): auth-mailpit.
 //   Mailpit.catchall()  the boson.chat catch-all (PurelyMail in prod): ergo's
 //                       NickServ verification mails. The backend's nick-claim
 //                       worker polls it over POP3 every 5s and DELETES what it
@@ -35,7 +34,7 @@ export class Mailpit {
   constructor(readonly baseUrl: string) {}
 
   static users(): Mailpit {
-    return new Mailpit(STACK.supabase.mailpitUrl);
+    return new Mailpit(STACK.auth.mailpitUrl);
   }
 
   static catchall(): Mailpit {
@@ -60,7 +59,8 @@ export class Mailpit {
     const res = await fetch(`${this.baseUrl}/api/v1${path}`, init);
     if (!res.ok) throw new Error(`mailpit ${init?.method ?? 'GET'} ${path}: ${res.status} ${await res.text()}`);
     const text = await res.text();
-    return (text ? JSON.parse(text) : undefined) as T;
+    // DELETEs answer a bare "ok".
+    try { return (text ? JSON.parse(text) : undefined) as T; } catch { return text as T; }
   }
 
   // Newest first. `query` uses Mailpit's search syntax, e.g.
