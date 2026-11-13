@@ -13,8 +13,8 @@ Only the *boundary* is faked:
 - `WebSocket` is replaced with `FakeWebSocket`, exposed via the
   `wsCtor` option on the real `EngineClient`. Drive it from tests with
   `ws._open()`, `ws._receive(json)`, `ws._close()`.
-- `AuthService` is replaced with `FakeAuthService` — Supabase's `createClient`
-  is the only thing we can't reach over `fetch` alone, and the structural
+- `AuthService` is replaced with `FakeAuthService` — the real one talks to the auth service over its REST API,
+  and the structural
   interface is small (`signIn`, `signUp`, `signOut`, `getToken`, `subscribe`,
   `getState`). Use `auth._setSession(...)` to drive a "signed-in" state.
 

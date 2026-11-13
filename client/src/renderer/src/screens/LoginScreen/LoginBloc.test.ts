@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LoginBloc, type LoginState } from './LoginBloc';
-import type { AuthService } from '../../modules/auth';
+import { AuthError, type AuthService } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { HttpError } from '../../shared/http/http.client';
@@ -12,7 +12,9 @@ import { HttpError } from '../../shared/http/http.client';
 function buildFakeAuth(overrides: Partial<AuthService> = {}): AuthService {
   const base = {
     signIn: vi.fn(async () => {}),
-    signUp: vi.fn(async () => {}),
+    signUp: vi.fn(async () => ({ verificationRequired: true })),
+    resendVerification: vi.fn(async () => {}),
+    requestPasswordReset: vi.fn(async () => {}),
     signOut: vi.fn(async () => {}),
     getToken: vi.fn(async () => 'jwt'),
     getState: vi.fn(() => ({ session: null, loading: false, error: null })),
@@ -77,6 +79,8 @@ describe('LoginBloc', () => {
       const s = bloc.getState();
       expect(s).toEqual<LoginState>({
         mode: 'login',
+        login: '',
+        username: '',
         email: '',
         password: '',
         confirmPassword: '',
@@ -85,6 +89,8 @@ describe('LoginBloc', () => {
         unrecoverable: null,
         recoverable: null,
         awaitingConfirmation: null,
+        forgotOpen: false,
+        notice: null,
       });
     });
 
@@ -158,7 +164,7 @@ describe('LoginBloc', () => {
       const { bloc, auth, directory, identity } = buildBloc({
         directory: { getMe: vi.fn(async () => null) } as Partial<DirectoryService>,
       });
-      bloc.setEmail('alice@test.dev');
+      bloc.setLogin('alice@test.dev');
       bloc.setPassword('secret123');
       await bloc.signIn();
 
@@ -175,7 +181,7 @@ describe('LoginBloc', () => {
       const { bloc, identity } = buildBloc({
         directory: { getMe: vi.fn(async () => me) } as Partial<DirectoryService>,
       });
-      bloc.setEmail('alice@test.dev');
+      bloc.setLogin('alice@test.dev');
       bloc.setPassword('secret123');
       await bloc.signIn();
 
@@ -190,7 +196,7 @@ describe('LoginBloc', () => {
       const { bloc, identity } = buildBloc({
         directory: { getMe } as Partial<DirectoryService>,
       });
-      bloc.setEmail('alice@test.dev');
+      bloc.setLogin('alice@test.dev');
       bloc.setPassword('pw');
       await bloc.signIn();
 
@@ -203,7 +209,7 @@ describe('LoginBloc', () => {
       const { bloc, identity } = buildBloc({
         directory: { getMe } as Partial<DirectoryService>,
       });
-      bloc.setEmail('alice@test.dev');
+      bloc.setLogin('alice@test.dev');
       bloc.setPassword('pw');
       await bloc.signIn();
 
@@ -219,7 +225,7 @@ describe('LoginBloc', () => {
         directory: { getMe: vi.fn(async () => me) } as Partial<DirectoryService>,
         identity: { unlock } as Partial<IdentityService>,
       });
-      bloc.setEmail('alice@test.dev');
+      bloc.setLogin('alice@test.dev');
       bloc.setPassword('pw');
       await bloc.signIn();
 
@@ -236,7 +242,7 @@ describe('LoginBloc', () => {
         directory: { getMe: vi.fn(async () => me) } as Partial<DirectoryService>,
         identity: { unlock } as Partial<IdentityService>,
       });
-      bloc.setEmail('alice@test.dev');
+      bloc.setLogin('alice@test.dev');
       bloc.setPassword('wrong');
       await bloc.signIn();
 
@@ -250,7 +256,7 @@ describe('LoginBloc', () => {
       const { bloc } = buildBloc({
         auth: { signIn: vi.fn(async () => { throw new Error('Invalid login credentials'); }) } as Partial<AuthService>,
       });
-      bloc.setEmail('a@b');
+      bloc.setLogin('a@b');
       bloc.setPassword('wrong');
       await bloc.signIn();
 
@@ -264,7 +270,7 @@ describe('LoginBloc', () => {
       const signIn = vi.fn(() => new Promise<void>((res) => { resolveSignIn = res; }));
       const { bloc } = buildBloc({ auth: { signIn } as Partial<AuthService> });
 
-      bloc.setEmail('a@b');
+      bloc.setLogin('a@b');
       bloc.setPassword('pw');
       const p = bloc.signIn();
       // busy should be true while signIn is pending.
@@ -278,23 +284,49 @@ describe('LoginBloc', () => {
   describe('signUp', () => {
     it('happy path calls auth.signUp and parks in awaitingConfirmation', async () => {
       const { bloc, auth, identity } = buildBloc();
+      bloc.setUsername('bob');
       bloc.setEmail('bob@test.dev');
       bloc.setPassword('secret456');
       await bloc.signUp();
 
-      expect(auth.signUp).toHaveBeenCalledWith('bob@test.dev', 'secret456');
-      // Identity is intentionally NOT initialized here — Supabase
-      // doesn't hand us a session until the email-confirm round-trip
-      // completes, so there's no user_id to persist the secret under.
-      // The first post-confirmation sign-in mints the identity then.
+      expect(auth.signUp).toHaveBeenCalledWith({ username: 'bob', email: 'bob@test.dev', password: 'secret456' });
+      // Identity is intentionally NOT initialized here — there's no
+      // session until the email is verified and the user signs in. That
+      // first sign-in mints the identity.
       expect(identity.initializeForNewUser).not.toHaveBeenCalled();
       expect(bloc.getState().busy).toBe(false);
       expect(bloc.getState().error).toBeNull();
       expect(bloc.getState().awaitingConfirmation).toBe('bob@test.dev');
+      // Continue will sign in by username.
+      expect(bloc.getState().login).toBe('bob');
+    });
+
+    it('rejects an invalid username before calling the service', async () => {
+      const { bloc, auth } = buildBloc();
+      bloc.setUsername('9 lives');
+      expect(bloc.usernameProblem()).toMatch(/letter/);
+      bloc.setEmail('x@test.dev');
+      bloc.setPassword('secret456');
+      await bloc.signUp();
+      expect(auth.signUp).not.toHaveBeenCalled();
+      expect(bloc.getState().error).toMatch(/^Username:/);
+    });
+
+    it('without verification (signUp signed in), creates the identity right away', async () => {
+      const { bloc, identity } = buildBloc({
+        auth: { signUp: vi.fn(async () => ({ verificationRequired: false })) } as Partial<AuthService>,
+      });
+      bloc.setUsername('bob');
+      bloc.setEmail('bob@test.dev');
+      bloc.setPassword('secret456');
+      await bloc.signUp();
+      expect(identity.initializeForNewUser).toHaveBeenCalledWith('secret456');
+      expect(bloc.getState().awaitingConfirmation).toBeNull();
     });
 
     it('cancelAwaitingConfirmation clears the parked state without losing email', () => {
       const { bloc } = buildBloc();
+      bloc.setUsername('bob');
       bloc.setEmail('bob@test.dev');
       // Manually seed the awaiting state — we want this test to
       // exercise cancel without depending on the signUp call shape.
@@ -307,6 +339,7 @@ describe('LoginBloc', () => {
     it("emits a Passwords don't match error when confirm differs", async () => {
       const { bloc, auth } = buildBloc();
       bloc.setMode('signup');
+      bloc.setUsername('bob');
       bloc.setEmail('bob@test.dev');
       bloc.setPassword('a');
       bloc.setConfirmPassword('b');
@@ -318,12 +351,13 @@ describe('LoginBloc', () => {
 
     it('auth.signUp rejection surfaces the error', async () => {
       const { bloc } = buildBloc({
-        auth: { signUp: vi.fn(async () => { throw new Error('email already registered'); }) } as Partial<AuthService>,
+        auth: { signUp: vi.fn(async () => { throw new AuthError('email_taken', 'email taken', 409); }) } as Partial<AuthService>,
       });
+      bloc.setUsername('bob');
       bloc.setPassword('pw');
       await bloc.signUp();
 
-      expect(bloc.getState().error).toBe('email already registered');
+      expect(bloc.getState().error).toMatch(/already exists/);
       expect(bloc.getState().busy).toBe(false);
     });
   });
@@ -395,7 +429,7 @@ describe('LoginBloc — recovery code', () => {
       directory: { getMe: vi.fn(async () => meWithRecovery) } as Partial<DirectoryService>,
       identity: { unlock: vi.fn(async () => { throw new Error('wrong password'); }) } as Partial<IdentityService>,
     });
-    bloc.setEmail('a@b.com');
+    bloc.setLogin('a@b.com');
     bloc.setPassword('new-pw');
     await bloc.signIn();
     expect(bloc.getState().recoverable).toBe('rec-wrap');

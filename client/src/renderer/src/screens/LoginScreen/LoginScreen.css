@@ -126,3 +126,24 @@
   justify-content: center;
   margin-top: var(--space-2);
 }
+
+/* Info line (reset / verification email sent). */
+.login-notice {
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--accent);
+  background: color-mix(in oklab, var(--accent), transparent 92%);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  margin: var(--space-4) 0;
+}
+
+.login-forgot {
+  display: block;
+  margin: var(--space-3) auto 0;
+}
+
+.login-confirm-actions {
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}

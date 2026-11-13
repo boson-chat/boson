@@ -271,8 +271,8 @@ export class DirectoryBloc {
     this.sessionStore = deps.sessionStore ?? new SessionStore();
     this.history = deps.history ?? null;
     this.guestNick = deps.guestNick ?? null;
-    // Default reads the Supabase session synchronously. Tests can override.
-    // In guest mode there's no Supabase user so this returns null — chat
+    // Default reads the auth session synchronously. Tests can override.
+    // In guest mode there's no account so this returns null — chat
     // persistence falls back to in-memory only, which is the right default
     // for an anonymous session.
     this.getUserId = deps.getUserId ?? (() => this.auth.getState().session?.user?.id ?? null);
@@ -1021,7 +1021,7 @@ export class DirectoryBloc {
     this.sessionStore.clear();
     // Clear the OS-keychain–persisted user_secret BEFORE auth.signOut so the
     // userId is still available. Then drop the in-memory secret and finally
-    // tear down the Supabase session. Order matters: if auth.signOut fired
+    // tear down the auth session. Order matters: if auth.signOut fired
     // first, we'd lose the userId needed to namespace the keychain key.
     const userId = this.auth.getState().session?.user?.id;
     if (userId) {

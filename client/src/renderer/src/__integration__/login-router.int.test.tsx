@@ -1,14 +1,13 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { render, screen, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
-import type { Session } from '@supabase/supabase-js';
 import { App } from '../app';
 import { DirectoryService } from '../modules/directory';
 import type { ChatHistoryStore } from '../modules/history';
 import { IdentityService } from '../modules/identity';
 import type { SecureStorage } from '../shared/secure-storage';
 import { HttpClient } from '../shared/http/http.client';
-import { FakeAuthService, asAuthService, jsonResponse, makeIdentity, mockFetch } from './helpers';
+import { FakeAuthService, asAuthService, fakeSession, jsonResponse, makeIdentity, mockFetch } from './helpers';
 
 // Sign-in through the whole App (Router included), not just LoginScreen:
 // the Router reacts to the session that a successful auth.signIn creates
@@ -67,7 +66,7 @@ describe('login through the app router', () => {
     const { identity } = mountApp(new FakeAuthService());
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@boson.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@boson.dev');
     await user.type(screen.getByPlaceholderText('password'), 'new-password');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -80,31 +79,32 @@ describe('login through the app router', () => {
     expect(identity.isUnlocked()).toBe(false);
   });
 
-  // The confirmation deep link establishes a session while the login screen
-  // shows "Check your email." — it must move on to the sign-in form (the
-  // identity can only be unlocked with the password).
-  it('leaves "Check your email" for the sign-in form once the confirmation session arrives', async () => {
-    restoreFetch = mockFetch({});
+  // After sign-up, "Check your email." waits for the user to open the link;
+  // Continue then signs in with what they typed, and the app moves on.
+  it('goes from "Check your email" to the app once the email is verified', async () => {
+    restoreFetch = mockFetch({
+      'GET /me': () => jsonResponse({ error: 'needs_setup' }, 404),
+      'GET /servers': () => jsonResponse({ servers: [], count: 0 }),
+    });
     const auth = new FakeAuthService();
-    mountApp(auth);
+    const { identity } = mountApp(auth);
 
     const user = userEvent.setup();
     await user.click(screen.getByRole('tab', { name: 'Signup' }));
+    await user.type(screen.getByPlaceholderText('username'), 'newbie');
     await user.type(screen.getByPlaceholderText('email'), 'new@boson.dev');
-    await user.type(screen.getByPlaceholderText('password'), 'pw-123456');
-    await user.type(screen.getByPlaceholderText('confirm password'), 'pw-123456');
+    await user.type(screen.getByPlaceholderText('password'), 'pw-123456789');
+    await user.type(screen.getByPlaceholderText('confirm password'), 'pw-123456789');
     await user.click(screen.getByRole('button', { name: 'Sign up' }));
     expect(await screen.findByText('Check your email.')).toBeInTheDocument();
+    expect(auth.signUpCalls).toEqual([{ username: 'newbie', email: 'new@boson.dev', password: 'pw-123456789' }]);
 
-    auth._setSession({
-      access_token: 'jwt', token_type: 'bearer', expires_in: 3600, refresh_token: 'r',
-      user: { id: 'u1', email: 'new@boson.dev' },
-    } as unknown as Session);
+    auth._verify();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
 
-    await new Promise((r) => setTimeout(r, 200));
-    expect(screen.getByRole('tab', { name: 'Login', selected: true })).toBeInTheDocument();
+    await waitFor(() => expect(identity.isUnlocked()).toBe(true));
+    expect(auth.signInCalls.at(-1)).toEqual({ email: 'newbie', password: 'pw-123456789' });
     expect(screen.queryByText('Check your email.')).toBeNull();
-    expect(screen.getByPlaceholderText('email')).toHaveValue('new@boson.dev');
   });
 
   // Launch with a persisted session: the restore shim (not a flash of the
@@ -113,15 +113,12 @@ describe('login through the app router', () => {
   it('shows the restore shim on launch with a saved session, then the sign-in form', async () => {
     restoreFetch = mockFetch({});
     const auth = new FakeAuthService({
-      session: {
-        access_token: 'jwt', token_type: 'bearer', expires_in: 3600, refresh_token: 'r',
-        user: { id: 'u1', email: 'back@boson.dev' },
-      } as unknown as Session,
+      session: fakeSession('back@boson.dev'),
     });
     mountApp(auth);
 
     expect(await screen.findByText('Restoring session…')).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText('email')).toBeNull();
+    expect(screen.queryByPlaceholderText('username or email')).toBeNull();
     await new Promise((r) => setTimeout(r, 200));
     expect(screen.queryByText('Restoring session…')).toBeNull();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();

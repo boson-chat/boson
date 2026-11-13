@@ -3,18 +3,17 @@
 // instance forwarding when the app is already running) and forwards
 // them here via the bosonDeepLink bridge.
 //
-// Two verbs are recognised today:
+// One verb is recognised today:
 //
 //   - boson://join?host=…&port=…&tls=1[&name=…]
 //       Fired by the marketing site's /discover page when a user clicks
 //       "Open in Boson" on a directory card. Triggers the same code
 //       path as adding a server manually in Advanced mode.
 //
-//   - boson://auth/confirmed#access_token=…&refresh_token=…&type=signup
-//       Fired by the website's /auth/confirmed page after Supabase
-//       email-confirms a new signup. Carries the tokens that the
-//       desktop AuthService needs to hydrate a session for the user
-//       who just confirmed.
+// (boson://auth/confirmed, which carried Supabase session tokens after an
+// email confirmation, is gone: the auth service's verification link opens
+// its own page and the user then signs in. Such links are now ignored, so
+// no web page can push a session into the app.)
 //
 // Parsing happens in the renderer so the URL schema can evolve without
 // crossing the IPC boundary. The bloc / app shell subscribes via the
@@ -25,30 +24,6 @@ export interface JoinParams {
   port: number;
   tls: boolean;
   name?: string;
-}
-
-// Tokens carried in the URL fragment (implicit flow) or query (PKCE).
-// We accept either shape so we don't have to know which flowType the
-// AuthService picked. The desktop AuthService.setSessionFromTokens
-// handles the actual hydration.
-export interface AuthConfirmedParams {
-  accessToken?: string;
-  refreshToken?: string;
-  expiresIn?: number;
-  tokenType?: string;
-  // `code` is the PKCE flow's exchange code. Mutually exclusive with
-  // accessToken/refreshToken — if both are present, the AuthService
-  // prefers the PKCE exchange path.
-  code?: string;
-  // `type` is Supabase's hint about which flow produced this redirect:
-  // "signup" / "recovery" / "magiclink" / "invite" / "email_change".
-  // The app uses it to pick the right post-auth landing screen.
-  type?: string;
-  // `state` is the one-time nonce we set on the emailRedirectTo when
-  // initiating the flow (AuthService.signUp). The auth handler validates
-  // it against the stored nonce before hydrating, so a forged deep-link
-  // from a random web page can't inject a session (login CSRF).
-  state?: string;
 }
 
 interface DeepLinkBridge {
@@ -88,80 +63,13 @@ export function parseJoinUrl(url: string): JoinParams | null {
   return { host, port, tls, name };
 }
 
-/**
- * Parse `boson://auth/confirmed?...` (PKCE) or
- * `boson://auth/confirmed#access_token=...` (implicit) into typed
- * AuthConfirmedParams. Returns null when no recognised auth params are
- * present (e.g. a stray boson://auth/confirmed with no hash).
- *
- * Supabase emits the fragment form when its auth client is in implicit
- * mode (the default for v2 in browser environments). The PKCE case
- * shows up here because the website's /auth/confirmed page forwards
- * the entire URL search + hash on to us — supporting both keeps the
- * desktop app forward-compatible if we ever flip flowType.
- */
-export function parseAuthConfirmedUrl(url: string): AuthConfirmedParams | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== 'boson:') return null;
-  // The verb is `auth` and the pathname is `/confirmed` — URL parses
-  // boson://auth/confirmed as host=auth, pathname=/confirmed.
-  if (parsed.host !== 'auth') return null;
-  if (parsed.pathname !== '/confirmed') return null;
-
-  // Implicit-flow tokens live in the URL fragment as &-separated
-  // key=value pairs (Supabase emits exactly that shape).
-  const fromHash = parseFragmentParams(parsed.hash);
-  // PKCE-flow code lives in the query string.
-  const fromQuery = parsed.searchParams;
-
-  // Read every field from the fragment OR the query. Supabase emits the
-  // implicit-flow tokens in the fragment, but the website's /auth/confirmed
-  // page relocates them to the query string before building the boson://
-  // URL (browsers routinely drop the fragment on custom-scheme navigation),
-  // so both shapes reach us. `code` is PKCE-only and always query-side.
-  const params: AuthConfirmedParams = {
-    accessToken: fromHash.get('access_token') ?? fromQuery.get('access_token') ?? undefined,
-    refreshToken: fromHash.get('refresh_token') ?? fromQuery.get('refresh_token') ?? undefined,
-    tokenType: fromHash.get('token_type') ?? fromQuery.get('token_type') ?? undefined,
-    type: fromHash.get('type') ?? fromQuery.get('type') ?? undefined,
-    code: fromQuery.get('code') ?? undefined,
-    // The nonce lives in the query string (set on emailRedirectTo); also
-    // accept it from the fragment in case a flow round-trips it there.
-    state: fromQuery.get('state') ?? fromHash.get('state') ?? undefined,
-  };
-  const expiresIn = fromHash.get('expires_in') ?? fromQuery.get('expires_in');
-  if (expiresIn) {
-    const n = Number.parseInt(expiresIn, 10);
-    if (Number.isFinite(n)) params.expiresIn = n;
-  }
-
-  // Reject the no-tokens-no-code case so the auth handler doesn't have
-  // to repeat the check.
-  if (!params.accessToken && !params.code) return null;
-  return params;
-}
-
-function parseFragmentParams(hash: string): URLSearchParams {
-  // location.hash includes the leading '#', URLSearchParams expects
-  // no prefix.
-  const trimmed = hash.startsWith('#') ? hash.slice(1) : hash;
-  return new URLSearchParams(trimmed);
-}
-
 // Module-level queue: if a deep link arrives before any subscriber is
 // attached (typical when the renderer is still on the loading screen
-// and the user clicks a boson:// link), we buffer it here. Both queues
-// keep only the most recent URL — back-to-back deep-links of the same
-// kind resolve to the latest user intent.
+// and the user clicks a boson:// link), we buffer it here. The queue
+// keeps only the most recent URL — back-to-back deep-links resolve to the
+// latest user intent.
 let pendingJoinUrl: string | null = null;
-let pendingAuthUrl: string | null = null;
 const joinListeners = new Set<(params: JoinParams) => void>();
-const authListeners = new Set<(params: AuthConfirmedParams) => void>();
 
 // Dedupe state — on cold start the same URL can arrive via both the
 // `bridge.consume()` drain AND the live `bridge.onJoin` send (main
@@ -183,10 +91,8 @@ function deliver(url: string): void {
 }
 
 function deliverInner(url: string): void {
-  // Strip the access_token from logs but keep enough to see WHICH
-  // verb fired + whether parsing succeeded. Helpful when users report
-  // "the deep-link didn't sign me in" — we can ask them to check
-  // DevTools console and see exactly where the chain broke.
+  // Strip anything token-like from logs but keep enough to see WHICH
+  // verb fired + whether parsing succeeded.
   const safeUrl = url.replace(/(access_token|refresh_token)=([^&]+)/g, '$1=<redacted>');
   console.info('[deep-link] received', safeUrl);
 
@@ -199,21 +105,6 @@ function deliverInner(url: string): void {
       return;
     }
     for (const fn of joinListeners) fn(join);
-    return;
-  }
-  const auth = parseAuthConfirmedUrl(url);
-  if (auth) {
-    console.info('[deep-link] parsed as auth/confirmed', {
-      hasAccessToken: !!auth.accessToken,
-      hasCode: !!auth.code,
-      type: auth.type,
-    });
-    if (authListeners.size === 0) {
-      console.info('[deep-link] buffering auth (no listener yet)');
-      pendingAuthUrl = url;
-      return;
-    }
-    for (const fn of authListeners) fn(auth);
     return;
   }
   console.warn('[deep-link] no parser matched', safeUrl);
@@ -239,23 +130,6 @@ export function subscribeDeepLink(fn: (params: JoinParams) => void): () => void 
 }
 
 /**
- * Subscribe to auth-confirmation deep-link events. Same buffering +
- * drain semantics as subscribeDeepLink, but for boson://auth/confirmed.
- */
-export function subscribeAuthConfirmed(fn: (params: AuthConfirmedParams) => void): () => void {
-  authListeners.add(fn);
-  if (pendingAuthUrl) {
-    const url = pendingAuthUrl;
-    pendingAuthUrl = null;
-    const params = parseAuthConfirmedUrl(url);
-    if (params) fn(params);
-  }
-  return () => {
-    authListeners.delete(fn);
-  };
-}
-
-/**
  * Wire the renderer to the shell-installed `window.bosonDeepLink`
  * bridge. Idempotent — safe to call on every boot. No-op when the
  * bridge isn't present (running in a browser tab via vite dev / e2e).
@@ -272,9 +146,7 @@ export function initDeepLinkBridge(): void {
 // Test-only: clear queues + subscribers so each test starts clean.
 export function __resetDeepLinkForTests(): void {
   pendingJoinUrl = null;
-  pendingAuthUrl = null;
   joinListeners.clear();
-  authListeners.clear();
   lastDeliveredUrl = null;
   lastDeliveredAt = 0;
 }

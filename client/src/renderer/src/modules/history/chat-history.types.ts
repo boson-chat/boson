@@ -12,7 +12,7 @@ import type { ChatMessage } from '../chat/chat.types';
 export type { ChatMessage };
 
 export interface HistoryScope {
-  userId: string;       // Supabase auth user id
+  userId: string;       // auth-service user id (usr_…)
   serverId: string;     // server.id from the directory (UUID) — stable
   channel: string;      // already lowercased channel key (matches ChatService.channelKey())
 }

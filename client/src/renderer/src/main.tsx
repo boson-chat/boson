@@ -2,7 +2,7 @@ import { render } from 'preact';
 import { App, buildApp } from './app';
 import type { WebSocketCtor } from './modules/engine';
 import { isWailsPage } from './platform/is-wails';
-import { initDeepLinkBridge, subscribeAuthConfirmed } from './modules/deep-link/deep-link';
+import { initDeepLinkBridge } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
 import { getThemeStore } from './modules/ui/theme';
 import './styles.css';
@@ -32,15 +32,9 @@ withBridges(initDeepLinkBridge);
 // app (see shared/drop-guard.ts; main also guards will-navigate).
 installDropGuard();
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL ?? 'http://localhost:54321';
-// Supabase migrated from "anon" to "publishable" keys (sb_publishable_...).
-// Prefer the new name; fall back to the legacy var so `make client-env`
-// (which reads `ANON_KEY` straight from the local Supabase CLI) keeps
-// working without renaming anything in the dev stack.
-const publishableKey =
-  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ??
-  import.meta.env.VITE_SUPABASE_ANON_KEY ??
-  '';
+// The boson auth service (accounts, sign-in, tokens). Production default;
+// client/.env points dev builds at a local one.
+const authUrl = import.meta.env.VITE_AUTH_URL ?? 'https://auth.boson.chat';
 const bosonUrl = import.meta.env.VITE_BOSON_API_URL ?? 'http://localhost:3000';
 
 const root = document.getElementById('app')!;
@@ -66,68 +60,26 @@ async function resolveEngineDiscovery(): Promise<{ url?: string; token?: string;
   };
 }
 
-if (!publishableKey) {
-  root.innerHTML =
-    '<div style="padding:2rem;color:#fa5252;font-family:system-ui">' +
-    'VITE_SUPABASE_PUBLISHABLE_KEY is not set. Run <code>make client-env</code>.' +
-    '</div>';
-} else {
-  void (async () => {
-    if (shellReady) await shellReady;
-    const { url: engineUrl, token: engineToken, socket: engineSocket } = await resolveEngineDiscovery();
-    const props = buildApp({
-      supabaseUrl,
-      anonKey: publishableKey,
-      bosonUrl,
-      engineUrl,
-      engineToken,
-      engineSocket,
-    });
-    // Fire init async — App renders immediately and shows "Loading…" until ready.
-    props.auth.init().catch((err) => {
-      console.error('auth.init failed', err);
-      props.auth.markFatal(err instanceof Error ? err.message : String(err));
-    });
-    if (props.engine) {
-      props.engine.open().catch((err) => console.error('engine.open failed', err));
-    }
-    // Email-confirmation deep-links arrive via the boson://auth/confirmed
-    // URL after the user clicks the link in the Supabase confirmation
-    // email. We hydrate the Supabase session from the tokens (or the
-    // PKCE code) here so the app drops them straight into the
-    // post-signup landing screen.
-    subscribeAuthConfirmed((params) => {
-      // Login-CSRF guard: only hydrate if the deep-link carries the one-time
-      // state nonce we minted when starting this flow. A forged
-      // boson://auth/confirmed from an arbitrary web page won't know it, so
-      // it can't inject an attacker's Supabase session into the running app.
-      const expected = props.auth.consumeDeepLinkState();
-      if (!expected || params.state !== expected) {
-        console.warn('[auth-confirmed] rejected: missing or mismatched state nonce (possible login CSRF)');
-        return;
-      }
-      console.info('[auth-confirmed] hydrating session', {
-        kind: params.code ? 'pkce-code' : params.accessToken ? 'implicit-tokens' : 'empty',
-        type: params.type,
-      });
-      const tryHydrate = async (): Promise<void> => {
-        if (params.code) {
-          await props.auth.exchangeAuthCode(params.code);
-          console.info('[auth-confirmed] exchangeAuthCode succeeded');
-          return;
-        }
-        if (params.accessToken && params.refreshToken) {
-          await props.auth.setSessionFromTokens(params.accessToken, params.refreshToken);
-          console.info('[auth-confirmed] setSessionFromTokens succeeded');
-          return;
-        }
-        console.warn('[auth-confirmed] no usable params (no code, no accessToken+refreshToken)');
-      };
-      tryHydrate().catch((err) => {
-        console.error('[auth-confirmed] hydration failed', err);
-        props.auth.markFatal(err instanceof Error ? err.message : String(err));
-      });
-    });
-    render(<App {...props} />, root);
-  })();
-}
+void (async () => {
+  if (shellReady) await shellReady;
+  const { url: engineUrl, token: engineToken, socket: engineSocket } = await resolveEngineDiscovery();
+  const props = buildApp({
+    authUrl,
+    bosonUrl,
+    engineUrl,
+    engineToken,
+    engineSocket,
+  });
+  // Fire init async — App renders immediately and shows "Loading…" until ready.
+  props.auth.init().catch((err) => {
+    console.error('auth.init failed', err);
+    props.auth.markFatal(err instanceof Error ? err.message : String(err));
+  });
+  if (props.engine) {
+    props.engine.open().catch((err) => console.error('engine.open failed', err));
+  }
+  // Email links (verify, reset password) open the auth service's own pages
+  // in the browser; nothing comes back to the app over a deep link. After
+  // verifying, the user signs in on the login screen.
+  render(<App {...props} />, root);
+})();

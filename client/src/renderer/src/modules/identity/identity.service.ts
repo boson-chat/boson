@@ -30,7 +30,7 @@ export interface PendingRecovery {
 
 export type IdentityListener = (s: IdentityState) => void;
 
-// Namespaced storage key so multiple Supabase accounts on one machine can
+// Namespaced storage key so multiple accounts on one machine can
 // each have their own persisted secret without colliding.
 const STORAGE_KEY_PREFIX = 'boson.identity.';
 function storageKey(userId: string): string { return `${STORAGE_KEY_PREFIX}${userId}`; }
@@ -148,7 +148,7 @@ export class IdentityService {
   /**
    * Recovery path: decrypt the server-stored recovery wrap with the user's
    * one-time recovery code. Used when they've forgotten their login password
-   * (a Supabase reset leaves the password wrap stale). On success the service
+   * (a password reset leaves the password wrap stale). On success the service
    * is unlocked but the password wrap is now out of date — the caller should
    * follow up with rewrapForNewPassword + persist the new wrap.
    * Throws (and stays locked) on a wrong/garbled code.

@@ -11,7 +11,9 @@ import { HttpError } from '../../shared/http/http.client';
 function buildFakeAuth(overrides: Partial<AuthService> = {}): AuthService {
   const base = {
     signIn: vi.fn(async () => {}),
-    signUp: vi.fn(async () => {}),
+    signUp: vi.fn(async () => ({ verificationRequired: true })),
+    requestPasswordReset: vi.fn(async () => {}),
+    resendVerification: vi.fn(async () => {}),
     signOut: vi.fn(async () => {}),
     getToken: vi.fn(async () => 'jwt'),
     getState: vi.fn(() => ({ session: null, loading: false, error: null })),
@@ -59,9 +61,9 @@ function renderWith(auth: AuthService, directory: DirectoryService, identity: Id
 }
 
 describe('LoginScreen', () => {
-  it('renders email and password inputs and both buttons', () => {
+  it('renders login and password inputs and both buttons', () => {
     renderWith(buildFakeAuth(), buildFakeDirectory(), buildFakeIdentity());
-    expect(screen.getByPlaceholderText('email')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('username or email')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign up' })).toBeInTheDocument();
@@ -78,7 +80,7 @@ describe('LoginScreen', () => {
     renderWith(auth, directory, identity);
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@test.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@test.dev');
     await user.type(screen.getByPlaceholderText('password'), 'secret123');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -98,7 +100,7 @@ describe('LoginScreen', () => {
     renderWith(buildFakeAuth(), directory, identity);
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@test.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@test.dev');
     await user.type(screen.getByPlaceholderText('password'), 'secret123');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -122,7 +124,7 @@ describe('LoginScreen', () => {
     renderWith(buildFakeAuth(), directory, identity);
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@test.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@test.dev');
     await user.type(screen.getByPlaceholderText('password'), 'pw');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -145,7 +147,7 @@ describe('LoginScreen', () => {
     renderWith(buildFakeAuth(), directory, identity);
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@test.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@test.dev');
     await user.type(screen.getByPlaceholderText('password'), 'wrong');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -162,7 +164,7 @@ describe('LoginScreen', () => {
     renderWith(buildFakeAuth(), directory, identity);
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'alice@test.dev');
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@test.dev');
     await user.type(screen.getByPlaceholderText('password'), 'wrong');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -170,23 +172,27 @@ describe('LoginScreen', () => {
   });
 
   it('Sign up calls signUp and then shows the "Check your email" panel', async () => {
-    const signUp = vi.fn(async () => {});
+    const signUp = vi.fn(async () => ({ verificationRequired: true }));
     const initializeForNewUser = vi.fn(async () => 'b64');
     const auth = buildFakeAuth({ signUp });
     const identity = buildFakeIdentity({ initializeForNewUser } as Partial<IdentityService>);
     renderWith(auth, buildFakeDirectory(), identity);
 
     const user = userEvent.setup();
+    // From the login tab, "Sign up" switches to the sign-up form.
+    await user.click(screen.getByRole('button', { name: 'Sign up' }));
+    await user.type(screen.getByPlaceholderText('username'), 'bob');
     await user.type(screen.getByPlaceholderText('email'), 'bob@test.dev');
     await user.type(screen.getByPlaceholderText('password'), 'secret456');
+    await user.type(screen.getByPlaceholderText('confirm password'), 'secret456');
+    expect(signUp).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Sign up' }));
 
     await waitFor(() => {
-      expect(signUp).toHaveBeenCalledWith('bob@test.dev', 'secret456');
+      expect(signUp).toHaveBeenCalledWith({ username: 'bob', email: 'bob@test.dev', password: 'secret456' });
     });
-    // Identity is NOT minted here — we wait for the post-confirmation
-    // sign-in to do it (when we'll have a real user_id to persist
-    // under). See LoginBloc.signUp for the longer explanation.
+    // Identity is NOT minted here — the sign-in after verification
+    // does it. See LoginBloc.signUp.
     expect(initializeForNewUser).not.toHaveBeenCalled();
     // The form gives way to the awaiting-confirmation panel with the
     // email address called out so the user can sanity-check it.
@@ -201,7 +207,7 @@ describe('LoginScreen', () => {
     renderWith(auth, buildFakeDirectory(), buildFakeIdentity());
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'a@b');
+    await user.type(screen.getByPlaceholderText('username or email'), 'a@b');
     await user.type(screen.getByPlaceholderText('password'), 'wrong');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
@@ -216,12 +222,32 @@ describe('LoginScreen', () => {
     renderWith(buildFakeAuth(), directory, identity);
 
     const user = userEvent.setup();
-    await user.type(screen.getByPlaceholderText('email'), 'a@b');
+    await user.type(screen.getByPlaceholderText('username or email'), 'a@b');
     await user.type(screen.getByPlaceholderText('password'), 'pw');
     await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
     await waitFor(() => {
       expect(initializeForNewUser).toHaveBeenCalled();
     });
+  });
+
+  it('shows live username feedback on the sign-up form', async () => {
+    renderWith(buildFakeAuth(), buildFakeDirectory(), buildFakeIdentity());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Signup' }).closest('button') ?? screen.getByText('Signup'));
+    await user.type(screen.getByPlaceholderText('username'), 'my nick');
+    expect(await screen.findByText('No spaces.')).toBeInTheDocument();
+  });
+
+  it('Forgot password? sends a reset link', async () => {
+    const requestPasswordReset = vi.fn(async () => {});
+    renderWith(buildFakeAuth({ requestPasswordReset }), buildFakeDirectory(), buildFakeIdentity());
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('username or email'), 'alice@test.dev');
+    await user.click(screen.getByRole('button', { name: 'Forgot password?' }));
+    expect(screen.getByPlaceholderText('email')).toHaveValue('alice@test.dev');
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }));
+    await waitFor(() => expect(requestPasswordReset).toHaveBeenCalledWith('alice@test.dev'));
+    expect(await screen.findByText(/a reset link is on its way/)).toBeInTheDocument();
   });
 });

@@ -56,7 +56,7 @@ const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }>
 interface UserSettingsProps {
   open: boolean;
   onClose: () => void;
-  // Authenticated handle when signed in via Supabase. Null in guest mode.
+  // Authenticated handle when signed in to an account. Null in guest mode.
   // Cached on session.user_metadata.handle — the Identity section
   // re-syncs from the authoritative backend (/me) when opened.
   authedHandle: string | null;
@@ -212,12 +212,12 @@ function GuestNickForm({ guestNick }: { guestNick: string }) {
 
 // Editable global handle for signed-in users. Fetches the authoritative
 // value from /me on mount (and whenever the modal re-opens) so a stale
-// Supabase user_metadata cache can't pin the field to the wrong value.
-// On save: PATCH /me first, then mirror the new handle into Supabase
-// user_metadata so the TitleBar and the rest of the app pick it up
+// session user_metadata cache can't pin the field to the wrong value.
+// On save: PATCH /me first, then mirror the new handle into the session's
+// user_metadata cache so the TitleBar and the rest of the app pick it up
 // without a reload.
 // Profile-image control. Uploads to the backend (which resizes + stores in
-// R2) and mirrors the resulting avatar_url into Supabase user_metadata so
+// R2) and mirrors the resulting avatar_url into the session's user_metadata so
 // the TitleBar updates immediately. Falls back to the nick-colored initial.
 function AvatarSettings({ handle, directory, auth, open }: {
   handle: string;
@@ -350,7 +350,7 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
       const updated = await directory.updateMe({ handle: trimmed });
       setCurrentHandle(updated.handle);
       setDraft(updated.handle);
-      // Mirror the new handle into Supabase user_metadata so the
+      // Mirror the new handle into the session's user_metadata so the
       // TitleBar + any other consumer that reads from the session
       // sees the rename immediately. Failure here is non-fatal — the
       // backend already wrote the canonical value.
@@ -610,7 +610,7 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
   return (
     <SectionFrame
       title="Account"
-      description="Signed in via Supabase. Sign out clears local state on this device and returns you to the login screen."
+      description="Signed in to your Boson account. Sign out clears local state on this device and returns you to the login screen."
     >
       <Card>
         <div class="user-settings-card-body">

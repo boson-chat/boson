@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   parseJoinUrl,
-  parseAuthConfirmedUrl,
   subscribeDeepLink,
   __resetDeepLinkForTests,
   initDeepLinkBridge,
@@ -35,27 +34,22 @@ describe('parseJoinUrl', () => {
   });
 });
 
-describe('parseAuthConfirmedUrl state nonce', () => {
-  it('parses the state nonce from the query string', () => {
-    const p = parseAuthConfirmedUrl(
-      'boson://auth/confirmed?state=abc123&access_token=tok&type=signup',
-    );
-    expect(p?.state).toBe('abc123');
-    expect(p?.accessToken).toBe('tok');
-  });
-
-  it('also accepts state carried in the fragment', () => {
-    const p = parseAuthConfirmedUrl(
-      'boson://auth/confirmed#access_token=tok&state=fromhash',
-    );
-    expect(p?.accessToken).toBe('tok');
-    expect(p?.state).toBe('fromhash');
-  });
-
-  it('leaves state undefined when the URL carries none (forged deep-link)', () => {
-    const p = parseAuthConfirmedUrl('boson://auth/confirmed#access_token=tok&refresh_token=r');
-    expect(p).not.toBeNull();
-    expect(p?.state).toBeUndefined();
+describe('legacy boson://auth/confirmed links', () => {
+  it('are ignored: no listener sees them and nothing is buffered', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    (window as unknown as Record<string, unknown>).bosonDeepLink = {
+      consume: async () => 'boson://auth/confirmed?state=x&access_token=attacker&refresh_token=r',
+      onJoin: (_fn: (u: string) => void) => () => {},
+    };
+    initDeepLinkBridge();
+    await Promise.resolve();
+    const seen = vi.fn();
+    subscribeDeepLink(seen);
+    expect(seen).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith('[deep-link] no parser matched', expect.stringContaining('access_token=<redacted>'));
+    warn.mockRestore();
+    info.mockRestore();
   });
 });
 

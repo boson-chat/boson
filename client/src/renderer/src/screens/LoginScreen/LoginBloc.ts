@@ -1,4 +1,4 @@
-import type { AuthService } from '../../modules/auth';
+import { AuthError, describeAuthError, validateUsername, type AuthService } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { HttpError } from '../../shared/http/http.client';
@@ -7,6 +7,11 @@ export type LoginMode = 'login' | 'signup';
 
 export interface LoginState {
   mode: LoginMode;
+  // Sign-in: username or email.
+  login: string;
+  // Sign-up: the account username (an IRC nick) and email. `email` is also
+  // what "Forgot password?" and "Resend email" send to.
+  username: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -18,14 +23,18 @@ export interface LoginState {
   // Non-null (the recovery wrap, base64) means a password unlock failed BUT
   // the account has a recovery wrap — the view offers a "Use recovery code"
   // input. Set after a wrong-password unlock when me.encrypted_user_secret_
-  // recovery is present (typically after a Supabase password reset).
+  // recovery is present (typically after a password reset).
   recoverable: string | null;
-  // Set to the email address after a successful signUp that needs
-  // email confirmation. The view swaps the form for a "Check your
-  // email" panel until the user either confirms (deep-link triggers
-  // a session change → Router routes away) or clicks Back to retry
-  // with a different address.
+  // Set after a sign-up that needs email verification, or a sign-in the
+  // auth service refused with email_not_verified: the address the link went
+  // to ('' when the user signed in by username, so we don't know it). The
+  // view swaps the form for a "Check your email" panel: open the link (it
+  // opens the auth service's page in the browser), then Continue signs in.
   awaitingConfirmation: string | null;
+  // The "Forgot password?" panel is open.
+  forgotOpen: boolean;
+  // A non-error message (reset or verification email sent).
+  notice: string | null;
 }
 
 export type LoginListener = (state: LoginState) => void;
@@ -58,6 +67,8 @@ export class LoginBloc {
 
   private state: LoginState = {
     mode: 'login',
+    login: '',
+    username: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -66,6 +77,8 @@ export class LoginBloc {
     unrecoverable: null,
     recoverable: null,
     awaitingConfirmation: null,
+    forgotOpen: false,
+    notice: null,
   };
 
   constructor(deps: LoginBlocDeps) {
@@ -89,7 +102,22 @@ export class LoginBloc {
     if (this.state.mode === mode && this.state.error === null) return;
     // Switching tabs clears any error from the other mode so the user isn't
     // greeted by a stale "wrong password" message after flipping to Signup.
-    this.setState({ ...this.state, mode, error: null });
+    this.setState({ ...this.state, mode, error: null, notice: null });
+  }
+
+  setLogin(login: string): void {
+    if (this.state.login === login) return;
+    this.setState({ ...this.state, login });
+  }
+
+  setUsername(username: string): void {
+    if (this.state.username === username) return;
+    this.setState({ ...this.state, username });
+  }
+
+  // Live feedback for the sign-up username field (null = fine or empty).
+  usernameProblem(): string | null {
+    return this.state.username ? validateUsername(this.state.username) : null;
   }
 
   setEmail(email: string): void {
@@ -108,10 +136,19 @@ export class LoginBloc {
   }
 
   async signIn(): Promise<void> {
-    const { email, password } = this.state;
-    this.setState({ ...this.state, error: null, unrecoverable: null, recoverable: null, busy: true });
+    const { login, password } = this.state;
+    this.setState({ ...this.state, error: null, notice: null, unrecoverable: null, recoverable: null, busy: true });
     try {
-      await this.auth.signIn(email, password);
+      try {
+        await this.auth.signIn(login, password);
+      } catch (err) {
+        if (err instanceof AuthError && err.code === 'email_not_verified') {
+          const email = login.includes('@') ? login.trim() : this.state.email;
+          this.setState({ ...this.state, busy: false, awaitingConfirmation: email, email });
+          return;
+        }
+        throw err;
+      }
       let me;
       try {
         me = await this.directory.getMe();
@@ -139,8 +176,8 @@ export class LoginBloc {
             });
           } else if (me.encrypted_user_secret_recovery) {
             // Wrong password, but the account has a recovery wrap — offer the
-            // recovery-code path (the usual case after a Supabase password
-            // reset, which leaves the password wrap stale).
+            // recovery-code path (the usual case after a password reset,
+            // which leaves the password wrap stale).
             this.setState({
               ...this.state,
               recoverable: me.encrypted_user_secret_recovery,
@@ -165,86 +202,131 @@ export class LoginBloc {
       // next launch skips the password prompt. Never blocks the sign-in flow;
       // identity.persist() returns false rather than throwing.
       await this.persistIdentity();
-      this.setState({ ...this.state, busy: false });
+      this.setState({ ...this.state, busy: false, awaitingConfirmation: null });
     } catch (err) {
       this.setState({
         ...this.state,
-        error: err instanceof Error ? err.message : 'authentication failed',
+        error: describeAuthError(err),
         busy: false,
       });
     }
   }
 
   async signUp(): Promise<void> {
-    const { email, password, confirmPassword } = this.state;
+    const { username, email, password, confirmPassword } = this.state;
     // Local validation runs before we touch the network. Confirm-password is
-    // optional (only enforced when the user typed one) so existing tests
-    // that omit it still flow through.
+    // optional (only enforced when the user typed one).
+    const nameProblem = validateUsername(username.trim());
+    if (nameProblem) {
+      this.setState({ ...this.state, error: `Username: ${nameProblem}`, unrecoverable: null });
+      return;
+    }
     if (confirmPassword && password !== confirmPassword) {
       this.setState({ ...this.state, error: "Passwords don't match.", unrecoverable: null });
       return;
     }
-    this.setState({ ...this.state, busy: true, error: null, unrecoverable: null });
+    this.setState({ ...this.state, busy: true, error: null, notice: null, unrecoverable: null });
     try {
-      await this.auth.signUp(email, password);
-      // Supabase's response depends on whether email confirmation is
-      // ENABLED on the project:
-      //
-      //   Confirmation ON  → no session yet; user must click the
-      //     emailed link. We show "Check your email" and wait for
-      //     the deep-link → setSessionFromTokens → router moves on.
-      //
-      //   Confirmation OFF (local dev with `enable_confirmations =
-      //     false`, or hosted projects with that toggle) → Supabase
-      //     returns a session immediately and onAuthStateChange has
-      //     already fired by the time we reach this line. If we just
-      //     set awaitingConfirmation here, the user gets stuck on a
-      //     "check your email" panel for an email that never comes,
-      //     while the router sits at LoginScreen because identity
-      //     isn't unlocked. Initialize the identity NOW so the
-      //     SetupPrompt path takes over on the DirectoryScreen.
-      const session = this.auth.getState().session;
-      if (session) {
-        await this.identity.initializeForNewUser(password);
-        await this.persistIdentity();
-        this.setState({ ...this.state, busy: false });
-      } else {
+      const { verificationRequired } = await this.auth.signUp({ username: username.trim(), email, password });
+      if (verificationRequired) {
+        // The auth service emailed a verification link. Sign-in works once
+        // it's opened; Continue on the panel signs in with these details.
         this.setState({
           ...this.state,
           busy: false,
-          awaitingConfirmation: email,
+          login: username.trim(),
+          awaitingConfirmation: email.trim(),
         });
+        return;
       }
+      // Verification off (local dev): signUp already signed in. Create the
+      // identity now so the SetupPrompt path takes over on the directory.
+      await this.identity.initializeForNewUser(password);
+      await this.persistIdentity();
+      this.setState({ ...this.state, busy: false });
     } catch (err) {
       this.setState({
         ...this.state,
-        error: err instanceof Error ? err.message : 'authentication failed',
+        error: describeAuthError(err),
         busy: false,
       });
     }
   }
 
-  // The confirmation link was clicked: a session exists now, but the
-  // identity can only be created / unlocked with the password, so go to the
-  // sign-in form (email kept).
-  confirmationCompleted(): void {
-    if (!this.state.awaitingConfirmation) return;
-    this.setState({ ...this.state, awaitingConfirmation: null, mode: 'login', error: null });
+  // "Check your email" → Continue: the link was opened in the browser, so
+  // try signing in with what the user typed.
+  async continueAfterVerification(): Promise<void> {
+    if (!this.state.password || !this.state.login) {
+      this.setState({ ...this.state, awaitingConfirmation: null, mode: 'login', error: null });
+      return;
+    }
+    this.setState({ ...this.state, mode: 'login' });
+    await this.signIn();
+    if (this.state.awaitingConfirmation !== null) {
+      this.setState({ ...this.state, error: 'Not verified yet — open the link in the email first.' });
+    }
   }
 
-  // View-driven exit from the "Check your email" panel. The user might
-  // have typed the wrong address or want to try a different account —
-  // reset back to the form without nuking what they typed for `email`
-  // so they can edit and re-submit.
+  async resendVerification(): Promise<void> {
+    const email = this.state.email.trim();
+    if (!email) {
+      this.setState({ ...this.state, error: 'Enter the email address you signed up with.' });
+      return;
+    }
+    this.setState({ ...this.state, busy: true, error: null, notice: null });
+    try {
+      await this.auth.resendVerification(email);
+      this.setState({ ...this.state, busy: false, awaitingConfirmation: email, notice: `Sent a new link to ${email}.` });
+    } catch (err) {
+      this.setState({ ...this.state, busy: false, error: describeAuthError(err) });
+    }
+  }
+
+  // View-driven exit from the "Check your email" panel. Keeps what was
+  // typed so the user can fix the address and retry.
   cancelAwaitingConfirmation(): void {
-    this.setState({ ...this.state, awaitingConfirmation: null });
+    this.setState({ ...this.state, awaitingConfirmation: null, error: null, notice: null });
+  }
+
+  openForgot(): void {
+    const { login } = this.state;
+    const email = this.state.email || (login.includes('@') ? login.trim() : '');
+    this.setState({ ...this.state, forgotOpen: true, email, error: null, notice: null });
+  }
+
+  closeForgot(): void {
+    this.setState({ ...this.state, forgotOpen: false, error: null });
+  }
+
+  // Emails a reset link; it opens the auth service's reset page in the
+  // browser. Same answer whether or not the account exists.
+  async sendPasswordReset(): Promise<void> {
+    const email = this.state.email.trim();
+    if (!email.includes('@')) {
+      this.setState({ ...this.state, error: 'Enter your account email address.' });
+      return;
+    }
+    this.setState({ ...this.state, busy: true, error: null, notice: null });
+    try {
+      await this.auth.requestPasswordReset(email);
+      this.setState({
+        ...this.state,
+        busy: false,
+        forgotOpen: false,
+        notice:
+          `If ${email} has an account, a reset link is on its way. Set a new password there, then sign in here — ` +
+          "you'll need your recovery code once to unlock your identity key.",
+      });
+    } catch (err) {
+      this.setState({ ...this.state, busy: false, error: describeAuthError(err) });
+    }
   }
 
   async startFresh(): Promise<void> {
     const { password, unrecoverable } = this.state;
     this.setState({ ...this.state, busy: true, error: null, unrecoverable: null });
     try {
-      // Auth from the failed unlock still has a valid Supabase session, so
+      // Auth from the failed unlock still has a valid session, so
       // DELETE /me is authorized. The backend cascades through user_server_links
       // and handle_changes. After this the user looks brand-new to /me.
       await this.directory.deleteMe();

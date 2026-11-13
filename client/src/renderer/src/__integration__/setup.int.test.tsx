@@ -1,5 +1,4 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import type { Session } from '@supabase/supabase-js';
 import { render, screen, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { AuthProvider } from '../modules/auth';
@@ -7,15 +6,15 @@ import { DirectoryService } from '../modules/directory';
 import { DirectoryScreen } from '../screens/DirectoryScreen';
 import { HttpClient } from '../shared/http/http.client';
 import { LoginScreen } from '../screens/LoginScreen';
-import { asAuthService, FakeAuthService, jsonResponse, makeIdentity, mockFetch } from './helpers';
+import { asAuthService, FakeAuthService, fakeSession, jsonResponse, makeIdentity, mockFetch } from './helpers';
 
-// Two-part end-to-end coverage of the post-Supabase-email-confirm flow.
+// Two-part end-to-end coverage of the sign-up + email-verification flow.
 //
 // 1. SignUp pauses the LoginScreen on the "Check your email" panel —
-//    Supabase has issued the user but no session exists yet, and we
-//    deliberately don't mint the local identity until the first
-//    post-confirmation sign-in has a real user_id to persist under.
-// 2. When the user comes back (deep-link or fresh sign-in) and lands
+//    the auth service created the account but it can't sign in until the
+//    email is verified, and we deliberately don't mint the local identity
+//    until the first sign-in has a real user id to persist under.
+// 2. When the user comes back (Continue / a fresh sign-in) and lands
 //    in DirectoryScreen with a session but no /me row, the SetupPrompt
 //    renders as the ONLY content (replacing the directory). Saving a
 //    handle creates the row and the directory comes back.
@@ -37,12 +36,21 @@ describe('sign-up + setup prompt integration', () => {
     );
 
     const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Signup' }));
+    await user.type(screen.getByPlaceholderText('username'), 'newuser');
     await user.type(screen.getByPlaceholderText('email'), 'newuser@boson.dev');
     await user.type(screen.getByPlaceholderText('password'), 'first-password');
     await user.click(screen.getByRole('button', { name: 'Sign up' }));
 
     expect(await screen.findByText(/Check your email\./i)).toBeInTheDocument();
     expect(screen.getByText('newuser@boson.dev')).toBeInTheDocument();
+
+    // Continue before opening the link: still unverified.
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText(/Not verified yet/)).toBeInTheDocument();
+    // Resend.
+    await user.click(screen.getByRole('button', { name: 'Resend email' }));
+    await waitFor(() => expect(auth.resendCalls).toEqual(['newuser@boson.dev']));
     // Identity stays untouched until a real sign-in produces a user_id.
     // Persisting an encrypted secret keyed on "<no user>" wouldn't be
     // useful anyway, so the bloc deliberately defers the mint.
@@ -77,10 +85,7 @@ describe('sign-up + setup prompt integration', () => {
     const http = new HttpClient('http://api.test', { getToken: () => auth.getToken() });
     const directory = new DirectoryService(http);
 
-    auth._setSession({
-      access_token: 'jwt', token_type: 'bearer', expires_in: 3600, refresh_token: 'r',
-      user: { id: 'u1', email: 'newuser@boson.dev' } as unknown as Session['user'],
-    } as unknown as Session);
+    auth._setSession(fakeSession('newuser@boson.dev'));
 
     render(
       <AuthProvider service={asAuthService(auth)}>

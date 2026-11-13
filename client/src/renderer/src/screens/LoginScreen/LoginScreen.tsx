@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { useAuthService, useAuthState } from '../../modules/auth';
+import { useAuthService } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { Button, Card, Field, Input, Logo, Tabs, WarningBanner } from '@boson/shared';
@@ -19,13 +19,11 @@ export function LoginScreen({ directory, identity }: Props) {
   const [state, setState] = useState(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
 
-  const { mode, email, password, confirmPassword, error, unrecoverable, recoverable, busy, awaitingConfirmation } = state;
-  // A session showing up while we wait on "Check your email" means the
-  // confirmation link was clicked (boson://auth/confirmed).
-  const hasSession = !!useAuthState().session;
-  useEffect(() => {
-    if (hasSession && awaitingConfirmation) bloc.confirmationCompleted();
-  }, [bloc, hasSession, awaitingConfirmation]);
+  const {
+    mode, login, username, email, password, confirmPassword, error, unrecoverable, recoverable, busy,
+    awaitingConfirmation, forgotOpen, notice,
+  } = state;
+  const usernameProblem = bloc.usernameProblem();
   const [recoveryInput, setRecoveryInput] = useState('');
 
   // Guest-mode local state. The user clicks "Continue as guest" to reveal a
@@ -47,11 +45,10 @@ export function LoginScreen({ directory, identity }: Props) {
     emitGuestChange();
   };
 
-  // After a successful signUp we swap the form for a "Check your email"
-  // panel until the user either confirms (deep-link triggers session
-  // change → Router routes away from LoginScreen entirely) or clicks
-  // Back to retry with a different address.
-  if (awaitingConfirmation) {
+  // After a sign-up (or a sign-in refused as unverified) the form gives way
+  // to "Check your email": the link opens the auth service's page in the
+  // browser; Continue then signs in with what was typed.
+  if (awaitingConfirmation !== null) {
     return (
       <div class="login-screen">
         <div class="login-container">
@@ -60,25 +57,74 @@ export function LoginScreen({ directory, identity }: Props) {
             <div class="login-confirm">
               <h2 class="login-confirm-title">Check your email.</h2>
               <p class="login-confirm-body">
-                We sent a confirmation link to{' '}
-                <strong class="login-confirm-email">{awaitingConfirmation}</strong>.
-                Click it and Boson will sign you in automatically — you
-                don't have to come back here.
+                {awaitingConfirmation
+                  ? <>We sent a verification link to <strong class="login-confirm-email">{awaitingConfirmation}</strong>. </>
+                  : <>Your email address isn't verified yet. </>}
+                Open it, then come back and continue.
               </p>
+              {!awaitingConfirmation && (
+                <Field label="Email" hint="To send the link again.">
+                  <Input
+                    type="email"
+                    placeholder="email"
+                    value={email}
+                    onInput={(e) => bloc.setEmail((e.target as HTMLInputElement).value)}
+                    autoComplete="email"
+                  />
+                </Field>
+              )}
+              {notice && <p class="login-confirm-hint" role="status">{notice}</p>}
+              {error && <div class="login-error" role="alert">{error}</div>}
               <p class="login-confirm-hint">
-                Email taking a while? Check spam, or click Back to retry
-                with a different address.
+                Email taking a while? Check spam, send it again, or go back
+                to fix the address.
               </p>
               <div class="login-confirm-actions">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => bloc.cancelAwaitingConfirmation()}
-                >
+                <Button type="button" variant="ghost" disabled={busy} onClick={() => bloc.cancelAwaitingConfirmation()}>
                   Back
+                </Button>
+                <Button type="button" variant="ghost" disabled={busy} onClick={() => { void bloc.resendVerification(); }}>
+                  Resend email
+                </Button>
+                <Button type="button" variant="primary" disabled={busy} loading={busy} onClick={() => { void bloc.continueAfterVerification(); }}>
+                  Continue
                 </Button>
               </div>
             </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (forgotOpen) {
+    return (
+      <div class="login-screen">
+        <div class="login-container">
+          <Logo />
+          <Card>
+            <form onSubmit={(e) => { e.preventDefault(); void bloc.sendPasswordReset(); }}>
+              <Field label="Email" hint="We'll email you a link to set a new password.">
+                <Input
+                  type="email"
+                  placeholder="email"
+                  value={email}
+                  onInput={(e) => bloc.setEmail((e.target as HTMLInputElement).value)}
+                  autoFocus
+                  required
+                  autoComplete="email"
+                />
+              </Field>
+              {error && <div class="login-error" role="alert">{error}</div>}
+              <div class="login-actions">
+                <Button type="submit" variant="primary" fullWidth disabled={busy} loading={busy}>
+                  Send reset link
+                </Button>
+                <Button type="button" variant="ghost" fullWidth disabled={busy} onClick={() => bloc.closeForgot()}>
+                  Back to sign in
+                </Button>
+              </div>
+            </form>
           </Card>
         </div>
       </div>
@@ -101,17 +147,49 @@ export function LoginScreen({ directory, identity }: Props) {
 
         <Card>
           <form onSubmit={(e) => onSubmit(mode === 'signup' ? 'signup' : 'signin', e)}>
-            <Field label="Email">
-              <Input
-                type="email"
-                placeholder="email"
-                value={email}
-                onInput={(e) => bloc.setEmail((e.target as HTMLInputElement).value)}
-                autoFocus
-                required
-                autoComplete="username"
-              />
-            </Field>
+            {mode === 'login' ? (
+              <Field label="Username or email">
+                <Input
+                  type="text"
+                  placeholder="username or email"
+                  value={login}
+                  onInput={(e) => bloc.setLogin((e.target as HTMLInputElement).value)}
+                  autoFocus
+                  required
+                  autoComplete="username"
+                  spellcheck={false}
+                />
+              </Field>
+            ) : (
+              <>
+                <Field
+                  label="Username"
+                  hint="Your account name, IRC-nick style: letters, digits and - [ ] \ ` _ ^ { | }, up to 30."
+                  error={usernameProblem ?? undefined}
+                >
+                  <Input
+                    type="text"
+                    placeholder="username"
+                    value={username}
+                    onInput={(e) => bloc.setUsername((e.target as HTMLInputElement).value)}
+                    autoFocus
+                    required
+                    autoComplete="username"
+                    spellcheck={false}
+                  />
+                </Field>
+                <Field label="Email">
+                  <Input
+                    type="email"
+                    placeholder="email"
+                    value={email}
+                    onInput={(e) => bloc.setEmail((e.target as HTMLInputElement).value)}
+                    required
+                    autoComplete="email"
+                  />
+                </Field>
+              </>
+            )}
 
             <Field
               label="Password"
@@ -161,6 +239,8 @@ export function LoginScreen({ directory, identity }: Props) {
               </div>
             )}
 
+            {notice && <div class="login-notice" role="status">{notice}</div>}
+
             {recoverable && (
               <div class="login-recovery">
                 <Field label="Recovery code" hint="The one-time code shown when you created your account.">
@@ -186,13 +266,15 @@ export function LoginScreen({ directory, identity }: Props) {
             )}
 
             <div class="login-actions">
+              {/* The other mode's button switches tabs rather than submitting
+                  (the forms ask for different fields). */}
               <Button
                 type={mode === 'login' ? 'submit' : 'button'}
                 variant={mode === 'login' ? 'primary' : 'ghost'}
                 fullWidth
                 disabled={busy}
                 loading={busy && mode === 'login'}
-                onClick={(e) => onSubmit('signin', e)}
+                onClick={(e) => { if (mode === 'login') onSubmit('signin', e); else { e.preventDefault(); bloc.setMode('login'); } }}
               >
                 Sign in
               </Button>
@@ -202,15 +284,21 @@ export function LoginScreen({ directory, identity }: Props) {
                 fullWidth
                 disabled={busy}
                 loading={busy && mode === 'signup'}
-                onClick={(e) => onSubmit('signup', e)}
+                onClick={(e) => { if (mode === 'signup') onSubmit('signup', e); else { e.preventDefault(); bloc.setMode('signup'); } }}
               >
                 Sign up
               </Button>
             </div>
 
+            {mode === 'login' && (
+              <button type="button" class="login-guest-toggle login-forgot" onClick={() => bloc.openForgot()}>
+                Forgot password?
+              </button>
+            )}
+
             {mode === 'signup' && (
-              <WarningBanner tone="warn" title="No password recovery">
-                Your identity key is encrypted with your password. If you forget it, you'll need to reclaim each server identity via NickServ or admin contact.
+              <WarningBanner tone="warn" title="Keep your recovery code">
+                Your identity key is encrypted with your password. A password reset gets you back into your account, but unlocking the key afterwards needs the recovery code you'll be shown next.
               </WarningBanner>
             )}
           </form>

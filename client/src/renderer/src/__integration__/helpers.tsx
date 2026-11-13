@@ -1,9 +1,8 @@
 import { vi } from 'vitest';
 import { render } from '@testing-library/preact';
 import type { ComponentChild } from 'preact';
-import type { Session } from '@supabase/supabase-js';
 
-import { AuthProvider, type AuthListener, type AuthService, type AuthState } from '../modules/auth';
+import { AuthProvider, AuthError, type AuthListener, type AuthService, type AuthState, type Session, type SignUpInput, type SignUpResult } from '../modules/auth';
 import { DirectoryService } from '../modules/directory';
 import { ChatService } from '../modules/chat';
 import {
@@ -61,7 +60,7 @@ export function jsonResponse(body: unknown, status = 200): Response {
 
 // ---------------------------------------------------------------------------
 // Fake AuthService — satisfies the structural shape used by LoginBloc /
-// DirectoryBloc / useAuthState without depending on a real Supabase client.
+// DirectoryBloc / useAuthState without talking to the auth service.
 // Tests can flip its state with helpers (`_setSession`, `_finishLoading`).
 // ---------------------------------------------------------------------------
 
@@ -72,11 +71,23 @@ export interface FakeAuthOptions {
   signInError?: Error | null;
   // signUp rejects with this if set.
   signUpError?: Error | null;
-  // When true, signUp() also establishes a session (matches the
-  // Supabase confirm-disabled flow on local dev). Default false
-  // matches the canonical confirm-enabled flow where signUp returns
-  // user-but-no-session and the user lands on "Check your email".
+  // When true, signUp() also signs in (the auth service with
+  // REQUIRE_EMAIL_VERIFICATION=false). Default false matches production:
+  // the account needs its email verified, so the user lands on "Check your
+  // email", and signIn fails with email_not_verified until _verify().
   signUpEstablishesSession?: boolean;
+}
+
+export function fakeSession(login: string): Session {
+  const email = login.includes('@') ? login : `${login}@boson.dev`;
+  const username = login.includes('@') ? login.split('@')[0]! : login;
+  return {
+    access_token: 'jwt-test',
+    expires_at: Date.now() + 15 * 60_000,
+    refresh_token: 'refresh',
+    session_id: 'ses_test',
+    user: { id: 'usr_u1', username, email, email_verified: true, role: 'user', user_metadata: {} },
+  };
 }
 
 export class FakeAuthService {
@@ -86,10 +97,14 @@ export class FakeAuthService {
   private signUpError: Error | null;
   private email: string;
   signUpEstablishesSession: boolean;
+  // Logins (username or email) whose email is still unverified.
+  private readonly unverified = new Set<string>();
 
-  // Each call records its (email,password) tuple so tests can assert.
+  // Each call records what it got so tests can assert.
   signInCalls: Array<{ email: string; password: string }> = [];
-  signUpCalls: Array<{ email: string; password: string }> = [];
+  signUpCalls: Array<{ username: string; email: string; password: string }> = [];
+  resendCalls: string[] = [];
+  resetCalls: string[] = [];
   signOutCalls = 0;
 
   constructor(opts: FakeAuthOptions = {}) {
@@ -105,39 +120,33 @@ export class FakeAuthService {
     this.setState({ ...this.state, loading: false });
   }
 
+  // `email` here is the login field: username or email.
   async signIn(email: string, password: string): Promise<void> {
     this.signInCalls.push({ email, password });
     if (this.signInError) throw this.signInError;
-    this._setSession({
-      access_token: 'jwt-test',
-      token_type: 'bearer',
-      expires_in: 3600,
-      refresh_token: 'refresh',
-      user: { id: 'u1', email } as unknown as Session['user'],
-    } as unknown as Session);
+    if (this.unverified.has(email)) throw new AuthError('email_not_verified', 'email not verified', 403);
+    this._setSession(fakeSession(email));
   }
 
-  async signUp(email: string, password: string): Promise<void> {
-    this.signUpCalls.push({ email, password });
+  async signUp(input: SignUpInput): Promise<SignUpResult> {
+    this.signUpCalls.push(input);
     if (this.signUpError) throw this.signUpError;
-    // Real Supabase only returns a session immediately when email
-    // confirmation is DISABLED on the project. The default flow
-    // (confirm-on, hosted dev → click email link) returns no session
-    // here — the user lands on "Check your email" until the deep
-    // link fires. Tests that want auto-session can opt-in via
-    // signUpEstablishesSession=true; default matches the
-    // confirm-enabled flow that LoginBloc's awaitingConfirmation
-    // branch was designed for.
     if (this.signUpEstablishesSession) {
-      this._setSession({
-        access_token: 'jwt-test',
-        token_type: 'bearer',
-        expires_in: 3600,
-        refresh_token: 'refresh',
-        user: { id: 'u1', email } as unknown as Session['user'],
-      } as unknown as Session);
+      this._setSession(fakeSession(input.username));
+      return { verificationRequired: false };
     }
+    this.unverified.add(input.username);
+    this.unverified.add(input.email);
+    return { verificationRequired: true };
   }
+
+  async resendVerification(email: string): Promise<void> { this.resendCalls.push(email); }
+  async requestPasswordReset(email: string): Promise<void> { this.resetCalls.push(email); }
+  async updateMetadata(): Promise<void> {}
+  async tokenRejected(): Promise<string | null> { return null; }
+
+  // Test-only: the user opened the verification link.
+  _verify(): void { this.unverified.clear(); }
 
   async signOut(): Promise<void> {
     this.signOutCalls++;
