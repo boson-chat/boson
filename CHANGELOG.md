@@ -1,3 +1,9 @@
+## [0.43.0](https://github.com/boson-chat/boson/compare/v0.42.0...v0.43.0) (2026-11-13)
+
+### Features
+
+* replace Supabase Auth with the boson auth service ([2f50088](https://github.com/boson-chat/boson/commit/2f50088402a72e892b012e2f6660718817281a04))
+
 ## [0.42.0](https://github.com/boson-chat/boson/compare/v0.41.0...v0.42.0) (2026-10-27)
 
 ### Features
