@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 	"sync"
@@ -194,4 +195,21 @@ func originOf(raw string) string {
 		return raw
 	}
 	return origin(u)
+}
+
+// cleanBaseURL accepts an https origin (optionally with a path), returned
+// without a trailing slash. http only when allowHTTP (dev builds).
+func cleanBaseURL(raw string, allowHTTP bool) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "https" && !(allowHTTP && u.Scheme == "http") {
+		return "", fmt.Errorf("%q is not https", raw)
+	}
+	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return "", fmt.Errorf("%q is not a base URL", raw)
+	}
+	u.Host = strings.ToLower(u.Host)
+	return strings.TrimRight(u.String(), "/"), nil
 }
