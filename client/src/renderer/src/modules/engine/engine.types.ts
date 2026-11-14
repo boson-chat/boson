@@ -12,6 +12,10 @@ export interface ConnectParams {
   tls: boolean;
   nick: string;
   sasl?: { user: string; password: string };
+  // Log in with the network's own access token (SASL OAUTHBEARER); `sasl`,
+  // when also set, is the PLAIN fallback for a server without it.
+  // Sensitive — never log it.
+  oauthbearer?: { token: string };
   // Optional NickServ password — when present, the engine auto-sends
   // `PRIVMSG NickServ IDENTIFY <password>` immediately after
   // RPL_WELCOME. Plain-text in localStorage today, shipped on every

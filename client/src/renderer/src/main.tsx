@@ -5,7 +5,10 @@ import { isWailsPage } from './platform/is-wails';
 import { initDeepLinkBridge } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
 import { getThemeStore } from './modules/ui/theme';
-import { VoiceController, setVoiceController, voiceBridge } from './modules/voice';
+import { VoiceController, getVoiceController, setVoiceController, voiceBridge } from './modules/voice';
+import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
+import { loadGuestSession } from './modules/guest/guest';
+import { windowSecureStorage } from './shared/secure-storage';
 import './styles.css';
 
 // The Wails shell's bridges (platform/wails.ts) are installed asynchronously;
@@ -73,14 +76,24 @@ void (async () => {
     engineToken,
     engineSocket,
   });
+  // Accounts on self-hosted networks (desktop app only: the shell finds
+  // each network's auth service and lets the proxy reach it).
+  const netAccounts = netAuthBridge()
+    ? new NetworkAccounts({ mainAuthUrl: authUrl, mainAuth: props.auth, storage: windowSecureStorage, isGuest: () => loadGuestSession() !== null })
+    : null;
+  setNetworkAccounts(netAccounts);
   // Voice channels (desktop app only: the bridge is absent elsewhere).
   const bridge = voiceBridge();
   if (bridge) {
     setVoiceController(new VoiceController(bridge, {
       authUrl,
-      voiceToken: (rooms) => props.auth.voiceToken(rooms),
+      // A network's voice takes that network's tokens, never boson.chat's.
+      voiceToken: (rooms, net) => (net && netAccounts ? netAccounts.service(net).voiceToken(rooms) : props.auth.voiceToken(rooms)),
+      knowsAuth: (net) => netAccounts?.getSnapshot().known.some((k) => k.authUrl === net) ?? false,
     }));
+    netAccounts?.onLinked((link) => { void getVoiceController()?.recheck(link.host); });
   }
+  void netAccounts?.init();
   // Fire init async — App renders immediately and shows "Loading…" until ready.
   props.auth.init().catch((err) => {
     console.error('auth.init failed', err);

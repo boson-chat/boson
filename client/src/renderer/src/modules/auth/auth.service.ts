@@ -72,6 +72,17 @@ export interface AuthConfig {
   channel_auto_register?: boolean;
   // Registered channels nobody uses for this many days are dropped; 0 = never.
   channel_expiry_days?: number;
+  // Whether people may use the network's IRC without an account (guests).
+  // Absent on older servers: treat as true (guestAccessAllowed).
+  guest_access?: boolean;
+  // The network's name, for "Sign in to <network>" (newer servers).
+  site_name?: string;
+  network_name?: string;
+}
+
+// guest_access, defaulting to allowed when the server doesn't say.
+export function guestAccessAllowed(cfg: Pick<AuthConfig, 'guest_access'> | null | undefined): boolean {
+  return cfg?.guest_access !== false;
 }
 
 // An external sign-in linked to the account (GET /v1/me/identities).
@@ -96,6 +107,8 @@ export interface SignUpInput {
   username: string;
   email: string;
   password: string;
+  // Needed when the network's registration is invite-only.
+  invite_code?: string;
 }
 
 export interface SignUpResult {
@@ -128,6 +141,9 @@ interface TokenResponse {
 
 export interface AuthServiceOptions {
   storage?: SecureStorage;
+  // Where the session is kept in storage (default STORAGE_KEY, the app's
+  // own account). Each network's auth service gets its own key.
+  storageKey?: string;
   transport?: ApiTransport;
   now?: () => number;
 }
@@ -138,7 +154,8 @@ const EXPIRY_SKEW_MS = 60_000;
 export class AuthService {
   static readonly STORAGE_KEY = 'boson.auth.session';
 
-  private readonly baseUrl: string;
+  readonly baseUrl: string;
+  private readonly storageKey: string;
   private readonly storage: SecureStorage | null;
   private readonly transport: ApiTransport;
   private readonly now: () => number;
@@ -152,6 +169,7 @@ export class AuthService {
   constructor(baseUrl: string, opts: AuthServiceOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.storage = opts.storage ?? null;
+    this.storageKey = opts.storageKey ?? AuthService.STORAGE_KEY;
     this.transport = opts.transport ?? defaultApiTransport();
     this.now = opts.now ?? Date.now;
   }
@@ -235,6 +253,7 @@ export class AuthService {
       username: input.username.trim(),
       email: input.email.trim(),
       password: input.password,
+      ...(input.invite_code?.trim() ? { invite_code: input.invite_code.trim() } : {}),
     });
     if (r.email_verification_required) return { verificationRequired: true };
     await this.signIn(input.username, input.password);
@@ -412,7 +431,7 @@ export class AuthService {
     if (!this.storage) return;
     try {
       if (!(await this.storage.isAvailable())) return;
-      await this.storage.set(AuthService.STORAGE_KEY, JSON.stringify({
+      await this.storage.set(this.storageKey, JSON.stringify({
         refresh_token: session.refresh_token,
         session_id: session.session_id,
         user: session.user,
@@ -426,7 +445,7 @@ export class AuthService {
     if (!this.storage) return null;
     try {
       if (!(await this.storage.isAvailable())) return null;
-      const raw = await this.storage.get(AuthService.STORAGE_KEY);
+      const raw = await this.storage.get(this.storageKey);
       if (!raw) return null;
       const v = JSON.parse(raw) as Partial<Session>;
       if (!v.refresh_token || !v.user?.id) return null;
@@ -446,7 +465,7 @@ export class AuthService {
   private async clearSaved(): Promise<void> {
     if (!this.storage) return;
     try {
-      if (await this.storage.isAvailable()) await this.storage.remove(AuthService.STORAGE_KEY);
+      if (await this.storage.isAvailable()) await this.storage.remove(this.storageKey);
     } catch (err) {
       console.warn('[auth] could not clear the saved session', err);
     }

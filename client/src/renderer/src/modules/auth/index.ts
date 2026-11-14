@@ -1,5 +1,5 @@
 export {
-  AuthService, AuthError, describeAuthError,
+  AuthService, AuthError, describeAuthError, guestAccessAllowed,
   type AuthState, type AuthListener, type AuthConfig, type SSOProvider, type LinkedIdentity, type LinkedIdentities, type AuthUser, type Session, type SignUpInput, type SignUpResult, type VoiceToken,
 } from './auth.service';
 export { AuthProvider, useAuthService, useAuthState, useOptionalAuthService } from './auth.context';

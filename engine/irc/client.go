@@ -17,13 +17,17 @@ import (
 )
 
 type Config struct {
-	Hostname    string
-	Port        int
-	TLS         bool
-	Nick        string
-	User        string // ident
-	RealName    string
-	SASL        *SASLPlain
+	Hostname string
+	Port     int
+	TLS      bool
+	Nick     string
+	User     string // ident
+	RealName string
+	SASL     *SASLPlain
+	// OAuthBearer logs in with the network's own access token (SASL
+	// OAUTHBEARER). With SASL set too, PLAIN is the fallback for a server
+	// that doesn't offer OAUTHBEARER.
+	OAuthBearer *SASLOAuthBearer
 	ConnTimeout time.Duration
 	// NickservPassword, when non-empty, triggers `PRIVMSG NickServ
 	// IDENTIFY <password>` immediately after RPL_WELCOME. The engine
@@ -171,6 +175,12 @@ func New(cfg Config) (*Client, error) {
 	if cfg.ConnTimeout == 0 {
 		cfg.ConnTimeout = 15 * time.Second
 	}
+	mech := newSASLMech(cfg.OAuthBearer, cfg.SASL)
+	// A nil *saslMech must stay a nil interface (girc checks SASL != nil).
+	var saslMechanism girc.SASLMech
+	if mech != nil {
+		saslMechanism = mech
+	}
 
 	gc := girc.New(girc.Config{
 		Server:    cfg.Hostname,
@@ -189,7 +199,7 @@ func New(cfg Config) (*Client, error) {
 		AllowFlood:  true,
 		PingDelay:   30 * time.Second,
 		PingTimeout: 30 * time.Second,
-		SASL:        saslConfig(cfg.SASL),
+		SASL:        saslMechanism,
 		// IRCv3 capabilities we negotiate at connect:
 		//   message-tags     — required to send/receive client tags like +typing
 		//   server-time      — server-stamps messages with a UTC timestamp
@@ -245,6 +255,12 @@ func New(cfg Config) (*Client, error) {
 		bouncer:       newBouncerState(cfg.Bouncer, cfg.BouncerAutoConnect),
 		autoListDelay: initialAutoListDelay,
 		dispatch:      newDispatchQueue(),
+	}
+	if mech != nil {
+		mech.send = func(chunk string) {
+			gc.Send(&girc.Event{Command: girc.AUTHENTICATE, Params: []string{chunk}, Sensitive: true})
+		}
+		gc.Handlers.Add(girc.CAP, func(_ *girc.Client, e girc.Event) { mech.onCapLS(e) })
 	}
 	c.sendq = newSendQueue(c.pacing)
 	c.sendq.unpaced = c.bouncerLocal
@@ -328,13 +344,6 @@ func (c *Client) NickservIdentify(password string) {
 		return
 	}
 	c.send(&girc.Event{Command: girc.PRIVMSG, Params: []string{"NickServ", "IDENTIFY " + password}}, classInteractive)
-}
-
-func saslConfig(s *SASLPlain) girc.SASLMech {
-	if s == nil {
-		return nil
-	}
-	return &girc.SASLPlain{User: s.User, Pass: s.Password}
 }
 
 // tlsConfigFor returns a custom TLS config only when the caller asked to skip
@@ -1193,6 +1202,15 @@ func translate(e girc.Event) Event {
 		// is live on an unfamiliar server.
 		if len(e.Params) >= 2 {
 			out.Args = append([]string(nil), e.Params[1:]...)
+		}
+		out.Message = e.Last()
+	case "FAIL":
+		// IRCv3 standard replies: FAIL <command> <code> [context…] :text —
+		// e.g. Ergo's FAIL * ACCOUNT_REQUIRED when a network allows no
+		// guests (accounts.require-sasl), which the renderer turns into a
+		// sign-in prompt.
+		if len(e.Params) >= 1 {
+			out.Args = append([]string(nil), e.Params[:len(e.Params)-1]...)
 		}
 		out.Message = e.Last()
 	case girc.PONG:

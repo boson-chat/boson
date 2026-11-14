@@ -30,6 +30,10 @@ type ApiService struct {
 	// GET-only and credential-free, unless verified to accept our accounts.
 	dirs directoryAccess
 
+	// nets are the auth services of self-hosted networks the user added
+	// (netauth_registry.go): full access, tokens kept to their own realm.
+	nets *netAuths
+
 	// test, when set (e2e builds), can delay requests, refuse them like a
 	// backend that's down, and logs them — the suite's controlApi.
 	test *apiTestControl
@@ -96,6 +100,7 @@ func newAPIPolicy(apiBase string, allowLoopback bool, extraBases ...string) apiP
 func NewApiService(apiBase string, allowLoopback bool, extraBases ...string) *ApiService {
 	return &ApiService{
 		policy: newAPIPolicy(apiBase, allowLoopback, extraBases...),
+		nets:   newNetAuths(),
 		client: &http.Client{
 			// Redirects are followed by hand so every hop is checked.
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
@@ -195,6 +200,9 @@ func (s *ApiService) Fetch(ctx context.Context, req ApiRequest) ApiResponse {
 		// Someone else's directory never sees our tokens.
 		stripCredentials(headers)
 	}
+	if !s.tokenRealmOK(u, headers) {
+		return foreignToken()
+	}
 	current := u
 	for hop := 0; ; hop++ {
 		var rd io.Reader
@@ -238,6 +246,9 @@ func (s *ApiService) Fetch(ctx context.Context, req ApiRequest) ApiResponse {
 			// to an origin that shouldn't see our tokens.
 			if origin(next) != origin(current) || nextLevel == accessRead {
 				stripCredentials(headers)
+			}
+			if !s.tokenRealmOK(next, headers) {
+				return foreignToken()
 			}
 			// 303 (and a non-GET/HEAD 301/302) becomes a bodyless GET.
 			if res.StatusCode == http.StatusSeeOther ||

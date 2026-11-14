@@ -109,8 +109,9 @@ func main() {
 		application.NewService(NewYouTubeService(dist, youtubeWrapper)),
 		application.NewService(NewE2EService(dev, e2eTargets{links, deepLinks, api, engine, spotify, updater})),
 	}
-	// Voice channels (desktop only; voice.go).
-	services = append(services, voiceServices(dataDir, authBase, dev)...)
+	// Voice channels (desktop only; voice.go) and "Sign in to <network>"
+	// discovery (netauth.go).
+	services = append(services, voiceServices(dataDir, authBase, dev, api)...)
 	// "Sign in with …": the loopback redirect listener (sso.go). Desktop
 	// only; phones would need a boson:// redirect instead.
 	if !mobileOS {

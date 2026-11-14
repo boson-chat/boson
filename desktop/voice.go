@@ -32,6 +32,9 @@ type VoiceService struct {
 	http     *http.Client
 	authBase string
 	dev      bool
+	// nets: self-hosted networks' auth services the user added; their voice
+	// is trusted on the same terms as the app's own (see trusted).
+	nets *netAuths
 
 	// newAudio opens the audio backend (cgo: miniaudio + libopus); nil or
 	// failing means this build or machine can't do voice audio.
@@ -149,8 +152,8 @@ const (
 // VoiceServerInfo is Discover's answer for the renderer.
 type VoiceServerInfo struct {
 	Host string `json:"host"`
-	// Available: the server has voice the app can use with its boson
-	// account (see voiceTrusted).
+	// Available: the server has voice the app can use with the account of
+	// AuthURL — the app's own or the network's (see trusted).
 	Available bool   `json:"available"`
 	AuthURL   string `json:"authUrl,omitempty"`
 	// Audio: this build can do voice audio here (false in builds without
@@ -274,7 +277,7 @@ func (s *VoiceService) Discover(host string, refresh bool) VoiceServerInfo {
 	out := VoiceServerInfo{Host: d.Host}
 	if d.Voice != nil {
 		out.AuthURL = d.Voice.AuthURL
-		out.Available = voiceTrusted(d.Voice, s.authBase, s.dev)
+		out.Available = s.trusted(d.Voice)
 	}
 	if out.Available {
 		out.Audio = voiceAudioCompiled
@@ -288,10 +291,23 @@ func (s *VoiceService) Discover(host string, refresh bool) VoiceServerInfo {
 // trustedVoice is host's voice server, if the app may use it.
 func (s *VoiceService) trustedVoice(host string) *VoiceInfo {
 	d := s.disc.cached(host)
-	if d == nil || !voiceTrusted(d.Voice, s.authBase, s.dev) {
+	if d == nil || !s.trusted(d.Voice) {
 		return nil
 	}
 	return d.Voice
+}
+
+// trusted: voice the app may use — tied to the app's auth service, or to a
+// network auth service the user added, and on hosts under that auth's
+// domain either way (voiceTrusted).
+func (s *VoiceService) trusted(info *VoiceInfo) bool {
+	if info == nil {
+		return false
+	}
+	if voiceTrusted(info, s.authBase, s.dev) {
+		return true
+	}
+	return s.nets.trustedBase(info.AuthURL) && voiceTrusted(info, info.AuthURL, s.dev)
 }
 
 // Rooms lists host's voice channels, with a voice token from the renderer.

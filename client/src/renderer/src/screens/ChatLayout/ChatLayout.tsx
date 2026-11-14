@@ -1,3 +1,4 @@
+import { NetworkAccountBar } from '../NetworkSignIn/NetworkAccountBar';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatService, ChatState } from '../../modules/chat';
 import { banMask } from '../../modules/chat';
@@ -215,6 +216,9 @@ export function ChatLayout({
           serverInfo={state.serverInfo}
           engineState={engineState}
           width={channelsW}
+          account={serverHost ? (
+            <NetworkAccountBar host={serverHost} serverName={serverName} onSignedIn={onReconnect} />
+          ) : undefined}
           voice={serverHost ? (
             <VoiceSection
               host={serverHost}

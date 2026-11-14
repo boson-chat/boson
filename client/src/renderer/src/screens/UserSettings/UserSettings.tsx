@@ -24,6 +24,7 @@ import { VoiceSettingsSection } from './VoiceSettings';
 import { getVoiceController } from '../../modules/voice';
 import { HttpError } from '../../shared/http/http.client';
 import { DirectoriesSection } from './DirectoriesSection';
+import { NetworkAccountsSection } from './NetworkAccountsSection';
 // Pulled at build time from client/package.json. semantic-release keeps
 // every workspace package.json in lockstep with the latest tag via
 // scripts/sync-version.cjs, so this matches what the GitHub release
@@ -44,7 +45,7 @@ const APP_VERSION = pkg.version;
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'voice' | 'account' | 'directories' | 'bouncer' | 'about';
+type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'voice' | 'account' | 'networks' | 'directories' | 'bouncer' | 'about';
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',      label: 'Identity',      description: 'Display nick + handle' },
@@ -53,6 +54,7 @@ const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }>
   { id: 'notifications', label: 'Notifications', description: 'Desktop alerts' },
   { id: 'voice',         label: 'Voice',         description: 'Mic, speakers, push to talk' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
+  { id: 'networks',   label: 'Network accounts', description: 'Self-hosted networks' },
   { id: 'directories', label: 'Directories', description: 'Where servers are listed' },
   { id: 'bouncer',    label: 'Bouncer',    description: 'ZNC / BNC relay (advanced)' },
   { id: 'about',      label: 'About',      description: 'Version + project info' },
@@ -135,6 +137,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               open={open}
             />
           )}
+          {section === 'networks' && <NetworkAccountsSection open={open} />}
           {section === 'directories' && <DirectoriesSection />}
           {section === 'bouncer' && <BouncerSection mode={mode} open={open} />}
           {section === 'about' && <AboutSection />}

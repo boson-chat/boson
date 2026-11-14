@@ -26,6 +26,8 @@ export interface StackConfig {
   auth: { url: string; mailpitUrl: string; dbPort: number; admin: { username: string; email: string; password: string } };
   backend: { url: string; port: number };
   directory: { url: string; dbPort: number; database: string; user: string; password: string };
+  // A self-hosted network: its own auth service and IRC (no guests).
+  selfhost: { irc: { host: string; port: number }; auth: { url: string }; dbPort: number };
 }
 
 export const STACK = JSON.parse(readFileSync(join(E2E_INFRA_DIR, 'stack.json'), 'utf8')) as StackConfig;

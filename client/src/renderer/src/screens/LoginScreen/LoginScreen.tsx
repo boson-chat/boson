@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { useAuthService, useAuthState } from '../../modules/auth';
+import { guestAccessAllowed, useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { Button, Card, Field, Input, Logo, Tabs, WarningBanner } from '@boson/shared';
@@ -34,6 +34,15 @@ export function LoginScreen({ directory, identity }: Props) {
   // an event that the App router picks up to swap into the directory.
   const [guestPrompt, setGuestPrompt] = useState(false);
   const [guestNick, setGuestNick] = useState('');
+  // boson.chat's own IRC may take no guests (guest_access: false). Guest
+  // mode still reaches other networks, so it stays; it just says so.
+  const [mainGuestOk, setMainGuestOk] = useState(true);
+  useEffect(() => {
+    if (typeof auth.config !== 'function') return;
+    let live = true;
+    auth.config().then((c) => { if (live) setMainGuestOk(guestAccessAllowed(c)); }, () => {});
+    return () => { live = false; };
+  }, [auth]);
 
   const onSubmit = (kind: 'signin' | 'signup', e: Event) => {
     e.preventDefault();
@@ -423,7 +432,11 @@ export function LoginScreen({ directory, identity }: Props) {
             >
               Continue without an account
             </button>
-          ) : (
+          ) : null}
+          {!guestPrompt && !mainGuestOk ? (
+            <p class="login-guest-note">boson.chat requires an account to chat. Without one you can still use other networks.</p>
+          ) : null}
+          {guestPrompt && (
             <form onSubmit={submitGuest} class="login-guest-form">
               <Field
                 label="Pick a nick"

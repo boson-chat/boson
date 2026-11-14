@@ -59,6 +59,9 @@ type directoryAccess struct {
 	gen int
 	// authOrigin is the app's auth service, for the owner check.
 	authOrigin string
+	// realm: for an owner-access directory API that accepts a self-hosted
+	// network's accounts (not the app's), that network's auth origin.
+	realm map[string]string
 }
 
 // access says what the proxy may do at u: the build's own origins first,
@@ -68,6 +71,9 @@ func (s *ApiService) access(u *url.URL) accessLevel {
 		return accessFull
 	}
 	o := origin(u)
+	if s.nets.has(o) {
+		return accessFull
+	}
 	s.dirs.mu.RLock()
 	defer s.dirs.mu.RUnlock()
 	switch {
@@ -159,12 +165,16 @@ func (s *ApiService) SetDirectories(entries []DirectoryEntry) []string {
 	// Keep owner access already proven for directories still listed, so a
 	// re-sync doesn't briefly break an open hosting dialog.
 	full := map[string]bool{}
+	realm := map[string]string{}
 	for _, c := range checks {
 		if s.dirs.full[c.api] {
 			full[c.api] = true
+			if r, ok := s.dirs.realm[c.api]; ok {
+				realm[c.api] = r
+			}
 		}
 	}
-	s.dirs.read, s.dirs.full = read, full
+	s.dirs.read, s.dirs.full, s.dirs.realm = read, full, realm
 	s.dirs.mu.Unlock()
 	for _, c := range checks {
 		go s.checkOwner(gen, c.dir, c.api)
@@ -237,10 +247,21 @@ func (s *ApiService) checkOwner(gen int, dir, api string) {
 	}
 	s.dirs.mu.Lock()
 	defer s.dirs.mu.Unlock()
-	if gen != s.dirs.gen || s.dirs.authOrigin == "" || origin(issuer) != s.dirs.authOrigin || declared != api {
+	if gen != s.dirs.gen || declared != api {
 		return
 	}
-	s.dirs.full[api] = true
+	// Our own accounts, or those of a self-hosted network the user signs in
+	// to (its tokens, and only those, may then go there).
+	switch iss := origin(issuer); {
+	case s.dirs.authOrigin != "" && iss == s.dirs.authOrigin:
+		s.dirs.full[api] = true
+	case s.nets.has(iss):
+		s.dirs.full[api] = true
+		if s.dirs.realm == nil {
+			s.dirs.realm = map[string]string{}
+		}
+		s.dirs.realm[api] = iss
+	}
 }
 
 // CheckDirectory fetches a directory's well-known document before the user

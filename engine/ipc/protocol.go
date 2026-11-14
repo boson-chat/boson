@@ -24,6 +24,10 @@ type ConnectParams struct {
 	TLS      bool       `json:"tls"`
 	Nick     string     `json:"nick"`
 	SASL     *SASLPlain `json:"sasl,omitempty"`
+	// OAuthBearer: log in with an access token from the network's own auth
+	// service (SASL OAUTHBEARER); SASL, when also set, is the PLAIN
+	// fallback for a server without OAUTHBEARER. Sensitive — never logged.
+	OAuthBearer *OAuthBearer `json:"oauthbearer,omitempty"`
 	// Optional NickServ password. Stored renderer-side per-server (plain
 	// text in localStorage today) and shipped here on every connect /
 	// reconnect. When non-empty the engine auto-sends NickServ IDENTIFY
@@ -50,6 +54,10 @@ type ConnectParams struct {
 type SASLPlain struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
+}
+
+type OAuthBearer struct {
+	Token string `json:"token"`
 }
 
 type JoinParams struct {

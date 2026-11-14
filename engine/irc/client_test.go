@@ -1,10 +1,12 @@
 package irc
 
 import (
+	"encoding/base64"
 	"testing"
 
 	"github.com/lrstanley/girc"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew_RequiresHostname(t *testing.T) {
@@ -361,12 +363,14 @@ func TestClient_String(t *testing.T) {
 }
 
 func TestSASLConfig(t *testing.T) {
-	assert.Nil(t, saslConfig(nil))
-	got := saslConfig(&SASLPlain{User: "alice", Password: "hunter2"})
-	plain, ok := got.(*girc.SASLPlain)
-	assert.True(t, ok)
-	assert.Equal(t, "alice", plain.User)
-	assert.Equal(t, "hunter2", plain.Pass)
+	assert.Nil(t, newSASLMech(nil, nil))
+	assert.Nil(t, newSASLMech(&SASLOAuthBearer{}, nil), "an empty token is no mechanism")
+	m := newSASLMech(nil, &SASLPlain{User: "alice", Password: "hunter2"})
+	require.NotNil(t, m)
+	assert.Equal(t, "PLAIN", m.Method())
+	raw, err := base64.StdEncoding.DecodeString(m.Encode([]string{"+"}))
+	require.NoError(t, err)
+	assert.Equal(t, "alice\x00alice\x00hunter2", string(raw))
 }
 
 func TestIs421ForListThrottle_MatchesErgoRateLimitedReply(t *testing.T) {
@@ -497,4 +501,11 @@ func TestTranslate_DropsRplList(t *testing.T) {
 		Params:  []string{"alice", "#chan", "5", "a topic"},
 	}
 	assert.Equal(t, "", translate(e).Kind)
+}
+
+func TestTranslate_ForwardsFail(t *testing.T) {
+	got := translate(girc.Event{Command: "FAIL", Params: []string{"*", "ACCOUNT_REQUIRED", "You must log in with SASL to join this server"}})
+	assert.Equal(t, "FAIL", got.Kind)
+	assert.Equal(t, []string{"*", "ACCOUNT_REQUIRED"}, got.Args)
+	assert.Equal(t, "You must log in with SASL to join this server", got.Message)
 }

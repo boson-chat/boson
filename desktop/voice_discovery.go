@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -61,6 +60,11 @@ type VoiceDiscovery struct {
 	// document), rather than every check failing on the network. A failed
 	// re-check doesn't replace a working answer with "no voice".
 	Definitive bool `json:"definitive"`
+	// Auth is the network's own auth service (boson.json auth.url, with or
+	// without voice); Directory its network directory (directory.url), if
+	// it names one. Both validated like voice.url. "" when absent.
+	Auth      string `json:"auth,omitempty"`
+	Directory string `json:"directory,omitempty"`
 }
 
 // voiceDomain derives the domain discovery looks at, or "" when there is
@@ -101,6 +105,25 @@ type bosonWellKnown struct {
 		Addr string `json:"addr"`
 		URL  string `json:"url"`
 	} `json:"voice"`
+	Directory *struct {
+		URL string `json:"url"`
+	} `json:"directory"`
+}
+
+// parseWellKnownNetwork reads a boson.json's auth service and directory
+// (each "" when absent or invalid). The document must be a valid version 1.
+func parseWellKnownNetwork(body []byte, allowHTTP bool) (auth, directory string) {
+	var doc bosonWellKnown
+	if json.Unmarshal(body, &doc) != nil || doc.Version != 1 {
+		return "", ""
+	}
+	if doc.Auth != nil {
+		auth, _ = cleanBaseURL(doc.Auth.URL, allowHTTP)
+	}
+	if doc.Directory != nil {
+		directory, _ = cleanBaseURL(doc.Directory.URL, allowHTTP)
+	}
+	return auth, directory
 }
 
 // parseWellKnown validates a boson.json; nil (and no error) when it's valid
@@ -147,23 +170,6 @@ func checkHostPort(addr string) error {
 	return nil
 }
 
-// cleanBaseURL accepts an https origin (optionally with a path), returned
-// without a trailing slash. http only when allowHTTP (dev builds).
-func cleanBaseURL(raw string, allowHTTP bool) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", err
-	}
-	if u.Scheme != "https" && !(allowHTTP && u.Scheme == "http") {
-		return "", fmt.Errorf("%q is not https", raw)
-	}
-	if u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return "", fmt.Errorf("%q is not a base URL", raw)
-	}
-	u.Host = strings.ToLower(u.Host)
-	return strings.TrimRight(u.String(), "/"), nil
-}
-
 type voiceDiscoverer struct {
 	http      *http.Client
 	probe     func(ctx context.Context, addr string) error
@@ -174,6 +180,10 @@ type voiceDiscoverer struct {
 	// (BOSON_VOICE_JSON), so a local quicvoiced can be tried.
 	override     *VoiceInfo
 	overrideHost string
+	// overrideNets: dev builds, BOSON_NETWORK_JSON — boson.json documents
+	// for IRC hosts that have no real domain (the e2e stack's localhost),
+	// keyed by their irc.host. Voice is optional in these.
+	overrideNets map[string]*VoiceDiscovery
 	// wellKnownURL builds the document's URL (tests point it elsewhere).
 	wellKnownURL func(domain string) string
 
@@ -208,8 +218,40 @@ func newVoiceDiscoverer(dataDir string, dev bool) *voiceDiscoverer {
 	}
 	if dev {
 		d.loadOverride(os.Getenv("BOSON_VOICE_JSON"))
+		d.loadNetworkOverrides(os.Getenv("BOSON_NETWORK_JSON"))
 	}
 	return d
+}
+
+// loadNetworkOverrides reads dev-only boson.json files (a path list), each
+// applying to its irc.host.
+func (d *voiceDiscoverer) loadNetworkOverrides(paths string) {
+	for _, path := range filepath.SplitList(paths) {
+		if path == "" {
+			continue
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "discovery: BOSON_NETWORK_JSON: %v\n", err)
+			continue
+		}
+		var doc bosonWellKnown
+		_ = json.Unmarshal(body, &doc)
+		info, err := parseWellKnown(body, true)
+		auth, dir := parseWellKnownNetwork(body, true)
+		if err != nil || doc.IRC == nil || doc.IRC.Host == "" || auth == "" {
+			fmt.Fprintf(os.Stderr, "discovery: %s needs irc.host and auth.url (%v)\n", path, err)
+			continue
+		}
+		if info != nil {
+			info.Source = "override"
+		}
+		host := strings.ToLower(doc.IRC.Host)
+		if d.overrideNets == nil {
+			d.overrideNets = map[string]*VoiceDiscovery{}
+		}
+		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, Definitive: true}
+	}
 }
 
 // loadOverride reads a dev-only boson.json that applies to its irc.host.
@@ -237,7 +279,12 @@ func (d *voiceDiscoverer) loadOverride(path string) {
 func (d *voiceDiscoverer) cached(host string) *VoiceDiscovery {
 	host = strings.ToLower(host)
 	if d.override != nil && host == d.overrideHost {
-		return &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: d.override, CheckedAt: d.now(), Definitive: true}
+		return &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: d.override, Auth: d.override.AuthURL, CheckedAt: d.now(), Definitive: true}
+	}
+	if o := d.overrideNets[host]; o != nil {
+		c := *o
+		c.CheckedAt = d.now()
+		return &c
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -252,7 +299,7 @@ func (d *voiceDiscoverer) cached(host string) *VoiceDiscovery {
 // old (unless refresh), else a fresh check.
 func (d *voiceDiscoverer) Discover(ctx context.Context, host string, refresh bool) *VoiceDiscovery {
 	host = strings.ToLower(strings.TrimSpace(host))
-	if c := d.cached(host); c != nil && (c.Voice != nil && c.Voice.Source == "override" ||
+	if c := d.cached(host); c != nil && (c.Voice != nil && c.Voice.Source == "override" || d.overrideNets[host] != nil ||
 		!refresh && d.now().Sub(c.CheckedAt) < voiceDiscoveryTTL) {
 		return c
 	}
@@ -297,7 +344,8 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 		res.Definitive = true
 		return res
 	}
-	info, answered := d.fetchWellKnown(ctx, domain)
+	info, answered, auth, dir := d.fetchWellKnown(ctx, domain)
+	res.Auth, res.Directory = auth, dir
 	if info != nil {
 		res.Voice, res.Definitive = info, true
 		return res
@@ -313,6 +361,9 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 			AuthURL: "https://auth." + domain,
 			Source:  "probe",
 		}
+		if res.Auth == "" {
+			res.Auth = res.Voice.AuthURL
+		}
 		res.Definitive = true
 		return res
 	}
@@ -320,33 +371,35 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 	return res
 }
 
-// fetchWellKnown reads the domain's boson.json. answered: the server
-// replied (even 404 or an invalid document), as opposed to a network error.
-func (d *voiceDiscoverer) fetchWellKnown(ctx context.Context, domain string) (info *VoiceInfo, answered bool) {
+// fetchWellKnown reads the domain's boson.json: its voice, auth service
+// and directory. answered: the server replied (even 404 or an invalid
+// document), as opposed to a network error.
+func (d *voiceDiscoverer) fetchWellKnown(ctx context.Context, domain string) (info *VoiceInfo, answered bool, auth, directory string) {
 	ctx, cancel := context.WithTimeout(ctx, voiceDiscoveryTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.wellKnownURL(domain), nil)
 	if err != nil {
-		return nil, false
+		return nil, false, "", ""
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := d.http.Do(req)
 	if err != nil {
-		return nil, false
+		return nil, false, "", ""
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, true
+		return nil, true, "", ""
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, voiceWellKnownMax+1))
 	if err != nil || len(body) > voiceWellKnownMax {
-		return nil, true
+		return nil, true, "", ""
 	}
+	auth, directory = parseWellKnownNetwork(body, d.allowHTTP)
 	info, err = parseWellKnown(body, d.allowHTTP)
 	if err != nil {
-		return nil, true
+		return nil, true, auth, directory
 	}
-	return info, true
+	return info, true, auth, directory
 }
 
 // probeQuicvoice completes a QUIC handshake with the quicvoice ALPN.
@@ -378,6 +431,9 @@ func (d *voiceDiscoverer) load() {
 		}
 		// Re-validate what's on disk as strictly as a fresh answer.
 		if r.Voice != nil && (checkHostPort(r.Voice.Addr) != nil || !validBase(r.Voice.URL, d.allowHTTP) || !validBase(r.Voice.AuthURL, d.allowHTTP)) {
+			continue
+		}
+		if r.Auth != "" && !validBase(r.Auth, d.allowHTTP) || r.Directory != "" && !validBase(r.Directory, d.allowHTTP) {
 			continue
 		}
 		d.cache[host] = r
