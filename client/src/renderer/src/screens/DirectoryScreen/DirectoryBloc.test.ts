@@ -272,6 +272,87 @@ describe('DirectoryBloc', () => {
   });
   afterEach(() => { vi.useRealTimers(); });
 
+  describe('startup loads that fail are retried (no relaunch needed)', () => {
+    const offline = () => Object.assign(new Error('connection refused'), { status: 0 });
+
+    it('retries /me until it answers, then clears the error', async () => {
+      vi.useFakeTimers();
+      const dir = fakeDirectory({ user: fakeUser(), servers: [fakeServer('a')] });
+      (dir.getMe as ReturnType<typeof vi.fn>).mockRejectedValueOnce(offline()).mockRejectedValueOnce(offline());
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory: dir, identity: fakeIdentity(), engine: null,
+        sessionStore: new SessionStore(memoryStorage()),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bloc.getState().me).toBeUndefined();
+      expect(bloc.getState().error).toBe('connection refused');
+      await vi.advanceTimersByTimeAsync(1_000); // 1st retry: fails again
+      expect(dir.getMe).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2_000); // 2nd retry (backoff doubled): answers
+      expect(dir.getMe).toHaveBeenCalledTimes(3);
+      expect(bloc.getState().me?.handle).toBe(fakeUser().handle);
+      expect(bloc.getState().error).toBeNull();
+      await vi.advanceTimersByTimeAsync(60_000); // and stops
+      expect(dir.getMe).toHaveBeenCalledTimes(3);
+      bloc.dispose();
+    });
+
+    it('a failed /me/session is fetched again and adopted; sync starts only after', async () => {
+      vi.useFakeTimers();
+      const dir = fakeDirectory({ user: fakeUser(), servers: [] });
+      const remote = { version: 2, servers: [], activeServerId: null };
+      (dir.getSavedSession as ReturnType<typeof vi.fn>).mockRejectedValueOnce(offline()).mockResolvedValue(remote);
+      const store = new SessionStore(memoryStorage());
+      const saveSilent = vi.spyOn(store, 'saveSilent');
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory: dir, identity: fakeIdentity(), engine: null, sessionStore: store,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bloc.getState().me?.handle).toBe(fakeUser().handle); // profile still applies
+      expect(saveSilent).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(dir.getSavedSession).toHaveBeenCalledTimes(2);
+      expect(saveSilent).toHaveBeenCalledWith(remote);
+      expect(dir.getMe).toHaveBeenCalledTimes(1); // not re-fetched
+      bloc.dispose();
+    });
+
+    it('a failed directory list is fetched again', async () => {
+      vi.useFakeTimers();
+      const list = vi.fn(async () => [fakeServer('a')]);
+      list.mockRejectedValueOnce(offline());
+      const dir = fakeDirectory({ user: fakeUser(), list: list as unknown as DirectoryService['listServers'] });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory: dir, identity: fakeIdentity(), engine: null,
+        sessionStore: new SessionStore(memoryStorage()),
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(bloc.getState().servers).toEqual([]);
+      expect(bloc.getState().error).toBe('connection refused');
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(bloc.getState().servers?.map((s) => s.id)).toEqual(['a']);
+      expect(bloc.getState().error).toBeNull();
+      bloc.dispose();
+    });
+
+    it('the network coming back retries at once', async () => {
+      vi.useFakeTimers();
+      const dir = fakeDirectory({ user: fakeUser(), servers: [] });
+      (dir.getMe as ReturnType<typeof vi.fn>).mockRejectedValueOnce(offline()).mockRejectedValueOnce(offline());
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory: dir, identity: fakeIdentity(), engine: null,
+        sessionStore: new SessionStore(memoryStorage()),
+      });
+      await vi.advanceTimersByTimeAsync(1_000); // retries once (fails), next in 2s
+      expect(dir.getMe).toHaveBeenCalledTimes(2);
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(dir.getMe).toHaveBeenCalledTimes(3);
+      expect(bloc.getState().me?.handle).toBe(fakeUser().handle);
+      bloc.dispose();
+    });
+  });
+
   it('setServerImage uploads + refreshes the row in state', async () => {
     const dir = fakeDirectory({ user: fakeUser(), servers: [fakeServer('a')] });
     const bloc = new DirectoryBloc({
@@ -281,7 +362,7 @@ describe('DirectoryBloc', () => {
       engine: null,
       sessionStore: new SessionStore(memoryStorage()),
     });
-    await flushPromises();
+    await vi.waitFor(() => expect(bloc.getState().servers).not.toBeNull());
     await bloc.setServerImage('a', 'icon', new Blob(['x']));
     expect(dir.uploadServerImage).toHaveBeenCalledWith('a', 'icon', expect.anything());
     expect(bloc.getState().servers?.find((s) => s.id === 'a')?.icon_url).toBe('https://cdn/i.png');

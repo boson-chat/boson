@@ -40,10 +40,12 @@ type ApiService struct {
 }
 
 type apiTestControl struct {
-	mu    sync.Mutex
-	down  bool
-	delay time.Duration
-	log   []string
+	mu   sync.Mutex
+	down bool
+	// Only requests whose path starts with one of these fail (BOSON_E2E_API_DOWN).
+	downPaths []string
+	delay     time.Duration
+	log       []string
 }
 
 type ApiRequest struct {
@@ -162,6 +164,11 @@ func (s *ApiService) Fetch(ctx context.Context, req ApiRequest) ApiResponse {
 		t.mu.Lock()
 		t.log = append(t.log, req.Method+" "+u.RequestURI())
 		down, delay := t.down, t.delay
+		for _, p := range t.downPaths {
+			if p != "" && strings.HasPrefix(u.Path, p) {
+				down = true
+			}
+		}
 		t.mu.Unlock()
 		if delay > 0 {
 			time.Sleep(delay)
