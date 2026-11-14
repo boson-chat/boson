@@ -1,3 +1,9 @@
+## [0.49.1](https://github.com/boson-chat/boson/compare/v0.49.0...v0.49.1) (2026-11-14)
+
+### Bug Fixes
+
+* **client:** server icons, banners and profile image after the directory cutover ([#42](https://github.com/boson-chat/boson/issues/42)) ([5abdc04](https://github.com/boson-chat/boson/commit/5abdc0456aff7c5e9b757c7e4ab66dfdb0864e75)), closes [boson-chat/directory#5](https://github.com/boson-chat/directory/issues/5)
+
 ## [0.49.0](https://github.com/boson-chat/boson/compare/v0.48.1...v0.49.0) (2026-11-14)
 
 ### Features
