@@ -1,3 +1,9 @@
+## [0.48.0](https://github.com/boson-chat/boson/compare/v0.47.0...v0.48.0) (2026-11-14)
+
+### Features
+
+* multi-directory browse + hosting on the /v1 network directory ([#36](https://github.com/boson-chat/boson/issues/36)) ([29454cc](https://github.com/boson-chat/boson/commit/29454ccdd90c99f0829a45b4c58f887c854c251a))
+
 ## [0.47.0](https://github.com/boson-chat/boson/compare/v0.46.0...v0.47.0) (2026-11-14)
 
 ### Features
