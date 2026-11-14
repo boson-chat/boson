@@ -1,3 +1,9 @@
+## [0.51.0](https://github.com/boson-chat/boson/compare/v0.50.0...v0.51.0) (2026-11-14)
+
+### Features
+
+* **client:** use another server — sign in to a self-hosted network from the login screen ([#44](https://github.com/boson-chat/boson/issues/44)) ([1ea93df](https://github.com/boson-chat/boson/commit/1ea93dfae2acaddc9de5666f79cc85c13d91f06a))
+
 ## [0.50.0](https://github.com/boson-chat/boson/compare/v0.49.1...v0.50.0) (2026-11-14)
 
 ### Features
