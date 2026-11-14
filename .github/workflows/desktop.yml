@@ -29,8 +29,7 @@
 # Voice (desktop only) links libopus statically, built from source per
 # platform/architecture by desktop/scripts/build-opus.sh (cached), and needs
 # cgo everywhere: Windows builds with MSYS2's MinGW-w64 gcc. The quicvoice
-# SDK (github.com/boson-chat/quicvoice) is a private module: QUICVOICE_TOKEN
-# (a token that can read that repository) lets `go` fetch it.
+# SDK (github.com/boson-chat/quicvoice) is a public Go module.
 #
 # Android signing secrets: ANDROID_KEYSTORE (base64 of the release keystore),
 # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. Without
@@ -75,7 +74,6 @@ jobs:
       # auth service.
       VITE_BOSON_API_URL: https://api.boson.chat
       VITE_AUTH_URL: https://auth.boson.chat
-      GOPRIVATE: github.com/boson-chat/quicvoice
     strategy:
       fail-fast: false
       matrix:
@@ -96,17 +94,6 @@ jobs:
             go.sum
             desktop/go.sum
 
-      # github.com/boson-chat/quicvoice (the voice SDK) is private.
-      - name: private Go modules
-        shell: bash
-        env:
-          QUICVOICE_TOKEN: ${{ secrets.QUICVOICE_TOKEN }}
-        run: |
-          if [ -z "$QUICVOICE_TOKEN" ]; then
-            echo "::warning::QUICVOICE_TOKEN isn't set: github.com/boson-chat/quicvoice can't be fetched"
-            exit 0
-          fi
-          git config --global url."https://x-access-token:${QUICVOICE_TOKEN}@github.com/boson-chat/quicvoice".insteadOf "https://github.com/boson-chat/quicvoice"
 
       - name: install
         run: npm ci
@@ -271,7 +258,6 @@ jobs:
       ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
       VITE_BOSON_API_URL: https://api.boson.chat
       VITE_AUTH_URL: https://auth.boson.chat
-      GOPRIVATE: github.com/boson-chat/quicvoice
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -296,17 +282,6 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      # github.com/boson-chat/quicvoice (the voice SDK) is private.
-      - name: private Go modules
-        shell: bash
-        env:
-          QUICVOICE_TOKEN: ${{ secrets.QUICVOICE_TOKEN }}
-        run: |
-          if [ -z "$QUICVOICE_TOKEN" ]; then
-            echo "::warning::QUICVOICE_TOKEN isn't set: github.com/boson-chat/quicvoice can't be fetched"
-            exit 0
-          fi
-          git config --global url."https://x-access-token:${QUICVOICE_TOKEN}@github.com/boson-chat/quicvoice".insteadOf "https://github.com/boson-chat/quicvoice"
 
       - name: install
         run: npm ci

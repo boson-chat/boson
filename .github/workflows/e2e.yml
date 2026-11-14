@@ -37,7 +37,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
-      GOPRIVATE: github.com/boson-chat/quicvoice
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -68,16 +67,6 @@ jobs:
 
       - run: npm ci
 
-      # github.com/boson-chat/quicvoice (the voice SDK) is private.
-      - name: private Go modules
-        env:
-          QUICVOICE_TOKEN: ${{ secrets.QUICVOICE_TOKEN }}
-        run: |
-          if [ -z "$QUICVOICE_TOKEN" ]; then
-            echo "::warning::QUICVOICE_TOKEN isn't set: github.com/boson-chat/quicvoice can't be fetched"
-            exit 0
-          fi
-          git config --global url."https://x-access-token:${QUICVOICE_TOKEN}@github.com/boson-chat/quicvoice".insteadOf "https://github.com/boson-chat/quicvoice"
 
       # The Go module CI's Go job doesn't cover (desktop/ has its own
       # go.mod). The server build is pure Go on Linux: no GTK/WebKit.

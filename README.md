@@ -24,7 +24,7 @@ Accounts and sign-in are the boson auth service ([boson-chat/auth](https://githu
 - **Go** ≥ 1.27
 - **Node** ≥ 22.12 + npm
 - For the desktop app: a cgo toolchain — macOS: Xcode; Linux: GTK 4 + WebKitGTK 6.0 dev packages (`libgtk-4-dev libwebkitgtk-6.0-dev`); Windows: MSYS2's MinGW-w64 gcc (WebView2 ships with Windows 10/11)
-- For voice in the desktop app: `pkg-config` and libopus for dev builds (macOS: `brew install opus pkgconf`; Debian/Ubuntu: `libopus-dev pkg-config`), `cmake` for release builds (they build a static libopus: `desktop/scripts/build-opus.sh`). The voice SDK, `github.com/boson-chat/quicvoice`, is a private module: `export GOPRIVATE=github.com/boson-chat/quicvoice` with git access to it
+- For voice in the desktop app: `pkg-config` and libopus for dev builds (macOS: `brew install opus pkgconf`; Debian/Ubuntu: `libopus-dev pkg-config`), `cmake` for release builds (they build a static libopus: `desktop/scripts/build-opus.sh`). The voice SDK is the public Go module `github.com/boson-chat/quicvoice`.
 - **Docker** + `docker compose` (Postgres + the auth service + ergo IRCd run in containers)
 - **The auth service** — a checkout of [boson-chat/auth](https://github.com/boson-chat/auth) next to this one (`gh repo clone boson-chat/auth ../auth`, or set `AUTH_SRC`). Accounts, sign-in and tokens live there; `make auth-up` builds and runs it.
 
