@@ -47,6 +47,13 @@ export interface AuthState {
 
 export type AuthListener = (state: AuthState) => void;
 
+// A quicvoiced token (POST /v1/voice/token).
+export interface VoiceToken {
+  token: string;
+  // ms since the epoch.
+  expiresAt: number;
+}
+
 export interface SignUpInput {
   username: string;
   email: string;
@@ -217,6 +224,29 @@ export class AuthService {
     }
   }
 
+  // A voice token for quicvoiced (POST /v1/voice/token): 5 minutes, audience
+  // "quicvoice", limited to `rooms` when given. Throws AuthError — code
+  // 'signed_out' without a session.
+  async voiceToken(rooms?: string[]): Promise<VoiceToken> {
+    const body = rooms && rooms.length > 0 ? { rooms } : {};
+    let token = await this.getToken();
+    if (!token) throw new AuthError('signed_out', 'Sign in to use voice.', 401);
+    try {
+      return await this.voiceTokenWith(token, body);
+    } catch (err) {
+      if (!(err instanceof AuthError) || err.status !== 401) throw err;
+      token = await this.tokenRejected(token);
+      if (!token) throw new AuthError('signed_out', 'Sign in to use voice.', 401);
+      return this.voiceTokenWith(token, body);
+    }
+  }
+
+  private async voiceTokenWith(accessToken: string, body: unknown): Promise<VoiceToken> {
+    const r = await this.call<{ token?: string; expires_in?: number }>('POST', '/v1/voice/token', body, accessToken);
+    if (!r?.token) throw new AuthError('invalid_response', 'The sign-in service sent no voice token.', 200);
+    return { token: r.token, expiresAt: this.now() + (r.expires_in ?? 300) * 1000 };
+  }
+
   // Single-flight refresh. Resolves null (and signs out locally) when the
   // auth service rejects the refresh token; throws on network errors.
   refresh(): Promise<Session | null> {
@@ -268,13 +298,15 @@ export class AuthService {
     };
   }
 
-  private async call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+  private async call<T = unknown>(method: string, path: string, body?: unknown, bearer?: string): Promise<T> {
     let res;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' };
+    if (bearer) headers.Authorization = `Bearer ${bearer}`;
     try {
       res = await this.transport({
         method,
         url: `${this.baseUrl}${path}`,
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers,
         body: body === undefined ? null : JSON.stringify(body),
       });
     } catch (err) {

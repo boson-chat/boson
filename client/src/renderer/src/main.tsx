@@ -5,6 +5,7 @@ import { isWailsPage } from './platform/is-wails';
 import { initDeepLinkBridge } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
 import { getThemeStore } from './modules/ui/theme';
+import { VoiceController, setVoiceController, voiceBridge } from './modules/voice';
 import './styles.css';
 
 // The Wails shell's bridges (platform/wails.ts) are installed asynchronously;
@@ -70,6 +71,14 @@ void (async () => {
     engineToken,
     engineSocket,
   });
+  // Voice channels (desktop app only: the bridge is absent elsewhere).
+  const bridge = voiceBridge();
+  if (bridge) {
+    setVoiceController(new VoiceController(bridge, {
+      authUrl,
+      voiceToken: (rooms) => props.auth.voiceToken(rooms),
+    }));
+  }
   // Fire init async — App renders immediately and shows "Loading…" until ready.
   props.auth.init().catch((err) => {
     console.error('auth.init failed', err);

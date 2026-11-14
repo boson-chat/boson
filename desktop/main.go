@@ -87,23 +87,26 @@ func main() {
 			OnSecondInstanceLaunch: func(d application.SecondInstanceData) { deepLinks.onSecondInstance(d.Args) },
 		}
 	}
+	services := []application.Service{
+		application.NewService(engine),
+		application.NewService(api),
+		application.NewService(secure),
+		application.NewService(NewUnfurlService(dev)),
+		application.NewService(spotify),
+		application.NewService(NewThemesService(dataDir)),
+		application.NewService(links),
+		application.NewService(deepLinks),
+		application.NewService(notify),
+		application.NewService(updater),
+		application.NewService(NewYouTubeService(dist, youtubeWrapper)),
+		application.NewService(NewE2EService(dev, e2eTargets{links, deepLinks, api, engine, spotify, updater})),
+	}
+	// Voice channels (desktop only; voice.go).
+	services = append(services, voiceServices(dataDir, authBase, dev)...)
 	app := application.New(application.Options{
 		Name:        "Boson",
 		Description: "Boson chat",
-		Services: []application.Service{
-			application.NewService(engine),
-			application.NewService(api),
-			application.NewService(secure),
-			application.NewService(NewUnfurlService(dev)),
-			application.NewService(spotify),
-			application.NewService(NewThemesService(dataDir)),
-			application.NewService(links),
-			application.NewService(deepLinks),
-			application.NewService(notify),
-			application.NewService(updater),
-			application.NewService(NewYouTubeService(dist, youtubeWrapper)),
-			application.NewService(NewE2EService(dev, e2eTargets{links, deepLinks, api, engine, spotify, updater})),
-		},
+		Services:    services,
 		Assets: application.AssetOptions{
 			Handler: assetHandler(dist),
 		},

@@ -14,6 +14,9 @@ class FakeAuthApi {
   requireVerification = true;
   delayMs = 0;
   down = false;
+  // Access tokens the voice-token endpoint refuses (expired / revoked).
+  rejectedAccess = new Set<string>();
+  voiceAuth: string[] = [];
   private n = 0;
 
   transport = async (req: ApiRequest): Promise<ApiResponse> => {
@@ -51,6 +54,12 @@ class FakeAuthApi {
       case '/v1/logout':
         this.live.delete(String(body['refresh_token']));
         return ok(204, undefined);
+      case '/v1/voice/token': {
+        const auth = req.headers?.['Authorization'] ?? '';
+        this.voiceAuth.push(auth);
+        if (!auth.startsWith('Bearer ') || this.rejectedAccess.has(auth.slice(7))) return err(401, 'invalid_token');
+        return ok(200, { token: `vt:${JSON.stringify(body['rooms'] ?? null)}`, expires_in: 300, audience: 'quicvoice' });
+      }
       case '/v1/email/resend':
       case '/v1/password/forgot':
         return ok(202, {});
@@ -111,6 +120,30 @@ describe('AuthService', () => {
     expect(r).toEqual({ verificationRequired: true });
     expect(svc.getState().session).toBeNull();
     await expect(svc.signIn('bob', 'correct horse battery')).rejects.toMatchObject({ code: 'email_not_verified', status: 403 });
+  });
+
+  it('gets a voice token with the access token, for given rooms', async () => {
+    await registered();
+    const access = svc.getState().session!.access_token;
+    const t = await svc.voiceToken(['general']);
+    expect(t).toEqual({ token: 'vt:["general"]', expiresAt: now + 300_000 });
+    expect(api.voiceAuth).toEqual([`Bearer ${access}`]);
+    expect((await svc.voiceToken()).token).toBe('vt:null');
+    expect(api.calls.filter((c) => c.path === '/v1/voice/token').map((c) => c.body)).toEqual([{ rooms: ['general'] }, {}]);
+  });
+
+  it('a refused access token is refreshed once for a voice token', async () => {
+    await registered();
+    api.rejectedAccess.add(svc.getState().session!.access_token);
+    const t = await svc.voiceToken();
+    expect(t.token).toBe('vt:null');
+    expect(api.count('/v1/token/refresh')).toBe(1);
+    expect(api.voiceAuth).toHaveLength(2);
+  });
+
+  it('no voice token when signed out', async () => {
+    await svc.init();
+    await expect(svc.voiceToken()).rejects.toMatchObject({ code: 'signed_out' });
   });
 
   it('signs in with username or email; maps errors', async () => {

@@ -9,3 +9,4 @@ frontend/dist/*
 !frontend/dist/.gitkeep
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+build/.opus

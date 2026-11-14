@@ -1,0 +1,101 @@
+/* Settings → Voice. */
+
+.voice-settings-devices {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+@media (max-width: 640px) {
+  .voice-settings-devices { grid-template-columns: 1fr; }
+}
+
+.voice-settings-select {
+  appearance: auto;
+  cursor: pointer;
+  min-height: 30px;
+}
+
+.voice-settings-key {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.voice-settings-kbd {
+  min-width: 64px;
+  padding: var(--space-1) var(--space-3);
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+}
+.voice-settings-kbd[data-unset] { color: var(--fg-3); }
+
+/* Level meter with the VAD threshold marker on the same dB scale. */
+.voice-settings-meter {
+  position: relative;
+  height: 8px;
+  margin: var(--space-1) 0 var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.voice-settings-meter-fill {
+  height: 100%;
+  background: var(--fg-3);
+  transition: width 80ms linear;
+}
+.voice-settings-meter-fill[data-over] { background: var(--success); }
+.voice-settings-meter-mark {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+.voice-settings-range { width: 100%; }
+
+.voice-settings-test {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.voice-settings-test-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+}
+.voice-settings-test-desc {
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+}
+
+.voice-settings-level {
+  height: 6px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.voice-settings-level-fill {
+  height: 100%;
+  background: var(--fg-3);
+  transition: width 80ms linear;
+}
+.voice-settings-level-fill[data-tx] { background: var(--success); }
+
+.voice-settings-note {
+  margin: var(--space-3) 0 0;
+  font-family: var(--font-body);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+}

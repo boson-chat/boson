@@ -20,6 +20,7 @@ import { Inbox } from './screens/Inbox/Inbox';
 import { loadGuestSession, onGuestChange, type GuestSession } from './modules/guest/guest';
 import { getMemoStore, type Memo } from './modules/memos';
 import { publishOpenConversation, publishReadMemo } from './modules/inbox-nav/inbox-nav';
+import { onOpenUserSettings } from './modules/ui/open-settings';
 
 interface AppProps {
   auth: AuthService;
@@ -39,6 +40,12 @@ export function App({ auth, directory, engine, identity, history }: AppProps) {
 
 function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  // Elsewhere in the app can open settings at a section (the voice bar).
+  useEffect(() => onOpenUserSettings((section) => {
+    setSettingsSection(section);
+    setSettingsOpen(true);
+  }), []);
   const [inboxOpen, setInboxOpen] = useState(false);
   const { session } = useAuthState();
   const guest = useGuestSession();
@@ -79,7 +86,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
   return (
     <div class="app-frame">
       <TitleBar
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSettings={() => { setSettingsSection(null); setSettingsOpen(true); }}
         userLabel={userLabel}
         userMode={userMode}
         avatarUrl={userMode === 'account' ? authedAvatar : null}
@@ -97,6 +104,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
       </div>
       <UserSettings
         open={settingsOpen}
+        initialSection={settingsSection}
         onClose={() => setSettingsOpen(false)}
         authedHandle={authedHandle}
         authedEmail={session?.user?.email ?? null}

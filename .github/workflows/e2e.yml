@@ -66,6 +66,7 @@ jobs:
 
       - run: npm ci
 
+
       # The Go module CI's Go job doesn't cover (desktop/ has its own
       # go.mod). The server build is pure Go on Linux: no GTK/WebKit.
       - name: Desktop shell (tidy + vet + test)

@@ -23,7 +23,8 @@ Accounts and sign-in are the boson auth service ([boson-chat/auth](https://githu
 
 - **Go** ≥ 1.27
 - **Node** ≥ 22.12 + npm
-- For the desktop app: a cgo toolchain — macOS: Xcode; Linux: GTK 4 + WebKitGTK 6.0 dev packages (`libgtk-4-dev libwebkitgtk-6.0-dev`); Windows: nothing extra (WebView2 ships with Windows 10/11)
+- For the desktop app: a cgo toolchain — macOS: Xcode; Linux: GTK 4 + WebKitGTK 6.0 dev packages (`libgtk-4-dev libwebkitgtk-6.0-dev`); Windows: MSYS2's MinGW-w64 gcc (WebView2 ships with Windows 10/11)
+- For voice in the desktop app: `pkg-config` and libopus for dev builds (macOS: `brew install opus pkgconf`; Debian/Ubuntu: `libopus-dev pkg-config`), `cmake` for release builds (they build a static libopus: `desktop/scripts/build-opus.sh`). The voice SDK is the public Go module `github.com/boson-chat/quicvoice`.
 - **Docker** + `docker compose` (Postgres + the auth service + ergo IRCd run in containers)
 - **The auth service** — a checkout of [boson-chat/auth](https://github.com/boson-chat/auth) next to this one (`gh repo clone boson-chat/auth ../auth`, or set `AUTH_SRC`). Accounts, sign-in and tokens live there; `make auth-up` builds and runs it.
 
@@ -64,7 +65,11 @@ make typingbot
 
 The page reads the engine's discovery file (`~/.boson/engine.json`, or `$XDG_RUNTIME_DIR/boson/engine.json`) on every load, so a restarted engine is picked up by a reload.
 
-For the real desktop app (native window, secure store, link previews, notifications…), run `make desktop-dev` instead of 2 and 3: a dev build of `desktop/` with the renderer built against your `client/.env`, the engine in-process. `make desktop-build` makes a release build for your machine in `desktop/bin/` (macOS: a signed `.app` + DMG for Apple Silicon and for Intel; set `NOTARY_PROFILE` to notarize, `ARCHS=arm64` for one).
+For the real desktop app (native window, secure store, link previews, notifications…), run `make desktop-dev` instead of 2 and 3: a dev build of `desktop/` with the renderer built against your `client/.env`, the engine in-process. `make desktop-build` makes a release build for your machine in `desktop/bin/` (macOS: a signed `.app` + DMG for Apple Silicon and for Intel; set `NOTARY_PROFILE` to notarize, `ARCHS=arm64` for one). Against production: `VITE_BOSON_API_URL=https://api.boson.chat VITE_AUTH_URL=https://auth.boson.chat make desktop-build`.
+
+### Voice channels
+
+Voice is per IRC server, desktop only (macOS, Windows, Linux; not iOS/Android). The app looks for `https://<domain>/.well-known/boson.json` (`<domain>` = the IRC host minus its first label), falling back to a QUIC probe of `voice.<domain>:7700`, and offers voice only when that server's auth service is the one you're signed in to and its voice server is under that auth service's domain. Audio and the QUIC connection are Go (`desktop/voice*.go`, the quicvoice SDK); the renderer draws the VOICE section, the connected bar and Settings → Voice (`client/src/renderer/src/modules/voice`). To try a local quicvoiced, point an IRC host at it in a dev build: `BOSON_VOICE_JSON=/path/to/boson.json make desktop-dev`, where the file's `irc.host` is the server you're connected to and `voice.addr` / `voice.url` are the local server's (`AUTH_INSECURE=true` on quicvoiced accepts any token). No echo cancellation yet: use headphones.
 
 ### Skip auth (guest mode)
 

@@ -22,6 +22,8 @@
 #                   issuer. Neither set skips notarization.
 #   ARCHS           which to build (default "arm64 x64")
 #   SKIP_RENDERER=1 reuse client/out/renderer as it is
+#   OPUS_PREFIX     where the static libopus per arch is built/cached
+#                   (default desktop/build/.opus; scripts/build-opus.sh)
 #
 # Usage: desktop/scripts/package-macos.sh
 set -euo pipefail
@@ -49,6 +51,8 @@ export CGO_CFLAGS="-mmacosx-version-min=12.0" CGO_LDFLAGS="-mmacosx-version-min=
 
 out="$desktop/bin"
 mkdir -p "$out"
+# Voice: libopus, statically linked, one build per architecture.
+OPUS_PREFIX="${OPUS_PREFIX:-$desktop/build/.opus}"
 
 # 1. Renderer: the production bundle (client/.env.production).
 if [[ "${SKIP_RENDERER:-}" != "1" ]]; then
@@ -91,13 +95,26 @@ package() {
   local app="$out/mac-$arch/$APP_NAME.app"
   local dmg="$out/$APP_NAME-$VERSION-mac-$arch.dmg"
 
-  # 2. Binary: production build (no devtools).
+  # 2. Binary: production build (no devtools), with voice: libopus for
+  #    this architecture (static; nolibopusfile: only libopus is used).
   echo "building $arch"
+  local opus_arch="$arch"
+  [[ "$arch" == x64 ]] && opus_arch=x86_64
+  "$here/build-opus.sh" "$OPUS_PREFIX/$opus_arch" "$opus_arch"
   rm -rf "$app"
   mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
-  (cd "$desktop" && GOARCH="$goarch" go build -tags production -trimpath -buildvcs=false \
+  # The prefix in CGO_CFLAGS too: Go's build cache doesn't key on
+  # PKG_CONFIG_PATH, and would reuse a build against another libopus.
+  (cd "$desktop" && GOARCH="$goarch" PKG_CONFIG_PATH="$OPUS_PREFIX/$opus_arch/lib/pkgconfig" \
+    CGO_CFLAGS="$CGO_CFLAGS -I$OPUS_PREFIX/$opus_arch/include" \
+    go build -tags production,nolibopusfile -trimpath -buildvcs=false \
     -ldflags "$ldflags" -o "$app/Contents/MacOS/$APP_NAME" .)
   lipo -archs "$app/Contents/MacOS/$APP_NAME"
+  # libopus is linked in, not loaded from the user's system.
+  if otool -L "$app/Contents/MacOS/$APP_NAME" | grep -qi opus; then
+    echo "the binary links a shared libopus" >&2
+    exit 1
+  fi
 
   # 3. Bundle.
   cp "$desktop/build/darwin/icons.icns" "$app/Contents/Resources/icons.icns"
@@ -118,6 +135,7 @@ package() {
   <key>NSHighResolutionCapable</key><true/>
   <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
   <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Boson</string>
+  <key>NSMicrophoneUsageDescription</key><string>Boson uses your microphone when you join a voice channel or test your mic.</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
@@ -131,10 +149,13 @@ PLIST
   plutil -lint "$app/Contents/Info.plist" >/dev/null
 
   # 4. Sign: hardened runtime + secure timestamp (both required to notarize).
+  #    Entitlements: the microphone (voice), which the hardened runtime
+  #    otherwise refuses.
+  local entitlements="$desktop/build/darwin/entitlements.plist"
   if [[ "$SIGN_IDENTITY" == "-" ]]; then
-    codesign --force --sign - "$app"
+    codesign --force --entitlements "$entitlements" --sign - "$app"
   else
-    codesign --force --options runtime --timestamp --sign "$SIGN_IDENTITY" "$app"
+    codesign --force --options runtime --timestamp --entitlements "$entitlements" --sign "$SIGN_IDENTITY" "$app"
   fi
   codesign --verify --strict --verbose=2 "$app"
 

@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatChannel, ServerInfo } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
@@ -34,6 +35,10 @@ interface ChannelSidebarProps {
   engineState?: EngineState;
   // User-set width (px) from the drag handle; falls back to the CSS default.
   width?: number;
+  // The VOICE section under the channels (servers with voice), and what
+  // sits at the foot of the list (the voice-connected bar).
+  voice?: ComponentChildren;
+  footer?: ComponentChildren;
 }
 
 export function ChannelSidebar({
@@ -49,6 +54,8 @@ export function ChannelSidebar({
   serverInfo,
   engineState = 'connected',
   width,
+  voice,
+  footer,
 }: ChannelSidebarProps) {
   // Ref-backed view of the channels prop so the bloc always reads the latest
   // list without us rebuilding it on every render. Same pattern as ChatArea
@@ -194,7 +201,11 @@ export function ChannelSidebar({
             ))}
           </>
         )}
+
+        {voice}
       </div>
+
+      {footer}
 
       <Modal open={joinModalOpen} onClose={() => bloc.closeJoinModal()} title="Join a channel">
         <JoinChannelBrowser
