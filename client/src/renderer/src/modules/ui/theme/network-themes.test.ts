@@ -93,6 +93,20 @@ describe('NetworkThemes resolution', () => {
     expect(themes.themeFor('irc.ex.org')).toBeNull();
   });
 
+  it('takes the shapes auth and the directory send: 404 no_branding, branding_url null, theme null', async () => {
+    const { themes, calls } = setup({
+      docs: { 'https://auth.ex.org/v1/branding': { status: 404, body: '{"error":"no_branding"}' } },
+      discover: async (host) => ({ authUrl: 'https://auth.ex.org', ...(host === 'a.ex.org' ? { brandingUrl: 'https://auth.ex.org/v1/branding' } : {}) }),
+      authConfig: async () => ({ branding_url: null }),
+    });
+    themes.setListingTheme('a.ex.org', JSON.parse(DOC2));
+    await themes.refresh('a.ex.org');
+    expect(themes.themeFor('a.ex.org')?.colors.accent).toBe('#0ea5e9');
+    await themes.refresh('b.ex.org');
+    expect(themes.themeFor('b.ex.org')).toBeNull();
+    expect(calls.map((c) => c.url)).toEqual(['https://auth.ex.org/v1/branding']);
+  });
+
   it("a network's own theme wins over its listing's", async () => {
     const { themes } = setup({
       docs: { 'https://ex.org/theme.json': { status: 200, body: DOC } },
