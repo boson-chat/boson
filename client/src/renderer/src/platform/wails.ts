@@ -297,6 +297,7 @@ export async function installWailsBridges(): Promise<void> {
   if (await Call.ByName('main.NetAuthService.Discover', '', false).then(() => true, () => false)) {
     w.bosonNetAuth = {
       discover: (host: string, refresh: boolean) => Call.ByName('main.NetAuthService.Discover', host, refresh),
+      resolve: (address: string) => Call.ByName('main.NetAuthService.Resolve', address),
     };
   }
   w.bosonEngine = {

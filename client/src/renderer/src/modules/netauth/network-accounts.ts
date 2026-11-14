@@ -27,6 +27,23 @@ export interface NetAuthBridge {
     main: boolean;
     error?: string;
   }>;
+  // "Use another server" (desktop/netauth.go Resolve): the network the
+  // user typed — its boson.json, auth service (validated and made
+  // reachable) and IRC server. Absent on shells that predate it.
+  resolve?(address: string): Promise<ResolvedNetwork>;
+}
+
+// Resolve's answer. error: '' or one of invalid | unreachable |
+// no-boson-json | no-accounts | untrusted | no-irc.
+export interface ResolvedNetwork {
+  host: string;
+  domain?: string;
+  irc?: { host: string; port: number; tls: boolean };
+  authUrl?: string;
+  directoryUrl?: string;
+  main: boolean;
+  error?: string;
+  detail?: string;
 }
 
 export function netAuthBridge(): NetAuthBridge | null {
@@ -209,7 +226,12 @@ export class NetworkAccounts {
     const host = hostKey(rawHost);
     const bridge = this.bridge();
     if (!bridge || !host) return Promise.resolve(null);
-    if (!refresh && host in this.links) return Promise.resolve(this.links[host] ?? null);
+    if (!refresh && host in this.links) {
+      // Known — but its saved session may still be loading (the link is
+      // recorded first): wait for it, so a connect sees the session.
+      const known = this.links[host] ?? null;
+      return known && !known.main ? this.ensureService(known.authUrl).then(() => known) : Promise.resolve(known);
+    }
     const running = this.discovering.get(host);
     if (running) return running;
     const p = (async () => {
@@ -222,17 +244,46 @@ export class NetworkAccounts {
       } catch {
         link = null;
       }
-      this.links = { ...this.links, [host]: link };
-      if (link && !link.main) {
-        this.remember(link);
-        await this.ensureService(link.authUrl);
-        this.linkListeners.forEach((fn) => fn(link!));
-      }
-      this.emit();
+      await this.setLink(host, link);
       return link;
     })().finally(() => this.discovering.delete(host));
     this.discovering.set(host, p);
     return p;
+  }
+
+  // "Use another server": looks up the network the user typed (its
+  // boson.json, validated like discover's). An answer with an auth service
+  // and an IRC server becomes that IRC host's link, as if discovered.
+  async resolve(address: string): Promise<ResolvedNetwork | null> {
+    const bridge = this.bridge();
+    if (!bridge?.resolve) return null;
+    const r = await withTimeout(bridge.resolve(address), (this.opts.discoverTimeoutMs ?? 5000) * 2);
+    if (r.authUrl && r.irc?.host && !r.error) {
+      const host = hostKey(r.irc.host);
+      const link: NetworkLink = {
+        host,
+        authUrl: normalizeAuthBase(r.authUrl),
+        main: !!r.main || this.isMain(r.authUrl),
+        ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}),
+      };
+      await this.setLink(host, link);
+    }
+    return r;
+  }
+
+  // Whether this shell can look up a typed server address.
+  get canResolve(): boolean {
+    return typeof this.bridge()?.resolve === 'function';
+  }
+
+  private async setLink(host: string, link: NetworkLink | null): Promise<void> {
+    this.links = { ...this.links, [host]: link };
+    if (link && !link.main) {
+      this.remember(link);
+      await this.ensureService(link.authUrl);
+      this.linkListeners.forEach((fn) => fn(link));
+    }
+    this.emit();
   }
 
   linkFor(rawHost: string): NetworkLink | null {
@@ -409,12 +460,15 @@ export class NetworkAccounts {
     this.emit();
   }
 
-  private nameIfUnnamed(authUrl: string, name: string): void {
+  // Names a network's auth service until it says its own name (its
+  // /v1/config site_name wins whenever it does).
+  nameIfUnnamed(authUrl: string, name: string): void {
     const key = normalizeAuthBase(authUrl);
     const at = this.known.findIndex((k) => normalizeAuthBase(k.authUrl) === key);
     if (at < 0 || this.known[at]!.name) return;
     this.known = this.known.map((x, i) => (i === at ? { ...x, name: name.slice(0, 80) } : x));
     this.saveKnown();
+    this.emit();
   }
 
   private local(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null {

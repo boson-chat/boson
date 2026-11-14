@@ -6,14 +6,20 @@ import { Button, Card, Field, Input, Logo, Tabs, WarningBanner } from '@boson/sh
 import { LoginBloc, type LoginMode } from './LoginBloc';
 import { emitGuestChange, saveGuestSession } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
+import { getNetworkAccounts, type NetworkAccounts } from '../../modules/netauth/network-accounts';
+import { clearLastServer, enterWithServer, loadLastServer, type LastServer } from '../../modules/netauth/other-server';
+import { OtherServer } from './OtherServer';
 import './LoginScreen.css';
 
 interface Props {
   directory: DirectoryService;
   identity: IdentityService;
+  // Self-hosted networks' accounts ("Use another server"); the app's by
+  // default. null: this app can't sign in to other networks.
+  accounts?: NetworkAccounts | null;
 }
 
-export function LoginScreen({ directory, identity }: Props) {
+export function LoginScreen({ directory, identity, accounts = getNetworkAccounts() }: Props) {
   const auth = useAuthService();
   const bloc = useMemo(() => new LoginBloc({ auth, directory, identity }), [auth, directory, identity]);
   const [state, setState] = useState(() => bloc.getState());
@@ -43,6 +49,11 @@ export function LoginScreen({ directory, identity }: Props) {
     auth.config().then((c) => { if (live) setMainGuestOk(guestAccessAllowed(c)); }, () => {});
     return () => { live = false; };
   }, [auth]);
+
+  // "Use another server": a self-hosted network instead of boson.chat.
+  const [other, setOther] = useState(false);
+  const [otherAddress, setOtherAddress] = useState<string | null>(null);
+  const resume = useLastServer(accounts);
 
   const onSubmit = (kind: 'signin' | 'signup', e: Event) => {
     e.preventDefault();
@@ -222,10 +233,64 @@ export function LoginScreen({ directory, identity }: Props) {
     );
   }
 
+  const serverLine = accounts?.supported ? (
+    <div class="login-server">
+      <span class="login-server-label">
+        <span class="login-server-prompt" aria-hidden="true">$</span>
+        <span>server</span>
+        <span class="login-server-host">{other ? (otherAddress ?? '…') : 'boson.chat'}</span>
+      </span>
+      <button
+        type="button"
+        class="login-guest-toggle login-server-switch"
+        onClick={() => { setOther(!other); setOtherAddress(null); }}
+      >
+        {other ? 'Back to boson.chat' : 'Use another server'}
+      </button>
+    </div>
+  ) : null;
+
+  if (other) {
+    return (
+      <div class="login-screen">
+        <div class="login-container">
+          <Logo />
+          {serverLine}
+          <Card>
+            <OtherServer
+              accounts={accounts ?? null}
+              initialAddress={resume.last?.address ?? ''}
+              onBack={() => { setOther(false); setOtherAddress(null); }}
+              onAddress={setOtherAddress}
+            />
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div class="login-screen">
       <div class="login-container">
         <Logo />
+
+        {resume.last && resume.user && (
+          <div class="login-resume">
+            <Button
+              type="button"
+              variant="secondary"
+              fullWidth
+              onClick={() => enterWithServer({ accounts: accounts ?? null, server: resume.last!, nick: resume.user!, asGuest: false })}
+            >
+              Continue to {resume.last.name} as {resume.user}
+            </Button>
+            <button type="button" class="login-guest-toggle login-resume-forget" onClick={resume.forget}>
+              Not you? Forget {resume.last.name}
+            </button>
+          </div>
+        )}
+
+        {serverLine}
 
         <Tabs
           tabs={[
@@ -464,4 +529,35 @@ export function LoginScreen({ directory, identity }: Props) {
       </div>
     </div>
   );
+}
+
+// The server last used from "Use another server", and the username its
+// session (when still signed in) belongs to: the "Continue to <network> as
+// <user>" shortcut.
+function useLastServer(accounts: NetworkAccounts | null | undefined): {
+  last: LastServer | null;
+  user: string | null;
+  forget: () => void;
+} {
+  const [last, setLast] = useState<LastServer | null>(() => (accounts?.supported ? loadLastServer() : null));
+  const [user, setUser] = useState<string | null>(null);
+  useEffect(() => {
+    if (!accounts || !last?.authUrl) return;
+    let live = true;
+    const check = (): void => {
+      const link = accounts.linkFor(last.irc.host);
+      const session = link && !link.main ? accounts.sessionFor(link) : null;
+      if (live) setUser(session?.user.username || null);
+    };
+    // Discovery lets the proxy reach the network's auth again and restores
+    // its saved session (refreshing it if needed).
+    void accounts.discover(last.irc.host).then(check, () => {});
+    const off = accounts.subscribe(check);
+    return () => { live = false; off(); };
+  }, [accounts, last]);
+  return {
+    last,
+    user,
+    forget: () => { clearLastServer(); setLast(null); setUser(null); },
+  };
 }

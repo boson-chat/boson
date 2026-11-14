@@ -88,7 +88,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
 
   return (
     <Modal open={open} onClose={() => onDone('cancel')} title={`Sign in to ${name}`}>
-      <SignInBody
+      <NetworkSignInForm
         auth={accounts.service(link.authUrl)}
         authHost={authHost}
         name={name}
@@ -106,7 +106,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
 
 // Which server the user is giving their password to: the network's own
 // sign-in service, not boson.chat.
-function Realm({ host, main = false }: { host: string; main?: boolean }) {
+export function Realm({ host, main = false }: { host: string; main?: boolean }) {
   return (
     <div class="netauth-realm">
       <span class="netauth-realm-prompt" aria-hidden="true">$</span>
@@ -124,7 +124,9 @@ const REASON_TEXT: Record<SignInPrompt['reason'], (name: string) => string | nul
   expired: (name) => `${name} didn't accept your sign-in. Sign in again to connect with your account.`,
 };
 
-function SignInBody({ auth, authHost, name, cfg, cfgError, reason, guestOk, canSignUp, inviteOnly, onDone }: {
+// The sign-in / sign-up / SSO form for a network's own auth service. Also
+// the login screen's "Use another server" step (LoginScreen/OtherServer).
+export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason, guestOk, canSignUp, inviteOnly, onDone, guestLabel = 'Continue as guest' }: {
   auth: AuthService;
   authHost: string;
   name: string;
@@ -135,6 +137,7 @@ function SignInBody({ auth, authHost, name, cfg, cfgError, reason, guestOk, canS
   canSignUp: boolean;
   inviteOnly: boolean;
   onDone: (r: 'signed-in' | 'guest' | 'cancel') => void;
+  guestLabel?: string;
 }) {
   const [view, setView] = useState<View>('form');
   const [mode, setMode] = useState<Mode>('login');
@@ -383,7 +386,7 @@ function SignInBody({ auth, authHost, name, cfg, cfgError, reason, guestOk, canS
         {guestOk ? (
           <>
             <span class="netauth-foot-text">No account? You can still chat on {name}'s IRC.</span>
-            <Button variant="ghost" size="sm" onClick={() => onDone('guest')}>Continue as guest</Button>
+            <Button variant="ghost" size="sm" onClick={() => onDone('guest')}>{guestLabel}</Button>
           </>
         ) : reason !== 'expired' && cfg && !guestAccessAllowed(cfg) ? (
           <span class="netauth-foot-text">{name} requires an account: guests can't connect.</span>
