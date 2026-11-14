@@ -334,7 +334,9 @@ export async function configureBouncerProfile(
 // ---- Helpers, re-exported so specs import everything from './fixtures' -----
 
 export * from './helpers/account';
-export { BackendApi, backendSql, provisionIdentity, randomHandle, seedServer } from './helpers/backend';
+export {
+  BackendApi, backendSql, directoryApi, directoryApiAs, directorySql, provisionIdentity, randomHandle, seededHostname, seedServer,
+} from './helpers/backend';
 export type { DirectoryServer, SeedServerInput } from './helpers/backend';
 export { Mailpit, extractCode, extractLinks } from './helpers/mailpit';
 export type { MailMessage, MailSummary } from './helpers/mailpit';

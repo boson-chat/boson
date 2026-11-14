@@ -16,13 +16,13 @@ import { test, expect, loginAs, seedServer, randomChannel } from './fixtures';
   nick, email, handle or server name — use `randomChannel()`,
   `randomNick()`, `randomEmail()`, `randomHandle()`, `uid()`. Use the
   `zncUser` fixture for anything ZNC; never hard-code a ZNC user.
-- **The backend DB and the auth service are shared and long-lived** (until
-  `make test-e2e-app-down`). Seeded servers stay listed in everyone's
-  directory. The app hides a manually added server when the directory lists
-  the same `hostname:port`, so `seedServer()` registers the ergo as
-  `localhost` and guest specs add it by hand as `127.0.0.1` (`IRC_HOST`).
-  Search the directory for your server's unique name rather than counting
-  cards.
+- **The backend DB, the auth service and the network directory are shared
+  and long-lived** (until `make test-e2e-app-down`). Seeded servers stay
+  listed in everyone's directory. The directory lists each hostname once, so
+  `seedServer()` registers the ergo under a unique `*.localhost` name
+  (`seededHostname()`; `*.localhost` resolves to loopback), and guest specs
+  add it by hand as `127.0.0.1` (`IRC_HOST`). Search the directory for your
+  server's unique name rather than counting cards.
 - The catch-all Mailpit is drained by the backend's nick-claim worker every
   5s (it deletes what it can't route). It relays a copy of every message to
   `mailpit-archive` (`STACK.catchallMail.archiveApiUrl`), which nothing
@@ -63,7 +63,9 @@ Backend + data (`helpers/backend.ts`, `helpers/auth.ts`):
 
 | Helper | Does |
 | --- | --- |
-| `seedServer(input?)` | Registers a server through `POST /servers` and verifies it (dev DNS bypass) so it's listed. Defaults: the e2e ergo as `localhost:16667`, plain TCP, unique name. → `DirectoryServer`. |
+| `seedServer(input?)` | Registers a listing on the e2e network directory (`POST /v1/networks`, as a per-process operator account) and verifies it (fake DNS) so it's listed. Defaults: the e2e ergo on port 16667 under a unique `*.localhost` hostname, plain TCP, unique name. → `DirectoryServer`. |
+| `directoryApi(token?)` / `directoryApiAs(user)` | A `BackendApi` for the directory's `/v1` API (`STACK.directory.url`), signed in as `user` for owner calls (`/v1/me/networks`, verify, PATCH, images). |
+| `directorySql(sql)` | psql against the directory's Postgres (`networks`): state only its disabled workers set (health, user counts, lapses, token age). |
 | `provisionIdentity(user, handle?)` | `POST /me` with a real secret wrapped under the user's password + a recovery code (the app's own crypto). → `{ handle, recoveryCode }`. |
 | `BackendApi.as(user)` / `.anonymous()` | `get/post/put/patch/delete` (throw on non-2xx), `request` (returns `{ status, ok, body }`). |
 | `backendSql(sql)` | psql against the backend's Postgres (unaligned, tuples-only output). Prefer the API. |

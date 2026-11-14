@@ -1,4 +1,5 @@
-// Server directory (guest): the public list from the real backend — search
+// Server directory (guest): the public list from the e2e network directory
+// (its /v1 API) — search
 // (server-side, debounced), language chips, NSFW toggle, sort by user count,
 // health + user-count badges, Refresh with its refetch bar, empty / no-match
 // states, the backend-down error state, and the Advanced → manual add /
@@ -35,15 +36,15 @@ test('search, language chips, NSFW, user counts, health and Refresh', async ({ l
   // (the default backend sort), unknown counts last.
   await expect(cards).toHaveCount(3);
   await expect(cards.locator('.directory-card-name')).toContainText([big.name, spanish.name, japanese.name]);
-  // The search really went to the backend as `q`.
-  expect(await api.requests()).toContain(`GET /servers?q=${t}`);
+  // The search really went to the directory as `q`.
+  expect((await api.requests()).some((r) => r.startsWith('GET /v1/networks?') && r.includes(`q=${t}`))).toBe(true);
 
   const bigCard = serverCard(page, big.name);
   await expect(bigCard.locator('.directory-card-count')).toHaveText(/1,234 users/);
   await expect(bigCard.locator('.directory-card-status')).toHaveText('ONLINE');
   await expect(bigCard.locator('.directory-card-desc')).toHaveText(`The busy one ${t}`);
   await expect(bigCard.locator('.directory-card-tag')).toHaveText(['VERIFIED', 'GAMING', 'E2E']);
-  await expect(bigCard.locator('.directory-card-host')).toHaveText(`localhost:${IRC_PORT}`);
+  await expect(bigCard.locator('.directory-card-host')).toHaveText(`${big.hostname}:${IRC_PORT}`);
   const spanishCard = serverCard(page, spanish.name);
   await expect(spanishCard.locator('.directory-card-count')).toHaveText(/^\D*1 user$/);
   await expect(spanishCard.locator('.directory-card-status')).toHaveText('OFFLINE');

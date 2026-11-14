@@ -1,8 +1,9 @@
 // The e2e stack's Go backend (STACK.backend.url), driven over HTTP the way
 // the app does it — bearer token from the auth service — plus fixtures-level
 // shortcuts: provision a user's identity (POST /me with a real
-// password-wrapped user_secret, built with the app's own crypto), and seed
-// verified directory servers.
+// password-wrapped user_secret, built with the app's own crypto). Also the
+// e2e network directory (STACK.directory.url, github.com/boson-chat/
+// directory with fake DNS): seed verified listings through its /v1 API.
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -95,6 +96,7 @@ export async function provisionIdentity(
   return { handle, recoveryCode };
 }
 
+// A listing as the directory's /v1 API returns it (the fields the specs use).
 export interface DirectoryServer {
   id: string;
   hostname: string;
@@ -102,7 +104,10 @@ export interface DirectoryServer {
   tls: boolean;
   name: string;
   description?: string | null;
+  status: string;
   verification_status: string;
+  verification_token?: string;
+  owner?: { kind: string; auth_user_id?: string };
 }
 
 export interface SeedServerInput {
@@ -116,32 +121,39 @@ export interface SeedServerInput {
   isNsfw?: boolean;
 }
 
-// The account that "owns" seeded servers: one per test process, provisioned
-// lazily (servers.registered_by must reference a users row).
+// The e2e directory's /v1 API (same client, other base URL).
+export function directoryApi(token: string | null = null): BackendApi {
+  return new BackendApi(token, STACK.directory.url);
+}
+
+export async function directoryApiAs(user: Pick<AuthUser, 'email' | 'password'>): Promise<BackendApi> {
+  const s = await signInWithPassword(user.email, user.password);
+  return directoryApi(s.accessToken);
+}
+
+// The account that owns seeded listings: one per test process, created
+// lazily. The directory keys owners by their auth-service account, so it
+// needs no boson identity.
 let operator: Promise<BackendApi> | null = null;
 function directoryOperator(): Promise<BackendApi> {
-  operator ??= (async () => {
-    const user = await createConfirmedUser();
-    await provisionIdentity(user, randomHandle('operator'));
-    return BackendApi.as(user);
-  })();
+  operator ??= (async () => directoryApiAs(await createConfirmedUser()))();
   return operator;
 }
 
-// Registers a server through the real API and verifies it (the e2e backend
-// is a boson_dev build with SKIP_DNS_VERIFY, so verification needs no TXT
-// record) — only verified servers are listed in the public directory.
-// Defaults to the e2e ergo over plain TCP and a unique name.
-//
-// The directory is shared by every test and run, and the app hides a
-// manually added server when the directory lists the same hostname:port.
-// So seeded servers default to the ergo as `localhost`, while guest specs
-// add it by hand as 127.0.0.1 (IRC_HOST) — keep it that way.
-export const SEEDED_IRC_HOST = 'localhost';
+// A hostname only this listing uses (the directory lists each hostname once)
+// that still reaches the e2e ergo: *.localhost resolves to loopback.
+export function seededHostname(prefix = 'e2e'): string {
+  return `${prefix}-${randomBytes(5).toString('hex')}.localhost`;
+}
+
+// Registers a listing through the directory's API and verifies it (fake
+// DNS: verification needs no TXT record); only verified listings are
+// browsable. Defaults to the e2e ergo over plain TCP on a unique
+// *.localhost hostname and a unique name.
 export async function seedServer(input: SeedServerInput = {}): Promise<DirectoryServer> {
   const api = await directoryOperator();
-  const created = await api.post<DirectoryServer>('/servers', {
-    hostname: input.hostname ?? SEEDED_IRC_HOST,
+  const created = await api.post<{ network: DirectoryServer }>('/v1/networks', {
+    hostname: input.hostname ?? seededHostname(),
     port: input.port ?? STACK.irc.port,
     tls: input.tls ?? false,
     name: input.name ?? `E2E Seeded ${randomBytes(3).toString('hex')}`,
@@ -150,11 +162,18 @@ export async function seedServer(input: SeedServerInput = {}): Promise<Directory
     languages: input.languages ?? ['en'],
     is_nsfw: input.isNsfw ?? false,
   });
-  const verified = await api.post<{ server: DirectoryServer; success: boolean }>(`/servers/${created.id}/verify`);
-  if (!verified.success || verified.server.verification_status !== 'verified') {
-    throw new Error(`seeded server ${created.id} did not verify: ${JSON.stringify(verified)}`);
+  const verified = await api.post<{ network: DirectoryServer; success: boolean }>(`/v1/networks/${created.network.id}/verify`);
+  if (!verified.success || verified.network.status !== 'verified') {
+    throw new Error(`seeded listing ${created.network.id} did not verify: ${JSON.stringify(verified)}`);
   }
-  return verified.server;
+  return verified.network;
+}
+
+// Runs SQL against the directory's e2e Postgres, for listing state only its
+// workers set (health, user counts, lapses). Returns psql's tuples-only output.
+export function directorySql(sql: string): string {
+  const d = STACK.directory;
+  return psql('directory-postgres', d.user, d.database, sql);
 }
 
 // Runs SQL against the backend's e2e Postgres (psql inside the compose
@@ -162,9 +181,13 @@ export async function seedServer(input: SeedServerInput = {}): Promise<Directory
 // the API. Returns psql's unaligned, tuples-only output.
 export function backendSql(sql: string): string {
   const pg = STACK.postgres;
+  return psql('postgres', pg.user, pg.database, sql);
+}
+
+function psql(service: string, user: string, database: string, sql: string): string {
   const r = spawnSync('docker', [
-    'compose', '-f', join(E2E_INFRA_DIR, 'docker-compose.yml'), 'exec', '-T', 'postgres',
-    'psql', '-v', 'ON_ERROR_STOP=1', '-U', pg.user, '-d', pg.database, '-At', '-c', sql,
+    'compose', '-f', join(E2E_INFRA_DIR, 'docker-compose.yml'), 'exec', '-T', service,
+    'psql', '-v', 'ON_ERROR_STOP=1', '-U', user, '-d', database, '-At', '-c', sql,
   ], { encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`psql failed: ${r.stderr || r.error?.message}`);
   return r.stdout.trim();

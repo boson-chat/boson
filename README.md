@@ -188,6 +188,7 @@ isolated stack; endpoints are in `infra/e2e/stack.json`:
 | ergo | `127.0.0.1:16667` | NickServ registration mails the catch-all Mailpit |
 | ZNC 1.9 | `127.0.0.1:16501` | users `tester1`..`tester8` / `pw`, network `ergo`; leased one per test |
 | Postgres | `127.0.0.1:16432` | the backend's DB (`boson`/`boson`), migrated on `up` |
+| Network directory | `http://127.0.0.1:18480` | [boson-chat/directory](https://github.com/boson-chat/directory) image, fake DNS, no verify/health workers; its own Postgres on `:16434`. The e2e build's default directory |
 | Mailpit (catch-all) | SMTP `:11025`, POP3 `:11110`, UI `http://127.0.0.1:18025` | boson.chat catch-all: ergo writes, the backend's nick-claim worker drains |
 | MinIO | `http://127.0.0.1:19000` (console `:19001`) | R2 stand-in, bucket `boson` (public read) |
 | Auth service | `http://127.0.0.1:18180` | boson auth service (own Postgres on `:16433`), email verification required; admin `e2eadmin` for the tests' lookups |

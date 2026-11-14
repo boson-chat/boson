@@ -1,7 +1,7 @@
 // Directory / multi-server helpers for the directory-area specs.
 import { deflateSync, crc32 } from 'node:zlib';
 import { expect, type Locator, type Page } from '@playwright/test';
-import { backendSql } from './backend';
+import { directorySql } from './backend';
 import type { App } from '../desktop-app';
 
 // Controls the app's API proxy (the renderer's only route to the backend —
@@ -87,13 +87,14 @@ export async function expectConnected(page: Page, serverName: string): Promise<v
   await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
 }
 
-// Directory row fields only the backend's cron sets (user counts, health).
+// Listing fields only the directory's health worker sets (user counts,
+// health); the e2e directory runs without it.
 export function setServerStats(id: string, s: { userCount?: number | null; health?: 'up' | 'down' | 'unknown' }): void {
   const sets: string[] = [];
-  if (s.userCount !== undefined) sets.push(`user_count = ${s.userCount === null ? 'NULL' : Number(s.userCount)}, user_count_updated_at = now()`);
-  if (s.health) sets.push(`health_status = '${s.health}', health_last_checked_at = now()`);
+  if (s.userCount !== undefined) sets.push(`user_count = ${s.userCount === null ? 'NULL' : Number(s.userCount)}, user_count_at = now()`);
+  if (s.health) sets.push(`health_status = '${s.health}', health_checked_at = now()`);
   if (sets.length === 0) return;
-  backendSql(`UPDATE servers SET ${sets.join(', ')} WHERE id = '${id}'`);
+  directorySql(`UPDATE networks SET ${sets.join(', ')} WHERE id = '${id}'`);
 }
 
 // A solid-color w×h RGB PNG, built by hand (no image deps in the test).

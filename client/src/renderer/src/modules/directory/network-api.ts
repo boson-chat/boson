@@ -193,9 +193,12 @@ export class NetworkOwnerApi implements HostingApi {
   }
 
   async listMyServers(): Promise<ServerWithToken[]> {
+    // {listings: [{network, verification}]} (the directory), or plain rows
+    // under `networks`.
     const res = await this.http.get<Json>('/v1/me/networks');
-    const rows = Array.isArray(res?.['networks']) ? (res['networks'] as Json[]) : [];
-    return rows.map((n) => ({ ...networkToServer(n, this.ref), owned: true }));
+    const rows = Array.isArray(res?.['listings']) ? (res['listings'] as Json[])
+      : Array.isArray(res?.['networks']) ? (res['networks'] as Json[]) : [];
+    return rows.map((n) => ({ ...unwrapNetwork(n, this.ref), owned: true }));
   }
 
   async registerServer(input: RegisterServerInput): Promise<ServerWithToken> {
