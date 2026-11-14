@@ -74,7 +74,7 @@ func (r *UserRepository) Create(ctx context.Context, u *User) error {
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id uuid.UUID) error {
-	// Cascading FKs (user_server_links, handle_changes) clean up dependents.
+	// Cascading FKs (handle_changes and the other per-user tables) clean up dependents.
 	res := r.db.DB.WithContext(ctx).Where("id = ?", id).Delete(&User{})
 	if res.Error != nil {
 		return res.Error

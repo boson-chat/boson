@@ -20,8 +20,7 @@ function uniqueEmail(prefix = 'kchain'): string {
 
 
 // Bootstraps a fresh auth-service user, creates the `/me` row, and registers an
-// ergo-pointed server. Mirrors `setupUserAndServer` in chat.spec.ts so the
-// teardown name-prefix sweep covers it (ChatErgo-* is on the cleanup list).
+// ergo-pointed server. Mirrors `setupUserAndServer` in chat.spec.ts.
 async function setupUserAndServer(request: APIRequestContext) {
   const { email, token } = await signUpVerified(request, uniqueEmail());
   const handle = 'k' + Date.now().toString().slice(-9);
