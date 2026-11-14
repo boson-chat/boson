@@ -25,6 +25,7 @@ export interface StackConfig {
   minio: { endpoint: string; accessKey: string; secretKey: string; bucket: string };
   auth: { url: string; mailpitUrl: string; dbPort: number; admin: { username: string; email: string; password: string } };
   backend: { url: string; port: number };
+  directory: { url: string; dbPort: number; database: string; user: string; password: string };
 }
 
 export const STACK = JSON.parse(readFileSync(join(E2E_INFRA_DIR, 'stack.json'), 'utf8')) as StackConfig;

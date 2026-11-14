@@ -36,11 +36,11 @@ import { signUpInUi, TEST_PASSWORD } from './auth-helper';
 
 const STACK_NAME = process.env.E2E_STACK_NAME ?? 'ergo';
 
-// Each stack has a pre-seeded verified directory entry created by
-// backend/db/seeds/dev-<stack>.sql (applied by the Make targets
-// before this spec runs). Look it up by name rather than registering
-// a new server per-test — fresh registrations land in `pending`
-// status and the public GET /servers filters those out.
+// The stack's IRCd (the per-stack make target passes E2E_IRC_HOST/PORT),
+// added through Advanced → "+ Add server manually": the public directory is
+// its own service now and doesn't list local stacks.
+const IRC_HOST = process.env.E2E_IRC_HOST ?? '127.0.0.1';
+const IRC_PORT = process.env.E2E_IRC_PORT ?? '6667';
 const STACK_SERVER_NAMES: Record<string, string> = {
   ergo:   'Local Ergo',
   anope:  'Local Anope',
@@ -82,11 +82,20 @@ test.describe(`NickServ flow — full stack against ${STACK_NAME}`, () => {
     await expect(page.getByText(`@${handle}`)).toBeVisible({ timeout: 15_000 });
 
     // ---- Connect to the IRC stack -------------------------------
-    // Look up the pre-seeded server (backend/db/seeds/dev-<stack>.sql
-    // applied by the per-stack make target). Public GET /servers
-    // filters out `pending` rows, so registering a fresh server
-    // per-test would never appear in the directory list.
-    await page.getByPlaceholder('Search servers…').fill(SERVER_NAME);
+    // Add the stack's server as a local entry (plain TCP).
+    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
+    await page.getByRole('button', { name: '+ Add server manually' }).click();
+    const addDialog = page.getByRole('dialog', { name: 'Add a server manually' });
+    const addField = (label: string) => addDialog.locator('.bds-field')
+      .filter({ has: page.locator('label.bds-field-label', { hasText: new RegExp(`^\\s*${label}\\s*$`) }) })
+      .locator('input');
+    await addField('Hostname').fill(IRC_HOST);
+    await addField('Port').fill(IRC_PORT);
+    await addField('Display name').fill(SERVER_NAME);
+    const tls = addDialog.getByRole('checkbox', { name: 'Use TLS (recommended)' });
+    if (await tls.isChecked()) await addDialog.getByText('Use TLS (recommended)').click();
+    await addDialog.getByRole('button', { name: /^Add/ }).click();
+    await expect(addDialog).toBeHidden();
     // Heading text is "<name> <STATUS>" (e.g., "Local Ergo ONLINE"),
     // so we match by prefix rather than exact text. The card itself
     // is `.directory-card` (chat.spec.ts uses `.directory-list-item`

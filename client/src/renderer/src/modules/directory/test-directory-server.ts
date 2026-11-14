@@ -92,7 +92,11 @@ export function fakeTransport(dirs: FakeDirectory[], opts: { user?: string } = {
     }
     if (!authed) return json({ error: 'unauthorized' }, 401);
     if (path === '/v1/me/networks') {
-      return json({ networks: dir.networks.filter((n) => n.owner === authed).map((n) => ({ ...publicView(n), verification_token: n.verification_token })) });
+      // The directory's shape: one {network, verification} listing per row.
+      return json({ listings: dir.networks.filter((n) => n.owner === authed).map((n) => ({
+        network: { ...publicView(n), verification_token: n.verification_token },
+        verification: { token: n.verification_token },
+      })) });
     }
     if (path === '/v1/networks' && req.method === 'POST') {
       const body = JSON.parse(String(req.body)) as FakeNetwork;

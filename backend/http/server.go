@@ -20,8 +20,6 @@ import (
 	"github.com/boson-chat/boson/backend/internal/services/nickclaim"
 	"github.com/boson-chat/boson/backend/internal/services/nickservsecret"
 	"github.com/boson-chat/boson/backend/internal/services/presence"
-	serversvc "github.com/boson-chat/boson/backend/internal/services/server"
-	serversvc_dns "github.com/boson-chat/boson/backend/internal/services/server/dns"
 	sessionsvc "github.com/boson-chat/boson/backend/internal/services/session"
 	"github.com/boson-chat/boson/backend/internal/services/user"
 )
@@ -32,7 +30,6 @@ func StartServerWithContext(ctx context.Context) error {
 
 	// Repositories
 	userRepo := user.NewUserRepository(database)
-	serverRepo := serversvc.NewServerRepository(database)
 	sessionRepo := sessionsvc.NewRepository(database)
 	nickClaimRepo := nickclaim.NewRepository(database)
 	nickservSecretRepo := nickservsecret.NewRepository(database)
@@ -41,12 +38,6 @@ func StartServerWithContext(ctx context.Context) error {
 
 	// Services
 	userService := user.NewUserService(userRepo)
-	// Pick the verifier for the SKIP_DNS_VERIFY flag. The dev bypass is
-	// only compiled into `boson_dev` builds; in the production binary
-	// SelectVerifier always returns the real three-resolver verifier
-	// regardless of the flag (see dns/bypass_prod.go).
-	verifier := serversvc_dns.SelectVerifier(cfg.AppConfig.SkipDNSVerify)
-	serverService := serversvc.NewServerServiceWithVerifier(serverRepo, verifier)
 	sessionService := sessionsvc.NewService(sessionRepo)
 	nickClaimService := nickclaim.NewService(nickClaimRepo, nickclaim.Config{
 		EmailDomain:      cfg.AppConfig.NickClaimEmailDomain,
@@ -72,24 +63,20 @@ func StartServerWithContext(ctx context.Context) error {
 
 	// Handlers
 	meHandler := handlers.NewMeHandler(userService, avatarService)
-	serverHandler := handlers.NewServerHandler(serverService, avatarService)
 	sessionHandler := handlers.NewSessionHandler(sessionService)
 	nickClaimsHandler := handlers.NewNickClaimsHandler(nickClaimService)
 	nickservSecretsHandler := handlers.NewNickServSecretsHandler(nickservSecretService)
 	bouncerSecretHandler := handlers.NewBouncerSecretHandler(bouncerSecretService)
 	presenceHandler := handlers.NewPresenceHandler(presenceService, avatarService)
 
-	// Public routes — health + read-only directory browsing. Guest users
-	// (no account session) hit these without an Authorization header.
+	// Public routes — just health. The server directory moved to the
+	// standalone directory service (github.com/boson-chat/directory).
 	publicMux := stdhttp.NewServeMux()
 	publicMux.HandleFunc("GET /health", healthHandler(database))
-	serverHandler.RegisterPublic(publicMux)
 
 	// Protected routes — everything that needs an authenticated principal.
-	// Server creation lives here so we can record the registering user.
 	protectedMux := stdhttp.NewServeMux()
 	meHandler.Register(protectedMux)
-	serverHandler.RegisterProtected(protectedMux)
 	sessionHandler.Register(protectedMux)
 	nickClaimsHandler.Register(protectedMux)
 	nickservSecretsHandler.Register(protectedMux)
@@ -134,11 +121,8 @@ func StartServerWithContext(ctx context.Context) error {
 // buildRouter wires the public and protected muxes onto a single root mux,
 // applying `auth` only to routes that need an authenticated principal.
 //
-// Method-aware patterns at the root level direct GET /servers and
-// GET /servers/{id} to the public mux (the IRC directory is a read-only
-// public resource — guests browse without signing in) while POST /servers
-// and every other path fall through to the auth-wrapped protected mux.
-// Extracted so tests can verify the route-level auth gating without
+// /health goes to the public mux; every other path falls through to the
+// auth-wrapped protected mux. Extracted so tests can verify the route-level auth gating without
 // standing up the full server.
 func buildRouter(
 	publicMux, protectedMux *stdhttp.ServeMux,
@@ -147,17 +131,6 @@ func buildRouter(
 	authedProtected := auth(protectedMux)
 	root := stdhttp.NewServeMux()
 	root.Handle("/health", publicMux)
-	root.Handle("GET /servers", publicMux)
-	// GET /servers/me MUST be registered before the generic
-	// GET /servers/{id} below — otherwise the literal "me" segment falls
-	// into the {id} pattern, the public handler tries uuid.Parse("me"),
-	// and the caller gets back 400 "invalid id". The owner-scoped list
-	// route lives on the protected mux because it leaks pending
-	// verification tokens (only to the row's owner, but still — auth
-	// required).
-	root.Handle("GET /servers/me", authedProtected)
-	root.Handle("GET /servers/{id}", publicMux)
-	root.Handle("POST /servers", authedProtected)
 	root.Handle("/", authedProtected)
 	return root
 }

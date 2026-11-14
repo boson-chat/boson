@@ -10,10 +10,12 @@ Components in one monorepo:
 desktop/            The desktop app (Wails v3, Go): native window, the engine in-process, OS services
 client/             Preact renderer (the UI the desktop app shows)
 engine/             Go IRC engine — run inside the desktop app; `engine serve` bridges it over a WebSocket for browser dev
-backend/            Go HTTP API — verifies auth-service tokens, server directory, user sessions
+backend/            Go HTTP API — verifies auth-service tokens, user identity/sessions, nick claims, presence
 packages/shared/    @boson/shared — design system (Button, Card, …) shared with the website
 website/            Public marketing site (Preact + Vite)
 ```
+
+The public server directory is its own service, [boson-chat/directory](https://github.com/boson-chat/directory) (https://directory.boson.chat), which also answers the legacy `api.boson.chat/servers` routes; the backend no longer serves `/servers`.
 
 Accounts and sign-in are the boson auth service ([boson-chat/auth](https://github.com/boson-chat/auth)); the move off Supabase Auth is described in [docs/migration-supabase-to-auth.md](./docs/migration-supabase-to-auth.md).
 
@@ -40,7 +42,6 @@ That single command spins up everything needed:
 - The boson auth service on `http://localhost:8080` (`make auth-up`); its mail (verification, password reset) lands in the Mailpit at `http://localhost:8026`
 - Local ergo IRCd on `:6667` (under the `testing` profile, so it doesn't run in production stacks)
 - Runs `migrate-up` on the boson DB
-- Runs `seed-dev` to insert a "Local Ergo" entry into the server directory
 
 You only need to run this once per machine. Subsequent boots are just `make up && make auth-up && make ergo-up` (or `make dev-up` again — all sub-steps are idempotent).
 
@@ -49,7 +50,7 @@ You only need to run this once per machine. Subsequent boots are just `make up &
 After `make dev-up`, run these in **four separate terminals**:
 
 ```bash
-# 1. Boson HTTP API (auth, directory, user sessions)
+# 1. Boson HTTP API (identity, user sessions, nick claims, presence)
 make run
 
 # 2. Local IRC engine (WebSocket bridge between the renderer and IRC)
@@ -187,11 +188,12 @@ isolated stack; endpoints are in `infra/e2e/stack.json`:
 | ergo | `127.0.0.1:16667` | NickServ registration mails the catch-all Mailpit |
 | ZNC 1.9 | `127.0.0.1:16501` | users `tester1`..`tester8` / `pw`, network `ergo`; leased one per test |
 | Postgres | `127.0.0.1:16432` | the backend's DB (`boson`/`boson`), migrated on `up` |
+| Network directory | `http://127.0.0.1:18480` | [boson-chat/directory](https://github.com/boson-chat/directory) image, fake DNS, no verify/health workers; its own Postgres on `:16434`. The e2e build's default directory |
 | Mailpit (catch-all) | SMTP `:11025`, POP3 `:11110`, UI `http://127.0.0.1:18025` | boson.chat catch-all: ergo writes, the backend's nick-claim worker drains |
 | MinIO | `http://127.0.0.1:19000` (console `:19001`) | R2 stand-in, bucket `boson` (public read) |
 | Auth service | `http://127.0.0.1:18180` | boson auth service (own Postgres on `:16433`), email verification required; admin `e2eadmin` for the tests' lookups |
 | Mailpit (auth) | `http://127.0.0.1:18325` | the users' inboxes: verification / password-reset mail |
-| Backend | `http://127.0.0.1:13000` | built from this checkout (`boson_dev`, `SKIP_DNS_VERIFY`), run on the host |
+| Backend | `http://127.0.0.1:13000` | built from this checkout (`boson_dev`), run on the host |
 
 Isolation, so it can run next to a live dev stack:
 
@@ -274,14 +276,12 @@ make engine-build       # build engine/cmd/engine binary → bin/engine
 make engine-connect SERVER=irc.libera.chat NICK=alice
                         # smoke test — no client needed
 
-make seed-dev           # re-seed Local Ergo into the directory
 make hooks-install      # install the pre-commit hook (go vet + tests + typecheck)
 ```
 
 ## Troubleshooting
 
 - **Sign-in says it can't reach the sign-in service** — start the auth service: `make auth-up` (and `make client-env`).
-- **`make seed-dev` errors** — Postgres isn't up yet; run `make up` first.
 - **Engine log panel inside Server settings shows "no entries"** — the engine binary isn't running, or the discovery file at `~/.boson/engine.json` is stale. Restart `make engine-serve`.
 - **Connection drops with no error in the splash** — open Server settings → Engine log. The raw IRC frames are there, including any 4xx/5xx server replies.
 - **`CORS policy: Method PUT is not allowed`** — restart `make run` after a backend code change.

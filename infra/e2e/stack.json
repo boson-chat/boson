@@ -6,5 +6,6 @@
   "catchallMail": { "smtpPort": 11025, "pop3Port": 11110, "pop3User": "e2e", "pop3Password": "e2e", "apiUrl": "http://127.0.0.1:18025", "archiveApiUrl": "http://127.0.0.1:18026" },
   "minio": { "endpoint": "http://127.0.0.1:19000", "accessKey": "minioadmin", "secretKey": "minioadmin", "bucket": "boson" },
   "auth": { "url": "http://127.0.0.1:18180", "mailpitUrl": "http://127.0.0.1:18325", "dbPort": 16433, "admin": { "username": "e2eadmin", "email": "e2eadmin@example.test", "password": "e2e-admin-password" } },
-  "backend": { "url": "http://127.0.0.1:13000", "port": 13000 }
+  "backend": { "url": "http://127.0.0.1:13000", "port": 13000 },
+  "directory": { "url": "http://127.0.0.1:18480", "dbPort": 16434, "database": "directory", "user": "directory", "password": "directory" }
 }

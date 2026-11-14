@@ -66,12 +66,12 @@ func TestProcess_DeletesPreviousObject(t *testing.T) {
 	assert.Contains(t, fs.deleted, "avatars/old-key.png")
 }
 
-func TestProcessImage_BannerDimensions(t *testing.T) {
+func TestProcessImage_NonSquareDimensions(t *testing.T) {
 	fs := newFakeStorage()
 	svc := NewService(fs, "https://cdn.boson.chat")
-	key, err := svc.ProcessImage(context.Background(), "server-banners", "srv1", pngBytes(t, 2000, 1000), "", 1200, 400)
+	key, err := svc.processImage(context.Background(), "test", "id1", pngBytes(t, 2000, 1000), "", 1200, 400)
 	require.NoError(t, err)
-	assert.True(t, strings.HasPrefix(key, "server-banners/srv1-"), "namespaced key: %s", key)
+	assert.True(t, strings.HasPrefix(key, "test/id1-"), "namespaced key: %s", key)
 	img, _, err := image.Decode(bytes.NewReader(fs.puts[key]))
 	require.NoError(t, err)
 	assert.Equal(t, 1200, img.Bounds().Dx())

@@ -13,14 +13,15 @@
 //
 //   1. infra/e2e/docker-compose.yml — compose project `boson-e2e`: ergo,
 //      ZNC, the backend's Postgres, the catch-all Mailpit, MinIO (+ bucket),
-//      and the boson auth service with its Postgres and the users' Mailpit.
+//      the boson auth service with its Postgres and the users' Mailpit, and
+//      the network directory (github.com/boson-chat/directory, fake DNS) with
+//      its Postgres.
 //      The auth image is built from $AUTH_SRC (default: an `auth` checkout
 //      next to this repo) unless $AUTH_IMAGE names one to use. `up` creates
 //      the stack's admin account (stack.json auth.admin) for the tests.
 //   2. The Go backend, built from this checkout into infra/e2e/.run/ and run
 //      on the host (`serve`, after `migrate up`). Built with the `boson_dev`
-//      tag + SKIP_DNS_VERIFY so directory servers can be verified without
-//      DNS. With E2E_COVERAGE=1 it's a `-cover` build that flushes counters
+//      tag. With E2E_COVERAGE=1 it's a `-cover` build that flushes counters
 //      on SIGUSR1 (backend/cmd/server/coverflush_e2e.go) for the coverage
 //      report.
 //
@@ -56,6 +57,7 @@ export const backendCoverDir = join(runDir, 'backend-cover');
 const compose = ['compose', '-f', join(e2eDir, 'docker-compose.yml')];
 const COMPOSE_SERVICES = [
   'ergo', 'znc', 'postgres', 'mailpit-archive', 'mailpit', 'minio', 'auth-postgres', 'auth-mailpit', 'auth',
+  'directory-postgres', 'directory',
 ];
 
 function log(msg) {
@@ -135,6 +137,15 @@ async function authUp() {
   }
 }
 
+// ---- network directory -----------------------------------------------------
+
+// The directory (github.com/boson-chat/directory) runs from its image with
+// fake DNS; it migrates its database at start.
+async function directoryUp() {
+  const dir = stack.directory;
+  await waitFor(`directory on ${dir.url}`, async () => (await fetch(`${dir.url}/.well-known/boson-directory.json`)).ok, 60_000);
+}
+
 // ---- backend ---------------------------------------------------------------
 
 function backendEnv() {
@@ -153,7 +164,6 @@ function backendEnv() {
     AUTH_JWKS_URL: `${stack.auth.url}/.well-known/jwks.json`,
     AUTH_ISSUER: stack.auth.url,
     AUTH_AUDIENCE: 'boson',
-    SKIP_DNS_VERIFY: 'true',
     PURELYMAIL_POP3_HOST: '127.0.0.1',
     PURELYMAIL_POP3_PORT: String(mail.pop3Port),
     PURELYMAIL_POP3_USER: mail.pop3User,
@@ -252,6 +262,7 @@ async function up() {
   const t0 = Date.now();
   composeUp();
   await authUp();
+  await directoryUp();
   buildBackend();
   await startBackend();
   log(`up in ${((Date.now() - t0) / 1000).toFixed(1)}s${coverage ? ' (backend coverage build)' : ''}`);
@@ -272,6 +283,7 @@ function status() {
     `  catch-all   mailpit ${stack.catchallMail.apiUrl}  (smtp :${stack.catchallMail.smtpPort}, pop3 :${stack.catchallMail.pop3Port}; copy ${stack.catchallMail.archiveApiUrl})`,
     `  minio       ${stack.minio.endpoint}`,
     `  auth        ${stack.auth.url}  (users' mailpit ${stack.auth.mailpitUrl}; admin ${stack.auth.admin.username})`,
+    `  directory   ${stack.directory.url}  (db :${stack.directory.dbPort})`,
     `  backend     ${stack.backend.url}  ${pid ? `(pid ${pid})` : '[not running]'}`,
   ].join('\n'));
 }

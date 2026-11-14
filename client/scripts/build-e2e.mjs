@@ -46,9 +46,8 @@ if (!process.argv.includes('--skip-renderer')) {
       RENDERER_OUT_DIR: renderer,
       VITE_AUTH_URL: stack.auth.url,
       VITE_BOSON_API_URL: stack.backend.url,
-      // No network directory in the e2e stack: a closed loopback port, so
-      // browse and hosting fall back to the backend's legacy /servers.
-      VITE_DIRECTORY_URL: 'http://127.0.0.1:9',
+      // The e2e stack's network directory (fake DNS).
+      VITE_DIRECTORY_URL: stack.directory.url,
       // The engine runs in-process; never a developer's `make engine-serve`.
       VITE_ENGINE_URL: '',
       VITE_ENGINE_TOKEN: '',
@@ -86,7 +85,7 @@ const bin = join(desktopDir, 'bin', `boson-e2e-server${process.platform === 'win
 // The e2e bundle talks to the e2e backend and auth service; let the API
 // proxy reach them.
 const version = JSON.parse(readFileSync(join(clientDir, 'package.json'), 'utf8')).version;
-const ldflags = `-X main.apiBase=${stack.backend.url} -X main.authBase=${stack.auth.url} -X main.devBuild=true -X main.appVersion=${version}`;
+const ldflags = `-X main.apiBase=${stack.backend.url} -X main.authBase=${stack.auth.url} -X main.directoryBase=${stack.directory.url} -X main.devBuild=true -X main.appVersion=${version}`;
 const cover = process.env.E2E_COVERAGE === '1'
   ? ['-cover', '-coverpkg=github.com/boson-chat/boson/desktop,github.com/boson-chat/boson/engine/...']
   : [];

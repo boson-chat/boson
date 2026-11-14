@@ -26,6 +26,8 @@
 #   auth      127.0.0.1:18180  boson auth service (github.com/boson-chat/auth)
 #   auth-mailpit 127.0.0.1:18325  HTTP API / UI: the users' inboxes
 #   auth-postgres 127.0.0.1:16433  the auth service's DB (auth/auth/auth)
+#   directory 127.0.0.1:18480  boson network directory (github.com/boson-chat/directory)
+#   directory-postgres 127.0.0.1:16434  the directory's DB (directory/directory/directory)
 #
 # The auth service is a private repo, so its image comes from outside:
 # e2e-stack.mjs builds it from a checkout ($AUTH_SRC, default ../auth next
@@ -132,7 +134,7 @@ services:
       timeout: 3s
       retries: 30
 
-  # S3 stand-in for Cloudflare R2 (avatars, server icons/banners), as in the
+  # S3 stand-in for Cloudflare R2 (avatars), as in the
   # dev stack's `minio` service. Chainguard builds (MinIO no longer
   # publishes images to Docker Hub / quay.io).
   minio:
@@ -224,3 +226,53 @@ services:
         condition: service_healthy
       auth-mailpit:
         condition: service_healthy
+
+  # ---- boson network directory ------------------------------------------------
+  # github.com/boson-chat/directory, the service directory.boson.chat runs:
+  # the app browses and hosts listings through its /v1 API. Fake DNS (every
+  # verify succeeds, so listings need no TXT record), no background verify /
+  # health workers (the tests set those columns themselves), no peers, and
+  # write limits high enough for parallel workers.
+  directory-postgres:
+    image: postgres:16-alpine
+    ports:
+      - '127.0.0.1:16434:5432'
+    environment:
+      POSTGRES_USER: directory
+      POSTGRES_PASSWORD: directory
+      POSTGRES_DB: directory
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U directory -d directory']
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  directory:
+    image: ${DIRECTORY_IMAGE:-harbor.floret.dev/boson/directory:1.3.0}
+    ports:
+      - '127.0.0.1:18480:8080'
+    environment:
+      ENV: development
+      DIRECTORY_PUBLIC_URL: http://127.0.0.1:18480
+      DATABASE_URL: postgres://directory:directory@directory-postgres:5432/directory?sslmode=disable
+      # Tokens carry the issuer the app signs in with (the host URL); the keys
+      # are fetched inside the network.
+      AUTH_ISSUER: http://127.0.0.1:18180
+      AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
+      AUTH_AUDIENCE: boson
+      DIRECTORY_NAME: boson e2e directory
+      DNS_VERIFIER: fake
+      VERIFY_WORKER_ENABLED: 'false'
+      HEALTH_WORKER_ENABLED: 'false'
+      DIRECTORY_INCLUDE_MAIN: 'false'
+      RATE_LIMIT_WRITES_PER_MINUTE: '100000'
+      RATE_LIMIT_WRITE_BURST: '100000'
+    tmpfs:
+      - /media:mode=1777
+    depends_on:
+      directory-postgres:
+        condition: service_healthy
+      auth:
+        condition: service_started

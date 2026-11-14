@@ -1,12 +1,13 @@
 // Server settings (right-click a server-rail tile → "Server details") for a
 // directory server the signed-in user owns: the Info panel from the IRCv3
-// handshake, the owner-only Edit tab (profile fields → PATCH /servers/{id};
-// icon/banner → backend → MinIO, and removal), Operators, the engine Log,
+// handshake, the owner-only Edit tab (profile fields → PATCH
+// /v1/networks/{id} on the e2e network directory; icon/banner → the
+// directory's media, and removal), Operators, the engine Log,
 // and the Actions section (Reconnect / Disconnect). Plus: a non-owner gets
 // no owner tabs.
 import {
   test, expect, IRC_HOST, IRC_PORT, STACK, uid, loginAs, serverCard, joinChannel, randomChannel,
-  continueAsGuest, seedServer, randomNick,
+  continueAsGuest, seedServer, randomNick, directoryApiAs, seededHostname, type BackendApi,
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
 import {
@@ -24,14 +25,25 @@ interface ServerRow {
   banner_url?: string | null;
 }
 
-test('owner edits the directory profile and images from Server settings', async ({ launchApp, account, backendApi }) => {
-  const api = await backendApi(account);
+// The listing as the directory returns it ({network, verification}).
+async function getRow(api: BackendApi, id: string): Promise<ServerRow> {
+  return (await api.get<{ network: ServerRow }>(`/v1/networks/${id}`)).network;
+}
+
+// Registers a listing owned by the signed-in account and verifies it (fake
+// DNS in the e2e directory).
+async function registerOwned(api: BackendApi, body: Record<string, unknown>): Promise<ServerRow> {
+  const created = (await api.post<{ network: ServerRow }>('/v1/networks', {
+    hostname: seededHostname('owned'), port: IRC_PORT, tls: false, languages: ['en'], ...body,
+  })).network;
+  await api.post(`/v1/networks/${created.id}/verify`);
+  return created;
+}
+
+test('owner edits the directory profile and images from Server settings', async ({ launchApp, account }) => {
+  const api = await directoryApiAs(account);
   const name = `Owned ${uid(8)}`;
-  const created = await api.post<ServerRow>('/servers', {
-    hostname: 'localhost', port: IRC_PORT, tls: false, name,
-    description: 'Before', tags: ['alpha', 'beta'], languages: ['en'],
-  });
-  await api.post(`/servers/${created.id}/verify`);
+  const created = await registerOwned(api, { name, description: 'Before', tags: ['alpha', 'beta'] });
 
   const { page } = await launchApp();
   expect(await loginAs(page, account)).toBe('directory');
@@ -64,7 +76,7 @@ test('owner edits the directory profile and images from Server settings', async 
   await save.click();
   await expect(settings.getByText('Saved', { exact: true })).toBeVisible();
 
-  await expect.poll(async () => api.get<ServerRow>(`/servers/${created.id}`)).toMatchObject({
+  await expect.poll(async () => getRow(api, created.id)).toMatchObject({
     name: renamed, description: 'After the edit', tags: ['beta', 'gamma'], languages: ['en', 'fr'], is_nsfw: true,
   });
   // The page header and the rail pick the new name up without a refetch.
@@ -77,7 +89,7 @@ test('owner edits the directory profile and images from Server settings', async 
   await settings.getByRole('button', { name: 'Remove fr' }).click();
   await expect(save).toBeDisabled();
 
-  // ---- icon + banner → MinIO ----
+  // ---- icon + banner → the directory's media ----
   const iconField = settings.locator('.bds-field').filter({ hasText: 'Square. Shown in the directory grid' });
   const bannerField = settings.locator('.bds-field').filter({ hasText: 'Wide (3:1). Shown atop the listing.' });
 
@@ -89,8 +101,8 @@ test('owner edits the directory profile and images from Server settings', async 
 
   await iconField.locator('input[type="file"]').setInputFiles({ name: 'icon.png', mimeType: 'image/png', buffer: png(64, 64, [200, 40, 40]) });
   await expect(iconField.getByRole('button', { name: 'Change' })).toBeVisible();
-  const withIcon = await api.get<ServerRow>(`/servers/${created.id}`);
-  expect(withIcon.icon_url).toMatch(new RegExp(`^${STACK.minio.endpoint}/${STACK.minio.bucket}/.+`));
+  const withIcon = await getRow(api, created.id);
+  expect(withIcon.icon_url).toMatch(new RegExp(`^${STACK.directory.url}/media/.+`));
   const iconRes = await fetch(withIcon.icon_url!);
   expect(iconRes.status).toBe(200);
   expect(iconRes.headers.get('content-type')).toMatch(/^image\//);
@@ -99,7 +111,7 @@ test('owner edits the directory profile and images from Server settings', async 
 
   await bannerField.locator('input[type="file"]').setInputFiles({ name: 'banner.png', mimeType: 'image/png', buffer: png(300, 100, [40, 40, 200]) });
   await expect(bannerField.locator('.server-image-banner-preview img')).toBeVisible();
-  const withBanner = await api.get<ServerRow>(`/servers/${created.id}`);
+  const withBanner = await getRow(api, created.id);
   expect(withBanner.banner_url).toBeTruthy();
   expect((await fetch(withBanner.banner_url!)).status).toBe(200);
 
@@ -108,7 +120,7 @@ test('owner edits the directory profile and images from Server settings', async 
   await expect(iconField.getByRole('button', { name: 'Upload' })).toBeVisible();
   await bannerField.getByRole('button', { name: 'Remove' }).click();
   await expect(bannerField.getByText('No banner')).toBeVisible();
-  const cleared = await api.get<ServerRow>(`/servers/${created.id}`);
+  const cleared = await getRow(api, created.id);
   expect(cleared.icon_url ?? null).toBeNull();
   expect(cleared.banner_url ?? null).toBeNull();
   expect((await fetch(withIcon.icon_url!)).status).not.toBe(200);
@@ -124,8 +136,7 @@ test('owner edits the directory profile and images from Server settings', async 
 test('Info, Operators, Log and Actions (reconnect, disconnect)', async ({ launchApp, account, backendApi }) => {
   const api = await backendApi(account);
   const name = `Owned ${uid(8)}`;
-  const created = await api.post<ServerRow>('/servers', { hostname: 'localhost', port: IRC_PORT, tls: false, name, languages: ['en'] });
-  await api.post(`/servers/${created.id}/verify`);
+  const created = await registerOwned(await directoryApiAs(account), { name });
   const channel = randomChannel('set');
 
   const peer = await IrcPeer.connect({ host: IRC_HOST, port: IRC_PORT, nick: randomNick('peer') });
