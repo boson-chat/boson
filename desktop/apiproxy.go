@@ -26,6 +26,10 @@ type ApiService struct {
 	policy apiPolicy
 	client *http.Client
 
+	// dirs are the user's own network directories (directories.go):
+	// GET-only and credential-free, unless verified to accept our accounts.
+	dirs directoryAccess
+
 	// test, when set (e2e builds), can delay requests, refuse them like a
 	// backend that's down, and logs them — the suite's controlApi.
 	test *apiTestControl
@@ -62,6 +66,8 @@ const (
 	defaultAPIBase = "https://api.boson.chat"
 	// defaultAuthBase is the auth service, likewise.
 	defaultAuthBase = "https://auth.boson.chat"
+	// defaultDirectoryBase is the network directory, likewise.
+	defaultDirectoryBase = "https://directory.boson.chat"
 )
 
 // apiPolicy says which origins the proxy may reach: exact origins (the
@@ -115,6 +121,18 @@ func (p apiPolicy) allowed(u *url.URL) bool {
 	return p.allowLoopback && isLoopback(u)
 }
 
+func stripCredentials(headers map[string]string) {
+	for k := range headers {
+		if lk := strings.ToLower(k); lk == "authorization" || lk == "cookie" {
+			delete(headers, k)
+		}
+	}
+}
+
+func readOnlyMethod(m string) bool {
+	return m == http.MethodGet || m == http.MethodHead
+}
+
 func apiFail(statusText string) ApiResponse {
 	return ApiResponse{Status: 0, OK: false, StatusText: statusText}
 }
@@ -147,8 +165,12 @@ func (s *ApiService) Fetch(ctx context.Context, req ApiRequest) ApiResponse {
 			return apiFail("connection refused")
 		}
 	}
-	if !s.policy.allowed(u) {
+	level := s.access(u)
+	if level == accessNone {
 		return apiFail("Blocked host")
+	}
+	if level == accessRead && !readOnlyMethod(req.Method) {
+		return apiFail("Blocked method")
 	}
 
 	var body []byte
@@ -168,6 +190,10 @@ func (s *ApiService) Fetch(ctx context.Context, req ApiRequest) ApiResponse {
 	headers := map[string]string{}
 	for k, v := range req.Headers {
 		headers[k] = v
+	}
+	if level == accessRead {
+		// Someone else's directory never sees our tokens.
+		stripCredentials(headers)
 	}
 	current := u
 	for hop := 0; ; hop++ {
@@ -203,24 +229,25 @@ func (s *ApiService) Fetch(ctx context.Context, req ApiRequest) ApiResponse {
 			if next.Scheme != "http" && next.Scheme != "https" {
 				return apiFail("Bad redirect scheme")
 			}
-			if !s.policy.allowed(next) {
+			nextLevel := s.access(next)
+			if nextLevel == accessNone {
 				return apiFail("Blocked redirect host")
 			}
 			// Cross-origin hop: drop credential-bearing headers, as the
 			// fetch spec does — defence in depth if the allowlist ever grows
 			// to an origin that shouldn't see our tokens.
-			if origin(next) != origin(current) {
-				for k := range headers {
-					if lk := strings.ToLower(k); lk == "authorization" || lk == "cookie" {
-						delete(headers, k)
-					}
-				}
+			if origin(next) != origin(current) || nextLevel == accessRead {
+				stripCredentials(headers)
 			}
 			// 303 (and a non-GET/HEAD 301/302) becomes a bodyless GET.
 			if res.StatusCode == http.StatusSeeOther ||
 				((res.StatusCode == http.StatusMovedPermanently || res.StatusCode == http.StatusFound) && method != http.MethodGet && method != http.MethodHead) {
 				method = http.MethodGet
 				body = nil
+			}
+			// A 307/308 keeps the method: not onto a read-only origin.
+			if nextLevel == accessRead && !readOnlyMethod(method) {
+				return apiFail("Blocked redirect method")
 			}
 			current = next
 			continue

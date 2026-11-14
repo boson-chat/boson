@@ -215,3 +215,31 @@ describe('ServerHostingBloc', () => {
     expect(bloc.getState().verify.kind).toBe('idle');
   });
 });
+
+describe('ServerHostingBloc removal', () => {
+  it('removes a listing through the directory and drops the row', async () => {
+    const deleteServer = vi.fn().mockResolvedValue(undefined);
+    const directory = mockDirectory({ listMyServers: vi.fn().mockResolvedValue([pendingServer(), pendingServer({ id: 'srv-2' })]) });
+    const bloc = new ServerHostingBloc({ ...directory, deleteServer } as never);
+    expect(bloc.canRemove).toBe(true);
+    await bloc.load();
+    await bloc.remove('srv-1');
+    expect(deleteServer).toHaveBeenCalledWith('srv-1');
+    expect(bloc.getState().myServers.map((s) => s.id)).toEqual(['srv-2']);
+    expect(bloc.getState().removingId).toBeNull();
+  });
+
+  it('keeps the row and reports a failed removal', async () => {
+    const deleteServer = vi.fn().mockRejectedValue(new HttpError(403, 'not yours'));
+    const directory = mockDirectory({ listMyServers: vi.fn().mockResolvedValue([pendingServer()]) });
+    const bloc = new ServerHostingBloc({ ...directory, deleteServer } as never);
+    await bloc.load();
+    await bloc.remove('srv-1');
+    expect(bloc.getState().myServers).toHaveLength(1);
+    expect(bloc.getState().removeError).toBe('not yours');
+  });
+
+  it('offers no removal on the legacy API', () => {
+    expect(new ServerHostingBloc(mockDirectory()).canRemove).toBe(false);
+  });
+});

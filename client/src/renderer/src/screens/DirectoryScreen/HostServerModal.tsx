@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { AtomLoader, Badge, Button, Card, ChipInput, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
+import type { NetworkDirectories } from '../../modules/directory/networks';
 import type {
   DirectoryService,
   ServerWithToken,
@@ -12,6 +13,9 @@ interface HostServerModalProps {
   open: boolean;
   onClose: () => void;
   directory: DirectoryService;
+  // The network directories: registration goes to the chosen one's /v1
+  // (directory.boson.chat by default). Absent: the legacy /servers API.
+  networks?: NetworkDirectories;
 }
 
 // Opens the "register a server in the directory" flow as a modal on top
@@ -20,10 +24,18 @@ interface HostServerModalProps {
 // the same ServerHostingBloc — the modal is just the chrome around
 // them. The bloc is recreated on every open so closing mid-form
 // doesn't leak draft state into the next session.
-export function HostServerModal({ open, onClose, directory }: HostServerModalProps) {
+export function HostServerModal({ open, onClose, directory, networks }: HostServerModalProps) {
+  // Directories that accept our sign-in; the default one first.
+  const hostable = useMemo(() => networks?.hostable() ?? [], [networks, open]);
+  const [target, setTarget] = useState<string>('');
+  const targetUrl = hostable.some((h) => h.url === target) ? target : (hostable[0]?.url ?? '');
+  const targetSource = hostable.find((h) => h.url === targetUrl);
   // Keying the bloc on `open` resets it each time the modal reopens.
   // useMemo with no deps would keep stale form state across opens.
-  const bloc = useMemo(() => new ServerHostingBloc(directory), [directory, open]);
+  const bloc = useMemo(
+    () => new ServerHostingBloc((networks && targetUrl ? networks.hostingApi(targetUrl, directory) : null) ?? directory),
+    [directory, networks, targetUrl, open],
+  );
   const [state, setState] = useState<ServerHostingState>(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
   useEffect(() => { if (open) void bloc.load(); }, [bloc, open]);
@@ -36,6 +48,24 @@ export function HostServerModal({ open, onClose, directory }: HostServerModalPro
           We verify ownership via a DNS TXT record before listing publicly —
           no waiting on a human reviewer.
         </p>
+        {state.screen === 'list' && hostable.length > 1 && (
+          <Field label="Directory" hint="Where your server is listed. Other directories that import this one will pick it up too.">
+            <select
+              class="bds-input bds-input-sm host-server-directory-select"
+              value={targetUrl}
+              onChange={(e) => setTarget((e.target as HTMLSelectElement).value)}
+            >
+              {hostable.map((h) => (
+                <option key={h.url} value={h.url}>{h.name} ({new URL(h.url).host})</option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {state.screen === 'list' && hostable.length === 1 && targetSource && (
+          <p class="host-server-directory-note">
+            Listing on <strong>{targetSource.name}</strong> ({new URL(targetSource.url).host}).
+          </p>
+        )}
         {state.screen === 'list' && <ListView state={state} bloc={bloc} />}
         {state.screen === 'register' && <RegisterView state={state} bloc={bloc} />}
         {state.screen === 'verify' && <VerifyView state={state} bloc={bloc} />}
@@ -76,8 +106,15 @@ function ListView({ state, bloc }: { state: ServerHostingState; bloc: ServerHost
         </Card>
       ) : (
         <div class="server-hosting-rows">
+          {state.removeError && <p class="server-hosting-error">Couldn't remove: {state.removeError}</p>}
           {state.myServers.map((s) => (
-            <ServerRow key={s.id} server={s} onContinue={() => bloc.openVerify(s)} />
+            <ServerRow
+              key={s.id}
+              server={s}
+              onContinue={() => bloc.openVerify(s)}
+              onRemove={bloc.canRemove ? () => { void bloc.remove(s.id); } : undefined}
+              removing={state.removingId === s.id}
+            />
           ))}
         </div>
       )}
@@ -85,7 +122,13 @@ function ListView({ state, bloc }: { state: ServerHostingState; bloc: ServerHost
   );
 }
 
-function ServerRow({ server, onContinue }: { server: ServerWithToken; onContinue: () => void }) {
+function ServerRow({ server, onContinue, onRemove, removing }: {
+  server: ServerWithToken;
+  onContinue: () => void;
+  onRemove?: () => void;
+  removing?: boolean;
+}) {
+  const [confirming, setConfirming] = useState(false);
   return (
     <Card>
       <div class="server-hosting-row">
@@ -100,6 +143,18 @@ function ServerRow({ server, onContinue }: { server: ServerWithToken; onContinue
           {server.verification_status === 'pending' && (
             <Button variant="primary" onClick={onContinue}>Continue verification</Button>
           )}
+          {onRemove && (confirming ? (
+            <>
+              <Button variant="secondary" onClick={() => { setConfirming(false); onRemove(); }} disabled={removing}>
+                Remove listing
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirming(false)}>Keep</Button>
+            </>
+          ) : (
+            <Button variant="ghost" onClick={() => setConfirming(true)} disabled={removing}>
+              {removing ? 'Removing…' : 'Remove'}
+            </Button>
+          ))}
         </div>
       </div>
     </Card>
@@ -110,6 +165,7 @@ function StatusBadge({ status }: { status: ServerWithToken['verification_status'
   switch (status) {
     case 'verified': return <Badge tone="success">Verified</Badge>;
     case 'lapsed':   return <Badge tone="warn">Lapsed</Badge>;
+    case 'blocked':  return <Badge tone="danger">Blocked</Badge>;
     default:         return <Badge tone="info">Pending</Badge>;
   }
 }
@@ -263,8 +319,8 @@ function VerifyView({ state, bloc }: { state: ServerHostingState; bloc: ServerHo
             <li>
               <strong>Verify.</strong> We query Cloudflare, Google, and Quad9
               in parallel. Initial verification requires all three to see
-              the same record — this is the strictest check, and the cron
-              re-verifier later is more forgiving.
+              the same record — this is the strictest check; the daily
+              re-check afterwards needs two of the three.
               <VerifyAction state={state} bloc={bloc} />
             </li>
           </ol>
