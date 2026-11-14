@@ -1,3 +1,9 @@
+## [0.53.0](https://github.com/boson-chat/boson/compare/v0.52.1...v0.53.0) (2026-11-14)
+
+### Features
+
+* **client:** drag and drop images onto the avatar, server icon/banner and theme pickers ([#49](https://github.com/boson-chat/boson/issues/49)) ([84ae4cc](https://github.com/boson-chat/boson/commit/84ae4cc32f0f2d4b840d90aa43c57b08de711364))
+
 ## [0.52.1](https://github.com/boson-chat/boson/compare/v0.52.0...v0.52.1) (2026-11-14)
 
 ### Bug Fixes
