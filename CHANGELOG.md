@@ -1,3 +1,9 @@
+## [0.44.0](https://github.com/boson-chat/boson/compare/v0.43.0...v0.44.0) (2026-11-14)
+
+### Features
+
+* **website:** serve /.well-known/boson.json for client discovery ([b394a5d](https://github.com/boson-chat/boson/commit/b394a5d008eacc3b936c708e0e900d2448198f1d))
+
 ## [0.43.0](https://github.com/boson-chat/boson/compare/v0.42.0...v0.43.0) (2026-11-13)
 
 ### Features
