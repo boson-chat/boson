@@ -1,3 +1,9 @@
+## [0.54.0](https://github.com/boson-chat/boson/compare/v0.53.0...v0.54.0) (2026-11-14)
+
+### Features
+
+* nick claims can be turned off (off by default), own inbound mail config ([#50](https://github.com/boson-chat/boson/issues/50)) ([286769e](https://github.com/boson-chat/boson/commit/286769e61c467354cb4cca305cce20c65e85f5e0))
+
 ## [0.53.0](https://github.com/boson-chat/boson/compare/v0.52.1...v0.53.0) (2026-11-14)
 
 ### Features
