@@ -1,4 +1,4 @@
-import type { ComponentChildren } from 'preact';
+import { Fragment, type ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatChannel, ServerInfo } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
@@ -39,6 +39,10 @@ interface ChannelSidebarProps {
   // sits at the foot of the list (the voice-connected bar).
   voice?: ComponentChildren;
   footer?: ComponentChildren;
+  // A text channel's voice channels, shown under its row (Discord style),
+  // and an extra button on the row (the voice "+").
+  channelVoice?: (channel: string) => ComponentChildren;
+  channelAction?: (channel: string) => ComponentChildren;
 }
 
 export function ChannelSidebar({
@@ -56,6 +60,8 @@ export function ChannelSidebar({
   width,
   voice,
   footer,
+  channelVoice,
+  channelAction,
 }: ChannelSidebarProps) {
   // Ref-backed view of the channels prop so the bloc always reads the latest
   // list without us rebuilding it on every render. Same pattern as ChatArea
@@ -174,14 +180,17 @@ export function ChannelSidebar({
           </button>
         </div>
         {realChannels.map((c) => (
-          <ChannelRow
-            key={c.name}
-            channel={c}
-            active={c.name === activeChannel}
-            onSelect={onSelect}
-            onPart={onPart}
-            prefix="#"
-          />
+          <Fragment key={c.name}>
+            <ChannelRow
+              channel={c}
+              active={c.name === activeChannel}
+              onSelect={onSelect}
+              onPart={onPart}
+              prefix="#"
+              action={channelAction?.(c.name)}
+            />
+            {channelVoice?.(c.name)}
+          </Fragment>
         ))}
 
         {dms.length > 0 && (
@@ -239,6 +248,7 @@ interface ChannelRowProps {
   prefix: string;
   onSelect: (name: string) => void;
   onPart: (name: string) => void;
+  action?: ComponentChildren;
 }
 
 // How far a channel has got since we asked to be in it: `joining` until the
@@ -262,7 +272,7 @@ const SYNC_TITLE: Record<ChannelSync, string | undefined> = {
   ready: undefined,
 };
 
-function ChannelRow({ channel, active, prefix, onSelect, onPart }: ChannelRowProps) {
+function ChannelRow({ channel, active, prefix, onSelect, onPart, action }: ChannelRowProps) {
   const display = channel.name.replace(/^[#&]/, '');
   const sync = channelSync(channel);
   // Unread badge: hidden when active (counters get cleared anyway) or when
@@ -298,6 +308,7 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart }: ChannelRowPro
           aria-label={`${channel.unread} unread message${channel.unread === 1 ? '' : 's'} in ${channel.name}`}
         />
       ) : null}
+      {action}
       <button
         class="channel-leave"
         type="button"

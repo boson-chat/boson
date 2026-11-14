@@ -6,6 +6,7 @@ import { Modal } from '@boson/shared';
 import { ServerRail, type ServerRailTile } from './ServerRail';
 import { ChannelSidebar } from './ChannelSidebar';
 import { VoiceSection } from './VoiceSection';
+import { ChannelVoiceAdd, ChannelVoiceRooms } from './VoiceRooms';
 import { VoiceBar } from './VoiceBar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
@@ -198,8 +199,18 @@ export function ChatLayout({
           engineState={engineState}
           width={channelsW}
           voice={serverHost ? (
-            <VoiceSection host={serverHost} serverName={serverName} engineState={engineState} avatarFor={avatarFor} />
+            <VoiceSection
+              host={serverHost}
+              serverName={serverName}
+              engineState={engineState}
+              avatarFor={avatarFor}
+              channels={state.channels.map((c) => c.name)}
+            />
           ) : undefined}
+          channelVoice={serverHost ? (name) => (
+            <ChannelVoiceRooms host={serverHost} serverName={serverName} channel={name} avatarFor={avatarFor} />
+          ) : undefined}
+          channelAction={serverHost ? (name) => <ChannelVoiceAdd host={serverHost} channel={name} /> : undefined}
           footer={<VoiceBar />}
         />
   );

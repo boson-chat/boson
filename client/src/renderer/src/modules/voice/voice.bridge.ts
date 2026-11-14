@@ -1,5 +1,5 @@
 import type {
-  VoiceDevices, VoiceJoinRequest, VoiceRoomsResult, VoiceServerInfo, VoiceState,
+  VoiceDevices, VoiceJoinRequest, VoiceRoomChange, VoiceRoomInput, VoiceRoomsResult, VoiceServerInfo, VoiceState,
 } from './voice.types';
 
 // window.bosonVoice: the desktop app's VoiceService (desktop/voice.go),
@@ -8,6 +8,10 @@ import type {
 export interface VoiceBridge {
   discover(host: string, refresh: boolean): Promise<VoiceServerInfo>;
   rooms(host: string, token: string): Promise<VoiceRoomsResult>;
+  // Managing voice channels (quicvoice 1.5+: POST/PATCH/DELETE /v1/rooms).
+  createRoom(host: string, token: string, input: VoiceRoomInput): Promise<VoiceRoomChange>;
+  updateRoom(host: string, token: string, id: string, input: VoiceRoomInput): Promise<VoiceRoomChange>;
+  deleteRoom(host: string, token: string, id: string): Promise<VoiceRoomChange>;
   join(req: VoiceJoinRequest): Promise<VoiceState>;
   leave(): Promise<void>;
   dismissError(): Promise<void>;
