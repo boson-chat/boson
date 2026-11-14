@@ -46,8 +46,8 @@ export interface ServerWithToken extends Server {
   verification_token_issued_at?: string;
 }
 
-// Per-resolver verify outcome — mirrors the backend's
-// internal/services/server/dns.Result. Surfaced in the verify-step UI
+// Per-resolver verify outcome — mirrors the directory service's verify
+// report (github.com/boson-chat/directory, results.<resolver>.outcome). Surfaced in the verify-step UI
 // so the user sees "Cloudflare ✓ / Google ✗ (record missing) / Quad9 ✓"
 // when DNS propagation is still settling.
 export type VerifyOutcome = 'match' | 'missing_record' | 'timeout' | 'error';
