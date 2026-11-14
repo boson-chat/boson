@@ -227,6 +227,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
         <ChatLayout
           chat={active.chat}
           serverName={active.server.name}
+          serverHost={active.server.hostname}
           myNick={me.handle}
           servers={connections.map((c) => {
             // Aggregate unread + mention counts across every channel in this

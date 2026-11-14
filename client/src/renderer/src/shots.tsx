@@ -19,7 +19,12 @@ import { Inbox } from './screens/Inbox/Inbox';
 import type { Memo } from './modules/memos';
 import { ServerSettings } from './screens/ChatLayout/ServerSettings';
 import { getThemeStore } from './modules/ui/theme';
+import { VoiceController, setVoiceController, setVoiceSettings } from './modules/voice';
+import { createFakeVoiceBridge } from './modules/voice/voice.fake';
 
+// ?theme=<id> (e.g. daylight) picks a built-in theme for the shot.
+const themeParam = new URLSearchParams(location.search).get('theme');
+if (themeParam) localStorage.setItem('boson:theme:v1', JSON.stringify({ active: themeParam }));
 // Apply the saved theme (local storage), as main.tsx does in the app.
 void getThemeStore().init();
 
@@ -71,7 +76,53 @@ const min = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
 const NICK = 'ada';
 const CHAN = '#dev';
 
+// ?voice=none|rooms|connected|error: the chat view on a server with (or
+// without) voice channels, driven by an in-memory voice bridge.
+const voiceMode = new URLSearchParams(location.search).get('voice');
+function installVoice(): void {
+  if (!voiceMode) return;
+  if (new URLSearchParams(location.search).get('ptt')) setVoiceSettings({ mode: 'ptt', pttCode: 'Backquote' });
+  const bridge = createFakeVoiceBridge({
+    servers: voiceMode === 'none' ? {} : { 'irc.nebula.example': {} },
+    rooms: {
+      'irc.nebula.example': [
+        { id: 'general', name: 'General', participants: [
+          { sessionId: 3, userId: 'usr_nova', name: 'nova', muted: false, deafened: false, speaking: true },
+          { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', muted: true, deafened: false, speaking: false },
+          { sessionId: 5, userId: 'usr_pixel', name: 'pixel', muted: false, deafened: true, speaking: false },
+        ] },
+        { id: 'pairing', name: 'Pairing', participants: [
+          { sessionId: 8, userId: 'usr_orbit', name: 'orbit', muted: false, deafened: false, speaking: false },
+        ] },
+        { id: 'afk', name: 'AFK', participants: [] },
+      ],
+    },
+    onJoin: (req, prev) => voiceMode === 'error'
+      ? { ...prev, status: 'error', host: req.host, room: req.room, roomName: req.roomName, errorKind: 'unreachable', error: "Couldn't reach the voice server. Check your connection and try again." }
+      : {
+        ...prev, status: 'connected', host: req.host, room: req.room, roomName: req.roomName, rttMs: 34, quality: 'good',
+        transmitting: true, micLevel: 0.7,
+        participants: [
+          { sessionId: 1, userId: 'usr_ada', name: NICK, self: true, muted: false, deafened: false, speaking: true, volume: 100 },
+          { sessionId: 3, userId: 'usr_nova', name: 'nova', self: false, muted: false, deafened: false, speaking: true, volume: 100 },
+          { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', self: false, muted: true, deafened: false, speaking: false, volume: 100 },
+          { sessionId: 5, userId: 'usr_pixel', name: 'pixel', self: false, muted: false, deafened: true, speaking: false, volume: 80 },
+        ],
+      },
+  });
+  const voice = new VoiceController(bridge, {
+    authUrl: 'https://auth.boson.chat',
+    voiceToken: async () => ({ token: 't', expiresAt: Date.now() + 300_000 }),
+    pollMs: 3_600_000,
+  });
+  setVoiceController(voice);
+  if (voiceMode === 'connected' || voiceMode === 'error') {
+    setTimeout(() => { void voice.join('irc.nebula.example', { id: 'general', name: 'General' }, 'Nebula'); }, 100);
+  }
+}
+
 function chatView(): void {
+  installVoice();
   const session = makeSession();
   const chat = new ChatService(
     session as never,
@@ -80,10 +131,11 @@ function chatView(): void {
   );
   chat.attach();
 
-  render(
+  const layout = (
     <ChatLayout
       chat={chat}
       serverName="Nebula"
+      serverHost={voiceMode ? 'irc.nebula.example' : undefined}
       myNick={NICK}
       servers={[
         { serverId: 's1', name: 'Nebula', engineState: 'connected' },
@@ -93,7 +145,10 @@ function chatView(): void {
       activeServerId="s1"
       onSelectServer={() => {}}
       onBrowseServers={() => {}}
-    />,
+    />
+  );
+  render(
+    voiceMode ? <AuthProvider service={makeAuth(true)}>{layout}</AuthProvider> : layout,
     document.getElementById('app')!,
   );
 
@@ -228,6 +283,7 @@ function authView(): void {
 
 function settingsView(): void {
   installApi(true);
+  installVoice();
   render(
     <AuthProvider service={makeAuth(true)}>
       <UserSettings
@@ -239,6 +295,7 @@ function settingsView(): void {
         directory={directoryService()}
         identity={makeIdentity()}
         auth={makeAuth(true)}
+        initialSection={new URLSearchParams(location.search).get('section')}
       />
     </AuthProvider>,
     app(),

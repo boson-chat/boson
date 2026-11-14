@@ -5,6 +5,8 @@ import type { EngineState } from '../../modules/engine';
 import { Modal } from '@boson/shared';
 import { ServerRail, type ServerRailTile } from './ServerRail';
 import { ChannelSidebar } from './ChannelSidebar';
+import { VoiceSection } from './VoiceSection';
+import { VoiceBar } from './VoiceBar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
 import { ChannelSettings } from './ChannelSettings';
@@ -20,6 +22,9 @@ import './ChatLayout.css';
 interface Props {
   chat: ChatService;
   serverName: string;
+  // The active server's IRC hostname: voice channels are discovered per
+  // server (absent → no voice section).
+  serverHost?: string;
   // CDN URL of the active server's wide banner, when the owner set one.
   // Rendered as the ChannelSidebar header strip; absent → plain text header.
   bannerUrl?: string;
@@ -67,7 +72,7 @@ interface Props {
 }
 
 export function ChatLayout({
-  chat, serverName, bannerUrl, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
+  chat, serverName, serverHost, bannerUrl, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
   onReorderServers,
@@ -192,6 +197,10 @@ export function ChatLayout({
           serverInfo={state.serverInfo}
           engineState={engineState}
           width={channelsW}
+          voice={serverHost ? (
+            <VoiceSection host={serverHost} serverName={serverName} engineState={engineState} avatarFor={avatarFor} />
+          ) : undefined}
+          footer={<VoiceBar />}
         />
   );
   const chatArea = (

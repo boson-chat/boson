@@ -20,6 +20,8 @@ import type { IdentityService } from '../../modules/identity';
 import type { AuthService } from '../../modules/auth';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { AppearancePanel } from './AppearancePanel';
+import { VoiceSettingsSection } from './VoiceSettings';
+import { getVoiceController } from '../../modules/voice';
 import { HttpError } from '../../shared/http/http.client';
 // Pulled at build time from client/package.json. semantic-release keeps
 // every workspace package.json in lockstep with the latest tag via
@@ -41,13 +43,14 @@ const APP_VERSION = pkg.version;
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'account' | 'bouncer' | 'about';
+type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'voice' | 'account' | 'bouncer' | 'about';
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',      label: 'Identity',      description: 'Display nick + handle' },
   { id: 'appearance',    label: 'Appearance',    description: 'Themes + colours' },
   { id: 'content',       label: 'Content',       description: 'Link previews / embeds' },
   { id: 'notifications', label: 'Notifications', description: 'Desktop alerts' },
+  { id: 'voice',         label: 'Voice',         description: 'Mic, speakers, push to talk' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
   { id: 'bouncer',    label: 'Bouncer',    description: 'ZNC / BNC relay (advanced)' },
   { id: 'about',      label: 'About',      description: 'Version + project info' },
@@ -69,10 +72,19 @@ interface UserSettingsProps {
   // Used by the Account section's recovery-code enroll/regenerate flow.
   identity: IdentityService;
   auth: AuthService;
+  // Open at this section (e.g. 'voice' from the voice bar's gear).
+  initialSection?: string | null;
 }
 
-export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth }: UserSettingsProps) {
+export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth, initialSection }: UserSettingsProps) {
   const [section, setSection] = useState<SectionId>('identity');
+  // Voice settings only where there's voice (the desktop app).
+  const hasVoice = getVoiceController() !== null;
+  const menu = MENU.filter((m) => m.id !== 'voice' || hasVoice);
+  useEffect(() => {
+    if (open && initialSection && menu.some((m) => m.id === initialSection)) setSection(initialSection as SectionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, initialSection]);
   const guest = loadGuestSession();
   const mode: 'guest' | 'account' = guest ? 'guest' : 'account';
 
@@ -80,7 +92,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
     <Modal open={open} onClose={onClose} title="User settings">
       <div class="user-settings">
         <nav class="user-settings-menu" aria-label="Settings sections">
-          {MENU.map((m) => (
+          {menu.map((m) => (
             <button
               key={m.id}
               type="button"
@@ -108,6 +120,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
           {section === 'appearance' && <AppearanceSection />}
           {section === 'content' && <ContentSection />}
           {section === 'notifications' && <NotificationsSection />}
+          {section === 'voice' && hasVoice && <VoiceSettingsSection open={open} />}
           {section === 'account' && (
             <AccountSection
               mode={mode}

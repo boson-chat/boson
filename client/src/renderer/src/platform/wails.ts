@@ -12,6 +12,7 @@ const ENGINE = 'main.EngineService';
 const STORE = 'main.SecureStore';
 const THEMES = 'main.ThemesService';
 const UPDATER = 'main.UpdaterService';
+const VOICE = 'main.VoiceService';
 
 // The engine runs in the Wails process. This stands in for the WebSocket the
 // engine client would otherwise open: frames go out through a binding and
@@ -250,6 +251,29 @@ export async function installWailsBridges(): Promise<void> {
     set: (key: string, value: string) => Call.ByName(`${STORE}.Set`, key, value) as Promise<void>,
     remove: (key: string) => Call.ByName(`${STORE}.Remove`, key) as Promise<void>,
   };
+  // Voice channels (desktop/voice.go): desktop only — iOS/Android have no
+  // VoiceService, so the probe fails and there's no bridge (no voice UI).
+  if (await Call.ByName(`${VOICE}.State`).then(() => true, () => false)) {
+    const v = (method: string, ...args: unknown[]): Promise<unknown> => Call.ByName(`${VOICE}.${method}`, ...args);
+    w.bosonVoice = {
+      discover: (host: string, refresh: boolean) => v('Discover', host, refresh),
+      rooms: (host: string, token: string) => v('Rooms', host, token),
+      join: (req: unknown) => v('Join', req),
+      leave: () => v('Leave'),
+      dismissError: () => v('DismissError'),
+      setMuted: (muted: boolean) => v('SetMuted', muted),
+      setDeafened: (deafened: boolean) => v('SetDeafened', deafened),
+      setInputMode: (mode: string) => v('SetInputMode', mode),
+      ptt: (down: boolean) => v('PTT', down),
+      setVADThreshold: (db: number) => v('SetVADThreshold', db),
+      setUserVolume: (userId: string, percent: number) => v('SetUserVolume', userId, percent),
+      devices: () => v('Devices'),
+      setDevices: (inputId: string, outputId: string) => v('SetDevices', inputId, outputId),
+      micTest: (on: boolean) => v('MicTest', on),
+      state: () => v('State'),
+      onState: (fn: (s: unknown) => void) => Events.On('voice:state', (ev) => fn(ev.data)),
+    };
+  }
   w.bosonEngine = {
     discovery: async () => ({ url: 'wails:engine', token: 'in-process', socket: WailsEngineSocket }),
   };
