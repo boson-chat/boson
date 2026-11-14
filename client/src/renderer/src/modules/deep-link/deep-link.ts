@@ -130,6 +130,42 @@ export function subscribeDeepLink(fn: (params: JoinParams) => void): () => void 
 }
 
 /**
+ * Joins a server from inside the app (the login screen's "Use another
+ * server"), through the same path as a boson://join link: buffered until
+ * the directory screen subscribes, then matched to a known server or added
+ * as a local one and connected.
+ */
+export function requestJoin(params: JoinParams): void {
+  if (joinListeners.size === 0) {
+    const q = new URLSearchParams({ host: params.host, port: String(params.port), tls: params.tls ? '1' : '0' });
+    if (params.name) q.set('name', params.name);
+    pendingJoinUrl = `boson://join?${q.toString()}`;
+    return;
+  }
+  for (const fn of joinListeners) fn(params);
+}
+
+// "Add as a plain IRC server" from the login screen: opens the directory's
+// manual-add form with the host filled in, once the directory is up.
+let pendingAddServer: { hostname: string } | null = null;
+const addServerListeners = new Set<(p: { hostname: string }) => void>();
+
+export function requestAddServer(p: { hostname: string }): void {
+  if (addServerListeners.size === 0) { pendingAddServer = p; return; }
+  for (const fn of addServerListeners) fn(p);
+}
+
+export function subscribeAddServer(fn: (p: { hostname: string }) => void): () => void {
+  addServerListeners.add(fn);
+  if (pendingAddServer) {
+    const p = pendingAddServer;
+    pendingAddServer = null;
+    fn(p);
+  }
+  return () => { addServerListeners.delete(fn); };
+}
+
+/**
  * Wire the renderer to the shell-installed `window.bosonDeepLink`
  * bridge. Idempotent — safe to call on every boot. No-op when the
  * bridge isn't present (running in a browser tab via vite dev / e2e).
@@ -147,6 +183,8 @@ export function initDeepLinkBridge(): void {
 export function __resetDeepLinkForTests(): void {
   pendingJoinUrl = null;
   joinListeners.clear();
+  pendingAddServer = null;
+  addServerListeners.clear();
   lastDeliveredUrl = null;
   lastDeliveredAt = 0;
 }

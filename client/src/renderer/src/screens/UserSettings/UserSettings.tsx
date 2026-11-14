@@ -611,7 +611,7 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
     return (
       <SectionFrame
         title="Account"
-        description="You're using Boson without an account. Switching to an account lets you register servers + sync across devices."
+        description="You're using Boson without a boson.chat account (accounts on other networks are under Network accounts). A boson.chat account lets you register servers, keep an identity key and sync across devices."
       >
         <div class="user-settings-actions">
           <Button

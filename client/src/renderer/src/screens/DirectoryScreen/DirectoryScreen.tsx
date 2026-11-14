@@ -4,7 +4,7 @@ import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
 import type { NetworkDirectories } from '../../modules/directory/networks';
 import type { Facets, NetworkSort } from '../../modules/directory/network-api';
-import { subscribeDeepLink } from '../../modules/deep-link/deep-link';
+import { subscribeAddServer, subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
 import { getBouncerStore } from '../../modules/chat/bouncer.store';
@@ -427,6 +427,14 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
   // because it's purely a UI affordance.
   const [advanced, setAdvanced] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  // The manual-add form's hostname when opened from the login screen's
+  // "Add as a plain IRC server".
+  const [addHost, setAddHost] = useState('');
+  useEffect(() => subscribeAddServer(({ hostname }) => {
+    setAdvanced(true);
+    setAddHost(hostname);
+    setAddOpen(true);
+  }), []);
   const [hostOpen, setHostOpen] = useState(false);
   // Top-level view: the public directory, or the user's bouncer networks.
   const [view, setView] = useState<'directory' | 'bouncer'>('directory');
@@ -562,6 +570,8 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
 
       <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a server manually">
         <AddLocalServerForm
+          key={addHost}
+          initialHostname={addHost}
           onSubmit={(input) => {
             bloc.addLocalServer(input);
             setAddOpen(false);
@@ -1124,11 +1134,12 @@ interface AddLocalServerFormProps {
     nickservPassword?: string;
   }) => void;
   onCancel: () => void;
+  initialHostname?: string;
 }
 
-function AddLocalServerForm({ onSubmit, onCancel }: AddLocalServerFormProps) {
+function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLocalServerFormProps) {
   const [name, setName] = useState('');
-  const [hostname, setHostname] = useState('');
+  const [hostname, setHostname] = useState(initialHostname);
   const [port, setPort] = useState('6697');
   const [tls, setTls] = useState(true);
   const [tlsInsecure, setTlsInsecure] = useState(false);

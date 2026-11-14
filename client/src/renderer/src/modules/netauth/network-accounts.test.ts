@@ -150,6 +150,25 @@ describe('NetworkAccounts', () => {
     void accounts;
   });
 
+  it("a connect during launch waits for the network's saved session", async () => {
+    const { storage, transport } = setup();
+    await storage.set(sessionKeyFor(NET_A), JSON.stringify({ refresh_token: 'rt-saved', session_id: 's', user: { id: 'u', username: 'alice' } }));
+    const local = memLocal();
+    local.setItem('boson.netauth.known', JSON.stringify([{ authUrl: NET_A, name: 'Net A', hosts: ['irc.net-a.org'] }]));
+    const again = new NetworkAccounts({
+      mainAuthUrl: MAIN, mainAuth: new AuthService(MAIN, { storage, transport }), storage, transport,
+      bridge: bridgeFor({ 'irc.net-a.org': { authUrl: NET_A } }), local,
+    });
+    const launching = again.init();
+    // The launch's discovery has recorded the link; the restore hasn't
+    // finished. A guest-mode restore connects right now.
+    await Promise.resolve();
+    await Promise.resolve();
+    const login = await resolveIrcLogin(again, 'irc.net-a.org', { interactive: false, serverName: 'Net A' });
+    expect(login).toMatchObject({ token: expect.any(String) });
+    await launching;
+  });
+
   it('reads guest_access (absent means allowed)', async () => {
     const open = setup();
     const linkA = (await open.accounts.discover('irc.net-a.org'))!;

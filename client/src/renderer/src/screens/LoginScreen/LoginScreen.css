@@ -206,3 +206,102 @@
   color: var(--fg-3);
   line-height: var(--leading-body);
 }
+
+/* Which server the form signs in to: boson.chat, or "Use another server"
+   (a self-hosted network). Same shell-prompt voice as the network sign-in's
+   realm line. */
+.login-server {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  min-width: 0;
+}
+.login-server-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.login-server-prompt { color: var(--accent); }
+.login-server-host {
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.login-server-switch {
+  flex-shrink: 0;
+  padding: 0;
+}
+
+/* "Continue to <network> as <user>": the last server used, still signed in. */
+.login-resume {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-6);
+}
+.login-resume-forget { font-size: var(--text-xs); padding: var(--space-1); }
+
+/* ---------- "Use another server" step ---------- */
+
+.otherserver {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.otherserver-form .login-actions { margin-top: 0; }
+
+/* The network the address resolved to: its name and site, then what it
+   offers, as a two-column key/value list. */
+.otherserver-network {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+}
+.otherserver-network-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.otherserver-network-name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.otherserver-change { padding: 0; flex-shrink: 0; }
+.otherserver-network-site {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+.otherserver-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-4);
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
+.otherserver-facts dt {
+  font-family: var(--font-mono);
+  color: var(--fg-3);
+}
+.otherserver-facts dd {
+  margin: 0;
+  color: var(--fg-2);
+  overflow-wrap: anywhere;
+}
+/* The per-network form sits inside the login Card here, not a Modal. */
+.otherserver .netauth { max-width: none; width: 100%; }
