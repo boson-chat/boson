@@ -1,0 +1,24 @@
+{
+  "stack": "atheme",
+  "scenario": "access-add",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "recorded": "2026-11-14T13:30:39.332Z",
+  "op": "setAccess",
+  "args": [
+    "#cse2ene47u",
+    "cshne47u",
+    "op",
+    null
+  ],
+  "sent": [
+    "FLAGS #cse2ene47u cshne47u AOP"
+  ],
+  "replies": [
+    [
+      "Flags \u0002+AOehiortv\u0002 were set on \u0002cshne47u\u0002 in \u0002#cse2ene47u\u0002."
+    ]
+  ],
+  "expect": {
+    "kind": "done"
+  }
+}

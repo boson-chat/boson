@@ -1,0 +1,23 @@
+{
+  "stack": "anope",
+  "scenario": "transfer",
+  "ircdLabel": "unrealircd-6 + anope-2.0",
+  "recorded": "2026-11-14T13:30:32.724Z",
+  "op": "transfer",
+  "args": [
+    "#cse2e54pbk",
+    "csh54pbk",
+    "csf54pbk"
+  ],
+  "sent": [
+    "SET FOUNDER #cse2e54pbk csh54pbk"
+  ],
+  "replies": [
+    [
+      "Founder of \u0002#cse2e54pbk\u0002 changed to \u0002csh54pbk\u0002."
+    ]
+  ],
+  "expect": {
+    "kind": "done"
+  }
+}
