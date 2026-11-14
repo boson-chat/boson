@@ -1,3 +1,9 @@
+## [0.47.0](https://github.com/boson-chat/boson/compare/v0.46.0...v0.47.0) (2026-11-14)
+
+### Features
+
+* channel registration and ChanServ management across Ergo, Anope and Atheme ([#37](https://github.com/boson-chat/boson/issues/37)) ([254024f](https://github.com/boson-chat/boson/commit/254024f46a6bf61568a7bd307049e11b9eb6f203))
+
 ## [0.46.0](https://github.com/boson-chat/boson/compare/v0.45.0...v0.46.0) (2026-11-14)
 
 ### Features
