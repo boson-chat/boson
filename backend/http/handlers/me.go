@@ -166,7 +166,7 @@ func (h *MeHandler) patch(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 }
 
 // delete removes the caller's user row. Cascading FKs clean up dependents
-// (user_server_links, handle_changes). Used by the client's "start fresh"
+// (handle_changes and the other per-user tables). Used by the client's "start fresh"
 // recovery flow when the stored encrypted_user_secret cannot be decrypted —
 // per the PRD there is no key recovery, so the user starts over.
 func (h *MeHandler) delete(w stdhttp.ResponseWriter, r *stdhttp.Request) {

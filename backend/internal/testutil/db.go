@@ -58,7 +58,7 @@ func SetupDB(t *testing.T) *internaldb.DB {
 			t.Fatalf("reset failed: %s: %v", s, err)
 		}
 	}
-	require("TRUNCATE TABLE reports, handle_changes, user_server_links, servers, nick_claims, users, auth_identities CASCADE")
+	require("TRUNCATE TABLE handle_changes, nick_claims, users, auth_identities CASCADE")
 
 	return &internaldb.DB{DB: gdb}
 }
@@ -122,6 +122,10 @@ func dsn(db string) string {
 }
 
 func testDSN() string { return dsn(testDBName) }
+
+// DSN returns a libpq DSN for database db on the test Postgres server
+// (TEST_DB* env, defaulting to the docker-compose boson/boson on :5432).
+func DSN(db string) string { return dsn(db) }
 
 func dbConfig() config.DBConfig {
 	host := getenv("TEST_DBHOST", "localhost")

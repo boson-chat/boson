@@ -23,8 +23,7 @@ async function setupUserAndServer(request: APIRequestContext) {
     data: { handle, encrypted_user_secret: 'YWJjZA==' },
   });
   expect(meRes.ok()).toBeTruthy();
-  // Prefix `ChatErgo-` so the teardown sweep at tests/e2e/global-teardown.ts
-  // picks it up — it already lists ChatErgo- / LocalErgo- / etc.
+  // `ChatErgo-` prefix marks it as a test listing.
   const name = `ChatErgo-dirmod-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
   const srvRes = await request.post(`${BOSON_URL}/servers`, {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
