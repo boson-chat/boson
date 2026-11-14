@@ -138,7 +138,11 @@ func TestVoiceKickedWhenRoomDeleted(t *testing.T) {
 	if st.Status != "error" || st.ErrorKind != "kicked" || st.Error != `Voice channel "Game Night" was deleted by fred.` {
 		t.Fatalf("state %+v", st)
 	}
-	if !h.conns[0].closed || h.audio.running {
+	// The hang-up finishes just after the state flips.
+	for time.Now().Before(deadline) && !(h.conns[0].isClosed() && !h.audio.isRunning()) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !h.conns[0].isClosed() || h.audio.isRunning() {
 		t.Error("kicked session not hung up")
 	}
 	// Joining again works.
@@ -162,4 +166,16 @@ func TestVoiceListener(t *testing.T) {
 	if st.Participants[1].Listener {
 		t.Errorf("alice isn't a listener: %+v", st.Participants[1])
 	}
+}
+
+func (c *fakeConn) isClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closed
+}
+
+func (a *fakeAudio) isRunning() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.running
 }
