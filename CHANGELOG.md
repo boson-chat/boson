@@ -1,3 +1,9 @@
+## [0.51.1](https://github.com/boson-chat/boson/compare/v0.51.0...v0.51.1) (2026-11-14)
+
+### Bug Fixes
+
+* **client:** retry startup loads instead of needing a relaunch ([#45](https://github.com/boson-chat/boson/issues/45)) ([dc48e47](https://github.com/boson-chat/boson/commit/dc48e47667512e14f6392a8889ecde9c3ae39077))
+
 ## [0.51.0](https://github.com/boson-chat/boson/compare/v0.50.0...v0.51.0) (2026-11-14)
 
 ### Features
