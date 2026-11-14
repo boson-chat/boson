@@ -12,6 +12,7 @@ import {
 import { getAdapter } from '../../modules/chat/adapters';
 import type { ServicesAdapter } from '../../modules/chat/adapters';
 import { Avatar } from '../../shared/Avatar/Avatar';
+import { FileDropArea, FileDropHint } from '../../shared/FileDrop/FileDropArea';
 import { HttpError } from '../../shared/http/http.client';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
 import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
@@ -1254,6 +1255,8 @@ function IdentitySection({
   );
 }
 
+const NOT_AN_IMAGE = 'Please choose an image file.';
+
 // Icon/banner upload control for the owner's Edit panel. Square variant
 // previews via <Avatar>; banner variant shows a wide preview. Validates
 // type + size client-side, then delegates to onSave (upload) / onSave(null)
@@ -1285,39 +1288,51 @@ function ServerImageControl({ kind, label, hint, currentUrl, fallbackName, varia
       .finally(() => setBusy(false));
   };
 
-  const pick = (e: Event): void => {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (fileRef.current) fileRef.current.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setError('Please choose an image file.'); return; }
+  // Chosen through the input or dropped onto the control — same path.
+  const pick = (file: File): void => {
+    if (!file.type.startsWith('image/')) { setError(NOT_AN_IMAGE); return; }
     if (file.size > 5 * 1024 * 1024) { setError('Image must be under 5 MB.'); return; }
     run(() => onSave(kind, file));
   };
+  const hintId = `server-image-drop-hint-${kind}`;
 
   return (
-    <Field label={label} hint={hint}>
-      <div class="server-image-control">
-        {variant === 'square' ? (
-          <Avatar nick={fallbackName} url={currentUrl} size={56} />
-        ) : (
-          <div class="server-image-banner-preview">
-            {currentUrl ? <img src={currentUrl} alt="" /> : <span>No banner</span>}
-          </div>
-        )}
-        <div class="server-image-actions">
-          <input ref={fileRef} type="file" accept="image/*" style="display:none" onChange={pick} />
-          <Button type="button" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
-            {busy ? 'Working…' : (currentUrl ? 'Change' : 'Upload')}
-          </Button>
-          {currentUrl && (
-            <Button type="button" variant="ghost" disabled={busy} onClick={() => run(() => onSave(kind, null))}>
-              Remove
-            </Button>
+    <FileDropArea accept="image/*" disabled={busy} onFile={pick} onReject={() => setError(NOT_AN_IMAGE)}>
+      <Field label={label} hint={hint}>
+        <div class="server-image-control">
+          {variant === 'square' ? (
+            <Avatar nick={fallbackName} url={currentUrl} size={56} />
+          ) : (
+            <div class="server-image-banner-preview">
+              {currentUrl ? <img src={currentUrl} alt="" /> : <span>No banner</span>}
+            </div>
           )}
+          <div class="server-image-actions">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              style="display:none"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0];
+                e.currentTarget.value = '';
+                if (file) pick(file);
+              }}
+            />
+            <Button type="button" variant="secondary" disabled={busy} aria-describedby={hintId} onClick={() => fileRef.current?.click()}>
+              {busy ? 'Working…' : (currentUrl ? 'Change' : 'Upload')}
+            </Button>
+            {currentUrl && (
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => run(() => onSave(kind, null))}>
+                Remove
+              </Button>
+            )}
+            <FileDropHint id={hintId} />
+          </div>
         </div>
-      </div>
-      {error && <div class="server-settings-error">{error}</div>}
-    </Field>
+        {error && <div class="server-settings-error">{error}</div>}
+      </Field>
+    </FileDropArea>
   );
 }
 
