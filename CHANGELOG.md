@@ -1,3 +1,9 @@
+## [0.48.1](https://github.com/boson-chat/boson/compare/v0.48.0...v0.48.1) (2026-11-14)
+
+### Bug Fixes
+
+* **client:** show your listings in the hosting modal again ([#39](https://github.com/boson-chat/boson/issues/39)) ([109845d](https://github.com/boson-chat/boson/commit/109845df26cd6473108ac4ff7b3504069123dbb7)), closes [#38](https://github.com/boson-chat/boson/issues/38)
+
 ## [0.48.0](https://github.com/boson-chat/boson/compare/v0.47.0...v0.48.0) (2026-11-14)
 
 ### Features
