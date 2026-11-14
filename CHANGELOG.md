@@ -1,3 +1,9 @@
+## [0.52.1](https://github.com/boson-chat/boson/compare/v0.52.0...v0.52.1) (2026-11-14)
+
+### Bug Fixes
+
+* **client:** network themes accept null branding_url and theme ([#48](https://github.com/boson-chat/boson/issues/48)) ([7c37ba7](https://github.com/boson-chat/boson/commit/7c37ba726e12d8449097111c3851431ffbefe66e))
+
 ## [0.52.0](https://github.com/boson-chat/boson/compare/v0.51.1...v0.52.0) (2026-11-14)
 
 ### Features
