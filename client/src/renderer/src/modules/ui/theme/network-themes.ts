@@ -64,7 +64,7 @@ export interface NetworkThemesDeps {
   // boson.json discovery for an IRC host: its branding URL and auth service.
   discover?: (host: string) => Promise<{ brandingUrl?: string; authUrl?: string } | null>;
   // The auth service's public /v1/config.
-  authConfig?: (authUrl: string) => Promise<{ branding_url?: string } | null>;
+  authConfig?: (authUrl: string) => Promise<{ branding_url?: string | null } | null>;
   bridge?: BrandingBridge | null;
   storage?: KV | null;
   fetch?: typeof fetch;
@@ -279,9 +279,9 @@ export class NetworkThemes {
 
   // boson.chat's own branding (the default login screen): its auth
   // /v1/config branding_url.
-  refreshMain(config: () => Promise<{ branding_url?: string } | null>, opts: { force?: boolean } = {}): Promise<void> {
+  refreshMain(config: () => Promise<{ branding_url?: string | null } | null>, opts: { force?: boolean } = {}): Promise<void> {
     return this.run(MAIN_NETWORK_KEY, !!opts.force, async () => {
-      let url: string | undefined;
+      let url: string | null | undefined;
       try { url = (await config())?.branding_url; } catch { return; }
       const ok = !!url && this.validUrl(url) && await this.fetchDoc(MAIN_NETWORK_KEY, url, 'auth').catch(() => false);
       if (!ok && this.cache[MAIN_NETWORK_KEY]) this.drop(MAIN_NETWORK_KEY);
@@ -309,7 +309,7 @@ export class NetworkThemes {
     let url = disc?.brandingUrl;
     let source: ThemeSource = 'well-known';
     if ((!url || !this.validUrl(url)) && disc?.authUrl && this.deps.authConfig) {
-      try { url = (await this.deps.authConfig(disc.authUrl))?.branding_url; } catch { url = undefined; }
+      try { url = (await this.deps.authConfig(disc.authUrl))?.branding_url ?? undefined; } catch { url = undefined; }
       source = 'auth';
     }
     if (!url || !this.validUrl(url)) return false;

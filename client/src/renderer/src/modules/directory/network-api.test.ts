@@ -97,3 +97,11 @@ describe('network-api', () => {
     await expect(api.verifyServer('n')).rejects.toBeInstanceOf(HttpError);
   });
 });
+
+describe('networkToServer theme', () => {
+  it('keeps an object theme and drops null', () => {
+    const base = { id: 'net_1', hostname: 'irc.ex.org', port: 6697, name: 'Ex' };
+    expect(networkToServer({ ...base, theme: { version: 1, colors: { accent: '#000000' } } }).theme).toEqual({ version: 1, colors: { accent: '#000000' } });
+    expect('theme' in networkToServer({ ...base, theme: null })).toBe(false);
+  });
+});
