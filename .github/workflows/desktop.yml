@@ -26,6 +26,12 @@
 # Dependabot) the build is ad-hoc signed and not notarized, and a release
 # fails rather than publish it.
 #
+# Voice (desktop only) links libopus statically, built from source per
+# platform/architecture by desktop/scripts/build-opus.sh (cached), and needs
+# cgo everywhere: Windows builds with MSYS2's MinGW-w64 gcc. The quicvoice
+# SDK (github.com/boson-chat/quicvoice) is a private module: QUICVOICE_TOKEN
+# (a token that can read that repository) lets `go` fetch it.
+#
 # Android signing secrets: ANDROID_KEYSTORE (base64 of the release keystore),
 # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. Without
 # them the APK is signed with a throwaway debug key, and a release leaves the
@@ -69,6 +75,7 @@ jobs:
       # auth service.
       VITE_BOSON_API_URL: https://api.boson.chat
       VITE_AUTH_URL: https://auth.boson.chat
+      GOPRIVATE: github.com/boson-chat/quicvoice
     strategy:
       fail-fast: false
       matrix:
@@ -89,10 +96,35 @@ jobs:
             go.sum
             desktop/go.sum
 
+      # github.com/boson-chat/quicvoice (the voice SDK) is private.
+      - name: private Go modules
+        shell: bash
+        env:
+          QUICVOICE_TOKEN: ${{ secrets.QUICVOICE_TOKEN }}
+        run: |
+          if [ -z "$QUICVOICE_TOKEN" ]; then
+            echo "::warning::QUICVOICE_TOKEN isn't set: github.com/boson-chat/quicvoice can't be fetched"
+            exit 0
+          fi
+          git config --global url."https://x-access-token:${QUICVOICE_TOKEN}@github.com/boson-chat/quicvoice".insteadOf "https://github.com/boson-chat/quicvoice"
+
       - name: install
         run: npm ci
 
+      # Static libopus for voice (desktop/scripts/build-opus.sh), per OS/arch.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: desktop/build/.opus
+          key: opus-${{ runner.os }}-${{ hashFiles('desktop/scripts/build-opus.sh') }}
+
       # ---- macOS ------------------------------------------------------------
+
+      # pkg-config finds the static libopus; cmake builds it.
+      - name: macOS voice build tools
+        if: runner.os == 'macOS'
+        run: |
+          command -v pkg-config >/dev/null || brew install pkgconf
+          command -v cmake >/dev/null || brew install cmake
 
       - name: macOS notarization key
         if: runner.os == 'macOS' && env.MAC_SIGNING == 'true'
@@ -172,18 +204,40 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.30
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # cgo (voice: miniaudio, libopus) needs a C toolchain: MinGW-w64 gcc,
+      # with cmake/ninja/pkgconf to build and find the static libopus.
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
+        if: runner.os == 'Windows'
+        id: msys2
+        with:
+          msystem: MINGW64
+          update: false
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+
+      - name: MinGW-w64 on PATH
+        if: runner.os == 'Windows'
+        shell: bash
+        run: cygpath -w "${{ steps.msys2.outputs.msys2-location }}/mingw64/bin" >> "$GITHUB_PATH"
+
       - name: build (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        run: desktop/scripts/package.sh
+        run: |
+          gcc --version | head -1
+          desktop/scripts/package.sh
 
       # ---- Linux ------------------------------------------------------------
 
+      # cmake + pkg-config: the static libopus for voice.
       - name: GTK 4 + WebKitGTK 6.0
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev cmake pkg-config
 
       - name: build (Linux)
         if: runner.os == 'Linux'
@@ -217,6 +271,7 @@ jobs:
       ANDROID_SIGNING: ${{ secrets.ANDROID_KEYSTORE != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' && secrets.ANDROID_KEY_ALIAS != '' && secrets.ANDROID_KEY_PASSWORD != '' }}
       VITE_BOSON_API_URL: https://api.boson.chat
       VITE_AUTH_URL: https://auth.boson.chat
+      GOPRIVATE: github.com/boson-chat/quicvoice
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -240,6 +295,18 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+
+      # github.com/boson-chat/quicvoice (the voice SDK) is private.
+      - name: private Go modules
+        shell: bash
+        env:
+          QUICVOICE_TOKEN: ${{ secrets.QUICVOICE_TOKEN }}
+        run: |
+          if [ -z "$QUICVOICE_TOKEN" ]; then
+            echo "::warning::QUICVOICE_TOKEN isn't set: github.com/boson-chat/quicvoice can't be fetched"
+            exit 0
+          fi
+          git config --global url."https://x-access-token:${QUICVOICE_TOKEN}@github.com/boson-chat/quicvoice".insteadOf "https://github.com/boson-chat/quicvoice"
 
       - name: install
         run: npm ci
