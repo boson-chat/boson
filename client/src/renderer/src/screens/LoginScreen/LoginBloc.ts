@@ -1,4 +1,7 @@
-import { AuthError, describeAuthError, validateUsername, type AuthService } from '../../modules/auth';
+import {
+  AuthError, SSO_CANCELLED, describeAuthError, signInWithProvider, ssoBridge, validateUsername,
+  type AuthService, type SSOBridge, type SSOProvider,
+} from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { HttpError } from '../../shared/http/http.client';
@@ -35,6 +38,14 @@ export interface LoginState {
   forgotOpen: boolean;
   // A non-error message (reset or verification email sent).
   notice: string | null;
+  // "Sign in with …" buttons (empty: none, or not the desktop app).
+  ssoProviders: SSOProvider[];
+  // The provider whose browser sign-in is under way.
+  ssoPending: string | null;
+  // Signed in through a provider, but the identity key needs a passphrase:
+  // 'unlock' (the account has a key: the password it was made with) or
+  // 'create' (a new account: pick one). A keychain copy skips this.
+  identityPrompt: 'unlock' | 'create' | null;
 }
 
 export type LoginListener = (state: LoginState) => void;
@@ -43,6 +54,8 @@ export interface LoginBlocDeps {
   auth: AuthService;
   directory: DirectoryService;
   identity: IdentityService;
+  // The desktop app's loopback listener; default window.bosonSSO.
+  sso?: SSOBridge | null;
 }
 
 // Substring used to detect a stored ciphertext that can't possibly be a valid
@@ -79,12 +92,104 @@ export class LoginBloc {
     awaitingConfirmation: null,
     forgotOpen: false,
     notice: null,
+    ssoProviders: [],
+    ssoPending: null,
+    identityPrompt: null,
   };
+
+  private readonly sso: SSOBridge | null;
+  private ssoFlow: { cancel(): void } | null = null;
 
   constructor(deps: LoginBlocDeps) {
     this.auth = deps.auth;
     this.directory = deps.directory;
     this.identity = deps.identity;
+    this.sso = deps.sso === undefined ? ssoBridge() : deps.sso;
+  }
+
+  // Fetches the identity providers for the "Sign in with …" buttons. Only
+  // in the desktop app (it receives the browser's redirect); a failure just
+  // leaves the buttons off.
+  async loadProviders(): Promise<void> {
+    if (!this.sso || typeof this.auth.config !== 'function') return;
+    try {
+      const cfg = await this.auth.config();
+      this.setState({ ...this.state, ssoProviders: cfg.sso_providers });
+    } catch (err) {
+      console.warn('[login] could not load sign-in providers', err);
+    }
+  }
+
+  // "Sign in with <provider>": the browser does the provider's login; then
+  // the identity key comes from the keychain, or needs its passphrase.
+  async signInWith(slug: string): Promise<void> {
+    const provider = this.state.ssoProviders.find((p) => p.slug === slug);
+    if (!provider || !this.sso || this.state.busy) return;
+    this.setState({ ...this.state, error: null, notice: null, unrecoverable: null, recoverable: null, busy: true, ssoPending: slug });
+    const flow = signInWithProvider(this.auth, this.sso, provider);
+    this.ssoFlow = flow;
+    let userId: string;
+    try {
+      userId = (await flow.done).user.id;
+    } catch (err) {
+      if (this.ssoFlow !== flow) return;
+      this.ssoFlow = null;
+      const cancelled = err instanceof AuthError && err.code === SSO_CANCELLED;
+      this.setState({ ...this.state, busy: false, ssoPending: null, error: cancelled ? null : describeAuthError(err) });
+      return;
+    }
+    this.ssoFlow = null;
+    try {
+      // This device may hold the key already.
+      if (await this.identity.restoreFromStorage(userId)) {
+        this.setState({ ...this.state, busy: false, ssoPending: null });
+        return;
+      }
+      let me;
+      try {
+        me = await this.directory.getMe();
+      } catch (err) {
+        if (!(err instanceof HttpError) || err.status !== 404) throw err;
+      }
+      this.setState({
+        ...this.state, busy: false, ssoPending: null, password: '', confirmPassword: '',
+        identityPrompt: me?.encrypted_user_secret ? 'unlock' : 'create',
+      });
+    } catch (err) {
+      this.setState({ ...this.state, busy: false, ssoPending: null, error: describeAuthError(err) });
+    }
+  }
+
+  // Stop waiting for the browser.
+  cancelSignInWith(): void {
+    const flow = this.ssoFlow;
+    this.ssoFlow = null;
+    flow?.cancel();
+    this.setState({ ...this.state, busy: false, ssoPending: null });
+  }
+
+  // The passphrase step after a provider sign-in.
+  async submitIdentityPassphrase(): Promise<void> {
+    const { identityPrompt, password, confirmPassword } = this.state;
+    if (!identityPrompt || !password) return;
+    if (identityPrompt === 'create' && password !== confirmPassword) {
+      this.setState({ ...this.state, error: "Passphrases don't match." });
+      return;
+    }
+    this.setState({ ...this.state, error: null, notice: null, unrecoverable: null, recoverable: null, busy: true });
+    try {
+      if (await this.unlockIdentity(password)) {
+        this.setState({ ...this.state, busy: false, identityPrompt: null });
+      }
+    } catch (err) {
+      this.setState({ ...this.state, error: describeAuthError(err), busy: false });
+    }
+  }
+
+  // Back out of the passphrase step: signs the provider session out.
+  async abandonIdentityPrompt(): Promise<void> {
+    this.setState({ ...this.state, identityPrompt: null, password: '', confirmPassword: '', error: null, recoverable: null, unrecoverable: null });
+    await this.auth.signOut().catch(() => {});
   }
 
   getState(): LoginState {
@@ -149,59 +254,7 @@ export class LoginBloc {
         }
         throw err;
       }
-      let me;
-      try {
-        me = await this.directory.getMe();
-      } catch (err) {
-        if (!(err instanceof HttpError) || err.status !== 404) throw err;
-      }
-      if (me?.encrypted_user_secret) {
-        try {
-          await this.identity.unlock(password, me.encrypted_user_secret);
-        } catch (unlockErr) {
-          const detail = unlockErr instanceof Error ? unlockErr.message : String(unlockErr);
-          console.error('[identity.unlock] failed:', detail, { blobLen: me.encrypted_user_secret.length });
-          // "blob too short" means the stored ciphertext can't possibly be a
-          // valid AES-GCM blob — almost always test-seed stub data. Offer the
-          // Start-fresh path. Any other unlock error is most likely a wrong
-          // password, where the right answer is "try again," not "wipe it."
-          if (detail.includes(UNRECOVERABLE_BLOB_MARKER)) {
-            this.setState({
-              ...this.state,
-              unrecoverable: detail,
-              error:
-                'Your stored identity key is invalid (likely leftover test data). ' +
-                'Start fresh to recreate it — this wipes your current account row.',
-              busy: false,
-            });
-          } else if (me.encrypted_user_secret_recovery) {
-            // Wrong password, but the account has a recovery wrap — offer the
-            // recovery-code path (the usual case after a password reset,
-            // which leaves the password wrap stale).
-            this.setState({
-              ...this.state,
-              recoverable: me.encrypted_user_secret_recovery,
-              error:
-                "Couldn't decrypt your identity key with that password. " +
-                'If you reset your password, enter your recovery code below.',
-              busy: false,
-            });
-          } else {
-            this.setState({
-              ...this.state,
-              error: `Couldn't decrypt your identity key. Use the same password you signed up with. (${detail})`,
-              busy: false,
-            });
-          }
-          return;
-        }
-      } else {
-        await this.identity.initializeForNewUser(password);
-      }
-      // Identity is unlocked. Best-effort persist to the OS keychain so the
-      // next launch skips the password prompt. Never blocks the sign-in flow;
-      // identity.persist() returns false rather than throwing.
-      await this.persistIdentity();
+      if (!(await this.unlockIdentity(password))) return;
       this.setState({ ...this.state, busy: false, awaitingConfirmation: null });
     } catch (err) {
       this.setState({
@@ -210,6 +263,66 @@ export class LoginBloc {
         busy: false,
       });
     }
+  }
+
+  // Unlocks the identity key with `password` (the account's existing key),
+  // or makes one for a new account, and keeps it in the keychain. false
+  // (with the error in state) when the password didn't unlock it.
+  private async unlockIdentity(password: string): Promise<boolean> {
+    let me;
+    try {
+      me = await this.directory.getMe();
+    } catch (err) {
+      if (!(err instanceof HttpError) || err.status !== 404) throw err;
+    }
+    if (me?.encrypted_user_secret) {
+      try {
+        await this.identity.unlock(password, me.encrypted_user_secret);
+      } catch (unlockErr) {
+        const detail = unlockErr instanceof Error ? unlockErr.message : String(unlockErr);
+        console.error('[identity.unlock] failed:', detail, { blobLen: me.encrypted_user_secret.length });
+        // "blob too short" means the stored ciphertext can't possibly be a
+        // valid AES-GCM blob — almost always test-seed stub data. Offer the
+        // Start-fresh path. Any other unlock error is most likely a wrong
+        // password, where the right answer is "try again," not "wipe it."
+        if (detail.includes(UNRECOVERABLE_BLOB_MARKER)) {
+          this.setState({
+            ...this.state,
+            unrecoverable: detail,
+            error:
+              'Your stored identity key is invalid (likely leftover test data). ' +
+              'Start fresh to recreate it — this wipes your current account row.',
+            busy: false,
+          });
+        } else if (me.encrypted_user_secret_recovery) {
+          // Wrong password, but the account has a recovery wrap — offer the
+          // recovery-code path (the usual case after a password reset,
+          // which leaves the password wrap stale).
+          this.setState({
+            ...this.state,
+            recoverable: me.encrypted_user_secret_recovery,
+            error:
+              "Couldn't decrypt your identity key with that password. " +
+              'If you reset your password, enter your recovery code below.',
+            busy: false,
+          });
+        } else {
+          this.setState({
+            ...this.state,
+            error: `Couldn't decrypt your identity key. Use the same password you signed up with. (${detail})`,
+            busy: false,
+          });
+        }
+        return false;
+      }
+    } else {
+      await this.identity.initializeForNewUser(password);
+    }
+    // Identity is unlocked. Best-effort persist to the OS keychain so the
+    // next launch skips the password prompt. Never blocks the sign-in flow;
+    // identity.persist() returns false rather than throwing.
+    await this.persistIdentity();
+    return true;
   }
 
   async signUp(): Promise<void> {

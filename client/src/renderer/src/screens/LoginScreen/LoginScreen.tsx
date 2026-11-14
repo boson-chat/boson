@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { useAuthService } from '../../modules/auth';
+import { useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { Button, Card, Field, Input, Logo, Tabs, WarningBanner } from '@boson/shared';
@@ -21,8 +21,11 @@ export function LoginScreen({ directory, identity }: Props) {
 
   const {
     mode, login, username, email, password, confirmPassword, error, unrecoverable, recoverable, busy,
-    awaitingConfirmation, forgotOpen, notice,
+    awaitingConfirmation, forgotOpen, notice, ssoProviders, ssoPending, identityPrompt,
   } = state;
+  const { session } = useAuthState();
+  useEffect(() => { void bloc.loadProviders(); }, [bloc]);
+  useEffect(() => () => bloc.cancelSignInWith(), [bloc]);
   const usernameProblem = bloc.usernameProblem();
   const [recoveryInput, setRecoveryInput] = useState('');
 
@@ -91,6 +94,85 @@ export function LoginScreen({ directory, identity }: Props) {
                 </Button>
               </div>
             </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Signed in through a provider; the identity key needs its passphrase
+  // (or a new one) on this device.
+  if (identityPrompt !== null) {
+    const who = session?.user.username;
+    const creating = identityPrompt === 'create';
+    return (
+      <div class="login-screen">
+        <div class="login-container">
+          <Logo />
+          <Card>
+            <form class="login-confirm" onSubmit={(e) => { e.preventDefault(); void bloc.submitIdentityPassphrase(); }}>
+              <h2 class="login-confirm-title">{creating ? 'Set an identity passphrase.' : 'Unlock your identity key.'}</h2>
+              <p class="login-confirm-body">
+                {who && <>Signed in as <strong class="login-confirm-email">{who}</strong>. </>}
+                {creating
+                  ? 'Your identity key signs you in to IRC servers and encrypts the passwords Boson syncs. Pick a passphrase to protect it: you enter it once on each new device.'
+                  : 'Your identity key is protected by your Boson password (or the passphrase you set). Enter it once on this device.'}
+              </p>
+              <Field label={creating ? 'Passphrase' : 'Password or passphrase'}>
+                <Input
+                  type="password"
+                  placeholder={creating ? 'passphrase' : 'password'}
+                  value={password}
+                  onInput={(e) => bloc.setPassword((e.target as HTMLInputElement).value)}
+                  autoFocus
+                  required
+                  autoComplete={creating ? 'new-password' : 'current-password'}
+                />
+              </Field>
+              {creating && (
+                <Field label="Confirm passphrase">
+                  <Input
+                    type="password"
+                    placeholder="confirm passphrase"
+                    value={confirmPassword}
+                    onInput={(e) => bloc.setConfirmPassword((e.target as HTMLInputElement).value)}
+                    required
+                    autoComplete="new-password"
+                  />
+                </Field>
+              )}
+              {error && <div class="login-error" role="alert">{error}</div>}
+              {recoverable && (
+                <div class="login-recovery">
+                  <Field label="Recovery code" hint="The one-time code shown when you created your account.">
+                    <Input
+                      placeholder="xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx"
+                      value={recoveryInput}
+                      onInput={(e) => setRecoveryInput((e.target as HTMLInputElement).value)}
+                      autoComplete="off"
+                      spellcheck={false}
+                    />
+                  </Field>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    fullWidth
+                    disabled={busy || recoveryInput.trim().length === 0}
+                    onClick={() => { void bloc.recoverWithCode(recoveryInput); }}
+                  >
+                    Recover with code
+                  </Button>
+                </div>
+              )}
+              <div class="login-actions">
+                <Button type="submit" variant="primary" fullWidth disabled={busy || !password} loading={busy}>
+                  {creating ? 'Create identity key' : 'Unlock'}
+                </Button>
+                <Button type="button" variant="ghost" fullWidth disabled={busy} onClick={() => { void bloc.abandonIdentityPrompt(); }}>
+                  Sign out
+                </Button>
+              </div>
+            </form>
           </Card>
         </div>
       </div>
@@ -273,7 +355,7 @@ export function LoginScreen({ directory, identity }: Props) {
                 variant={mode === 'login' ? 'primary' : 'ghost'}
                 fullWidth
                 disabled={busy}
-                loading={busy && mode === 'login'}
+                loading={busy && !ssoPending && mode === 'login'}
                 onClick={(e) => { if (mode === 'login') onSubmit('signin', e); else { e.preventDefault(); bloc.setMode('login'); } }}
               >
                 Sign in
@@ -283,7 +365,7 @@ export function LoginScreen({ directory, identity }: Props) {
                 variant={mode === 'signup' ? 'primary' : 'ghost'}
                 fullWidth
                 disabled={busy}
-                loading={busy && mode === 'signup'}
+                loading={busy && !ssoPending && mode === 'signup'}
                 onClick={(e) => { if (mode === 'signup') onSubmit('signup', e); else { e.preventDefault(); bloc.setMode('signup'); } }}
               >
                 Sign up
@@ -294,6 +376,34 @@ export function LoginScreen({ directory, identity }: Props) {
               <button type="button" class="login-guest-toggle login-forgot" onClick={() => bloc.openForgot()}>
                 Forgot password?
               </button>
+            )}
+
+            {ssoProviders.length > 0 && (
+              <div class="login-sso" aria-label="Sign in with another account">
+                <div class="login-sso-divider" aria-hidden="true"><span>or</span></div>
+                {ssoPending ? (
+                  <div class="login-sso-waiting" role="status">
+                    <span class="login-sso-spinner" aria-hidden="true" />
+                    <span>
+                      Finish signing in with {ssoProviders.find((p) => p.slug === ssoPending)?.display_name ?? ssoPending} in your browser.
+                    </span>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => bloc.cancelSignInWith()}>Cancel</Button>
+                  </div>
+                ) : (
+                  ssoProviders.map((p) => (
+                    <Button
+                      key={p.slug}
+                      type="button"
+                      variant="secondary"
+                      fullWidth
+                      disabled={busy}
+                      onClick={() => { void bloc.signInWith(p.slug); }}
+                    >
+                      Continue with {p.display_name || p.slug}
+                    </Button>
+                  ))
+                )}
+              </div>
             )}
 
             {mode === 'signup' && (

@@ -19,7 +19,7 @@ import { Inbox } from './screens/Inbox/Inbox';
 import type { Memo } from './modules/memos';
 import { ServerSettings } from './screens/ChatLayout/ServerSettings';
 import { getThemeStore } from './modules/ui/theme';
-import { VoiceController, setVoiceController, setVoiceSettings } from './modules/voice';
+import { VoiceController, setVoiceController, setVoiceSettings, type VoiceRoom } from './modules/voice';
 import { createFakeVoiceBridge } from './modules/voice/voice.fake';
 
 // ?theme=<id> (e.g. daylight) picks a built-in theme for the shot.
@@ -82,9 +82,33 @@ const voiceMode = new URLSearchParams(location.search).get('voice');
 function installVoice(): void {
   if (!voiceMode) return;
   if (new URLSearchParams(location.search).get('ptt')) setVoiceSettings({ mode: 'ptt', pttCode: 'Backquote' });
+  // ?voice=manage|listener|kicked: voice channels under #dev, locks and
+  // a listen-only room, and you may make and manage them.
+  const managed = voiceMode === 'manage' || voiceMode === 'listener' || voiceMode === 'kicked';
+  const managedRooms: VoiceRoom[] = [
+    { id: 'general', name: 'General', kind: 'static', parent: '', position: 0, canJoin: true, canSpeak: true, canManage: false, participants: [
+      { sessionId: 3, userId: 'usr_nova', name: 'nova', muted: false, deafened: false, speaking: true },
+      { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', muted: true, deafened: false, speaking: false },
+    ] },
+    { id: 'afk', name: 'AFK', kind: 'static', parent: '', position: 1, canJoin: true, canSpeak: true, participants: [] },
+    { id: 'dev-standup', name: 'Standup', kind: 'dynamic', parent: '#dev', position: 0, owner: { userId: 'usr_ada', name: NICK },
+      minRole: 'member', speakRole: 'member', canManage: true, canJoin: true, canSpeak: true, participants: [
+        { sessionId: 8, userId: 'usr_orbit', name: 'orbit', muted: false, deafened: false, speaking: false },
+        { sessionId: 9, userId: 'usr_mox', name: 'mox', muted: false, deafened: false, speaking: true },
+      ] },
+    { id: 'dev-town-hall', name: 'Town hall', kind: 'dynamic', parent: '#dev', position: 1, owner: { userId: 'usr_nova', name: 'nova' },
+      minRole: 'member', speakRole: 'op', canManage: voiceMode !== 'listener', canJoin: true, canSpeak: voiceMode !== 'listener', participants: [] },
+    { id: 'dev-staff', name: 'Staff room', kind: 'dynamic', parent: '#dev', position: 2, owner: { userId: 'usr_nova', name: 'nova' },
+      minRole: 'admin', speakRole: 'admin', requireChannelMembership: true, canManage: false, canJoin: false, canSpeak: false, participants: [] },
+    { id: 'design-crit', name: 'Crit', kind: 'dynamic', parent: '#design', position: 0, owner: { userId: 'usr_pixel', name: 'pixel' },
+      minRole: 'member', speakRole: 'member', canManage: false, canJoin: true, canSpeak: true, participants: [
+        { sessionId: 12, userId: 'usr_pixel', name: 'pixel', muted: false, deafened: true, speaking: false },
+      ] },
+  ];
   const bridge = createFakeVoiceBridge({
     servers: voiceMode === 'none' ? {} : { 'irc.nebula.example': {} },
-    rooms: {
+    permissions: managed ? { 'irc.nebula.example': { policy: 'registered', canCreate: true, createScope: 'any', foundedChannels: [] } } : {},
+    rooms: managed ? { 'irc.nebula.example': managedRooms } : {
       'irc.nebula.example': [
         { id: 'general', name: 'General', participants: [
           { sessionId: 3, userId: 'usr_nova', name: 'nova', muted: false, deafened: false, speaking: true },
@@ -97,7 +121,17 @@ function installVoice(): void {
         { id: 'afk', name: 'AFK', participants: [] },
       ],
     },
-    onJoin: (req, prev) => voiceMode === 'error'
+    onJoin: (req, prev) => voiceMode === 'listener'
+      ? {
+        ...prev, status: 'connected', host: req.host, room: req.room, roomName: req.roomName, rttMs: 41, quality: 'good', listener: true,
+        participants: [
+          { sessionId: 1, userId: 'usr_ada', name: NICK, self: true, listener: true, muted: true, deafened: false, speaking: false, volume: 100 },
+          { sessionId: 3, userId: 'usr_nova', name: 'nova', self: false, muted: false, deafened: false, speaking: true, volume: 100 },
+        ],
+      }
+      : voiceMode === 'kicked'
+        ? { ...prev, status: 'error', host: req.host, room: req.room, roomName: req.roomName, errorKind: 'kicked', error: 'Voice channel "Standup" was deleted by nova.', participants: [] }
+        : voiceMode === 'error'
       ? { ...prev, status: 'error', host: req.host, room: req.room, roomName: req.roomName, errorKind: 'unreachable', error: "Couldn't reach the voice server. Check your connection and try again." }
       : {
         ...prev, status: 'connected', host: req.host, room: req.room, roomName: req.roomName, rttMs: 34, quality: 'good',
@@ -118,6 +152,12 @@ function installVoice(): void {
   setVoiceController(voice);
   if (voiceMode === 'connected' || voiceMode === 'error') {
     setTimeout(() => { void voice.join('irc.nebula.example', { id: 'general', name: 'General' }, 'Nebula'); }, 100);
+  }
+  if (voiceMode === 'listener') {
+    setTimeout(() => { void voice.join('irc.nebula.example', { id: 'dev-town-hall', name: 'Town hall' }, 'Nebula'); }, 100);
+  }
+  if (voiceMode === 'kicked') {
+    setTimeout(() => { void voice.join('irc.nebula.example', { id: 'dev-standup', name: 'Standup' }, 'Nebula'); }, 100);
   }
 }
 
@@ -243,6 +283,21 @@ function makeAuth(signedIn: boolean) {
     signIn: async () => {}, signUp: async () => ({ verificationRequired: true }), signOut: async () => {},
     resendVerification: async () => {}, requestPasswordReset: async () => {}, tokenRejected: async () => null,
     updateMetadata: async () => {}, markFatal: () => {},
+    // ?sso=…: "Sign in with …" providers, and what signing in with one does.
+    config: async () => ({ sso_providers: [
+      { slug: 'dex', kind: 'oidc', display_name: 'Dex', start_url: 'https://auth.boson.chat/v1/sso/dex/start' },
+      { slug: 'okta', kind: 'saml', display_name: 'Okta', start_url: 'https://auth.boson.chat/v1/sso/okta/start' },
+    ] }),
+    exchangeSSOCode: async () => {
+      const s = { access_token: 'jwt', expires_at: Date.now() + 900_000, refresh_token: 'r', session_id: 'ses_2', user: { id: 'usr_2', username: 'ada', email: null, email_verified: false, role: 'user', user_metadata: {} } };
+      (state as { session: unknown }).session = s;
+      return s;
+    },
+    identities: async () => ({ has_password: true, identities: [
+      { id: 'uid_1', provider_id: 'idp_1', provider_slug: 'dex', provider_kind: 'oidc', provider_display_name: 'Dex', subject: 'CgVhZGEx', email: 'ada@example.com', created_at: '2026-11-01T00:00:00Z', last_login_at: '2026-11-12T09:00:00Z' },
+      { id: 'uid_2', provider_id: 'idp_2', provider_slug: 'okta', provider_kind: 'saml', provider_display_name: 'Okta', subject: '00u1abcd', email: null, created_at: '2026-11-02T00:00:00Z', last_login_at: null },
+    ] }),
+    unlinkIdentity: async () => {},
   } as never;
 }
 
@@ -272,7 +327,21 @@ function directoryView(): void {
 }
 
 function authView(): void {
-  installApi(false);
+  const sso = new URLSearchParams(location.search).get('sso');
+  installApi(sso === 'unlock');
+  if (sso === 'new') {
+    (window as W & { bosonApi?: unknown }).bosonApi = {
+      fetch: async () => ({ status: 404, ok: false, statusText: 'Not Found', text: JSON.stringify({ error: 'not_found' }) }),
+    };
+  }
+  if (sso) {
+    (window as W & { bosonSSO?: unknown }).bosonSSO = {
+      begin: async () => ({ id: 'f1', redirectUri: 'http://127.0.0.1:5555/callback?s=x' }),
+      wait: async () => (sso === 'waiting' ? new Promise(() => {}) : { code: 'bsc_1' }),
+      cancel: async () => {},
+      open: async () => {},
+    };
+  }
   render(
     <AuthProvider service={makeAuth(false)}>
       <LoginScreen directory={directoryService()} identity={makeIdentity()} />

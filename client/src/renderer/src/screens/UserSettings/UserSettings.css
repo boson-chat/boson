@@ -458,3 +458,27 @@
   .user-settings-menu-desc { display: none; }
   .user-settings-body { padding-left: 0; padding-top: var(--space-4); }
 }
+
+/* Account → linked sign-ins ("Sign in with …" identities). */
+.user-settings-identities { display: flex; flex-direction: column; gap: var(--space-3); }
+.user-settings-identities-head { display: flex; flex-direction: column; gap: 2px; }
+.user-settings-identities-title { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg); font-weight: 600; }
+.user-settings-identities-desc { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-3); }
+.user-settings-identities-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.user-settings-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) 0;
+  border-top: 1px solid var(--border-soft, var(--border));
+}
+.user-settings-identity-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.user-settings-identity-name { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg); }
+.user-settings-identity-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

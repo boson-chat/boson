@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LoginBloc, type LoginState } from './LoginBloc';
-import { AuthError, type AuthService } from '../../modules/auth';
+import { AuthError, type AuthService, type SSOBridge } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { HttpError } from '../../shared/http/http.client';
@@ -64,11 +64,12 @@ function buildBloc(opts: {
   auth?: Partial<AuthService>;
   directory?: Partial<DirectoryService>;
   identity?: Partial<IdentityService>;
+  sso?: SSOBridge | null;
 } = {}): Harness {
   const auth = buildFakeAuth(opts.auth);
   const directory = buildFakeDirectory(opts.directory);
   const identity = buildFakeIdentity(opts.identity);
-  const bloc = new LoginBloc({ auth, directory, identity });
+  const bloc = new LoginBloc({ auth, directory, identity, sso: opts.sso ?? null });
   return { auth, directory, identity, bloc };
 }
 
@@ -91,6 +92,9 @@ describe('LoginBloc', () => {
         awaitingConfirmation: null,
         forgotOpen: false,
         notice: null,
+        ssoProviders: [],
+        ssoPending: null,
+        identityPrompt: null,
       });
     });
 
@@ -474,5 +478,120 @@ describe('LoginBloc — recovery code', () => {
     await bloc.recoverWithCode('wrong-code');
     expect(bloc.getState().error).toMatch(/rejected/i);
     expect(bloc.getState().recoverable).toBe('rec-wrap'); // prompt stays
+  });
+});
+
+describe('LoginBloc — sign in with a provider', () => {
+  const provider = { slug: 'dex', kind: 'oidc', display_name: 'Dex', start_url: 'https://auth.example/v1/sso/dex/start' };
+  const session = { access_token: 'a', expires_at: 0, refresh_token: 'r', session_id: 's', user: { id: 'usr_1', username: 'ada', email: null, email_verified: false, role: 'user', user_metadata: {} } };
+
+  function fakeSSO(result: { code?: string; error?: string; errorDescription?: string }): SSOBridge & { opened: string[] } {
+    const opened: string[] = [];
+    return {
+      opened,
+      begin: vi.fn(async () => ({ id: 'f1', redirectUri: 'http://127.0.0.1:5555/callback?s=xyz' })),
+      wait: vi.fn(async () => result),
+      cancel: vi.fn(async () => {}),
+      open: vi.fn(async (u: string) => { opened.push(u); }),
+    };
+  }
+
+  it('shows no providers outside the desktop app', async () => {
+    const config = vi.fn(async () => ({ sso_providers: [provider] }));
+    const { bloc } = buildBloc({ auth: { config } as never, sso: null });
+    await bloc.loadProviders();
+    expect(config).not.toHaveBeenCalled();
+    expect(bloc.getState().ssoProviders).toEqual([]);
+  });
+
+  it('opens the browser with PKCE, exchanges the code and asks for the passphrase of an existing key', async () => {
+    const sso = fakeSSO({ code: 'bsc_1' });
+    const exchangeSSOCode = vi.fn(async () => session);
+    const { bloc, identity } = buildBloc({
+      auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode, getState: () => ({ session, loading: false, error: null }) } as never,
+      directory: { getMe: vi.fn(async () => ({ encrypted_user_secret: 'blob' })) } as never,
+      sso,
+    });
+    await bloc.loadProviders();
+    expect(bloc.getState().ssoProviders).toHaveLength(1);
+    await bloc.signInWith('dex');
+    const url = new URL(sso.opened[0]!);
+    expect(url.origin + url.pathname).toBe(provider.start_url);
+    expect(url.searchParams.get('return_to')).toBe('http://127.0.0.1:5555/callback?s=xyz');
+    expect(url.searchParams.get('code_challenge_method')).toBe('S256');
+    const challenge = url.searchParams.get('code_challenge')!;
+    const [code, verifier] = (exchangeSSOCode.mock.calls[0] as unknown as [string, string]);
+    expect(code).toBe('bsc_1');
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    expect(btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')).toBe(challenge);
+    expect(bloc.getState().identityPrompt).toBe('unlock');
+    expect(bloc.getState().busy).toBe(false);
+
+    bloc.setPassword('hunter2');
+    await bloc.submitIdentityPassphrase();
+    expect(identity.unlock).toHaveBeenCalledWith('hunter2', 'blob');
+    expect(identity.persist).toHaveBeenCalledWith('usr_1');
+    expect(bloc.getState().identityPrompt).toBeNull();
+  });
+
+  it('skips the passphrase when the keychain has the key', async () => {
+    const { bloc } = buildBloc({
+      auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode: vi.fn(async () => session) } as never,
+      identity: { restoreFromStorage: vi.fn(async () => true) } as never,
+      sso: fakeSSO({ code: 'bsc_1' }),
+    });
+    await bloc.loadProviders();
+    await bloc.signInWith('dex');
+    expect(bloc.getState().identityPrompt).toBeNull();
+    expect(bloc.getState().error).toBeNull();
+  });
+
+  it('makes a key for a new account with a confirmed passphrase', async () => {
+    const { bloc, identity } = buildBloc({
+      auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode: vi.fn(async () => session) } as never,
+      sso: fakeSSO({ code: 'bsc_1' }),
+    });
+    await bloc.loadProviders();
+    await bloc.signInWith('dex');
+    expect(bloc.getState().identityPrompt).toBe('create');
+    bloc.setPassword('one');
+    bloc.setConfirmPassword('two');
+    await bloc.submitIdentityPassphrase();
+    expect(bloc.getState().error).toMatch(/match/);
+    bloc.setConfirmPassword('one');
+    await bloc.submitIdentityPassphrase();
+    expect(identity.initializeForNewUser).toHaveBeenCalledWith('one');
+    expect(bloc.getState().identityPrompt).toBeNull();
+  });
+
+  it("shows the provider's error and nothing for a cancel", async () => {
+    const h = buildBloc({
+      auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode: vi.fn() } as never,
+      sso: fakeSSO({ error: 'no_linked_account', errorDescription: 'x' }),
+    });
+    await h.bloc.loadProviders();
+    await h.bloc.signInWith('dex');
+    expect(h.bloc.getState().error).toMatch(/No Boson account is linked to that Dex account/);
+    expect(h.bloc.getState().busy).toBe(false);
+
+    const c = buildBloc({
+      auth: { config: vi.fn(async () => ({ sso_providers: [provider] })) } as never,
+      sso: fakeSSO({ error: 'cancelled' }),
+    });
+    await c.bloc.loadProviders();
+    await c.bloc.signInWith('dex');
+    expect(c.bloc.getState().error).toBeNull();
+  });
+
+  it('backing out of the passphrase signs out', async () => {
+    const { bloc, auth } = buildBloc({
+      auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode: vi.fn(async () => session) } as never,
+      sso: fakeSSO({ code: 'bsc_1' }),
+    });
+    await bloc.loadProviders();
+    await bloc.signInWith('dex');
+    await bloc.abandonIdentityPrompt();
+    expect(auth.signOut).toHaveBeenCalled();
+    expect(bloc.getState().identityPrompt).toBeNull();
   });
 });

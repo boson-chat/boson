@@ -17,7 +17,7 @@ import {
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
-import type { AuthService } from '../../modules/auth';
+import { describeAuthError, type AuthService, type LinkedIdentities } from '../../modules/auth';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { AppearancePanel } from './AppearancePanel';
 import { VoiceSettingsSection } from './VoiceSettings';
@@ -129,6 +129,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               onClose={onClose}
               directory={directory}
               identity={identity}
+              auth={auth}
               open={open}
             />
           )}
@@ -590,13 +591,14 @@ function BouncerSection({ mode, open }: {
   );
 }
 
-function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, identity, open }: {
+function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, identity, auth, open }: {
   mode: 'guest' | 'account';
   authedEmail: string | null;
   onSignOut: () => void;
   onClose: () => void;
   directory: DirectoryService;
   identity: IdentityService;
+  auth: AuthService;
   open: boolean;
 }) {
   if (mode === 'guest') {
@@ -632,10 +634,84 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
           <RecoveryCodeSettings directory={directory} identity={identity} open={open} />
         </div>
       </Card>
+      <LinkedSignIns auth={auth} open={open} />
       <div class="user-settings-actions">
         <Button variant="ghost" onClick={() => { onSignOut(); onClose(); }}>Sign out</Button>
       </div>
     </SectionFrame>
+  );
+}
+
+// "Sign in with …" identities linked to the account, each with Unlink.
+// Hidden while there are none (and when the auth service can't list them).
+// Unlinking the last way in (no password, no other link) is refused (409
+// last_login_method); that row's button is disabled up front.
+function LinkedSignIns({ auth, open }: { auth: AuthService; open: boolean }) {
+  const [data, setData] = useState<LinkedIdentities | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || typeof auth.identities !== 'function') return;
+    let cancelled = false;
+    void auth.identities()
+      .then((d) => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setData(null); });
+    return () => { cancelled = true; };
+  }, [open, auth]);
+
+  if (!data || data.identities.length === 0) return null;
+  const only = !data.has_password && data.identities.length === 1;
+
+  const unlink = async (id: string): Promise<void> => {
+    setBusy(id);
+    setError(null);
+    try {
+      await auth.unlinkIdentity(id);
+      setData(await auth.identities());
+    } catch (err) {
+      setError(describeAuthError(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Card>
+      <div class="user-settings-card-body user-settings-identities">
+        <div class="user-settings-identities-head">
+          <span class="user-settings-identities-title">Linked sign-ins</span>
+          <span class="user-settings-identities-desc">
+            {data.has_password ? 'You can also sign in with your password.' : 'This account has no password: these are the ways in.'}
+          </span>
+        </div>
+        <ul class="user-settings-identities-list">
+          {data.identities.map((i) => (
+            <li key={i.id} class="user-settings-identity">
+              <span class="user-settings-identity-main">
+                <span class="user-settings-identity-name">{i.provider_display_name || i.provider_slug}</span>
+                <span class="user-settings-identity-meta">
+                  {i.email ?? i.subject}
+                  {i.last_login_at ? `, last used ${new Date(i.last_login_at).toLocaleDateString()}` : ''}
+                </span>
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={busy !== null || only}
+                loading={busy === i.id}
+                title={only ? "It's the only way to sign in to this account" : undefined}
+                onClick={() => { void unlink(i.id); }}
+              >
+                Unlink
+              </Button>
+            </li>
+          ))}
+        </ul>
+        {error && <div class="user-settings-error" role="alert">{error}</div>}
+      </div>
+    </Card>
   );
 }
 
