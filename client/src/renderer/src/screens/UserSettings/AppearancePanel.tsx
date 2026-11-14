@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, Input, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, Input, Toggle, useTransientFlag } from '@boson/shared';
 import {
   MAX_RADIUS, THEME_TOKENS, getThemeStore, isThemeColor, parseTheme, serializeTheme,
+  useNetworkThemes,
   type Theme, type ThemeEntry, type ThemeState, type ThemeToken,
 } from '../../modules/ui/theme';
 import { nickColor } from '../../modules/chat/nick-color';
@@ -33,6 +34,7 @@ export function AppearancePanel() {
   const [copied, flashCopied] = useTransientFlag();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const networkThemes = useNetworkThemes();
 
   const active = state.themes.find((t) => t.id === state.activeId) ?? state.themes[0]!;
 
@@ -164,6 +166,19 @@ export function AppearancePanel() {
               Custom themes are JSON files in the themes folder. Edit one in any editor and it updates here as soon as you save.
             </p>
           )}
+        </div>
+      </Card>
+      <Card>
+        <div class="user-settings-card-body appearance-network">
+          <Toggle
+            checked={networkThemes.globallyEnabled}
+            onChange={(on) => networkThemes.setGloballyEnabled(on)}
+            label="Use network themes"
+          />
+          <p class="appearance-hint">
+            A network can have its own colours, backgrounds and logo. While you're on it, they show over your theme.
+            Turn one network's off from its server menu or Server settings.
+          </p>
         </div>
       </Card>
     </div>

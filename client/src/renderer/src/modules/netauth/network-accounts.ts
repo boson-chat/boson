@@ -24,6 +24,9 @@ export interface NetAuthBridge {
     host: string;
     authUrl?: string;
     directoryUrl?: string;
+    // The network's theme document (boson.json branding), with or
+    // without accounts. Absent on shells that predate it.
+    brandingUrl?: string;
     main: boolean;
     error?: string;
   }>;
@@ -41,6 +44,7 @@ export interface ResolvedNetwork {
   irc?: { host: string; port: number; tls: boolean };
   authUrl?: string;
   directoryUrl?: string;
+  brandingUrl?: string;
   main: boolean;
   error?: string;
   detail?: string;
@@ -146,6 +150,8 @@ export class NetworkAccounts {
   private readonly configs = new Map<string, { at: number; cfg: Promise<AuthConfig> }>();
   private readonly discovering = new Map<string, Promise<NetworkLink | null>>();
   private links: Record<string, NetworkLink | null> = {};
+  // boson.json branding URLs by host (network themes), as discovered.
+  private brandings: Record<string, string> = {};
   private sessions: Record<string, Session | null> = {};
   private known: KnownAuth[];
   private pending: PendingPrompt | null = null;
@@ -238,6 +244,7 @@ export class NetworkAccounts {
       let link: NetworkLink | null = null;
       try {
         const r = await withTimeout(bridge.discover(host, refresh), this.opts.discoverTimeoutMs ?? 5000);
+        this.recordBranding(host, r?.brandingUrl);
         if (r?.authUrl) {
           link = { host, authUrl: normalizeAuthBase(r.authUrl), main: !!r.main || this.isMain(r.authUrl), ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}) };
         }
@@ -258,6 +265,7 @@ export class NetworkAccounts {
     const bridge = this.bridge();
     if (!bridge?.resolve) return null;
     const r = await withTimeout(bridge.resolve(address), (this.opts.discoverTimeoutMs ?? 5000) * 2);
+    if (r.irc?.host) this.recordBranding(hostKey(r.irc.host), r.brandingUrl);
     if (r.authUrl && r.irc?.host && !r.error) {
       const host = hostKey(r.irc.host);
       const link: NetworkLink = {
@@ -284,6 +292,17 @@ export class NetworkAccounts {
       this.linkListeners.forEach((fn) => fn(link));
     }
     this.emit();
+  }
+
+  private recordBranding(host: string, url: string | undefined): void {
+    if (url) this.brandings[host] = url;
+    else delete this.brandings[host];
+  }
+
+  // The network's theme document URL from its boson.json (undefined:
+  // none, or not discovered yet).
+  brandingUrlFor(rawHost: string): string | undefined {
+    return this.brandings[hostKey(rawHost)];
   }
 
   linkFor(rawHost: string): NetworkLink | null {

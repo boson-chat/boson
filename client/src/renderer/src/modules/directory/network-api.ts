@@ -98,6 +98,7 @@ export function networkToServer(n: Json, source?: DirectorySourceRef): ServerWit
     ...(s(n['icon_url']) ? { icon_url: s(n['icon_url']) } : {}),
     ...(s(n['banner_url']) ? { banner_url: s(n['banner_url']) } : {}),
     ...(s(n['website_url']) ? { website_url: s(n['website_url']) } : {}),
+    ...(n['theme'] && typeof n['theme'] === 'object' && !Array.isArray(n['theme']) ? { theme: n['theme'] as Record<string, unknown> } : {}),
     ...(s(n['legacy_id']) ? { legacy_id: s(n['legacy_id']) } : {}),
     ...(source ? { source } : {}),
     ...(token ? { verification_token: token } : {}),

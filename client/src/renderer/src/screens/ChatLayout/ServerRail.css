@@ -1,6 +1,6 @@
 .server-rail {
   width: 72px;
-  background: var(--surface);
+  background: var(--pane-servers-bg, var(--surface));
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -187,6 +187,19 @@
 @keyframes server-rail-context-menu-enter {
   from { opacity: 0; transform: translateY(-4px) scale(0.97); }
   to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.server-rail-context-item-check {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.server-rail-context-check {
+  width: 1em;
+  color: var(--accent);
+  text-align: center;
 }
 
 .server-rail-context-item {

@@ -118,3 +118,55 @@
 }
 .netauth-bar-signin:hover { border-color: var(--accent); background: var(--accent-dim); }
 .netauth-bar-signin:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* The network's branding (network themes): its login background, dimmed
+   toward the dialog's colour, with its logo over it. */
+.netauth-hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto var(--space-4);
+  box-sizing: border-box;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+.netauth > .netauth-hero { margin-bottom: 0; }
+.netauth-hero-image {
+  min-height: 132px;
+  background:
+    linear-gradient(color-mix(in srgb, var(--surface-raised) 35%, transparent), color-mix(in srgb, var(--surface-raised) 35%, transparent)),
+    var(--netauth-hero-image) center / cover no-repeat,
+    var(--surface);
+}
+.netauth-hero-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.35));
+}
+
+/* The login screen with a network's background: the picture fills the
+   screen (the scroll container's own background, so it stays put), dimmed
+   by the theme's background so the form reads. */
+.login-screen-branded {
+  background:
+    linear-gradient(color-mix(in srgb, var(--bg) 55%, transparent), color-mix(in srgb, var(--bg) 55%, transparent)),
+    var(--login-bg-image) center / cover no-repeat,
+    var(--bg);
+}
+
+.login-network-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: var(--space-8);
+}
+.login-network-logo img {
+  max-width: 220px;
+  max-height: 72px;
+  object-fit: contain;
+}

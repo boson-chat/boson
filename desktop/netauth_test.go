@@ -206,11 +206,15 @@ func TestNetAuthDiscover(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/selfhost.org/.well-known/boson.json":
-			_, _ = w.Write([]byte(`{"version":1,"irc":{"host":"irc.selfhost.org","port":6697,"tls":true},"auth":{"url":"https://auth.selfhost.org"},"directory":{"url":"https://directory.selfhost.org"}}`))
+			_, _ = w.Write([]byte(`{"version":1,"irc":{"host":"irc.selfhost.org","port":6697,"tls":true},"auth":{"url":"https://auth.selfhost.org"},"directory":{"url":"https://directory.selfhost.org"},"branding":"https://auth.selfhost.org/v1/branding"}`))
 		case "/boson.chat/.well-known/boson.json":
 			_, _ = w.Write([]byte(bosonJSON))
 		case "/sneaky.org/.well-known/boson.json":
 			_, _ = w.Write([]byte(`{"version":1,"auth":{"url":"https://10.0.0.8"}}`))
+		case "/brandonly.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`{"version":1,"branding":{"url":"https://brandonly.org/theme.json"}}`))
+		case "/badbrand.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`{"version":1,"branding":"http://badbrand.org/theme.json"}`))
 		default:
 			http.NotFound(w, r)
 		}
@@ -222,8 +226,17 @@ func TestNetAuthDiscover(t *testing.T) {
 	svc := NewNetAuthService(d, api)
 
 	got := svc.Discover("irc.selfhost.org", false)
-	if got.AuthURL != "https://auth.selfhost.org" || got.Main || got.DirectoryURL != "https://directory.selfhost.org" {
+	if got.AuthURL != "https://auth.selfhost.org" || got.Main || got.DirectoryURL != "https://directory.selfhost.org" ||
+		got.BrandingURL != "https://auth.selfhost.org/v1/branding" {
 		t.Fatalf("self-hosted: %+v", got)
+	}
+	// Branding without accounts (the {"url": …} form), and a refused
+	// plain-http branding URL in a release build.
+	if got := svc.Discover("irc.brandonly.org", false); got.AuthURL != "" || got.BrandingURL != "https://brandonly.org/theme.json" {
+		t.Fatalf("branding only: %+v", got)
+	}
+	if got := svc.Discover("irc.badbrand.org", false); got.BrandingURL != "" {
+		t.Fatalf("http branding: %+v", got)
 	}
 	if api.access(mustURL(t, "https://auth.selfhost.org/v1/config")) != accessFull {
 		t.Fatal("discovered auth not reachable")
@@ -380,7 +393,7 @@ func TestNetAuthResolve(t *testing.T) {
 func TestNetAuthResolveOverride(t *testing.T) {
 	dir := t.TempDir()
 	path := dir + "/boson.json"
-	if err := os.WriteFile(path, []byte(`{"version":1,"irc":{"host":"localhost","port":16668,"tls":false},"auth":{"url":"http://127.0.0.1:18181"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":1,"irc":{"host":"localhost","port":16668,"tls":false},"auth":{"url":"http://127.0.0.1:18181"},"branding":"http://127.0.0.1:18999/branding.json"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	d := newVoiceDiscoverer(t.TempDir(), true)
@@ -388,7 +401,11 @@ func TestNetAuthResolveOverride(t *testing.T) {
 	api := NewApiService("http://127.0.0.1:13000", true)
 	svc := NewNetAuthService(d, api)
 	got := svc.Resolve("localhost")
-	if got.Error != "" || got.AuthURL != "http://127.0.0.1:18181" || got.IRC == nil || *got.IRC != (NetworkIRC{Host: "localhost", Port: 16668}) {
+	if got.Error != "" || got.AuthURL != "http://127.0.0.1:18181" || got.IRC == nil || *got.IRC != (NetworkIRC{Host: "localhost", Port: 16668}) ||
+		got.BrandingURL != "http://127.0.0.1:18999/branding.json" {
 		t.Fatalf("override: %+v", got)
+	}
+	if info := svc.Discover("localhost", false); info.BrandingURL != "http://127.0.0.1:18999/branding.json" {
+		t.Fatalf("override discover: %+v", info)
 	}
 }

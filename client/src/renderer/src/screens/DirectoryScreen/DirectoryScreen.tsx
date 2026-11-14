@@ -20,6 +20,9 @@ import { AtomLoader, Badge, BarLoader, Button, Field, Input, Modal, Toggle, Warn
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
 import { HostServerModal } from './HostServerModal';
+import { useNetworkThemes } from '../../modules/ui/theme';
+import { useNetworkThemeSync } from './network-theme-sync';
+import type { ServerRailTile } from '../ChatLayout/ServerRail';
 import './DirectoryScreen.css';
 
 interface Props {
@@ -175,6 +178,37 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   const active = activeConnection(state);
   const aggState = aggregateEngineState(state);
 
+  // Network themes: the active server's applies (in chat and its settings);
+  // each network's is looked up when it connects.
+  const themes = useNetworkThemes();
+  useNetworkThemeSync(themes, connections, (c) => resolveListing(c, state.servers, state.listings[c.serverId]),
+    active && (showChat || serverSettingsForId !== null) ? active.server.hostname : null);
+  const railTiles = (): ServerRailTile[] => connections.map((c) => {
+    // Aggregate unread + mention counts across every channel in this
+    // server, so the rail badge reflects total activity at a glance.
+    // chat.getState() is cheap here — it's already memoized snapshots.
+    const chs = c.chat.getState().channels;
+    let unread = 0;
+    let mentions = 0;
+    for (const ch of chs) { unread += ch.unread; mentions += ch.mentions; }
+    const brand = themes.brandingFor(c.server.hostname);
+    return {
+      serverId: c.serverId,
+      name: c.server.name,
+      engineState: c.engineState,
+      bouncerUpstream: c.bouncerUpstream,
+      unread,
+      mentions,
+      // The network's own logo (its theme), else the directory icon.
+      iconUrl: brand.logo ?? resolveServerImages(c, state.servers, state.listings[c.serverId]).iconUrl,
+      ...(brand.available ? { networkTheme: { enabled: brand.enabled } } : {}),
+    };
+  });
+  const toggleNetworkTheme = (serverId: string, on: boolean): void => {
+    const c = connections.find((x) => x.serverId === serverId);
+    if (c) themes.setNetworkEnabled(c.server.hostname, on);
+  };
+
   // If the user opens server-settings, replace the channel sidebar + chat
   // area + user panel with the settings page. The server rail stays so the
   // user can switch servers (which closes settings) or open settings for a
@@ -189,21 +223,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
       return (
         <div class="app-shell">
           {!narrow && <ServerRail
-            servers={connections.map((c) => {
-              const chs = c.chat.getState().channels;
-              let unread = 0;
-              let mentions = 0;
-              for (const ch of chs) { unread += ch.unread; mentions += ch.mentions; }
-              return {
-                serverId: c.serverId,
-                name: c.server.name,
-                engineState: c.engineState,
-                bouncerUpstream: c.bouncerUpstream,
-                unread,
-                mentions,
-                iconUrl: resolveServerImages(c, state.servers, state.listings[c.serverId]).iconUrl,
-              };
-            })}
+            servers={railTiles()}
+            onToggleNetworkTheme={toggleNetworkTheme}
             activeServerId={activeServerId}
             // Clicking a different server tile exits settings and returns
             // to chat for that server. Clicking the same tile is a no-op.
@@ -269,6 +290,11 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
             // Edit tab. Non-owners / unresolved rows short-circuit to plain
             // ServerSettings — the tab simply doesn't appear in the menu.
             {...buildEditableProps(target.server, me, bloc, state.servers, state.listings[target.serverId])}
+            networkTheme={themes.brandingFor(target.server.hostname).available ? {
+              enabled: themes.isNetworkEnabled(target.server.hostname),
+              globallyEnabled: themes.globallyEnabled,
+              onToggle: (on) => themes.setNetworkEnabled(target.server.hostname, on),
+            } : undefined}
           />
         </div>
       );
@@ -283,26 +309,11 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           serverName={active.server.name}
           serverHost={active.server.hostname}
           myNick={me.handle}
-          servers={connections.map((c) => {
-            // Aggregate unread + mention counts across every channel in this
-            // server, so the rail badge reflects total activity at a glance.
-            // chat.getState() is cheap here — it's already memoized snapshots.
-            const chs = c.chat.getState().channels;
-            let unread = 0;
-            let mentions = 0;
-            for (const ch of chs) { unread += ch.unread; mentions += ch.mentions; }
-            return {
-              serverId: c.serverId,
-              name: c.server.name,
-              engineState: c.engineState,
-              bouncerUpstream: c.bouncerUpstream,
-              unread,
-              mentions,
-              iconUrl: resolveServerImages(c, state.servers, state.listings[c.serverId]).iconUrl,
-            };
-          })}
+          servers={railTiles()}
           activeServerId={activeServerId}
           bannerUrl={resolveServerImages(active, state.servers, state.listings[active.serverId]).bannerUrl}
+          logoUrl={themes.brandingFor(active.server.hostname).logo}
+          onToggleNetworkTheme={toggleNetworkTheme}
           onSelectServer={(id) => bloc.setActiveServer(id)}
           onBrowseServers={() => bloc.openServerBrowser()}
           engineState={active.engineState}
@@ -1093,10 +1104,19 @@ export function resolveServerImages(
   directory: import('../../modules/directory').Server[] | null,
   listing?: import('../../modules/directory').Server,
 ): { iconUrl?: string; bannerUrl?: string } {
-  const full = findListing(conn.server, directory)
+  const full = resolveListing(conn, directory, listing);
+  return { iconUrl: full?.icon_url, bannerUrl: full?.banner_url };
+}
+
+// The directory listing a connection is (see resolveServerImages).
+export function resolveListing(
+  conn: import('./DirectoryBloc').DirectoryConnection,
+  directory: import('../../modules/directory').Server[] | null,
+  listing?: import('../../modules/directory').Server,
+): import('../../modules/directory').Server | undefined {
+  return findListing(conn.server, directory)
     ?? listing
     ?? ('tags' in conn.server ? conn.server : undefined);
-  return { iconUrl: full?.icon_url, bannerUrl: full?.banner_url };
 }
 
 function computeInitials(name: string): string {

@@ -1,0 +1,102 @@
+/* Network themes: a pane's background image (modules/ui/theme/network-theme.ts
+   paneVars). The theme store sets --pane-<name>-image / -dim / -blur /
+   -position on <html>, and data-pane-<name>-image when the image has loaded,
+   so the layers below only exist while there's a picture to show.
+
+   The image sits in a ::before under a dim overlay (::after, the pane's own
+   colour at --pane-<name>-dim opacity), both behind the pane's content
+   (isolation + negative z-index). They don't move: the panes' lists scroll
+   inside them, and the image layer is its own compositor layer, so
+   scrolling never repaints or re-blurs it. */
+
+:root[data-pane-channels-image] .channel-sidebar,
+:root[data-pane-messages-image] .chat-area,
+:root[data-pane-members-image] .user-panel {
+  position: relative;
+  isolation: isolate;
+  /* clip, not hidden: a hidden pane is still scrollable by script (focus,
+     scrollIntoView), and the blur layer that sticks out past its edges
+     would let it shift. */
+  overflow: hidden;
+  overflow: clip;
+}
+
+:root[data-pane-channels-image] .channel-sidebar::before,
+:root[data-pane-messages-image] .chat-area::before,
+:root[data-pane-members-image] .user-panel::before,
+:root[data-pane-channels-image] .channel-sidebar::after,
+:root[data-pane-messages-image] .chat-area::after,
+:root[data-pane-members-image] .user-panel::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+}
+
+:root[data-pane-channels-image] .channel-sidebar::before,
+:root[data-pane-messages-image] .chat-area::before,
+:root[data-pane-members-image] .user-panel::before {
+  z-index: -2;
+  inset: 0;
+  background-image: var(--pane-image);
+  background-position: var(--pane-position, center);
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: blur(var(--pane-blur));
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+:root[data-pane-channels-image] .channel-sidebar::after,
+:root[data-pane-messages-image] .chat-area::after,
+:root[data-pane-members-image] .user-panel::after {
+  z-index: -1;
+  inset: 0;
+  background: var(--pane-dim-color);
+  opacity: var(--pane-dim, 0.6);
+}
+
+/* Where the pane clips without becoming scrollable, the blurred layer
+   reaches past its edges so the blur doesn't fade them. */
+@supports (overflow: clip) {
+  :root[data-pane-channels-image] .channel-sidebar::before,
+  :root[data-pane-messages-image] .chat-area::before,
+  :root[data-pane-members-image] .user-panel::before {
+    inset: calc(var(--pane-blur) * -2);
+  }
+}
+
+/* Per pane: which variables the shared rules above read. */
+:root[data-pane-channels-image] .channel-sidebar {
+  --pane-image: var(--pane-channels-image);
+  --pane-blur: var(--pane-channels-blur, 0px);
+  --pane-position: var(--pane-channels-position, center);
+  --pane-dim: var(--pane-channels-dim, 0.6);
+  --pane-dim-color: var(--pane-channels-bg, var(--surface));
+}
+:root[data-pane-messages-image] .chat-area {
+  --pane-image: var(--pane-messages-image);
+  --pane-blur: var(--pane-messages-blur, 0px);
+  --pane-position: var(--pane-messages-position, center);
+  --pane-dim: var(--pane-messages-dim, 0.6);
+  --pane-dim-color: var(--pane-messages-bg, var(--bg));
+}
+:root[data-pane-members-image] .user-panel {
+  --pane-image: var(--pane-members-image);
+  --pane-blur: var(--pane-members-blur, 0px);
+  --pane-position: var(--pane-members-position, center);
+  --pane-dim: var(--pane-members-dim, 0.6);
+  --pane-dim-color: var(--pane-members-bg, var(--surface));
+}
+
+/* The server rail scrolls itself, so its picture is its own background
+   (which stays put while the tiles scroll), dimmed by a gradient layer of
+   its colour. No blur: a 72px strip of picture doesn't need one. */
+:root[data-pane-servers-image] .server-rail {
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--pane-servers-bg, var(--surface)) calc(var(--pane-servers-dim, 0.6) * 100%), transparent),
+      color-mix(in srgb, var(--pane-servers-bg, var(--surface)) calc(var(--pane-servers-dim, 0.6) * 100%), transparent)
+    ),
+    var(--pane-servers-image) var(--pane-servers-position, center) / cover no-repeat,
+    var(--pane-servers-bg, var(--surface));
+}

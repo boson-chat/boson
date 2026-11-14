@@ -1,6 +1,7 @@
 import { THEME_TOKENS, type Theme, type ThemeEntry } from './theme.types';
 import { BUILTIN_THEMES, DEFAULT_THEME_ID } from './themes.builtin';
 import { parseTheme, serializeTheme } from './theme.parse';
+import { PANE_NAMES, PANE_VAR_NAMES, mergeNetworkTheme, paneVars, type ImageSlot, type NetworkTheme } from './network-theme';
 
 // The active theme and the user's own themes.
 //
@@ -30,6 +31,16 @@ const FONTS: Record<Theme['font'], { body: string; display: string }> = {
   },
 };
 const CUSTOM_KEY = 'boson:themes:custom:v1';
+
+// The active server's network theme, merged over the user's (see
+// network-themes.ts for which one and when). `images` are the loaded image
+// URLs by slot (blob: URLs from the shell).
+export interface NetworkOverlay {
+  // The network's IRC host (data-network-theme on <html>).
+  host: string;
+  theme: NetworkTheme;
+  images: Partial<Record<ImageSlot, string>>;
+}
 
 export interface ThemeFilesBridge {
   list(): Promise<Array<{ id: string; text: string }>>;
@@ -98,6 +109,7 @@ export class ThemeStore {
   private fileErrors: ThemeFileError[] = [];
   private activeId: string;
   private preview: Theme | null = null;
+  private overlay: NetworkOverlay | null = null;
   private listeners = new Set<() => void>();
   private stopWatch: (() => void) | null = null;
 
@@ -177,6 +189,21 @@ export class ThemeStore {
     this.apply();
   }
 
+  // The active network's theme over the user's (null: none). Not applied
+  // while the editor previews a theme: it shows the user's own.
+  setNetworkOverlay(overlay: NetworkOverlay | null): void {
+    if (overlay === this.overlay) return;
+    this.overlay = overlay;
+    this.apply();
+  }
+
+  // What's on screen: the user's theme (or the preview), with the network's
+  // merged over it.
+  effectiveTheme(): Theme {
+    const own = this.preview ?? this.resolveActive().theme;
+    return this.preview || !this.overlay ? own : mergeNetworkTheme(own, this.overlay.theme).theme;
+  }
+
   // Saves a custom theme (new when `id` is omitted) and makes it active.
   async save(theme: Theme, id?: string): Promise<string> {
     const isBuiltin = (c: string): boolean => BUILTIN_THEMES.some((b) => b.id === c);
@@ -230,7 +257,20 @@ export class ThemeStore {
   private apply(): void {
     const root = this.root;
     if (!root) return;
-    const theme = this.preview ?? this.resolveActive().theme;
+    const own = this.preview ?? this.resolveActive().theme;
+    const net = this.preview ? null : this.overlay;
+    const merged = net ? mergeNetworkTheme(own, net.theme) : null;
+    const theme = merged?.theme ?? own;
+    for (const name of PANE_VAR_NAMES) root.style.removeProperty(name);
+    for (const name of PANE_NAMES) delete root.dataset[paneImageKey(name)];
+    if (net && merged) {
+      const { vars, withImage } = paneVars(merged.panes, net.images);
+      for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
+      for (const name of withImage) root.dataset[paneImageKey(name)] = '';
+      root.dataset['networkTheme'] = net.host;
+    } else {
+      delete root.dataset['networkTheme'];
+    }
     for (const t of THEME_TOKENS) root.style.setProperty(`--${t.key}`, theme.colors[t.key]);
     root.style.setProperty('--nick-s', `${theme.nick.saturation}%`);
     root.style.setProperty('--nick-l', `${theme.nick.lightness}%`);
@@ -242,6 +282,11 @@ export class ThemeStore {
     root.style.colorScheme = theme.base;
     root.dataset['themeBase'] = theme.base;
   }
+}
+
+// data-pane-<name>-image on <html>: the pane has an image layer (CSS).
+function paneImageKey(name: string): string {
+  return `pane${name[0]!.toUpperCase()}${name.slice(1)}Image`;
 }
 
 let store: ThemeStore | null = null;

@@ -4,7 +4,7 @@ import type { WebSocketCtor } from './modules/engine';
 import { isWailsPage } from './platform/is-wails';
 import { initDeepLinkBridge } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
-import { getThemeStore } from './modules/ui/theme';
+import { NetworkThemes, getThemeStore, setNetworkThemes } from './modules/ui/theme';
 import { VoiceController, getVoiceController, setVoiceController, voiceBridge } from './modules/voice';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
 import { loadGuestSession } from './modules/guest/guest';
@@ -71,7 +71,9 @@ void (async () => {
     authUrl,
     bosonUrl,
     directoryUrl: import.meta.env.VITE_DIRECTORY_URL || undefined,
-    dev: import.meta.env.DEV,
+    // e2e builds of the app (the shell's E2E bridge) count as dev: they
+    // browse test directories served on loopback.
+    dev: import.meta.env.DEV || 'bosonE2E' in window,
     engineUrl,
     engineToken,
     engineSocket,
@@ -82,6 +84,19 @@ void (async () => {
     ? new NetworkAccounts({ mainAuthUrl: authUrl, mainAuth: props.auth, storage: windowSecureStorage, isGuest: () => loadGuestSession() !== null })
     : null;
   setNetworkAccounts(netAccounts);
+  // Network themes: found through each network's boson.json / auth config
+  // (desktop: the shell's discovery) or its directory listing, applied over
+  // the user's theme for the active server.
+  setNetworkThemes(new NetworkThemes({
+    discover: netAccounts
+      ? async (host) => {
+        const link = await netAccounts.discover(host).catch(() => null);
+        return { brandingUrl: netAccounts.brandingUrlFor(host), authUrl: link?.authUrl };
+      }
+      : undefined,
+    authConfig: (net) => (netAccounts ? netAccounts.config(net) : props.auth.config()),
+    apply: (overlay) => getThemeStore().setNetworkOverlay(overlay),
+  }));
   // Voice channels (desktop app only: the bridge is absent elsewhere).
   const bridge = voiceBridge();
   if (bridge) {

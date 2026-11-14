@@ -29,8 +29,11 @@ type NetworkAuthInfo struct {
 	Host         string `json:"host"`
 	AuthURL      string `json:"authUrl,omitempty"`
 	DirectoryURL string `json:"directoryUrl,omitempty"`
-	Main         bool   `json:"main"`
-	Error        string `json:"error,omitempty"`
+	// BrandingURL is the network's theme document (boson.json branding),
+	// whether or not it has accounts.
+	BrandingURL string `json:"brandingUrl,omitempty"`
+	Main        bool   `json:"main"`
+	Error       string `json:"error,omitempty"`
 }
 
 func NewNetAuthService(disc *voiceDiscoverer, api *ApiService) *NetAuthService {
@@ -43,7 +46,7 @@ func (s *NetAuthService) Discover(host string, refresh bool) NetworkAuthInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*voiceDiscoveryTimeout)
 	defer cancel()
 	d := s.lookup(ctx, host, refresh)
-	out := NetworkAuthInfo{Host: d.Host}
+	out := NetworkAuthInfo{Host: d.Host, BrandingURL: d.Branding}
 	auth := d.Auth
 	if auth == "" && d.Voice != nil && d.Voice.Source != "probe" {
 		// A cache entry from before auth was recorded on its own.
@@ -79,8 +82,8 @@ func (s *NetAuthService) lookup(ctx context.Context, rawHost string, refresh boo
 	if out.Domain == "" {
 		return out
 	}
-	info, _, auth, dir := s.disc.fetchWellKnown(ctx, out.Domain)
-	out.Voice, out.Auth, out.Directory = info, auth, dir
+	info, _, auth, dir, branding := s.disc.fetchWellKnownAll(ctx, out.Domain)
+	out.Voice, out.Auth, out.Directory, out.Branding = info, auth, dir, branding
 	return out
 }
 
@@ -113,6 +116,7 @@ type NetworkServer struct {
 	IRC          *NetworkIRC `json:"irc,omitempty"`
 	AuthURL      string      `json:"authUrl,omitempty"`
 	DirectoryURL string      `json:"directoryUrl,omitempty"`
+	BrandingURL  string      `json:"brandingUrl,omitempty"`
 	Main         bool        `json:"main"`
 	Error        string      `json:"error,omitempty"`
 	Detail       string      `json:"detail,omitempty"`
@@ -128,7 +132,7 @@ func (s *NetAuthService) Resolve(address string) NetworkServer {
 	if o := s.disc.overrideNets[host]; o != nil {
 		// Dev builds (BOSON_NETWORK_JSON): a network without a real domain.
 		irc := *o.IRC
-		out.Domain, out.IRC = host, &irc
+		out.Domain, out.IRC, out.BrandingURL = host, &irc, o.Branding
 		return s.finishResolve(out, o.Auth, o.Directory)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*voiceDiscoveryTimeout)
@@ -145,6 +149,7 @@ func (s *NetAuthService) Resolve(address string) NetworkServer {
 			continue
 		}
 		out.Domain = domain
+		out.BrandingURL = parseWellKnownBranding(body, s.disc.allowHTTP)
 		if doc.IRC != nil {
 			irc, err := s.cleanIRC(doc.IRC.Host, doc.IRC.Port, doc.IRC.TLS)
 			if err != nil {
@@ -223,7 +228,7 @@ func (s *NetAuthService) seedDiscovery(ircHost, domain string, body []byte, auth
 	}
 	info, _ := parseWellKnown(body, s.disc.allowHTTP)
 	s.disc.seed(&VoiceDiscovery{
-		Host: ircHost, Domain: domain, Voice: info, Auth: auth, Directory: dir,
+		Host: ircHost, Domain: domain, Voice: info, Auth: auth, Directory: dir, Branding: parseWellKnownBranding(body, s.disc.allowHTTP),
 		CheckedAt: s.disc.now(), Definitive: true,
 	})
 }

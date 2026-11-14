@@ -1,6 +1,6 @@
 .channel-sidebar {
   width: 240px;
-  background: var(--surface);
+  background: var(--pane-channels-bg, var(--surface));
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -16,6 +16,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+}
+
+/* The network's logo (network themes) leads the header. */
+.channel-sidebar-logo {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
 }
 
 /* Banner variant: the owner-set image becomes the header background, with the

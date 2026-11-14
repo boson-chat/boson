@@ -17,6 +17,8 @@ interface Props {
   onBack: () => void;
   // The address being used (the login screen's server line shows it).
   onAddress?: (address: string | null) => void;
+  // The found network's IRC host (its branding is looked up by it).
+  onNetworkHost?: (host: string | null) => void;
 }
 
 type Step =
@@ -25,7 +27,7 @@ type Step =
   // A nick for a guest connect (guest) or for the manual add (plain).
   | { kind: 'nick'; mode: 'guest' | 'plain'; outcome: ResolveOutcome; name: string; irc: IrcTarget | null };
 
-export function OtherServer({ accounts, initialAddress = '', onBack, onAddress }: Props) {
+export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, onNetworkHost }: Props) {
   const [address, setAddress] = useState(initialAddress);
   const [step, setStep] = useState<Step>({ kind: 'address' });
   const [busy, setBusy] = useState(false);
@@ -41,12 +43,14 @@ export function OtherServer({ accounts, initialAddress = '', onBack, onAddress }
       setBusy(false);
       setStep({ kind: 'resolved', outcome });
       onAddress?.(outcome.kind === 'ok' ? outcome.domain : null);
+      onNetworkHost?.(outcome.kind === 'ok' || outcome.kind === 'no-accounts' ? outcome.irc?.host.toLowerCase() ?? null : null);
     });
   };
 
   const change = (): void => {
     setStep({ kind: 'address' });
     onAddress?.(null);
+    onNetworkHost?.(null);
   };
 
   if (step.kind === 'nick') {

@@ -183,3 +183,14 @@
   text-transform: uppercase;
   color: var(--fg-3);
 }
+
+.appearance {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.appearance-network {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
