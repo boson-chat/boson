@@ -1,0 +1,1 @@
+{"version":1,"irc":{"host":"irc.boson.chat","port":6697,"tls":true},"auth":{"url":"https://auth.boson.chat"},"voice":{"addr":"voice.boson.chat:7700","url":"https://voice.boson.chat"}}
