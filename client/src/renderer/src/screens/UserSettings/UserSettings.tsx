@@ -7,6 +7,7 @@ import {
   getNotificationSettings, setNotificationSettings, type NotificationSettings,
 } from '../../modules/ui/notifications.store';
 import { Avatar } from '../../shared/Avatar/Avatar';
+import { FileDropArea, FileDropHint } from '../../shared/FileDrop/FileDropArea';
 import { publishOwnAvatar } from '../../modules/chat/avatar-cache';
 import {
   clearGuestSession,
@@ -239,6 +240,8 @@ function GuestNickForm({ guestNick }: { guestNick: string }) {
 // Profile-image control. Uploads to the backend (which resizes + stores in
 // R2) and mirrors the resulting avatar_url into the session's user_metadata so
 // the TitleBar updates immediately. Falls back to the nick-colored initial.
+const NOT_AN_IMAGE = 'Please choose an image file.';
+
 function AvatarSettings({ handle, directory, auth, open }: {
   handle: string;
   directory: DirectoryService;
@@ -259,11 +262,9 @@ function AvatarSettings({ handle, directory, auth, open }: {
     return () => { cancelled = true; };
   }, [open, directory]);
 
-  const onFile = async (e: Event): Promise<void> => {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (fileRef.current) fileRef.current.value = '';
-    if (!file) return;
-    if (!file.type.startsWith('image/')) { setError('Please choose an image file.'); return; }
+  // Chosen through the input or dropped onto the picker — same path.
+  const onFile = async (file: File): Promise<void> => {
+    if (!file.type.startsWith('image/')) { setError(NOT_AN_IMAGE); return; }
     if (file.size > 5 * 1024 * 1024) { setError('Image must be under 5 MB.'); return; }
     setBusy(true);
     setError(null);
@@ -299,29 +300,42 @@ function AvatarSettings({ handle, directory, auth, open }: {
   };
 
   return (
-    <Field label="Profile image" hint="Shown to other Boson users wherever your nick appears.">
-      <div class="user-settings-avatar">
-        <Avatar nick={handle || '?'} url={url} size={64} />
-        <div class="user-settings-avatar-actions">
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            style="display:none"
-            onChange={(e) => { void onFile(e); }}
-          />
-          <Button type="button" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
-            {busy ? 'Working…' : (url ? 'Change' : 'Upload')}
-          </Button>
-          {url && (
-            <Button type="button" variant="ghost" disabled={busy} onClick={() => { void onRemove(); }}>
-              Remove
+    <FileDropArea
+      class="user-settings-avatar-drop"
+      accept="image/*"
+      disabled={busy}
+      onFile={(file) => { void onFile(file); }}
+      onReject={() => setError(NOT_AN_IMAGE)}
+    >
+      <Field label="Profile image" hint="Shown to other Boson users wherever your nick appears.">
+        <div class="user-settings-avatar">
+          <Avatar nick={handle || '?'} url={url} size={64} />
+          <div class="user-settings-avatar-actions">
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              style="display:none"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0];
+                e.currentTarget.value = '';
+                if (file) void onFile(file);
+              }}
+            />
+            <Button type="button" variant="secondary" disabled={busy} aria-describedby="user-avatar-drop-hint" onClick={() => fileRef.current?.click()}>
+              {busy ? 'Working…' : (url ? 'Change' : 'Upload')}
             </Button>
-          )}
+            {url && (
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => { void onRemove(); }}>
+                Remove
+              </Button>
+            )}
+            <FileDropHint id="user-avatar-drop-hint" />
+          </div>
         </div>
-      </div>
-      {error && <div class="user-settings-error">{error}</div>}
-    </Field>
+        {error && <div class="user-settings-error">{error}</div>}
+      </Field>
+    </FileDropArea>
   );
 }
 

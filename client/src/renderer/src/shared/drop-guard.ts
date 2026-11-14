@@ -5,8 +5,10 @@
 // the drop from even being attempted, so nothing flashes or gets opened.
 //
 // Rules, applied only to drops nothing else handled (`defaultPrevented`):
-//   - Files: always swallowed. The app has no file-drop upload target today;
-//     a future one should call preventDefault() itself and will be left alone.
+//   - Files: always swallowed, unless a drop target claimed them. The image
+//     and theme pickers do (shared/FileDrop: preventDefault() and
+//     stopPropagation() on dragover/drop); everywhere else a dropped file
+//     goes nowhere.
 //   - Anything else (links, text): swallowed unless it lands on an editable
 //     field, so dragging text/URLs into the composer or an input still works
 //     as the browser normally does (inserting text, not navigating).

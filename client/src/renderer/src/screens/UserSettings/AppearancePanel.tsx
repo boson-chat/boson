@@ -7,6 +7,7 @@ import {
 } from '../../modules/ui/theme';
 import { nickColor } from '../../modules/chat/nick-color';
 import { ColorPicker } from './ColorPicker';
+import { FileDropArea, FileDropHint } from '../../shared/FileDrop/FileDropArea';
 import './AppearancePanel.css';
 
 // Settings → Appearance: pick a theme, or make / edit your own with live
@@ -76,98 +77,105 @@ export function AppearancePanel() {
 
   return (
     <div class="appearance">
-      <Card>
-        <div class="user-settings-card-body">
-          <div class="appearance-groups" role="radiogroup" aria-label="Theme">
-            {GROUP_TITLES.map(([group, title]) => {
-              const entries = state.themes.filter((t) => t.group === group);
-              if (entries.length === 0) return null;
-              return (
-                <div key={group} class="appearance-group-block" role="group" aria-label={title}>
-                  <h3 class="appearance-group-title">{title}</h3>
-                  <div class="appearance-grid">
-                    {entries.map((entry) => (
-                      <ThemeTile
-                        key={entry.id}
-                        entry={entry}
-                        selected={entry.id === state.activeId}
-                        onSelect={() => { setConfirmDelete(false); store.setActive(entry.id); }}
-                      />
-                    ))}
+      <FileDropArea
+        accept={THEME_ACCEPT}
+        onFile={(file) => { setNotice(null); void importFile(file); }}
+        onReject={() => setNotice({ tone: 'error', text: 'That’s not a .json theme file.' })}
+      >
+        <Card>
+          <div class="user-settings-card-body">
+            <div class="appearance-groups" role="radiogroup" aria-label="Theme">
+              {GROUP_TITLES.map(([group, title]) => {
+                const entries = state.themes.filter((t) => t.group === group);
+                if (entries.length === 0) return null;
+                return (
+                  <div key={group} class="appearance-group-block" role="group" aria-label={title}>
+                    <h3 class="appearance-group-title">{title}</h3>
+                    <div class="appearance-grid">
+                      {entries.map((entry) => (
+                        <ThemeTile
+                          key={entry.id}
+                          entry={entry}
+                          selected={entry.id === state.activeId}
+                          onSelect={() => { setConfirmDelete(false); store.setActive(entry.id); }}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-          <div class="appearance-actions">
-            <Button size="sm" variant="secondary" onClick={() => customize(active)}>
-              {active.builtin ? `Customize ${active.theme.name}` : `Edit ${active.theme.name}`}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>Import JSON…</Button>
-            {state.hasFolder && (
-              <Button size="sm" variant="ghost" onClick={() => {
-                store.openFolder().catch((err: Error) => setNotice({ tone: 'error', text: `Couldn't open the themes folder: ${err.message}` }));
-              }}>
-                Open themes folder
-              </Button>
-            )}
-            {!active.builtin && (
-              <>
-                <Button size="sm" variant="ghost" onClick={() => {
-                  void navigator.clipboard?.writeText(serializeTheme(active.theme)).then(flashCopied);
-                }}>
-                  {copied ? 'Copied' : 'Copy JSON'}
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(true)}>
-                  Delete
-                </Button>
-              </>
-            )}
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".json,application/json"
-              hidden
-              data-testid="theme-import"
-              onChange={(e) => {
-                const input = e.currentTarget;
-                const file = input.files?.[0];
-                input.value = '';
-                if (file) void importFile(file);
-              }}
-            />
-          </div>
-          {confirmDelete && !active.builtin && (
-            <div class="appearance-confirm" role="alertdialog" aria-label="Delete theme">
-              <span>Delete "{active.theme.name}"? {state.hasFolder ? 'Its file is removed from the themes folder.' : ''}</span>
-              <Button size="sm" variant="secondary" onClick={() => {
-                setConfirmDelete(false);
-                store.remove(active.id).catch((err: Error) => setNotice({ tone: 'error', text: `Couldn't delete: ${err.message}` }));
-              }}>
-                Delete theme
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>Keep</Button>
+                );
+              })}
             </div>
-          )}
-          {notice && (
-            <p class={`appearance-notice appearance-notice-${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>
-              {notice.text}
-            </p>
-          )}
-          {state.fileErrors.length > 0 && (
-            <ul class="appearance-file-errors" aria-label="Theme files with errors">
-              {state.fileErrors.map((e) => (
-                <li key={e.id}><code>{e.id}.json</code> — {e.error}</li>
-              ))}
-            </ul>
-          )}
-          {state.hasFolder && (
-            <p class="appearance-hint">
-              Custom themes are JSON files in the themes folder. Edit one in any editor and it updates here as soon as you save.
-            </p>
-          )}
-        </div>
-      </Card>
+            <div class="appearance-actions">
+              <Button size="sm" variant="secondary" onClick={() => customize(active)}>
+                {active.builtin ? `Customize ${active.theme.name}` : `Edit ${active.theme.name}`}
+              </Button>
+              <Button size="sm" variant="ghost" aria-describedby="theme-drop-hint" onClick={() => fileInput.current?.click()}>Import JSON…</Button>
+              {state.hasFolder && (
+                <Button size="sm" variant="ghost" onClick={() => {
+                  store.openFolder().catch((err: Error) => setNotice({ tone: 'error', text: `Couldn't open the themes folder: ${err.message}` }));
+                }}>
+                  Open themes folder
+                </Button>
+              )}
+              {!active.builtin && (
+                <>
+                  <Button size="sm" variant="ghost" onClick={() => {
+                    void navigator.clipboard?.writeText(serializeTheme(active.theme)).then(flashCopied);
+                  }}>
+                    {copied ? 'Copied' : 'Copy JSON'}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(true)}>
+                    Delete
+                  </Button>
+                </>
+              )}
+              <input
+                ref={fileInput}
+                type="file"
+                accept={THEME_ACCEPT}
+                hidden
+                data-testid="theme-import"
+                onChange={(e) => {
+                  const input = e.currentTarget;
+                  const file = input.files?.[0];
+                  input.value = '';
+                  if (file) void importFile(file);
+                }}
+              />
+              <FileDropHint id="theme-drop-hint">or drop a .json theme here</FileDropHint>
+            </div>
+            {confirmDelete && !active.builtin && (
+              <div class="appearance-confirm" role="alertdialog" aria-label="Delete theme">
+                <span>Delete "{active.theme.name}"? {state.hasFolder ? 'Its file is removed from the themes folder.' : ''}</span>
+                <Button size="sm" variant="secondary" onClick={() => {
+                  setConfirmDelete(false);
+                  store.remove(active.id).catch((err: Error) => setNotice({ tone: 'error', text: `Couldn't delete: ${err.message}` }));
+                }}>
+                  Delete theme
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>Keep</Button>
+              </div>
+            )}
+            {notice && (
+              <p class={`appearance-notice appearance-notice-${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>
+                {notice.text}
+              </p>
+            )}
+            {state.fileErrors.length > 0 && (
+              <ul class="appearance-file-errors" aria-label="Theme files with errors">
+                {state.fileErrors.map((e) => (
+                  <li key={e.id}><code>{e.id}.json</code> — {e.error}</li>
+                ))}
+              </ul>
+            )}
+            {state.hasFolder && (
+              <p class="appearance-hint">
+                Custom themes are JSON files in the themes folder. Edit one in any editor and it updates here as soon as you save.
+              </p>
+            )}
+          </div>
+        </Card>
+      </FileDropArea>
       <Card>
         <div class="user-settings-card-body appearance-network">
           <Toggle
@@ -184,6 +192,8 @@ export function AppearancePanel() {
     </div>
   );
 }
+
+const THEME_ACCEPT = '.json,application/json';
 
 const GROUP_TITLES = [
   ['boson', 'Built-in'],

@@ -1,0 +1,39 @@
+/* Drop target around a file picker (FileDropArea). The padding gives the
+   drag-over outline room around the picker; the negative margin keeps the
+   picker where it was. The right edge stays flush: settings bodies clip
+   anything past it. */
+.file-drop {
+  position: relative;
+  margin: calc(var(--space-2) * -1) 0 calc(var(--space-2) * -1) calc(var(--space-2) * -1);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+}
+/* Label in the top-right corner, where every picker's label row is empty,
+   so it never covers the preview or the buttons. */
+.file-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: var(--space-2);
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent-dim);
+  pointer-events: none;
+}
+.file-drop-label {
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.file-drop-hint {
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+}
