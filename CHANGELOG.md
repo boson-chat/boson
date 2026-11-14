@@ -1,3 +1,9 @@
+## [0.45.0](https://github.com/boson-chat/boson/compare/v0.44.1...v0.45.0) (2026-11-14)
+
+### Features
+
+* voice channels in the desktop app ([6de271d](https://github.com/boson-chat/boson/commit/6de271dcf5ce9c791ef471dcbe62954f764c8359))
+
 ## [0.44.1](https://github.com/boson-chat/boson/compare/v0.44.0...v0.44.1) (2026-11-14)
 
 ### Bug Fixes
