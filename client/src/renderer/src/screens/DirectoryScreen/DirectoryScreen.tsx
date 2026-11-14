@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
+import type { NetworkDirectories } from '../../modules/directory/networks';
+import type { Facets, NetworkSort } from '../../modules/directory/network-api';
 import { subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
@@ -21,6 +23,8 @@ import './DirectoryScreen.css';
 
 interface Props {
   directory: DirectoryService;
+  // Multi-directory browse + owner calls; absent: the legacy /servers list.
+  networks?: NetworkDirectories;
   engine: EngineClient | null;
   identity: IdentityService;
   // Optional chat-history store. When provided, scrollback persists across
@@ -40,7 +44,55 @@ const LANGUAGE_FILTERS = [
   { id: 'ja', label: '日本語' },
 ];
 
-export function DirectoryScreen({ directory, engine, identity, history, guestNick }: Props) {
+// How many language chips the directory's facets earn (the rest are in
+// reach through search); the selected one always stays visible.
+const MAX_LANGUAGE_CHIPS = 6;
+
+const SORTS: ReadonlyArray<{ id: NetworkSort | ''; label: string }> = [
+  { id: '', label: 'Recommended' },
+  { id: 'users', label: 'Most users' },
+  { id: 'active', label: 'Recently active' },
+  { id: 'newest', label: 'Newest' },
+  { id: 'name', label: 'Name' },
+];
+
+// A language code's own name ("es" → "Español"), else the code.
+function languageLabel(code: string): string {
+  const known = LANGUAGE_FILTERS.find((f) => f.id === code);
+  if (known) return known.label;
+  try {
+    const name = new Intl.DisplayNames([code], { type: 'language' }).of(code);
+    if (name && name.toLowerCase() !== code.toLowerCase()) return name.charAt(0).toUpperCase() + name.slice(1);
+  } catch { /* not a valid tag */ }
+  return code;
+}
+
+// Language chips: from the directories' facets when there are any.
+export function languageChips(facets: Facets | null, selected: string): Array<{ id: string; label: string }> {
+  if (!facets || facets.languages.length === 0) return LANGUAGE_FILTERS;
+  const ids = facets.languages.slice(0, MAX_LANGUAGE_CHIPS).map((l) => l.value);
+  if (selected !== 'all' && !ids.includes(selected)) ids.push(selected);
+  return [{ id: 'all', label: 'All' }, ...ids.map((id) => ({ id, label: languageLabel(id) }))];
+}
+
+// Calls `onVisible` while the element is on screen (infinite scroll).
+function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const cb = useRef(onVisible);
+  cb.current = onVisible;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) cb.current();
+    }, { rootMargin: '400px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  return <div ref={ref} class="directory-more-sentinel" aria-hidden="true" />;
+}
+
+export function DirectoryScreen({ directory, networks, engine, identity, history, guestNick }: Props) {
   const auth = useAuthService();
   const authState = useAuthState();
 
@@ -53,6 +105,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
     () => new DirectoryBloc({
       auth,
       directory,
+      networks,
       identity,
       engine,
       history,
@@ -64,7 +117,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- guestNick is
     // propagated via setIdentity, not by recreating the bloc.
-    [auth, directory, identity, engine, history],
+    [auth, directory, networks, identity, engine, history],
   );
   useEffect(() => () => bloc.dispose(), [bloc]);
   // Propagate guestNick changes into the existing bloc. The first effect
@@ -274,6 +327,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
               state={state}
               engine={engine}
               directory={directory}
+              networks={networks}
               identity={identity}
             />
           </div>
@@ -325,6 +379,7 @@ export function DirectoryScreen({ directory, engine, identity, history, guestNic
           state={state}
           engine={engine}
           directory={directory}
+          networks={networks}
           identity={identity}
         />
       </div>
@@ -337,6 +392,7 @@ interface DirectoryBodyProps {
   state: DirectoryState;
   engine: EngineClient | null;
   directory: DirectoryService;
+  networks?: NetworkDirectories;
   identity: IdentityService;
 }
 
@@ -344,9 +400,10 @@ interface DirectoryBodyProps {
 // directory screen and the modal overlay variant so the two views stay in
 // lockstep (no risk of drift between "browsing for the first time" and
 // "browsing to switch servers mid-chat").
-function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBodyProps) {
+function DirectoryBody({ bloc, state, engine, directory, networks, identity }: DirectoryBodyProps) {
   const {
     me, servers, filteredServers, query, language, showNsfw, error, connections, searching,
+    tag, sort, facets, hasMore, loadingMore, legacyDirectory, directoryFailures, serverFilters,
   } = state;
   // First-launch-after-confirmation: the user has a session but no row
   // in /me yet — they need to pick a handle before anything else makes
@@ -439,7 +496,7 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
         />
 
         <div class="directory-lang-chips" role="tablist" aria-label="Filter by language">
-          {LANGUAGE_FILTERS.map((f) => (
+          {languageChips(facets, language).map((f) => (
             <button
               key={f.id}
               type="button"
@@ -452,6 +509,32 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
             </button>
           ))}
         </div>
+
+        {serverFilters && facets && facets.tags.length > 0 && (
+          <select
+            class="bds-input bds-input-sm directory-select"
+            aria-label="Filter by topic"
+            value={tag}
+            onChange={(e) => bloc.setTag((e.target as HTMLSelectElement).value)}
+          >
+            <option value="">Any topic</option>
+            {facets.tags.slice(0, 40).map((t) => (
+              <option key={t.value} value={t.value}>{t.value}{t.count ? ` (${t.count})` : ''}</option>
+            ))}
+            {tag && !facets.tags.slice(0, 40).some((t) => t.value === tag) && <option value={tag}>{tag}</option>}
+          </select>
+        )}
+
+        {serverFilters && (
+          <select
+            class="bds-input bds-input-sm directory-select"
+            aria-label="Sort servers"
+            value={sort}
+            onChange={(e) => bloc.setSort((e.target as HTMLSelectElement).value as NetworkSort | '')}
+          >
+            {SORTS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+        )}
 
         <Toggle checked={showNsfw} onChange={(v) => bloc.setShowNsfw(v)} label="Show NSFW" />
 
@@ -499,7 +582,19 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
           bloc.refreshDirectory();
         }}
         directory={directory}
+        networks={networks}
       />
+
+      {legacyDirectory && (
+        <p class="directory-source-note" role="status">
+          The network directory didn’t answer, so this is the older boson.chat list. It may be missing new servers.
+        </p>
+      )}
+      {!legacyDirectory && directoryFailures.length > 0 && (filteredServers?.length ?? 0) > 0 && (
+        <p class="directory-source-note" role="status">
+          Couldn’t reach {directoryFailures.map((f) => f.source).join(', ')}. Showing servers from your other directories.
+        </p>
+      )}
 
       {/* Refetch (search / filters / Refresh) while results are on screen:
           a shimmer above the list instead of swapping it for a spinner. */}
@@ -512,7 +607,13 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
           <span>Loading directory…</span>
         </div>
       ) : filteredServers.length === 0 ? (
-        <div class="directory-empty">{servers && servers.length > 0 ? 'No servers match these filters.' : 'No servers found.'}</div>
+        <div class="directory-empty">
+          {/* The directories filter by language/topic themselves, so an empty
+              page with a chip on means the filters, not the search. */}
+          {(servers && servers.length > 0) || language !== 'all' || tag
+            ? 'No servers match these filters.'
+            : 'No servers found.'}
+        </div>
       ) : (
         <div class="directory-grid" role="list">
           {filteredServers.map((s) => {
@@ -530,9 +631,20 @@ function DirectoryBody({ bloc, state, engine, directory, identity }: DirectoryBo
                 isLocal={isLocal}
                 showRemove={advanced && isLocal}
                 onRemove={() => bloc.removeLocalServer(s.id)}
+                // The default directory goes without saying; others are named.
+                showSource={!!s.source && !s.source.isDefault}
               />
             );
           })}
+        </div>
+      )}
+      {filteredServers !== null && hasMore && !searching && (
+        <div class="directory-more">
+          {/* Re-keyed per page so a still-visible sentinel fires again. */}
+          <LoadMoreSentinel key={filteredServers.length} onVisible={() => { void bloc.loadMore(); }} />
+          {loadingMore
+            ? <BarLoader class="directory-more-bar" label="Loading more servers" />
+            : <Button variant="ghost" onClick={() => { void bloc.loadMore(); }}>Load more servers</Button>}
         </div>
       )}
       </>)}
@@ -791,6 +903,8 @@ interface ServerCardProps {
   isLocal?: boolean;
   showRemove?: boolean;
   onRemove?: () => void;
+  // Name the directory that lists it (when it isn't the default).
+  showSource?: boolean;
 }
 
 // One card per server. Layout mirrors the 03-directory.png mockup:
@@ -802,7 +916,7 @@ interface ServerCardProps {
 // auto-flows from 3 → 2 → 1 columns based on viewport width.
 function ServerCard({
   server, engine, connected, isCurrent, myHandle, onConnect,
-  isLocal, showRemove, onRemove,
+  isLocal, showRemove, onRemove, showSource,
 }: ServerCardProps) {
   const isOffline = server.health_status === 'down';
   const verified = server.verification_status === 'verified';
@@ -835,10 +949,20 @@ function ServerCard({
         {server.description && (
           <p class="directory-card-desc">{server.description}</p>
         )}
-        {(server.tags.length > 0 || isLocal || verified) && (
+        {(server.tags.length > 0 || isLocal || verified || (showSource && server.source)) && (
           <div class="directory-card-tags">
             {isLocal && <span class="directory-card-tag directory-card-tag-local">LOCAL</span>}
             {verified && <span class="directory-card-tag directory-card-tag-verified">VERIFIED</span>}
+            {showSource && server.source && (
+              <span
+                class="directory-card-tag directory-card-tag-source"
+                title={server.also_listed_on?.length
+                  ? `Listed on ${server.source.name}, and on ${server.also_listed_on.join(', ')}`
+                  : `Listed on ${server.source.name}`}
+              >
+                {server.source.name}{server.also_listed_on?.length ? ` +${server.also_listed_on.length}` : ''}
+              </span>
+            )}
             {server.tags.map((t) => (
               <span key={t} class="directory-card-tag">{t.toUpperCase()}</span>
             ))}
@@ -923,7 +1047,9 @@ export function buildEditableProps(
     : directory?.find((s) => s.id === connServer.id);
   if (!server) return {};
   if (!me?.id || me.id === '__guest__') return {};
-  if (server.registered_by !== me.id) return {};
+  // Owned: /v1/me/networks on its directory listed it, or (legacy rows)
+  // the boson API recorded us as the registrant.
+  if (!server.owned && server.registered_by !== me.id) return {};
   return {
     directoryEntry: {
       serverId: server.id,

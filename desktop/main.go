@@ -23,6 +23,10 @@ var (
 	// authBase is the auth service the proxy may reach (default: production,
 	// https://auth.boson.chat).
 	authBase = ""
+	// directoryBase is the default network directory (default:
+	// https://directory.boson.chat): full proxy access, like the API. The
+	// user's other directories are added at runtime, read-only.
+	directoryBase = ""
 	// devBuild is "true" for dev and e2e builds: the API proxy may also reach
 	// a local backend on any loopback port, and nothing checks for updates.
 	devBuild = "false"
@@ -64,7 +68,11 @@ func main() {
 	if authBase == "" {
 		authBase = defaultAuthBase
 	}
-	api := NewApiService(apiBase, dev, authBase)
+	if directoryBase == "" {
+		directoryBase = defaultDirectoryBase
+	}
+	api := NewApiService(apiBase, dev, authBase, directoryBase)
+	api.TrustAuth(authBase)
 	deepLinks := &DeepLinkService{}
 	secure := NewSecureStore(dataDir, secureMode)
 	if dev {

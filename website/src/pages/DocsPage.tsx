@@ -18,6 +18,8 @@ const DOC_SECTION_IDS = [
   'host-daemon',
   'host-verify',
   'host-register',
+  'host-stack',
+  'host-own',
   'host-health',
   'ref-sasl',
   'ref-tls',
@@ -34,8 +36,8 @@ export function DocsPage() {
           <p class="eyebrow">Docs</p>
           <h1 style="max-width: 22ch;">How to use Boson — and how to plug your server in.</h1>
           <p class="lead" style="margin-top: 20px;">
-            Two parts: using the desktop client day-to-day (live now) and registering your own IRC
-            daemon with the public directory (the workers that automate this are still on the way).
+            Two parts: using the desktop client day-to-day, and listing your own IRC daemon in the
+            network directory at directory.boson.chat — or running a directory of your own.
           </p>
         </div>
       </section>
@@ -59,6 +61,8 @@ export function DocsPage() {
                 <li><a href="#host-daemon"   class={linkClass('host-daemon')}>Pick an IRCd</a></li>
                 <li><a href="#host-verify"   class={linkClass('host-verify')}>DNS TXT verification</a></li>
                 <li><a href="#host-register" class={linkClass('host-register')}>Submit to the directory</a></li>
+                <li><a href="#host-stack"    class={linkClass('host-stack')}>Boson stack fast path</a></li>
+                <li><a href="#host-own"      class={linkClass('host-own')}>Run your own directory</a></li>
                 <li><a href="#host-health"   class={linkClass('host-health')}>Health &amp; re-verification</a></li>
               </ul>
               <h4>Reference</h4>
@@ -119,15 +123,18 @@ export function DocsPage() {
                 <p class="eyebrow">02</p>
                 <h2>Join a server from the directory.</h2>
                 <p>
-                  Click <strong>Directory</strong> in the left rail. You'll see a list of public
-                  IRC networks that have been added to the Boson directory. Filter by tag, search
-                  by name. Click a card → <strong>Join</strong> and the engine connects, registers
-                  a nick over SASL, and joins any auto-join channels the server advertises.
+                  Click <strong>Directory</strong> in the left rail. You'll see the public IRC
+                  networks listed in the Boson directory. Search by name, filter by language or
+                  topic, sort by size or activity; more load as you scroll. Click a card →{' '}
+                  <strong>Connect</strong> and the engine connects, registers a nick over SASL, and
+                  joins any auto-join channels the server advertises.
                 </p>
                 <p>
-                  The directory is read-only from the client right now — what you see is what's
-                  there. Submitting your own server for inclusion isn't shipped yet (see the
-                  second half of these docs).
+                  The list comes from <span class="num">directory.boson.chat</span> by default. To
+                  browse another directory too — a community's, or your own stack's — open{' '}
+                  <strong>User settings → Directories</strong> and add it by address. Boson merges
+                  them into one list, one card per server, and labels where each one is listed.
+                  You can switch the default directory off there as well.
                 </p>
               </article>
 
@@ -336,11 +343,11 @@ export function DocsPage() {
                 <p class="eyebrow">Part 2</p>
                 <h2>List your server in the directory.</h2>
                 <p class="muted" style="margin-top: 16px;">
-                  Run an IRC server? Register it in the directory yourself — from the client,
-                  verified by a DNS TXT record, no human reviewer in the loop. Registration and DNS
-                  verification ship today; the background <em>health</em> and <em>re-verification</em>
-                  workers (which would auto-flag offline or lapsed listings) are still on the roadmap —
-                  see the last section. Questions?{' '}
+                  Run an IRC server? Register it in the directory yourself at{' '}
+                  <a href="https://directory.boson.chat" class="docs-link">directory.boson.chat</a>{' '}
+                  or from the client, verified by a DNS TXT record, no human reviewer in the loop.
+                  The directory is federated: anyone running the Boson stack can run their own, and
+                  directories import each other's listings. Questions?{' '}
                   <a href="mailto:hi@boson.chat" class="docs-link">drop us a line</a>.
                 </p>
               </header>
@@ -422,9 +429,12 @@ export function DocsPage() {
                   <li>
                     <h3>Get a verification token.</h3>
                     <p class="muted">
-                      Sign in to Boson, open the <strong>Directory</strong> and click{' '}
-                      <strong>Add your server to the community → Add a server</strong>. Fill in the
-                      form and submit — you get a one-time token bound to your account.
+                      Go to <a href="https://directory.boson.chat" class="docs-link">directory.boson.chat</a>{' '}
+                      and sign in with your Boson account (SSO works too), then register your
+                      server. Or, in the app, open the <strong>Directory</strong> and click{' '}
+                      <strong>Add your server to the community → Add a server</strong>. Either way
+                      you get a one-time token bound to your account. It's good for 72 hours; you
+                      can issue a new one at any time.
                     </p>
                   </li>
                   <li>
@@ -444,8 +454,8 @@ export function DocsPage() {
                   <li>
                     <h3>Wait for propagation, then verify.</h3>
                     <p class="muted">
-                      Click verify in the app. The directory queries multiple resolvers and looks
-                      for an exact-match record.
+                      Click verify on the website or in the app. The directory asks three public
+                      resolvers and lists you once all three return the exact record.
                     </p>
                     <Terminal>
                       <Line prompt>dig +short TXT _boson.irc.northwind.studio</Line>
@@ -454,9 +464,9 @@ export function DocsPage() {
                   </li>
                 </ol>
                 <div class="doc-callout">
-                  Once you're verified, you can leave the TXT record in place (recommended) or
-                  remove it. The re-verification worker — once it ships — will recheck periodically;
-                  if the record disappears, there'll be a grace window before the listing hides.
+                  Leave the TXT record in place once you're verified. The directory re-checks it
+                  every day; if it goes missing for 14 days the listing lapses and hides, and it
+                  comes back by itself once the record does.
                 </div>
               </article>
 
@@ -464,8 +474,10 @@ export function DocsPage() {
                 <p class="eyebrow">04</p>
                 <h2>Submit to the directory.</h2>
                 <p>
-                  The registration form (the <strong>Add a server</strong> step above) captures the
-                  server profile in one go. The four fields that matter:
+                  The registration form (on the website, or the <strong>Add a server</strong> step
+                  in the app) captures the server profile in one go. You can edit it, set an icon
+                  and banner, or remove the listing later from the same place. The four fields
+                  that matter:
                 </p>
                 <ul>
                   <li><strong>Name</strong> — short, human-readable. Shown in the directory list.</li>
@@ -479,39 +491,70 @@ export function DocsPage() {
                 </p>
               </article>
 
-              <article class="doc-section" id="host-health">
+              <article class="doc-section" id="host-stack">
                 <p class="eyebrow">05</p>
-                <h2>Health and re-verification.</h2>
+                <h2>Boson stack fast path.</h2>
                 <p>
-                  The schema for periodic checks is already in place — every server record carries{' '}
-                  <span class="num">verification_status</span> and{' '}
-                  <span class="num">health_status</span> fields. The background workers that
-                  actually run those checks are next on the roadmap.
+                  If your network runs on the Boson stack, you don't need a Boson account to list
+                  it. The stack's admin panel registers the network with its own network key:
+                  open <strong>Directory</strong> in the admin panel, check the details, and add
+                  the TXT record it shows you. The verification is the same DNS check as above.
+                </p>
+                <p class="muted">
+                  The stack points at <span class="num">directory.boson.chat</span> by default. Set{' '}
+                  <span class="num">DIRECTORY_API_URL</span> to register somewhere else, or{' '}
+                  <span class="num">DIRECTORY_REGISTRATION=false</span> to turn registration off.
+                </p>
+              </article>
+
+              <article class="doc-section" id="host-own">
+                <p class="eyebrow">06</p>
+                <h2>Run your own directory.</h2>
+                <p>
+                  The directory is part of the Boson stack. Turn on its{' '}
+                  <span class="num">directory</span> profile and it serves the same website and API
+                  at <span class="num">directory.&lt;your domain&gt;</span>. Your members add it in
+                  the app under <strong>User settings → Directories</strong>.
                 </p>
                 <p>
-                  <strong>What's coming.</strong> Three jobs we plan to ship together:
+                  <strong>The main directory is included by default.</strong> A new directory
+                  imports everything listed on <span class="num">directory.boson.chat</span>, so
+                  your users see the whole network plus your own listings. Imported listings only
+                  show as verified after your directory has checked each server's{' '}
+                  <span class="num">_boson</span> TXT record itself. To run an independent
+                  directory, set <span class="num">DIRECTORY_INCLUDE_MAIN=false</span>, or switch
+                  the main directory off on the Peers page or in the admin panel. You can add
+                  other directories as peers there too.
+                </p>
+                <div class="doc-callout">
+                  When two directories list the same server, a listing registered on your own
+                  directory wins over an imported one. Blocks you add apply to imported listings
+                  as well.
+                </div>
+              </article>
+
+              <article class="doc-section" id="host-health">
+                <p class="eyebrow">07</p>
+                <h2>Health and re-verification.</h2>
+                <p>
+                  The directory keeps listings honest on its own, with no cron jobs for you to run:
                 </p>
                 <ul>
                   <li>
-                    <strong>Health check</strong> — periodic TLS connect + welcome-banner read.
-                    Offline servers stay listed but get a{' '}
-                    <span class="num">"currently offline"</span> badge.
+                    <strong>Health check</strong> — every 15 minutes, a TLS connect to your listed
+                    port. Offline servers stay listed but show as offline. The same check reads{' '}
+                    <span class="num">LUSERS</span>, which is where the user count comes from.
                   </li>
                   <li>
-                    <strong>Re-verification</strong> — the TXT record is re-queried on a schedule.
-                    Lapsed records get hidden after a grace window; restoring the record re-lists
-                    you on the next pass.
+                    <strong>Re-verification</strong> — the TXT record is re-checked daily, and two
+                    of the three resolvers have to agree. After 14 days without a successful check
+                    the listing lapses and hides.
                   </li>
                   <li>
-                    <strong>Activity sampling</strong> — <span class="num">LUSERS</span> at a
-                    regular interval. The user count in the directory becomes a median, not a
-                    spot-reading, so an empty hour doesn't make your server look dead.
+                    <strong>Recovery</strong> — lapsed listings are re-checked weekly and list
+                    again as soon as the record is back.
                   </li>
                 </ul>
-                <p class="muted">
-                  Exact intervals will live here once the workers ship. We'd rather underclaim now
-                  than redesign the docs after the first iteration.
-                </p>
               </article>
 
               {/* --------------- REFERENCE --------------- */}
@@ -576,8 +619,8 @@ export function DocsPage() {
                   not police speech on your server — it polices presence on the directory.
                 </p>
                 <ul>
-                  <li><strong>Operator request.</strong> You ask. We remove. The hostname is freed up for re-registration after 30 days.</li>
-                  <li><strong>Lapsed verification.</strong> TXT record missing for &gt; 14 days. Add it back to re-list — automatic once the re-verification worker ships.</li>
+                  <li><strong>Operator request.</strong> Remove the listing yourself on directory.boson.chat, in the app, or from the stack's admin panel.</li>
+                  <li><strong>Lapsed verification.</strong> TXT record missing for &gt; 14 days. Add it back and the listing returns at the next weekly check.</li>
                   <li><strong>Abuse.</strong> Repeated unreviewed reports tied to your server. We notify the contact address. Restoration is via the contact form.</li>
                 </ul>
                 <p>
@@ -594,12 +637,12 @@ export function DocsPage() {
         <div class="container">
           <h2 style="margin-bottom: 16px;">The desktop client is live — and so is directory listing.</h2>
           <p class="lead">
-            Install Boson, browse the directory, or register your own server. The background health
-            and re-verification workers are landing over the next few releases.
+            Install Boson, browse the directory, or register your own server at
+            directory.boson.chat.
           </p>
           <div class="hero-cta" style="justify-content: center;">
             <a class="btn btn-primary" href="/download">Download Boson</a>
-            <a class="btn btn-secondary" href="/about">Read the philosophy</a>
+            <a class="btn btn-secondary" href="https://directory.boson.chat">List your server</a>
           </div>
         </div>
       </section>

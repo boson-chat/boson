@@ -51,6 +51,12 @@ export class HttpClient {
     return this.send<T>('POST', path, contentType, bytes);
   }
 
+  // Same as postBlob, as a PUT (the directory's /v1 image endpoints).
+  async putBlob<T>(path: string, blob: Blob, contentType: string): Promise<T> {
+    const bytes = await blob.arrayBuffer();
+    return this.send<T>('PUT', path, contentType, bytes);
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     return this.send<T>(method, path, 'application/json', body !== undefined ? JSON.stringify(body) : null);
   }
