@@ -18,6 +18,24 @@ export function VoiceBar() {
 
   const where = [call.roomName || call.room, snap.callServerName].filter(Boolean).join(' / ');
 
+  if (call.status === 'error' && call.errorKind === 'kicked') {
+    // Put out of the room (it was deleted): say so, nothing to retry.
+    return (
+      <div class="voice-bar voice-bar-notice" role="status">
+        <div class="voice-bar-head">
+          <span class="voice-bar-status">Disconnected from voice</span>
+          <span class="voice-bar-actions">
+            <button type="button" class="voice-bar-btn" aria-label="Dismiss" title="Dismiss" onClick={() => { void voice.dismissError(); }}>
+              <X size={15} aria-hidden="true" />
+            </button>
+          </span>
+        </div>
+        <div class="voice-bar-error-text">{call.error}</div>
+        {snap.callServerName && <div class="voice-bar-where">{snap.callServerName}</div>}
+      </div>
+    );
+  }
+
   if (call.status === 'error') {
     const retryable = call.errorKind === 'token' || call.errorKind === 'unreachable' || call.errorKind === 'dropped';
     return (
@@ -43,6 +61,8 @@ export function VoiceBar() {
   }
 
   const connecting = call.status === 'connecting';
+  // In below the room's speak role: nobody hears the mic.
+  const listener = !!call.listener && !connecting;
   const QualityIcon = call.quality === 'poor' ? SignalLow : call.quality === 'ok' ? SignalMedium : Signal;
   const rtt = call.rttMs > 0 ? `${Math.round(call.rttMs)} ms` : '';
   return (
@@ -60,17 +80,30 @@ export function VoiceBar() {
       </div>
       <div class="voice-bar-where" title={where}>{where}</div>
       <div class="voice-bar-controls">
-        <button
-          type="button"
-          class="voice-bar-btn"
-          aria-pressed={call.muted}
-          data-on={call.muted || undefined}
-          aria-label={call.muted ? 'Unmute' : 'Mute'}
-          title={call.muted ? 'Unmute' : 'Mute'}
-          onClick={() => { void voice.setMuted(!call.muted); }}
-        >
-          {call.muted ? <MicOff size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
-        </button>
+        {listener ? (
+          <button
+            type="button"
+            class="voice-bar-btn"
+            data-on
+            disabled
+            aria-label="Listen only: your mic isn't heard in this channel"
+            title="Listen only: talking in this channel needs a higher role"
+          >
+            <MicOff size={16} aria-hidden="true" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            class="voice-bar-btn"
+            aria-pressed={call.muted}
+            data-on={call.muted || undefined}
+            aria-label={call.muted ? 'Unmute' : 'Mute'}
+            title={call.muted ? 'Unmute' : 'Mute'}
+            onClick={() => { void voice.setMuted(!call.muted); }}
+          >
+            {call.muted ? <MicOff size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
+          </button>
+        )}
         <button
           type="button"
           class="voice-bar-btn"
@@ -82,10 +115,14 @@ export function VoiceBar() {
         >
           {call.deafened ? <HeadphoneOff size={16} aria-hidden="true" /> : <Headphones size={16} aria-hidden="true" />}
         </button>
-        <span class="voice-bar-mode" title={call.pushToTalk ? 'Push to talk' : 'Voice activity'}>
-          {call.pushToTalk ? 'PTT' : 'VAD'}
-          <span class="voice-bar-tx" data-on={call.transmitting && !call.muted && !call.deafened ? true : undefined} aria-hidden="true" />
-        </span>
+        {listener ? (
+          <span class="voice-bar-mode voice-bar-listen" title="You joined as a listener">Listen only</span>
+        ) : (
+          <span class="voice-bar-mode" title={call.pushToTalk ? 'Push to talk' : 'Voice activity'}>
+            {call.pushToTalk ? 'PTT' : 'VAD'}
+            <span class="voice-bar-tx" data-on={call.transmitting && !call.muted && !call.deafened ? true : undefined} aria-hidden="true" />
+          </span>
+        )}
         <button type="button" class="voice-bar-btn" aria-label="Voice settings" title="Voice settings" onClick={() => openUserSettings('voice')}>
           <Settings size={16} aria-hidden="true" />
         </button>

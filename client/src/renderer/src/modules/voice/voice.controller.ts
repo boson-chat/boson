@@ -13,7 +13,8 @@ import {
   getVoiceSettings, onVoiceSettingsChange, setVoiceSettings, type VoiceSettings,
 } from './voice.settings';
 import {
-  IDLE_VOICE_STATE, type VoiceDevices, type VoiceRoom, type VoiceRoomsErrorKind, type VoiceState,
+  IDLE_VOICE_STATE, NO_ROOM_PERMISSIONS, type VoiceDevices, type VoiceRoom, type VoiceRoomChange,
+  type VoiceRoomInput, type VoiceRoomPermissions, type VoiceRoomsErrorKind, type VoiceState,
 } from './voice.types';
 
 export interface VoiceServerView {
@@ -25,6 +26,8 @@ export interface VoiceServerView {
   audioError?: string;
   // null until the first list arrives.
   rooms: VoiceRoom[] | null;
+  // Whether (and where) you may make voice channels here.
+  permissions: VoiceRoomPermissions;
   roomsError: string | null;
   roomsErrorKind: VoiceRoomsErrorKind | null;
 }
@@ -151,7 +154,7 @@ export class VoiceController {
 
   private patchServer(host: string, patch: Partial<VoiceServerView>): void {
     const prev = this.servers[host] ?? {
-      host, discovery: 'unknown', audio: false, rooms: null, roomsError: null, roomsErrorKind: null,
+      host, discovery: 'unknown', audio: false, rooms: null, permissions: NO_ROOM_PERMISSIONS, roomsError: null, roomsErrorKind: null,
     };
     this.servers = { ...this.servers, [host]: { ...prev, ...patch } };
     this.emit();
@@ -246,7 +249,72 @@ export class VoiceController {
       this.patchServer(host, { roomsError: r.error, roomsErrorKind: r.errorKind ?? 'server' });
       return;
     }
-    this.patchServer(host, { rooms: r.rooms ?? [], roomsError: null, roomsErrorKind: null });
+    this.patchServer(host, {
+      rooms: r.rooms ?? [],
+      permissions: normalizePermissions(r.permissions),
+      roomsError: null,
+      roomsErrorKind: null,
+    });
+  }
+
+  // ---- managing voice channels ----
+
+  // Makes a voice channel; resolves with the room, or rejects with a
+  // VoiceRoomError whose message is for the user.
+  async createRoom(rawHost: string, input: VoiceRoomInput): Promise<VoiceRoom> {
+    const r = await this.change(rawHost, (b, host, token) => b.createRoom(host, token, input));
+    if (!r.room) throw new VoiceRoomError('server', 'The voice server sent no channel back.');
+    return r.room;
+  }
+
+  async updateRoom(rawHost: string, id: string, input: VoiceRoomInput): Promise<VoiceRoom | null> {
+    return (await this.change(rawHost, (b, host, token) => b.updateRoom(host, token, id, input))).room ?? null;
+  }
+
+  async deleteRoom(rawHost: string, id: string): Promise<void> {
+    await this.change(rawHost, (b, host, token) => b.deleteRoom(host, token, id));
+  }
+
+  // Moves a room one place up or down among its siblings (same parent).
+  // Positions are renumbered 0..n-1 inside the group; only rooms you may
+  // manage can be renumbered (canMove says whether this move can be done).
+  async moveRoom(rawHost: string, id: string, dir: -1 | 1): Promise<void> {
+    const host = rawHost.trim().toLowerCase();
+    const plan = movePlan(this.servers[host]?.rooms ?? [], id, dir);
+    if (!plan) throw new VoiceRoomError('forbidden', "That voice channel can't move there.");
+    for (const step of plan) {
+      await this.change(host, (b, h, token) => b.updateRoom(h, token, step.id, { position: step.position }), false);
+    }
+    await this.refreshRooms(host, true);
+  }
+
+  canMove(rawHost: string, id: string, dir: -1 | 1): boolean {
+    return movePlan(this.servers[rawHost.trim().toLowerCase()]?.rooms ?? [], id, dir) !== null;
+  }
+
+  private async change(
+    rawHost: string,
+    fn: (b: VoiceBridge, host: string, token: string) => Promise<VoiceRoomChange>,
+    refresh = true,
+  ): Promise<VoiceRoomChange> {
+    const host = rawHost.trim().toLowerCase();
+    if (!this.bridge) throw new VoiceRoomError('unavailable_voice', 'Voice needs the desktop app.');
+    let token: string;
+    try {
+      token = await this.listVoiceToken();
+    } catch (err) {
+      throw new VoiceRoomError('token', tokenErrorText(err));
+    }
+    let r: VoiceRoomChange;
+    try {
+      r = await fn(this.bridge, host, token);
+    } catch (err) {
+      throw new VoiceRoomError('server', errText(err));
+    }
+    if (r.code === 'unauthorized') this.listToken = null;
+    if (r.error || r.code) throw new VoiceRoomError(r.code ?? 'server', roomErrorText(r), r.retryAfter);
+    if (refresh) void this.refreshRooms(host, true);
+    return r;
   }
 
   // A token for listing rooms (any room), reused while it's good for
@@ -376,6 +444,73 @@ export class VoiceController {
     this.pttDown = false;
     void this.bridge?.ptt(false).catch(() => {});
   }
+}
+
+// A failed room change: code is the voice server's (conflict, forbidden, …).
+export class VoiceRoomError extends Error {
+  constructor(public readonly code: string, message: string, public readonly retryAfter?: number) {
+    super(message);
+    this.name = 'VoiceRoomError';
+  }
+}
+
+function roomErrorText(r: VoiceRoomChange): string {
+  switch (r.code) {
+    case 'conflict': return 'There is already a voice channel with that name here.';
+    case 'static_room': return "This voice channel is set in the server's config and can't be changed here.";
+    case 'limit': return "You've made as many voice channels as this server allows. Delete one first.";
+    case 'not_found': return 'That voice channel no longer exists.';
+    case 'forbidden': return r.error ? capitalise(r.error) : "You don't have permission to do that.";
+    case 'unavailable': return `The voice server couldn't check your channel role. Try again in ${r.retryAfter ?? 5} seconds.`;
+    case 'unauthorized': return "The voice server didn't accept your sign-in. Try again.";
+    case 'unsupported': return "This voice server doesn't support managing channels yet.";
+    default: return r.error ? capitalise(r.error) : 'The voice server refused the change.';
+  }
+}
+
+function capitalise(s: string): string {
+  const t = s.trim();
+  const out = t.charAt(0).toUpperCase() + t.slice(1);
+  return /[.!?]$/.test(out) ? out : `${out}.`;
+}
+
+function normalizePermissions(p: VoiceRoomPermissions | undefined): VoiceRoomPermissions {
+  if (!p) return NO_ROOM_PERMISSIONS;
+  const scope = p.createScope === 'any' || p.createScope === 'founded_channels' ? p.createScope : 'none';
+  return {
+    policy: p.policy,
+    canCreate: !!p.canCreate && scope !== 'none',
+    createScope: scope,
+    foundedChannels: (p.foundedChannels ?? []).map((c) => c.toLowerCase()),
+  };
+}
+
+// The rooms under one parent ('' = top level), in display order.
+export function roomsUnder(rooms: readonly VoiceRoom[], parent: string): VoiceRoom[] {
+  const key = parent.toLowerCase();
+  return rooms.filter((r) => (r.parent ?? '').toLowerCase() === key);
+}
+
+// The PATCHes that move `id` one step: its group renumbered 0..n-1 in the
+// new order. null when it's already at that end, or a room that would need
+// a new position isn't one you may manage.
+export function movePlan(rooms: readonly VoiceRoom[], id: string, dir: -1 | 1): Array<{ id: string; position: number }> | null {
+  const room = rooms.find((r) => r.id === id);
+  if (!room || !room.canManage) return null;
+  const group = roomsUnder(rooms, room.parent ?? '');
+  const i = group.findIndex((r) => r.id === id);
+  const j = i + dir;
+  if (j < 0 || j >= group.length) return null;
+  const order = [...group];
+  [order[i], order[j]] = [order[j]!, order[i]!];
+  const steps: Array<{ id: string; position: number }> = [];
+  for (let k = 0; k < order.length; k++) {
+    const r = order[k]!;
+    if ((r.position ?? -1) === k) continue;
+    if (!r.canManage || r.kind === 'static' || r.kind === 'adhoc') return null;
+    steps.push({ id: r.id, position: k });
+  }
+  return steps.length > 0 ? steps : null;
 }
 
 function isEditable(t: EventTarget | null): boolean {

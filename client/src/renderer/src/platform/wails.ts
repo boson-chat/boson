@@ -258,6 +258,9 @@ export async function installWailsBridges(): Promise<void> {
     w.bosonVoice = {
       discover: (host: string, refresh: boolean) => v('Discover', host, refresh),
       rooms: (host: string, token: string) => v('Rooms', host, token),
+      createRoom: (host: string, token: string, input: unknown) => v('CreateRoom', host, token, input),
+      updateRoom: (host: string, token: string, id: string, input: unknown) => v('UpdateRoom', host, token, id, input),
+      deleteRoom: (host: string, token: string, id: string) => v('DeleteRoom', host, token, id),
       join: (req: unknown) => v('Join', req),
       leave: () => v('Leave'),
       dismissError: () => v('DismissError'),
@@ -272,6 +275,16 @@ export async function installWailsBridges(): Promise<void> {
       micTest: (on: boolean) => v('MicTest', on),
       state: () => v('State'),
       onState: (fn: (s: unknown) => void) => Events.On('voice:state', (ev) => fn(ev.data)),
+    };
+  }
+  // "Sign in with …" (desktop/sso.go): the loopback redirect listener.
+  // Desktop only; absent → the login screen shows no provider buttons.
+  if (await Call.ByName('main.SSOService.Wait', '').then(() => true, () => false)) {
+    w.bosonSSO = {
+      begin: () => Call.ByName('main.SSOService.Begin'),
+      wait: (id: string) => Call.ByName('main.SSOService.Wait', id),
+      cancel: (id: string) => Call.ByName('main.SSOService.Cancel', id),
+      open: (url: string) => Call.ByName('main.LinksService.Open', url),
     };
   }
   w.bosonEngine = {

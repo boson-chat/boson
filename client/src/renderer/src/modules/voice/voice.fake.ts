@@ -3,8 +3,8 @@
 
 import type { VoiceBridge } from './voice.bridge';
 import {
-  IDLE_VOICE_STATE, type VoiceDevices, type VoiceJoinRequest, type VoiceRoom, type VoiceRoomsResult,
-  type VoiceServerInfo, type VoiceState,
+  IDLE_VOICE_STATE, type VoiceDevices, type VoiceJoinRequest, type VoiceRoom, type VoiceRoomChange,
+  type VoiceRoomInput, type VoiceRoomPermissions, type VoiceRoomsResult, type VoiceServerInfo, type VoiceState,
 } from './voice.types';
 
 export interface FakeVoiceOptions {
@@ -12,9 +12,13 @@ export interface FakeVoiceOptions {
   servers?: Record<string, Partial<VoiceServerInfo>>;
   // host → rooms (or an error result).
   rooms?: Record<string, VoiceRoom[] | VoiceRoomsResult>;
+  // host → what you may create there (default: nothing).
+  permissions?: Record<string, VoiceRoomPermissions>;
   devices?: VoiceDevices;
   // What joining does: the state to end in (default: connected, just you).
   onJoin?: (req: VoiceJoinRequest, prev: VoiceState) => VoiceState;
+  // Answer room changes with this instead (an error, say).
+  onChange?: (method: 'create' | 'update' | 'delete', host: string, input: VoiceRoomInput | null, id: string | null) => VoiceRoomChange | null;
 }
 
 export interface FakeVoiceBridge extends VoiceBridge {
@@ -32,6 +36,13 @@ export function createFakeVoiceBridge(opts: FakeVoiceOptions = {}): FakeVoiceBri
     listeners.forEach((fn) => fn(fake.current));
     return fake.current;
   };
+  const roomList = (host: string): VoiceRoom[] => {
+    const r = opts.rooms?.[host];
+    if (Array.isArray(r)) return r;
+    if (r && r.rooms) return r.rooms;
+    opts.rooms = { ...opts.rooms, [host]: [] };
+    return opts.rooms[host] as VoiceRoom[];
+  };
   const fake: FakeVoiceBridge = {
     calls: [],
     current: { ...IDLE_VOICE_STATE },
@@ -45,8 +56,46 @@ export function createFakeVoiceBridge(opts: FakeVoiceOptions = {}): FakeVoiceBri
     async rooms(host, token) {
       log('rooms', host, token);
       const r = opts.rooms?.[host];
-      if (!r) return { rooms: [] };
-      return Array.isArray(r) ? { rooms: r } : r;
+      const permissions = opts.permissions?.[host];
+      if (!r) return { rooms: [], permissions };
+      return Array.isArray(r) ? { rooms: r.map((x) => ({ ...x })), permissions } : { permissions, ...r };
+    },
+    async createRoom(host, token, input) {
+      log('createRoom', host, token, input);
+      const forced = opts.onChange?.('create', host, input, null);
+      if (forced) return forced;
+      const rooms = roomList(host);
+      const parent = (input.parent ?? '').toLowerCase();
+      const id = slug(`${parent.replace(/^#/, '')} ${input.name ?? ''}`) || 'room';
+      const room: VoiceRoom = {
+        id, name: (input.name ?? '').trim(), kind: 'dynamic', parent, owner: { userId: 'usr_me', name: 'me' },
+        position: rooms.length, minRole: input.minRole ?? 'member', speakRole: input.speakRole ?? 'member',
+        requireChannelMembership: !!input.requireChannelMembership, canManage: true, canJoin: true, canSpeak: true, participants: [],
+      };
+      rooms.push(room);
+      return { room };
+    },
+    async updateRoom(host, token, id, input) {
+      log('updateRoom', host, token, id, input);
+      const forced = opts.onChange?.('update', host, input, id);
+      if (forced) return forced;
+      const rooms = roomList(host);
+      const i = rooms.findIndex((r) => r.id === id);
+      if (i < 0) return { error: 'no such room', code: 'not_found' };
+      const { parent: _ignored, ...patch } = input;
+      rooms[i] = { ...rooms[i]!, ...patch };
+      rooms.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+      return { room: rooms.find((r) => r.id === id) };
+    },
+    async deleteRoom(host, token, id) {
+      log('deleteRoom', host, token, id);
+      const forced = opts.onChange?.('delete', host, null, id);
+      if (forced) return forced;
+      const rooms = roomList(host);
+      const i = rooms.findIndex((r) => r.id === id);
+      if (i < 0) return { error: 'no such room', code: 'not_found' };
+      rooms.splice(i, 1);
+      return {};
     },
     async join(req) {
       log('join', req);
@@ -81,4 +130,8 @@ export function createFakeVoiceBridge(opts: FakeVoiceOptions = {}): FakeVoiceBri
     },
   };
   return fake;
+}
+
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }

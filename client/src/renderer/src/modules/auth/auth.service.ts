@@ -54,6 +54,39 @@ export interface VoiceToken {
   expiresAt: number;
 }
 
+// An identity provider the auth service offers ("Sign in with …").
+export interface SSOProvider {
+  slug: string;
+  kind: 'oidc' | 'saml' | string;
+  display_name: string;
+  start_url: string;
+}
+
+// GET /v1/config: the network's public settings.
+export interface AuthConfig {
+  registration?: string;
+  require_email_verification?: boolean;
+  sso_providers: SSOProvider[];
+}
+
+// An external sign-in linked to the account (GET /v1/me/identities).
+export interface LinkedIdentity {
+  id: string;
+  provider_id: string;
+  provider_slug: string;
+  provider_kind: string;
+  provider_display_name: string;
+  subject: string;
+  email: string | null;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface LinkedIdentities {
+  identities: LinkedIdentity[];
+  has_password: boolean;
+}
+
 export interface SignUpInput {
   username: string;
   email: string;
@@ -147,6 +180,49 @@ export class AuthService {
     const session = this.toSession(r, {});
     await this.save(session);
     this.setState({ session, loading: false, error: null });
+  }
+
+  // The network's public settings, including its identity providers.
+  async config(): Promise<AuthConfig> {
+    const r = await this.call<Partial<AuthConfig>>('GET', '/v1/config');
+    return { ...r, sso_providers: Array.isArray(r?.sso_providers) ? r.sso_providers.filter((p) => p?.slug && p.start_url) : [] };
+  }
+
+  // Finishes "Sign in with …": trades the one-time code the browser brought
+  // back (and the PKCE verifier its start carried the challenge of) for a
+  // session, stored like a password sign-in's.
+  async exchangeSSOCode(code: string, codeVerifier: string): Promise<Session> {
+    const r = await this.call<TokenResponse>('POST', '/v1/sso/exchange', { code, code_verifier: codeVerifier });
+    this.epoch++;
+    const session = this.toSession(r, {});
+    await this.save(session);
+    this.setState({ session, loading: false, error: null });
+    return session;
+  }
+
+  // External sign-ins linked to the account, and whether it has a password.
+  async identities(): Promise<LinkedIdentities> {
+    const r = await this.authed<Partial<LinkedIdentities>>('GET', '/v1/me/identities');
+    return { identities: r?.identities ?? [], has_password: !!r?.has_password };
+  }
+
+  // Unlinks one; 409 last_login_method when it's the only way in.
+  async unlinkIdentity(id: string): Promise<void> {
+    await this.authed('DELETE', `/v1/me/identities/${encodeURIComponent(id)}`);
+  }
+
+  // A call with the access token, retried once after a refresh on 401.
+  private async authed<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    let token = await this.getToken();
+    if (!token) throw new AuthError('signed_out', 'Sign in first.', 401);
+    try {
+      return await this.call<T>(method, path, body, token);
+    } catch (err) {
+      if (!(err instanceof AuthError) || err.status !== 401) throw err;
+      token = await this.tokenRejected(token);
+      if (!token) throw new AuthError('signed_out', 'Sign in first.', 401);
+      return this.call<T>(method, path, body, token);
+    }
   }
 
   async signUp(input: SignUpInput): Promise<SignUpResult> {
@@ -390,6 +466,8 @@ export function describeAuthError(err: unknown): string {
     case 'invite_required': return 'Sign-ups need an invite code right now.';
     case 'rate_limited': return 'Too many attempts. Wait a minute and try again.';
     case 'network': return err.message;
+    case 'invalid_code': return 'That sign-in expired before it finished. Try again.';
+    case 'last_login_method': return "That's the only way to sign in to this account. Set a password or link another sign-in first.";
     // invalid_username, weak_password, invalid_request: the service's own
     // message says what's wrong.
     default: return err.message;

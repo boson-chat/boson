@@ -1,5 +1,5 @@
 export {
-  VoiceController, getVoiceController, setVoiceController, normalizeAuthUrl, VOICE_POLL_MS,
+  VoiceController, VoiceRoomError, getVoiceController, setVoiceController, normalizeAuthUrl, movePlan, roomsUnder, VOICE_POLL_MS,
   type VoiceSnapshot, type VoiceServerView, type VoiceControllerOptions,
 } from './voice.controller';
 export { voiceBridge, type VoiceBridge } from './voice.bridge';

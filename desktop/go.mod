@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/boson-chat/boson v0.0.0
-	github.com/boson-chat/quicvoice v1.4.0
+	github.com/boson-chat/quicvoice v1.5.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/quic-go/quic-go v0.65.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.30

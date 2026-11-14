@@ -184,3 +184,137 @@
 .voice-bar-actions { display: inline-flex; gap: var(--space-1); margin-left: auto; }
 .voice-bar-error .voice-bar-status { color: var(--danger, #e0533a); font-weight: 700; }
 .voice-bar-error-text { color: var(--fg-2); line-height: var(--leading-tight); }
+
+/* ---- voice channel management ---- */
+
+/* Listen only (joined below the speak role). */
+.voice-bar-btn:disabled { cursor: default; opacity: 0.8; }
+.voice-bar-btn:disabled:hover { background: transparent; border-color: transparent; }
+.voice-bar-listen { color: var(--warn, #e0a32a); letter-spacing: 0; }
+.voice-bar-notice .voice-bar-status { color: var(--fg); font-weight: 700; }
+
+/* Voice channels hanging under their text channel: one step in, with a
+   faint guide line so the group reads as belonging to the row above. */
+.voice-channel-group,
+.voice-orphan-group { position: relative; }
+.voice-channel-group::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--space-4) + 11px);
+  top: 0;
+  bottom: 6px;
+  width: 1px;
+  background: var(--border-soft, var(--border));
+  pointer-events: none;
+}
+.voice-room-nested .voice-room-row { padding-left: calc(var(--space-4) + var(--space-4)); }
+.voice-room-nested .voice-participant { padding-left: calc(var(--space-4) + var(--space-4) + 28px); }
+.voice-room-row .channel-hash { color: var(--fg-3); }
+
+/* A room you can't join: lock in place of the speaker, name dimmed. */
+.voice-room-row[data-locked] { cursor: not-allowed; }
+.voice-room-row[data-locked] .channel-name { opacity: 0.55; }
+.voice-room-row[aria-disabled='true'][data-locked] { opacity: 1; }
+
+.voice-room-badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+
+.voice-participant-listening {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--fg-3);
+}
+
+/* Gear (rooms you manage) and the text channel's voice "+": show on hover
+   or keyboard focus, like the leave ×. */
+.voice-room-edit,
+.channel-voice-add {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.channel-item:hover .voice-room-edit,
+.channel-item:hover .channel-voice-add,
+.channel-item:focus-within .voice-room-edit,
+.channel-item:focus-within .channel-voice-add,
+.voice-room-edit:focus-visible,
+.channel-voice-add:focus-visible { opacity: 1; }
+.voice-room-edit:hover,
+.channel-voice-add:hover { color: var(--accent); background: var(--surface-hover); }
+@media (hover: none) {
+  .voice-room-edit, .channel-voice-add { opacity: 1; }
+}
+
+/* Rooms of a text channel you're not in, in the VOICE section. */
+.voice-orphan-parent {
+  padding: var(--space-1) var(--space-3) 2px var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+
+.nick-context-menu-divider { height: 1px; margin: var(--space-1) 0; background: var(--border-soft, var(--border)); }
+.voice-room-menu .nick-context-menu-item:disabled { opacity: 0.45; cursor: default; }
+.voice-room-menu .nick-context-menu-item:disabled:hover { background: transparent; }
+.voice-room-menu-error {
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--danger, #e0533a);
+}
+
+/* Create / edit dialog. */
+.voice-dialog { display: flex; flex-direction: column; gap: var(--space-3); }
+.voice-dialog-locks { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+@media (max-width: 640px) { .voice-dialog-locks { grid-template-columns: 1fr; } }
+.voice-dialog-select { appearance: auto; cursor: pointer; min-height: 44px; }
+.voice-dialog-where,
+.voice-dialog-text {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  line-height: var(--leading-normal, 1.5);
+}
+.voice-dialog-where strong,
+.voice-dialog-text strong { color: var(--fg); }
+.voice-dialog-toggle { display: flex; flex-direction: column; gap: 2px; }
+.voice-dialog-hint {
+  padding-left: 44px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+.voice-dialog-error {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid color-mix(in oklab, var(--danger), transparent 60%);
+  background: color-mix(in oklab, var(--danger), transparent 90%);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.voice-dialog-actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.voice-dialog-spacer { flex: 1; }
+.voice-dialog-actions .bds-btn[data-tone='danger'] { background: var(--danger); border-color: var(--danger); color: #fff; }
+.voice-dialog-actions .bds-btn[data-tone='danger-ghost'] { color: var(--danger); }
+.voice-dialog-actions:has(.bds-btn[data-tone='danger']) { justify-content: flex-end; }

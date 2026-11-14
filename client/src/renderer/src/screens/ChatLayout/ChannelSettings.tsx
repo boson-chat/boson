@@ -21,6 +21,8 @@ interface ChannelSettingsProps {
 const BOOL_MODES: ReadonlyArray<{ flag: string; label: string; hint?: string }> = [
   { flag: 'm', label: 'Moderated (+m)', hint: 'Only voiced (+) and above may speak' },
   { flag: 'i', label: 'Invite only (+i)', hint: 'Users must be invited to join' },
+  { flag: 'R', label: 'Registered only (+R)', hint: 'Only people signed in to an account can join' },
+  { flag: 'M', label: 'Registered speak (+M)', hint: 'Only people signed in to an account can talk; guests can read' },
   { flag: 't', label: 'Topic locked (+t)', hint: 'Only operators can change the topic' },
   { flag: 'n', label: 'No external messages (+n)', hint: 'Must be in the channel to message it' },
   { flag: 's', label: 'Secret (+s)', hint: 'Hide the channel from LIST / WHOIS' },

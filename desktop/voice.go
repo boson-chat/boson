@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -78,6 +79,7 @@ type voiceSession struct {
 type voiceMember struct {
 	userID, name    string
 	muted, deafened bool
+	listener        bool // joined below the room's speak role: not heard
 }
 
 // voiceConn is what VoiceService needs of a quicvoice connection
@@ -173,6 +175,8 @@ type VoiceParticipant struct {
 	Deafened  bool   `json:"deafened"`
 	Speaking  bool   `json:"speaking"`
 	Volume    int    `json:"volume"`
+	// Joined below the room's speak role: heard by nobody.
+	Listener bool `json:"listener"`
 }
 
 // VoiceState is the whole voice UI state.
@@ -189,13 +193,15 @@ type VoiceState struct {
 	Participants []VoiceParticipant `json:"participants"`
 	Muted        bool               `json:"muted"`
 	Deafened     bool               `json:"deafened"`
-	PushToTalk   bool               `json:"pushToTalk"`
-	MicTest      bool               `json:"micTest"`
-	MicTestError string             `json:"micTestError,omitempty"`
-	MicLevel     float32            `json:"micLevel"`
-	Transmitting bool               `json:"transmitting"`
-	RTTMs        float64            `json:"rttMs"`
-	LossPercent  float32            `json:"lossPercent"`
+	// We're in the room as a listener (below its speak role).
+	Listener     bool    `json:"listener"`
+	PushToTalk   bool    `json:"pushToTalk"`
+	MicTest      bool    `json:"micTest"`
+	MicTestError string  `json:"micTestError,omitempty"`
+	MicLevel     float32 `json:"micLevel"`
+	Transmitting bool    `json:"transmitting"`
+	RTTMs        float64 `json:"rttMs"`
+	LossPercent  float32 `json:"lossPercent"`
 	// Quality: good | ok | poor | unknown.
 	Quality    string `json:"quality"`
 	AudioError string `json:"audioError,omitempty"`
@@ -298,6 +304,53 @@ func (s *VoiceService) Rooms(host, token string) VoiceRoomsResult {
 		return VoiceRoomsResult{Error: "Sign in to use voice.", ErrorKind: "token"}
 	}
 	return fetchVoiceRooms(context.Background(), s.http, info.URL, token)
+}
+
+// CreateRoom makes a voice channel on host's voice server (POST /v1/rooms).
+func (s *VoiceService) CreateRoom(host, token string, in VoiceRoomInput) VoiceRoomChange {
+	info, bad := s.roomAPI(host, token)
+	if bad != nil {
+		return *bad
+	}
+	if in.Name == nil || strings.TrimSpace(*in.Name) == "" {
+		return VoiceRoomChange{Error: "Give the voice channel a name.", Code: "invalid"}
+	}
+	return changeVoiceRoom(context.Background(), s.http, http.MethodPost, info.URL+"/v1/rooms", token, in.wire(true))
+}
+
+// UpdateRoom renames, moves or re-locks a voice channel (PATCH).
+func (s *VoiceService) UpdateRoom(host, token, id string, in VoiceRoomInput) VoiceRoomChange {
+	info, bad := s.roomAPI(host, token)
+	if bad != nil {
+		return *bad
+	}
+	if id == "" {
+		return VoiceRoomChange{Error: "No voice channel given.", Code: "invalid"}
+	}
+	return changeVoiceRoom(context.Background(), s.http, http.MethodPatch, info.URL+"/v1/rooms/"+url.PathEscape(id), token, in.wire(false))
+}
+
+// DeleteRoom removes a voice channel; whoever is in it is put out of it.
+func (s *VoiceService) DeleteRoom(host, token, id string) VoiceRoomChange {
+	info, bad := s.roomAPI(host, token)
+	if bad != nil {
+		return *bad
+	}
+	if id == "" {
+		return VoiceRoomChange{Error: "No voice channel given.", Code: "invalid"}
+	}
+	return changeVoiceRoom(context.Background(), s.http, http.MethodDelete, info.URL+"/v1/rooms/"+url.PathEscape(id), token, nil)
+}
+
+func (s *VoiceService) roomAPI(host, token string) (*VoiceInfo, *VoiceRoomChange) {
+	info := s.trustedVoice(host)
+	if info == nil {
+		return nil, &VoiceRoomChange{Error: "This server has no voice channels.", Code: "unavailable_voice"}
+	}
+	if token == "" {
+		return nil, &VoiceRoomChange{Error: "Sign in to use voice.", Code: "unauthorized"}
+	}
+	return info, nil
 }
 
 // ---- audio ----
@@ -563,6 +616,30 @@ func (s *VoiceService) Leave() {
 	s.stopAudioIfIdle()
 }
 
+// kicked ends sess after the server put us out of its room.
+func (s *VoiceService) kicked(sess *voiceSession, msg string) {
+	s.mu.Lock()
+	if s.sess != sess {
+		s.mu.Unlock()
+		return
+	}
+	s.seq++
+	s.sess = nil
+	sess.left = true
+	a := s.audio
+	s.status, s.errMsg, s.errKind = "error", msg, "kicked"
+	s.dirty = true
+	s.mu.Unlock()
+	if a != nil {
+		a.SetSender(nil)
+		for sid := range sess.members {
+			a.RemoveSender(sid)
+		}
+	}
+	_ = sess.conn.Close()
+	s.stopAudioIfIdle()
+}
+
 // DismissError clears an error state.
 func (s *VoiceService) DismissError() {
 	s.mu.Lock()
@@ -662,7 +739,19 @@ func (s *VoiceService) onControl(sess *voiceSession, m *controlpb.ControlMessage
 	case m.GetParticipantUpdated() != nil:
 		p := m.GetParticipantUpdated().GetParticipant()
 		sess.members[uint16(p.GetSessionId())] = memberFrom(p)
-	case m.GetError() != nil && m.GetError().GetFatal():
+	case m.GetError() != nil && m.GetError().GetCode() == controlpb.Error_KICKED && !m.GetError().GetFatal():
+		// Out of the room (it was deleted, or someone removed us), but the
+		// connection is still open. One room per connection here, so hang
+		// up and say why; joining another room dials again.
+		if s.sess == sess {
+			msg := m.GetError().GetMessage()
+			if msg == "" {
+				msg = "You were removed from the voice channel."
+			} else {
+				msg = strings.ToUpper(msg[:1]) + msg[1:] + "."
+			}
+			go s.kicked(sess, msg)
+		}
 		if s.sess == sess {
 			_, msg := classifyVoiceError(errors.New("server: "+m.GetError().GetCode().String()+": "+m.GetError().GetMessage()), false)
 			s.errMsg = msg
@@ -677,6 +766,7 @@ func memberFrom(p *controlpb.Participant) *voiceMember {
 		name:     p.GetDisplayName(),
 		muted:    p.GetSelfMuted() || p.GetServerMuted(),
 		deafened: p.GetDeafened(),
+		listener: p.GetRole() == controlpb.Role_LISTENER,
 	}
 }
 
@@ -815,14 +905,15 @@ func (s *VoiceService) State() VoiceState {
 	for sid, m := range s.sess.members {
 		p := VoiceParticipant{
 			SessionID: int(sid), UserID: m.userID, Name: m.name, Self: sid == s.sess.self,
-			Muted: m.muted, Deafened: m.deafened, Volume: 100,
+			Muted: m.muted, Deafened: m.deafened, Volume: 100, Listener: m.listener,
 		}
 		if v, ok := s.volumes[m.userID]; ok {
 			p.Volume = v
 		}
 		if p.Self {
-			p.Muted, p.Deafened = s.muted || s.deafened, s.deafened
-			p.Speaking = es.Transmitting
+			p.Muted, p.Deafened = s.muted || s.deafened || m.listener, s.deafened
+			p.Speaking = es.Transmitting && !m.listener
+			st.Listener = m.listener
 		} else {
 			p.Speaking = es.Speaking[sid]
 		}
