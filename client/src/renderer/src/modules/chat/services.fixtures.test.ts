@@ -76,6 +76,8 @@ function loadFixtures(stack: string): ScenarioFixture[] {
   const out: ScenarioFixture[] = [];
   for (const file of readdirSync(dir)) {
     if (!file.endsWith('.json')) continue;
+    // ChanServ transcripts share the directory; chanserv.fixtures.test.ts replays them.
+    if (file.startsWith('chanserv-')) continue;
     const raw = readFileSync(join(dir, file), 'utf8');
     out.push(JSON.parse(raw) as ScenarioFixture);
   }
