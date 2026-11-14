@@ -127,7 +127,7 @@ func TestRuntime_EnableStartsDisableStops(t *testing.T) {
 	st, err := rt.Status(ctx)
 	require.NoError(t, err)
 	assert.True(t, st.Worker.Running)
-	assert.Equal(t, InboundStatus{Host: "a.example.com", Port: 995, TLS: true, User: "reg@a"}, st.Inbound)
+	assert.Equal(t, InboundStatus{Host: "a.example.com", Port: 995, TLS: true, User: "reg@a", PasswordSet: true}, st.Inbound)
 
 	// Same settings again (unrelated reload): the worker keeps running.
 	rt.Apply(ctx, Settings{Enabled: true, EmailDomain: "example.com", RateLimitPerHour: 9, Inbound: inboundA})

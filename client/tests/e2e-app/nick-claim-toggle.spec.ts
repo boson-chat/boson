@@ -65,10 +65,11 @@ test('nick claims: on in the e2e stack; off by default elsewhere, and the config
   expect(shared.body).toMatchObject({
     enabled: true,
     email_domain: 'boson.chat',
-    inbound: { host: '127.0.0.1', port: STACK.catchallMail.pop3Port, tls: false, user: STACK.catchallMail.pop3User },
+    inbound: { host: '127.0.0.1', port: STACK.catchallMail.pop3Port, tls: false, user: STACK.catchallMail.pop3User, password_set: true },
     worker: { running: true },
   });
-  expect(JSON.stringify(shared.body)).not.toContain('password');
+  // Whether a password is set, never the password itself.
+  expect(JSON.stringify(shared.body)).not.toContain('"password"');
   expect((await json(`${STACK.backend.internalUrl}/internal/nick-claims/status`)).status).toBe(401);
   // The connection test, against the real Mailpit POP3.
   const probe = await internal(STACK.backend.internalUrl, '/internal/nick-claims/test', { method: 'POST' });

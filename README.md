@@ -110,7 +110,7 @@ While it is off, no worker runs, `POST /me/nick-claims` answers `403 {"error":"n
 The api's internal listener (`INTERNAL_PORT`, default `3001`, or a full `INTERNAL_ADDR`; compose network only, never publish it) serves:
 
 - `GET /internal/config/status`: the stack config contract's status plus `"nick_claim": {"enabled", "worker": "stopped"|"running"|"error", "last_poll_at", "last_error"}`, no token.
-- `GET /internal/nick-claims/status` and `POST /internal/nick-claims/test` (connect + sign in + STAT, against the config in use or unsaved values in `{"inbound":{…}}`; the stored password is only reused for the host in use), with `X-Internal-Token: $INTERNAL_TOKEN` (or `Authorization: Bearer`; `INTERNAL_API_TOKEN` is accepted as the env name too). Empty token: `503 internal_api_disabled`.
+- `GET /internal/nick-claims/status` (`{enabled, email_domain, inbound:{host,port,tls,user,password_set}, worker:{…}, pending_claims, config_error?}`) and `POST /internal/nick-claims/test` (connect + sign in + STAT, against the config in use or unsaved values in `{"inbound":{…}}`; the stored password is only reused for the host in use), with `X-Internal-Token: $INTERNAL_TOKEN` (or `Authorization: Bearer`; `INTERNAL_API_TOKEN` is accepted as the env name too). Empty token: `503 internal_api_disabled`.
 
 ### Skip auth (guest mode)
 

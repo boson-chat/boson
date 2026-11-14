@@ -169,19 +169,21 @@ func TestInternal_NickClaimStatusShape(t *testing.T) {
 	rt := &stubRuntime{status: nickclaim.Status{
 		Enabled:       true,
 		EmailDomain:   "example.com",
-		Inbound:       nickclaim.InboundStatus{Host: "pop3.example.com", Port: 995, TLS: true, User: "reg@example.com"},
+		Inbound:       nickclaim.InboundStatus{Host: "pop3.example.com", Port: 995, TLS: true, User: "reg@example.com", PasswordSet: true},
 		Worker:        nickclaim.WorkerHealth{Running: true, ConsecutiveFailures: 1, LastError: "tls: first record does not look like a TLS handshake"},
 		PendingClaims: 2,
+		ConfigError:   "nick_claim: …",
 	}}
 	rr := callInternal(t, NewInternalHandler(rt, "s3cret", nil), "GET", "/internal/nick-claims/status", "s3cret", "")
 	require.Equal(t, stdhttp.StatusOK, rr.Code)
 	assert.JSONEq(t, `{
 		"enabled": true,
 		"email_domain": "example.com",
-		"inbound": {"host":"pop3.example.com","port":995,"tls":true,"user":"reg@example.com"},
+		"inbound": {"host":"pop3.example.com","port":995,"tls":true,"user":"reg@example.com","password_set":true},
 		"worker": {"running":true,"last_drain_at":null,"last_ok_at":null,
 		           "last_error":"tls: first record does not look like a TLS handshake","consecutive_failures":1},
-		"pending_claims": 2
+		"pending_claims": 2,
+		"config_error": "nick_claim: …"
 	}`, rr.Body.String())
 }
 

@@ -33,6 +33,9 @@ type InboundStatus struct {
 	Port int    `json:"port"`
 	TLS  bool   `json:"tls"`
 	User string `json:"user"`
+	// PasswordSet: NICK_CLAIM_POP3_PASSWORD (or PURELYMAIL_POP3_PASSWORD)
+	// is set. The password itself is never shown.
+	PasswordSet bool `json:"password_set"`
 }
 
 // Status is GET /internal/nick-claims/status.
@@ -257,6 +260,7 @@ func (r *Runtime) Status(ctx context.Context) (Status, error) {
 		EmailDomain: s.EmailDomain,
 		Inbound: InboundStatus{
 			Host: s.Inbound.Host, Port: s.Inbound.Port, TLS: s.Inbound.UseTLS, User: s.Inbound.User,
+			PasswordSet: s.Inbound.Password != "",
 		},
 		Worker:        health,
 		PendingClaims: pending,
