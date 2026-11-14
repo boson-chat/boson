@@ -27,6 +27,7 @@ import {
 } from '../../modules/directory/multi-directory';
 import type { Facets, HostingApi, NetworkSort } from '../../modules/directory/network-api';
 import type { NetworkDirectories } from '../../modules/directory/networks';
+import { findListing } from '../../modules/directory/listing-match';
 
 // A dropped connection's conversations, handed to its replacement.
 type ConversationCarry = ReturnType<ChatService['exportConversations']>;
@@ -125,6 +126,12 @@ function bouncerTarget(
   return JSON.stringify([profile.host, profile.port, profile.tls, !!profile.tlsInsecure, profile.username, profile.password, (route.network ?? '').trim(), profile.floodControl !== false]);
 }
 
+// A listing updated by an owner call. The response leaves out an image it
+// no longer has, so a removed icon/banner must not survive from the old row.
+function mergeListing(row: Server, updated: Server): Server {
+  return { ...row, ...updated, icon_url: updated.icon_url, banner_url: updated.banner_url };
+}
+
 export interface DirectoryState {
   me: User | null | undefined;
   servers: Server[] | null;
@@ -157,6 +164,11 @@ export interface DirectoryState {
   // All currently-open connections, ordered by insertion. The active one is
   // identified by `activeServerId`.
   connections: ReadonlyArray<DirectoryConnection>;
+  // The directory listing of each open connection, by serverId, when known:
+  // its row in the loaded browse page (matched by id, legacy id or address,
+  // see findListing), else the last one seen or looked up. Where the rail
+  // icon, sidebar banner and the owner Edit tab come from.
+  listings: Readonly<Record<string, Server>>;
   activeServerId: string | null;
   showChat: boolean;
   // True from the moment a saved-session restore kicks off until either the
@@ -361,6 +373,9 @@ export class DirectoryBloc {
   }
 
   private unsubscribeBouncerProfile: (() => void) | null = null;
+  // Directory listings of open connections (trackListings), by serverId.
+  private readonly knownListings = new Map<string, Server>();
+  private readonly listingLookups = new Set<string>();
   private unsubscribeSources: (() => void) | null = null;
   private unsubscribeEngineReconnect: (() => void) | null = null;
   private hiddenAt: number | null = null;
@@ -462,6 +477,7 @@ export class DirectoryBloc {
       multiDirectory: (this.networks?.sources.enabled().length ?? 0) > 1,
       searching: this.searching,
       connections: this.snapshotConnections(),
+      listings: this.snapshotListings(),
       activeServerId: this.activeServerId,
       showChat,
       restoring: this.restoring && !showChat,
@@ -615,6 +631,7 @@ export class DirectoryBloc {
   // source, else the legacy boson API.
   private hostingFor(serverID: string): HostingApi {
     const row = this.servers?.find((s) => s.id === serverID)
+      ?? [...this.knownListings.values()].find((s) => s.id === serverID)
       ?? (this.connections.get(serverID)?.server as Server | undefined);
     const api = row && 'tags' in row ? this.networks?.ownerApiFor(row) : null;
     return api ?? this.directory;
@@ -858,6 +875,14 @@ export class DirectoryBloc {
   // `focus: false` connects without making the server the active one (a
   // background auto-reconnect must not yank the user to that server).
   async connect(server: Server, opts: { focus?: boolean } = {}): Promise<void> {
+    // Already open under another id — a session saved before the directory
+    // moved to /v1 keys it by the legacy uuid, the listing now says `net_…`:
+    // that's this server, keep its id (saved channels, bouncer route and
+    // synced secrets are keyed by it) instead of opening a second connection.
+    if (!this.connections.has(server.id)) {
+      const twin = [...this.connections.values()].find((c) => findListing(c.server, [server]) !== undefined);
+      if (twin) server = { ...server, id: twin.serverId };
+    }
     const existing = this.connections.get(server.id);
     let carry: ConversationCarry | undefined;
     if (existing) {
@@ -1192,8 +1217,53 @@ export class DirectoryBloc {
 
   private emit(): void {
     if (this.disposed) return;
+    this.trackListings();
     const snapshot = this.getState();
     this.listeners.forEach((fn) => fn(snapshot));
+  }
+
+  // Remember each connection's directory listing, and look up the ones the
+  // loaded page doesn't have (a later page, a search that filters it out, or
+  // a server saved under the legacy directory's id) — once per connection.
+  private trackListings(): void {
+    for (const conn of this.connections.values()) {
+      const row = findListing(conn.server, this.servers);
+      if (row) {
+        this.knownListings.set(conn.serverId, row);
+        continue;
+      }
+      if (this.knownListings.has(conn.serverId) || this.listingLookups.has(conn.serverId)) continue;
+      // Wait for the first page (it usually has it); never against the
+      // legacy /servers API (no lookup there).
+      if (!this.networks || this.servers === null || this.legacyDirectory) continue;
+      const hostname = conn.server.hostname.trim().toLowerCase();
+      if (!hostname) continue;
+      const serverId = conn.serverId;
+      this.listingLookups.add(serverId);
+      void this.networks.lookup(hostname).then((found) => {
+        if (this.disposed || !found || !this.connections.has(serverId)) return;
+        if (this.knownListings.has(serverId)) return;
+        this.knownListings.set(serverId, found);
+        this.emit();
+      }, () => { /* no listing: initials tile, plain header */ });
+    }
+  }
+
+  private snapshotListings(): Record<string, Server> {
+    const out: Record<string, Server> = {};
+    for (const id of this.connections.keys()) {
+      const row = this.knownListings.get(id);
+      if (row) out[id] = row;
+    }
+    return out;
+  }
+
+  // A listing changed (profile edit, icon/banner upload): refresh the
+  // remembered copies of it.
+  private refreshKnownListing(updated: Server): void {
+    for (const [id, row] of this.knownListings) {
+      if (row.id === updated.id) this.knownListings.set(id, mergeListing(row, updated));
+    }
   }
 
   // Rail order is the saved server list's order (which the user sets by
@@ -1306,10 +1376,11 @@ export class DirectoryBloc {
     // connection's `server` snapshot so the UI binds to fresh data
     // without a full /servers re-fetch.
     if (this.servers) {
-      this.servers = this.servers.map((s) => (s.id === serverID ? { ...s, ...updated } : s));
+      this.servers = this.servers.map((s) => (s.id === serverID ? mergeListing(s, updated) : s));
     }
     const conn = this.connections.get(serverID);
     if (conn) conn.server = updated;
+    this.refreshKnownListing(updated);
     this.emit();
   }
 
@@ -1321,10 +1392,11 @@ export class DirectoryBloc {
       ? await api.uploadServerImage(serverID, kind, image)
       : await api.deleteServerImage(serverID, kind);
     if (this.servers) {
-      this.servers = this.servers.map((s) => (s.id === serverID ? { ...s, ...updated } : s));
+      this.servers = this.servers.map((s) => (s.id === serverID ? mergeListing(s, updated) : s));
     }
     const conn = this.connections.get(serverID);
     if (conn) conn.server = updated;
+    this.refreshKnownListing(updated);
     this.emit();
   }
 

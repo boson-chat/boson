@@ -22,6 +22,24 @@ describe('network-api', () => {
     expect(networkToServer({ id: 'x', hostname: 'h', status: 'weird' }).verification_status).toBe('pending');
   });
 
+  it('maps banner_url and legacy_id', () => {
+    const s = networkToServer({ id: 'net_1', hostname: 'h', banner_url: 'https://d/b.png', legacy_id: '398464ce-c861-4244-a16c-b26c046a1bd4' });
+    expect(s.banner_url).toBe('https://d/b.png');
+    expect(s.legacy_id).toBe('398464ce-c861-4244-a16c-b26c046a1bd4');
+    expect('legacy_id' in networkToServer({ id: 'net_2', hostname: 'h' })).toBe(false);
+  });
+
+  it('looks a network up by hostname; null when the directory does not list it', async () => {
+    const dir = fakeDirectory(SRC.url, 'Example', [{ id: 'net_1', hostname: 'irc.example.org', name: 'Ex', icon_url: 'https://d/i.png' }]);
+    const api = new NetworkDirectoryApi(SRC, fakeTransport([dir]));
+    const row = await api.lookupNetwork('irc.example.org');
+    expect(row).toMatchObject({ id: 'net_1', icon_url: 'https://d/i.png', source: { url: SRC.url } });
+    expect(dir.requests.at(-1)!.url).toBe('https://dir.example/v1/networks/lookup?hostname=irc.example.org');
+    expect(await api.lookupNetwork('irc.nowhere.example')).toBeNull();
+    dir.down = 500;
+    await expect(api.lookupNetwork('irc.example.org')).rejects.toBeInstanceOf(HttpError);
+  });
+
   it('builds the list query', () => {
     expect(listQuery({})).toBe('');
     expect(listQuery({ q: 'foss', lang: 'en', tag: 'dev', nsfw: true, sort: 'users', limit: 25, cursor: 'abc' }))

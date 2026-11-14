@@ -66,14 +66,22 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
   const [memos, setMemos] = useState<ReadonlyArray<Memo>>(() => getMemoStore().list());
   useEffect(() => getMemoStore().subscribe(setMemos), []);
   const unreadCount = memos.reduce((n, m) => n + (m.read ? 0 : 1), 0);
-  // The signed-in user's Boson handle (their nick), from the directory
-  // profile; refreshed when settings close, where it can be changed.
+  // The signed-in user's Boson handle (their nick) and profile image, from
+  // the backend profile (/me); refreshed when settings close, where both can
+  // be changed. The session's metadata cache starts empty on every sign-in,
+  // so without this the title bar showed no profile image until one was
+  // uploaded again on this device.
   const [profileHandle, setProfileHandle] = useState<string | null>(null);
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null);
   const userId = session?.user?.id ?? null;
   useEffect(() => {
     if (!userId || settingsOpen) return;
     let live = true;
-    directory.getMe().then((u) => { if (live) setProfileHandle(u?.handle ?? null); }).catch(() => {});
+    directory.getMe().then((u) => {
+      if (!live) return;
+      setProfileHandle(u?.handle ?? null);
+      setProfileAvatar(u?.avatar_url ?? null);
+    }).catch(() => {});
     return () => { live = false; };
   }, [userId, settingsOpen, directory]);
   // Title-bar label preference:
@@ -84,7 +92,12 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
   //   neither    → null (TitleBar falls back to "Settings")
   const authedHandle = (session?.user?.user_metadata?.handle as string | undefined)
     ?? (userId ? profileHandle : null);
-  const authedAvatar = (session?.user?.user_metadata?.avatar_url as string | undefined) ?? null;
+  // Settings' upload/remove writes the metadata (null when removed) for an
+  // instant update; until then, the profile's.
+  const metadata = session?.user?.user_metadata ?? {};
+  const authedAvatar = 'avatar_url' in metadata
+    ? (metadata['avatar_url'] as string | null | undefined) ?? null
+    : (userId ? profileAvatar : null);
   const userLabel = guest ? guest.nick : (authedHandle ?? session?.user?.username ?? session?.user?.email ?? null);
   const userMode: 'guest' | 'account' | null = guest ? 'guest' : (session ? 'account' : null);
   return (

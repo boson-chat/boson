@@ -3,7 +3,7 @@ import type { ApiTransport } from '../../shared/http/transport';
 import type { ListServersParams } from './directory.service';
 import type { Server } from './directory.types';
 import { MultiDirectory, unreachable } from './multi-directory';
-import { NetworkOwnerApi, type HostingApi } from './network-api';
+import { NetworkDirectoryApi, NetworkOwnerApi, type HostingApi } from './network-api';
 import type { DirectorySource, DirectorySources } from './sources';
 
 // The app's view of the network directories: the merged browser, owner API
@@ -47,6 +47,20 @@ export class NetworkDirectories {
 
   ownerApiFor(server: Server): HostingApi | null {
     return server.source ? this.ownerApi(server.source.url) : null;
+  }
+
+  // The listing for a hostname on the first enabled directory that has it
+  // (in the user's order), or null. Used for joined servers the loaded browse
+  // page doesn't include. A directory that fails counts as not listing it.
+  async lookup(hostname: string): Promise<Server | null> {
+    await this.sources.whenSynced();
+    for (const src of this.sources.list().filter((s) => s.enabled)) {
+      try {
+        const row = await new NetworkDirectoryApi(src, this.transport).lookupNetwork(hostname);
+        if (row) return row;
+      } catch { /* try the next directory */ }
+    }
+    return null;
   }
 
   hostable(): DirectorySource[] {

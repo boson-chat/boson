@@ -20,6 +20,9 @@ export interface FakeNetwork {
   user_count?: number;
   created_at?: string;
   icon_url?: string;
+  banner_url?: string;
+  // The uuid it had on the legacy boson API directory (imported rows).
+  legacy_id?: string;
   owner?: string;
   verification_token?: string;
 }
@@ -77,6 +80,11 @@ export function fakeTransport(dirs: FakeDirectory[], opts: { user?: string } = {
       const page = rows.slice(start, start + limit);
       const next = start + limit < rows.length ? String(start + limit) : null;
       return json({ networks: page.map(publicView), next_cursor: next, total_estimate: rows.length });
+    }
+    if (path === '/v1/networks/lookup' && req.method === 'GET') {
+      const host = u.searchParams.get('hostname')?.toLowerCase();
+      const n = dir.networks.find((x) => x.hostname.toLowerCase() === host);
+      return n ? json({ network: publicView(n) }) : json({ error: 'not found' }, 404);
     }
     if (path === '/v1/facets') {
       const tags = new Map<string, number>();

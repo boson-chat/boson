@@ -16,6 +16,11 @@ import {
 import { loadLocalServers } from '../../modules/directory/local-servers';
 import { SecureBouncerStore, setBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { InMemorySecureStorage } from '../../shared/secure-storage';
+import { NetworkDirectories } from '../../modules/directory/networks';
+import { DirectorySources } from '../../modules/directory/sources';
+import {
+  fakeDirectory as fakeNetworkDirectory, fakeTransport, type FakeNetwork,
+} from '../../modules/directory/test-directory-server';
 
 // A bouncer store that hydrates instantly (tiny probe window) so connectWith's
 // `await whenHydrated()` doesn't stall on the default 3s keychain poll.
@@ -294,6 +299,23 @@ describe('DirectoryBloc', () => {
     await flushPromises();
     await bloc.setServerImage('a', 'banner', null);
     expect(dir.deleteServerImage).toHaveBeenCalledWith('a', 'banner');
+  });
+
+  it('setServerImage(null) clears the removed image from the loaded row', async () => {
+    const dir = fakeDirectory({ user: fakeUser(), servers: [fakeServer('a', { icon_url: 'https://cdn/old.png' })] });
+    (dir.deleteServerImage as ReturnType<typeof vi.fn>).mockResolvedValueOnce(fakeServer('a'));
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: dir,
+      identity: fakeIdentity(),
+      engine: null,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(bloc.getState().servers?.find((s) => s.id === 'a')?.icon_url).toBe('https://cdn/old.png');
+    await bloc.setServerImage('a', 'icon', null);
+    expect(bloc.getState().servers?.find((s) => s.id === 'a')?.icon_url).toBeUndefined();
+    bloc.dispose();
   });
 
   it('initial state: me undefined, servers null, defaults', () => {
@@ -2116,6 +2138,89 @@ describe('DirectoryBloc', () => {
       });
       await flushPromises(4);
       await expect(bloc.discoverBouncerNetworks()).rejects.toThrow(/User Settings/);
+      bloc.dispose();
+    });
+  });
+
+  // After the directory moved to /v1 (ids `net_…`), sessions saved before
+  // still key their servers by the legacy uuid: the rail icon, sidebar banner
+  // and Edit tab must still find the listing, without re-keying the session.
+  describe('directory listings of saved servers', () => {
+    const LEGACY = '398464ce-c861-4244-a16c-b26c046a1bd4';
+    const boson: FakeNetwork = {
+      id: 'net_01BOSON', hostname: 'irc.boson.chat', name: 'Boson',
+      icon_url: 'https://directory.boson.chat/media/server-icons/b.png',
+      banner_url: 'https://directory.boson.chat/media/server-banners/b.png',
+    };
+
+    async function settle(): Promise<void> {
+      for (let i = 0; i < 30; i++) await new Promise((r) => setTimeout(r, 0));
+    }
+
+    function setupSaved(networks: FakeNetwork[]) {
+      const sessionStore = new SessionStore(memoryStorage());
+      sessionStore.upsertServer({ id: LEGACY, name: 'Boson', hostname: 'irc.boson.chat', port: 6697, tls: true });
+      const main = fakeNetworkDirectory('https://directory.boson.chat', 'Boson', networks);
+      const transport = fakeTransport([main]);
+      const sources = new DirectorySources({ storage: memoryStorage(), transport, authUrl: 'https://auth.boson.chat' });
+      const directory = fakeDirectory({ user: fakeUser('alice') });
+      const engine = fakeEngine();
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(),
+        directory,
+        networks: new NetworkDirectories(sources, { getToken: async () => 'jwt' }, transport, (p) => directory.listServers(p)),
+        identity: fakeIdentity(),
+        engine: engine.client,
+        sessionStore,
+      });
+      return { bloc, main, engine, sessionStore };
+    }
+
+    it('finds the listing of a server saved under its legacy id (by legacy_id)', async () => {
+      const { bloc, engine, main } = setupSaved([{ ...boson, legacy_id: LEGACY }]);
+      await settle();
+      expect(engine.connectCalls.map((c) => c.serverId)).toEqual([LEGACY]);
+      const row = bloc.getState().listings[LEGACY];
+      expect(row?.id).toBe('net_01BOSON');
+      expect(row?.icon_url).toBe(boson.icon_url);
+      expect(row?.banner_url).toBe(boson.banner_url);
+      // On the loaded page: no lookup needed.
+      expect(main.requests.some((r) => r.url.includes('/v1/networks/lookup'))).toBe(false);
+      bloc.dispose();
+    });
+
+    it('finds it by address when the directory gives no legacy id', async () => {
+      const { bloc } = setupSaved([boson]);
+      await settle();
+      expect(bloc.getState().listings[LEGACY]?.icon_url).toBe(boson.icon_url);
+      bloc.dispose();
+    });
+
+    it('looks the listing up when it is not on the loaded page', async () => {
+      const filler: FakeNetwork[] = Array.from({ length: 30 }, (_, i) => ({ id: `net_f${i}`, hostname: `irc${i}.example`, name: `f${i}` }));
+      const { bloc, main } = setupSaved([...filler, boson]);
+      await settle();
+      expect(bloc.getState().servers?.some((s) => s.hostname === 'irc.boson.chat')).toBe(false);
+      expect(bloc.getState().listings[LEGACY]?.banner_url).toBe(boson.banner_url);
+      const lookups = main.requests.filter((r) => r.url.includes('/v1/networks/lookup'));
+      expect(lookups.map((r) => r.url)).toEqual(['https://directory.boson.chat/v1/networks/lookup?hostname=irc.boson.chat']);
+      // Remembered: later emits don't look it up again.
+      bloc.setQuery('nothing-matches');
+      await settle();
+      expect(main.requests.filter((r) => r.url.includes('/v1/networks/lookup'))).toHaveLength(1);
+      expect(bloc.getState().listings[LEGACY]?.icon_url).toBe(boson.icon_url);
+      bloc.dispose();
+    });
+
+    it('joining the listing reuses the open connection saved under the legacy id', async () => {
+      const { bloc, engine, sessionStore } = setupSaved([boson]);
+      await settle();
+      const row = bloc.getState().servers!.find((s) => s.id === 'net_01BOSON')!;
+      await bloc.connect(row);
+      await settle();
+      expect(engine.connectCalls.map((c) => c.serverId)).toEqual([LEGACY]);
+      expect(bloc.getState().connections.map((c) => c.serverId)).toEqual([LEGACY]);
+      expect(sessionStore.load()?.servers.map((s) => s.server.id)).toEqual([LEGACY]);
       bloc.dispose();
     });
   });

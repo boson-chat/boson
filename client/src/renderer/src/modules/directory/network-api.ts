@@ -98,6 +98,7 @@ export function networkToServer(n: Json, source?: DirectorySourceRef): ServerWit
     ...(s(n['icon_url']) ? { icon_url: s(n['icon_url']) } : {}),
     ...(s(n['banner_url']) ? { banner_url: s(n['banner_url']) } : {}),
     ...(s(n['website_url']) ? { website_url: s(n['website_url']) } : {}),
+    ...(s(n['legacy_id']) ? { legacy_id: s(n['legacy_id']) } : {}),
     ...(source ? { source } : {}),
     ...(token ? { verification_token: token } : {}),
     ...(issued ? { verification_token_issued_at: issued } : {}),
@@ -174,6 +175,19 @@ export class NetworkDirectoryApi {
     const next = s(res?.['next_cursor']) ?? null;
     const total = typeof res?.['total_estimate'] === 'number' ? (res['total_estimate'] as number) : null;
     return { servers: rows.map((n) => networkToServer(n, this.ref)), nextCursor: next, totalEstimate: total };
+  }
+
+  // The listing for a hostname (GET /v1/networks/lookup), or null when this
+  // directory doesn't list it.
+  async lookupNetwork(hostname: string): Promise<Server | null> {
+    try {
+      const res = await this.http.get<unknown>(`/v1/networks/lookup?hostname=${encodeURIComponent(hostname)}`);
+      const row = unwrapNetwork(res, this.ref);
+      return row.id ? row : null;
+    } catch (err) {
+      if (err instanceof HttpError && err.status === 404) return null;
+      throw err;
+    }
   }
 
   async facets(p: { nsfw?: boolean } = {}): Promise<Facets> {
