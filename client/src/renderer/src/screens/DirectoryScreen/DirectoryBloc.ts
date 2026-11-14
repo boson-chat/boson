@@ -1852,6 +1852,7 @@ export class DirectoryBloc {
     // overrides them when a route is active.
     let serverPass: string | undefined = storedCreds?.serverPass;
     let sasl: { user: string; password: string } | undefined = storedCreds?.sasl;
+    let nickservPassword: string | undefined = storedCreds?.nickservPassword;
     let tlsInsecure: boolean | undefined =
       loadLocalServers().find((s) => s.id === server.id)?.tlsInsecure || undefined;
     // True only when the bouncer branch below actually swaps the target —
@@ -1893,6 +1894,11 @@ export class DirectoryBloc {
       });
       if (login === 'cancel') return;
       loginLink = login.link;
+      // The wait (discovery, maybe a sign-in) may have let synced
+      // credentials land (NickServ password, SASL): use the current ones.
+      const latest = credStore.get(server.id);
+      if (latest?.sasl) sasl = latest.sasl;
+      nickservPassword = latest?.nickservPassword ?? nickservPassword;
       if (login.token) {
         oauthbearer = { token: login.token };
         if (login.nick) ircNick = login.nick;
@@ -1929,7 +1935,7 @@ export class DirectoryBloc {
       nick: ircNick,
       sasl,
       ...(oauthbearer ? { oauthbearer } : {}),
-      nickservPassword: storedCreds?.nickservPassword,
+      nickservPassword,
       serverPass,
       tlsInsecure,
       // Bouncer hints for the engine: treat this as a bouncer link from the

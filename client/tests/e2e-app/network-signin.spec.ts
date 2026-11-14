@@ -101,7 +101,12 @@ test.describe('network sign-in', () => {
     await settings.getByRole('button', { name: 'Close' }).click();
 
     // A relaunch restores both sessions and logs in to the network again.
+    const appUrl = new URL(page.url()).origin;
     await first.app.close();
+    // The relaunch reuses the profile's port: wait until the old app let go.
+    await expect.poll(async () => {
+      try { await fetch(`${appUrl}/health`, { signal: AbortSignal.timeout(1_000) }); return 'up'; } catch { return 'gone'; }
+    }, { timeout: 15_000 }).toBe('gone');
     const again = await launchApp({ env });
     await expect(again.page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
     await expect(again.page.locator('.netauth-bar')).toContainText(`${username} on`);

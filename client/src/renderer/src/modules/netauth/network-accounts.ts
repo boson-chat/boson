@@ -215,7 +215,7 @@ export class NetworkAccounts {
     const p = (async () => {
       let link: NetworkLink | null = null;
       try {
-        const r = await withTimeout(bridge.discover(host, refresh), this.opts.discoverTimeoutMs ?? 8000);
+        const r = await withTimeout(bridge.discover(host, refresh), this.opts.discoverTimeoutMs ?? 5000);
         if (r?.authUrl) {
           link = { host, authUrl: normalizeAuthBase(r.authUrl), main: !!r.main || this.isMain(r.authUrl), ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}) };
         }
