@@ -78,14 +78,32 @@ elif [[ -n "${APPLE_API_KEY:-}" ]]; then
   notary=(--key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER")
 fi
 
-notarize() {
-  xcrun notarytool submit "$1" "${notary[@]}" --wait
-  xcrun stapler staple "$2"
-  xcrun stapler validate "$2"
+# Runs "$@", killing it after $1 seconds (macOS has no coreutils timeout).
+with_timeout() {
+  local secs="$1"; shift
+  perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$secs" "$@"
 }
 
-stage="$(mktemp -d)"
-trap 'rm -rf "$stage"' EXIT
+# Apple's notary service sometimes hangs before or during the upload with no
+# error (seen in CI: 37 minutes at "initiating connection"). Cap each attempt
+# (NOTARY_ATTEMPT_SECONDS, default 600) and retry (NOTARY_ATTEMPTS, default 3).
+notarize() {
+  local attempt max="${NOTARY_ATTEMPTS:-3}" secs="${NOTARY_ATTEMPT_SECONDS:-600}"
+  for ((attempt = 1; attempt <= max; attempt++)); do
+    if with_timeout "$secs" xcrun notarytool submit "$1" "${notary[@]}" --wait --timeout "$((secs - 30))s"; then
+      xcrun stapler staple "$2"
+      xcrun stapler validate "$2"
+      return 0
+    fi
+    echo "notarytool attempt $attempt/$max for $(basename "$1") failed or timed out" >&2
+    sleep $((attempt * 15))
+  done
+  echo "notarization of $(basename "$1") failed after $max attempts" >&2
+  return 1
+}
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 
 # One architecture: binary → bundle → sign → notarize → DMG.
 package() {
@@ -164,7 +182,7 @@ PLIST
 
   # 5. Notarize the app itself, so a copy taken out of the DMG is stapled too.
   if [[ ${#notary[@]} -gt 0 ]]; then
-    zip="$out/$APP_NAME-notarize.zip"
+    local zip="$work/$APP_NAME-$arch-notarize.zip"
     rm -f "$zip"
     ditto -c -k --keepParent "$app" "$zip"
     notarize "$zip" "$app"
@@ -173,7 +191,8 @@ PLIST
   fi
 
   # 6. DMG: the app plus an Applications link to drag it onto.
-  rm -rf "${stage:?}"/*
+  local stage="$work/stage-$arch"
+  rm -rf "$stage" && mkdir -p "$stage"
   cp -R "$app" "$stage/"
   ln -s /Applications "$stage/Applications"
   rm -f "$dmg"
@@ -189,6 +208,23 @@ PLIST
   echo "dmg: $dmg"
 }
 
+# Architectures build, sign and notarize in parallel (each in its own
+# subshell, output prefixed with the arch); notarization waits dominate.
+# PARALLEL=0 builds them one after another.
+pids=() archs=()
 for arch in ${ARCHS:-arm64 x64}; do
-  package "$arch"
+  if [[ "${PARALLEL:-1}" == 0 ]]; then
+    package "$arch"
+    continue
+  fi
+  ( set -o pipefail; package "$arch" 2>&1 | sed -u "s/^/[$arch] /" ) &
+  pids+=("$!") archs+=("$arch")
 done
+failed=0
+for i in "${!pids[@]}"; do
+  if ! wait "${pids[$i]}"; then
+    echo "packaging ${archs[$i]} failed" >&2
+    failed=1
+  fi
+done
+exit "$failed"
