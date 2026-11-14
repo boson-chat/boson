@@ -10,7 +10,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main ./backend/cm
 
 FROM gcr.io/distroless/static-debian12
 
-EXPOSE 3000
+# 3000: public API. 3001: internal listener (compose network only; never publish).
+EXPOSE 3000 3001
 WORKDIR /app
 
 COPY --from=builder --chown=nonroot:nonroot /app/main .

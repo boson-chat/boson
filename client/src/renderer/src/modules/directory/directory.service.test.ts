@@ -187,3 +187,27 @@ describe('DirectoryService', () => {
     });
   });
 });
+
+describe('DirectoryService.getPublicConfig', () => {
+  function serve(res: () => Response): DirectoryService {
+    globalThis.fetch = (async () => res()) as typeof fetch;
+    return new DirectoryService(new HttpClient('http://api', new StaticToken()));
+  }
+
+  it('reads the nick_claim switch from GET /config', async () => {
+    let url = '';
+    globalThis.fetch = (async (input: RequestInfo | URL) => { url = String(input); return mockResponse({ nick_claim: false }); }) as typeof fetch;
+    const svc = new DirectoryService(new HttpClient('http://api', new StaticToken()));
+    expect(await svc.getPublicConfig()).toEqual({ nick_claim: false });
+    expect(url).toBe('http://api/config');
+    expect(await serve(() => mockResponse({ nick_claim: true })).getPublicConfig()).toEqual({ nick_claim: true });
+  });
+
+  it('treats a backend without GET /config (404) as on', async () => {
+    expect(await serve(() => new Response('not found', { status: 404 })).getPublicConfig()).toEqual({ nick_claim: true });
+  });
+
+  it('throws on other failures so the caller keeps the last known value', async () => {
+    await expect(serve(() => mockResponse({ error: 'down' }, 503)).getPublicConfig()).rejects.toBeInstanceOf(HttpError);
+  });
+});

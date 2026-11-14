@@ -181,3 +181,26 @@ func TestRepository_CountSince(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(0), n)
 }
+
+func TestRepository_CountPending(t *testing.T) {
+	d := testutil.SetupDB(t)
+	repo := nickclaim.NewRepository(d)
+	uid := seedUser(t, d)
+	// Other tests share the database: compare against the count before.
+	before, err := repo.CountPending(testutil.Ctx())
+	require.NoError(t, err)
+
+	a, err := repo.Create(testutil.Ctx(), uid, "srv", "pendA")
+	require.NoError(t, err)
+	_, err = repo.Create(testutil.Ctx(), uid, "srv", "pendB")
+	require.NoError(t, err)
+	n, err := repo.CountPending(testutil.Ctx())
+	require.NoError(t, err)
+	assert.Equal(t, before+2, n)
+
+	// A captured claim is no longer pending.
+	require.NoError(t, repo.MarkCaptured(testutil.Ctx(), a.ID, "code1", "uid-"+a.ID.String()))
+	n, err = repo.CountPending(testutil.Ctx())
+	require.NoError(t, err)
+	assert.Equal(t, before+1, n)
+}

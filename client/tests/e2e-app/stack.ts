@@ -24,7 +24,8 @@ export interface StackConfig {
   catchallMail: { smtpPort: number; pop3Port: number; pop3User: string; pop3Password: string; apiUrl: string; archiveApiUrl: string };
   minio: { endpoint: string; accessKey: string; secretKey: string; bucket: string };
   auth: { url: string; mailpitUrl: string; dbPort: number; admin: { username: string; email: string; password: string } };
-  backend: { url: string; port: number };
+  // internal*: the api's internal listener (config status, nick-claim admin).
+  backend: { url: string; port: number; internalUrl: string; internalPort: number; internalToken: string };
   directory: { url: string; dbPort: number; database: string; user: string; password: string };
   // A self-hosted network: its own auth service and IRC (no guests).
   selfhost: { irc: { host: string; port: number }; auth: { url: string }; dbPort: number };

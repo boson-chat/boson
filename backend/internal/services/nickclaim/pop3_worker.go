@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/boson-chat/boson/backend/internal/logger"
@@ -52,7 +54,27 @@ type WorkerConfig struct {
 const (
 	defaultPollInterval  = 5 * time.Second
 	defaultSweepInterval = 5 * time.Minute
+	// A POP3 session (dial + auth + the whole drain) must finish within
+	// this, so a server that accepts the TCP connection and then goes
+	// quiet can't wedge the worker.
+	defaultSessionTimeout = 2 * time.Minute
+	// After backoffAfter consecutive failed drains the worker waits
+	// longer between attempts (doubling, capped at maxBackoff). The
+	// occasional transient failure (production sees a stray "tls: first
+	// record does not look like a TLS handshake") is just a warning and
+	// the next tick retries at the normal cadence.
+	backoffAfter = 3
+	maxBackoff   = 5 * time.Minute
 )
+
+// WorkerHealth is the worker's state for the admin panel.
+type WorkerHealth struct {
+	Running             bool       `json:"running"`
+	LastDrainAt         *time.Time `json:"last_drain_at"`
+	LastOKAt            *time.Time `json:"last_ok_at"`
+	LastError           string     `json:"last_error"`
+	ConsecutiveFailures int        `json:"consecutive_failures"`
+}
 
 // Worker connects to a POP3 server on an interval, downloads all
 // messages waiting in the mailbox, parses the recipient address
@@ -60,11 +82,15 @@ const (
 // confirmation code from the body, writes it back to the matching
 // nick_claims row via the repository, and DELEs the message.
 //
-// Started as a co-resident goroutine in StartServerWithContext;
-// shares the parent ctx so SIGTERM propagates cleanly.
+// Started and stopped by WorkerManager as the nick_claim settings
+// change; Run returns when its ctx is cancelled.
 type Worker struct {
 	cfg  WorkerConfig
 	repo RepositoryImpl
+	now  func() time.Time
+
+	mu     sync.Mutex
+	health WorkerHealth
 }
 
 func NewWorker(cfg WorkerConfig, repo RepositoryImpl) *Worker {
@@ -74,18 +100,66 @@ func NewWorker(cfg WorkerConfig, repo RepositoryImpl) *Worker {
 	if cfg.SweepInterval == 0 {
 		cfg.SweepInterval = defaultSweepInterval
 	}
-	return &Worker{cfg: cfg, repo: repo}
+	return &Worker{cfg: cfg, repo: repo, now: time.Now}
+}
+
+// Health returns a snapshot of the worker's state.
+func (w *Worker) Health() WorkerHealth {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.health
+}
+
+func (w *Worker) setRunning(v bool) {
+	w.mu.Lock()
+	w.health.Running = v
+	w.mu.Unlock()
+}
+
+// record notes the outcome of one drain and returns the consecutive
+// failure count.
+func (w *Worker) record(err error) int {
+	t := w.now().UTC()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.health.LastDrainAt = &t
+	if err == nil {
+		w.health.LastOKAt = &t
+		w.health.LastError = ""
+		w.health.ConsecutiveFailures = 0
+		return 0
+	}
+	w.health.LastError = err.Error()
+	w.health.ConsecutiveFailures++
+	return w.health.ConsecutiveFailures
+}
+
+// nextDelay is the wait before the next drain after failures
+// consecutive failed ones.
+func nextDelay(poll time.Duration, failures int) time.Duration {
+	if failures < backoffAfter {
+		return poll
+	}
+	d := poll
+	for i := 0; i <= failures-backoffAfter && d < maxBackoff; i++ {
+		d *= 2
+	}
+	if d > maxBackoff {
+		d = maxBackoff
+	}
+	return d
 }
 
 // Run blocks until ctx is cancelled. Connects + drains + disconnects
 // on each tick — POP3 sessions are usually exclusive (one client at
 // a time per mailbox), so the short-lived session model avoids
 // holding a connection between polls. Errors during a session are
-// logged but not fatal: the next tick reconnects.
+// logged as warnings and recorded in Health; the next tick reconnects,
+// with backoff after repeated failures.
 func (w *Worker) Run(ctx context.Context) {
 	log := logger.FromCtx(ctx)
 	if w.cfg.Host == "" {
-		log.Info().Msg("nickclaim: POP3 worker disabled (PURELYMAIL_POP3_HOST is empty)")
+		log.Info().Msg("nickclaim: POP3 worker not started (no inbound host)")
 		return
 	}
 	log.Info().
@@ -93,28 +167,39 @@ func (w *Worker) Run(ctx context.Context) {
 		Int("port", w.cfg.Port).
 		Bool("tls", w.cfg.UseTLS).
 		Dur("poll", w.cfg.PollInterval).
-		Msg("nickclaim: POP3 worker starting")
+		Msg("nickclaim: POP3 worker starting; the mailbox must be dedicated to nick claims " +
+			"(catch-all for reg+<uid>-<token>@<email_domain>): messages that match no claim are deleted")
+	w.setRunning(true)
+	defer w.setRunning(false)
+	defer log.Info().Msg("nickclaim: POP3 worker stopped")
 
 	go w.sweepLoop(ctx)
 
-	ticker := time.NewTicker(w.cfg.PollInterval)
-	defer ticker.Stop()
-
-	// Tick once immediately on startup — drains anything that
+	// Drain once immediately on startup — picks up anything that
 	// arrived while we were down. Then settle into the poll cadence.
-	if err := w.drain(ctx); err != nil {
-		log.Warn().Err(err).Msg("nickclaim: initial drain failed")
-	}
-
+	timer := time.NewTimer(0)
+	defer timer.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
-			if err := w.drain(ctx); err != nil {
-				log.Warn().Err(err).Msg("nickclaim: POP3 drain failed (will retry next tick)")
+		case <-timer.C:
+		}
+		err := w.drain(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		failures := w.record(err)
+		delay := nextDelay(w.cfg.PollInterval, failures)
+		if err != nil {
+			ev := log.Warn().Err(err).Int("consecutive_failures", failures)
+			if delay > w.cfg.PollInterval {
+				ev.Dur("retry_in", delay).Msg("nickclaim: POP3 drain failed repeatedly; backing off")
+			} else {
+				ev.Msg("nickclaim: POP3 drain failed (will retry next tick)")
 			}
 		}
+		timer.Reset(delay)
 	}
 }
 
@@ -146,14 +231,9 @@ func (w *Worker) sweepLoop(ctx context.Context) {
 func (w *Worker) drain(ctx context.Context) error {
 	log := logger.FromCtx(ctx)
 
-	client := pop3.New(pop3.Opt{
-		Host:       w.cfg.Host,
-		Port:       w.cfg.Port,
-		TLSEnabled: w.cfg.UseTLS,
-	})
-	conn, err := client.NewConn()
+	conn, err := dialPOP3(w.cfg, defaultSessionTimeout)
 	if err != nil {
-		return fmt.Errorf("dial pop3: %w", err)
+		return err
 	}
 	// Quit() commits any DELEs from this session. Even if we hit
 	// an error mid-batch, we want the deletions for messages we DID
@@ -258,7 +338,7 @@ func (w *Worker) handleMessage(ctx context.Context, conn *pop3.Conn, id int, uid
 	claim, route, err := w.locateClaim(ctx, recipient, subject, body)
 	if errors.Is(err, ErrNotFound) {
 		log.Debug().Str("recipient", recipient).Str("uidl", uidl).
-			Msg("nickclaim: couldn't route email to a pending claim; DELE'ing")
+			Msg("nickclaim: email matches no pending claim (expects reg+<uid>-<token>@<email_domain>); deleting it")
 		_ = conn.Dele(id)
 		return nil
 	}
@@ -325,6 +405,36 @@ func (w *Worker) locateClaim(ctx context.Context, recipient, subject, body strin
 		}
 	}
 	return nil, "", ErrNotFound
+}
+
+// dialPOP3 opens a POP3 session to cfg. timeout bounds the whole session
+// (a deadline on the socket), so a silent server can't hang the caller.
+func dialPOP3(cfg WorkerConfig, timeout time.Duration) (*pop3.Conn, error) {
+	client := pop3.New(pop3.Opt{
+		Host:        cfg.Host,
+		Port:        cfg.Port,
+		TLSEnabled:  cfg.UseTLS,
+		DialTimeout: 10 * time.Second,
+		Dialer:      deadlineDialer{timeout: timeout},
+	})
+	conn, err := client.NewConn()
+	if err != nil {
+		return nil, fmt.Errorf("dial pop3 %s:%d: %w", cfg.Host, cfg.Port, err)
+	}
+	return conn, nil
+}
+
+type deadlineDialer struct{ timeout time.Duration }
+
+func (d deadlineDialer) Dial(network, addr string) (net.Conn, error) {
+	c, err := (&net.Dialer{Timeout: 10 * time.Second}).Dial(network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if d.timeout > 0 {
+		_ = c.SetDeadline(time.Now().Add(d.timeout))
+	}
+	return c, nil
 }
 
 // readBody flattens a message.Entity to its plaintext body. For

@@ -39,10 +39,9 @@ func StartServerWithContext(ctx context.Context) error {
 	// Services
 	userService := user.NewUserService(userRepo)
 	sessionService := sessionsvc.NewService(sessionRepo)
-	nickClaimService := nickclaim.NewService(nickClaimRepo, nickclaim.Config{
-		EmailDomain:      cfg.AppConfig.NickClaimEmailDomain,
-		RateLimitPerHour: cfg.AppConfig.NickClaimRateLimitPerHour,
-	})
+	// Starts disabled; the nick-claim runtime below applies the real
+	// settings (config file, then env) before the server listens.
+	nickClaimService := nickclaim.NewService(nickClaimRepo, nickclaim.Config{})
 	nickservSecretService := nickservsecret.NewService(nickservSecretRepo)
 	bouncerSecretService := bouncersecret.NewService(bouncerSecretRepo)
 	presenceService := presence.NewService(presenceRepo)
@@ -69,10 +68,12 @@ func StartServerWithContext(ctx context.Context) error {
 	bouncerSecretHandler := handlers.NewBouncerSecretHandler(bouncerSecretService)
 	presenceHandler := handlers.NewPresenceHandler(presenceService, avatarService)
 
-	// Public routes — just health. The server directory moved to the
-	// standalone directory service (github.com/boson-chat/directory).
+	// Public routes — health and the capability switches the client reads
+	// (GET /config). The server directory moved to the standalone
+	// directory service (github.com/boson-chat/directory).
 	publicMux := stdhttp.NewServeMux()
 	publicMux.HandleFunc("GET /health", healthHandler(database))
+	handlers.NewPublicConfigHandler(nickClaimService).Register(publicMux)
 
 	// Protected routes — everything that needs an authenticated principal.
 	protectedMux := stdhttp.NewServeMux()
@@ -92,19 +93,23 @@ func StartServerWithContext(ctx context.Context) error {
 	identities := authidentity.NewService(database)
 	root := buildRouter(publicMux, protectedMux, middleware.RequireAuth(tokens, identities))
 
-	// Co-resident POP3 worker for the automated NickServ-email-
-	// confirmation flow. Worker no-ops if the PURELYMAIL_POP3_HOST
-	// env var is empty, so local-dev runs that don't care about
-	// inbound mail don't have to set it up. Shares the parent
-	// ctx for SIGTERM-driven shutdown.
-	mailWorker := nickclaim.NewWorker(nickclaim.WorkerConfig{
-		Host:     cfg.AppConfig.PurelyMailPOP3Host,
-		Port:     cfg.AppConfig.PurelyMailPOP3Port,
-		User:     cfg.AppConfig.PurelyMailPOP3User,
-		Password: cfg.AppConfig.PurelyMailPOP3Password,
-		UseTLS:   cfg.AppConfig.PurelyMailPOP3TLS,
-	}, nickClaimRepo)
-	go mailWorker.Run(ctx)
+	// Nick claims: automatic NickServ registration on other networks.
+	// Off unless the network admin enables it (nick_claim.enabled in the
+	// stack config file, or NICK_CLAIM_ENABLED). The runtime starts and
+	// stops the POP3 worker as the settings change; workers share ctx for
+	// SIGTERM-driven shutdown.
+	nickClaims := nickclaim.NewRuntime(ctx, nickClaimService, nickClaimRepo)
+	defer nickClaims.Stop()
+	configStatus, err := startNickClaimConfig(ctx, cfg, nickClaims)
+	if err != nil {
+		return err
+	}
+
+	if addr := cfg.InternalConfig.ListenAddr(); addr != "" {
+		internalMux := stdhttp.NewServeMux()
+		handlers.NewInternalHandler(nickClaims, cfg.InternalConfig.SharedToken(), configStatus).Register(internalMux)
+		go serveInternal(ctx, addr, internalMux)
+	}
 
 	addr := fmt.Sprintf(":%d", cfg.AppConfig.Port)
 	srv := &stdhttp.Server{
@@ -121,7 +126,7 @@ func StartServerWithContext(ctx context.Context) error {
 // buildRouter wires the public and protected muxes onto a single root mux,
 // applying `auth` only to routes that need an authenticated principal.
 //
-// /health goes to the public mux; every other path falls through to the
+// /health and /config go to the public mux; every other path falls through to the
 // auth-wrapped protected mux. Extracted so tests can verify the route-level auth gating without
 // standing up the full server.
 func buildRouter(
@@ -131,6 +136,7 @@ func buildRouter(
 	authedProtected := auth(protectedMux)
 	root := stdhttp.NewServeMux()
 	root.Handle("/health", publicMux)
+	root.Handle("/config", publicMux)
 	root.Handle("/", authedProtected)
 	return root
 }

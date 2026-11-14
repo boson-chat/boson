@@ -61,6 +61,10 @@ type RepositoryImpl interface {
 	// the handler's rate-limit (e.g. 5 per hour).
 	CountSince(ctx context.Context, userID uuid.UUID, since time.Time) (int64, error)
 
+	// CountPending counts the claims still waiting for their email (all
+	// users). For the admin panel's status view.
+	CountPending(ctx context.Context) (int64, error)
+
 	// MailUIDCaptured reports whether any row has already recorded
 	// this POP3 UIDL — used by the worker to skip re-processing a
 	// message it captured on a previous tick (we leave matched
@@ -223,6 +227,14 @@ func (r *Repository) CountSince(ctx context.Context, userID uuid.UUID, since tim
 	var n int64
 	err := r.db.DB.WithContext(ctx).Model(&NickClaim{}).
 		Where("user_id = ? AND created_at >= ?", userID, since).
+		Count(&n).Error
+	return n, err
+}
+
+func (r *Repository) CountPending(ctx context.Context) (int64, error) {
+	var n int64
+	err := r.db.DB.WithContext(ctx).Model(&NickClaim{}).
+		Where("status = ?", StatusPending).
 		Count(&n).Error
 	return n, err
 }

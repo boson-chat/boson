@@ -190,6 +190,10 @@ export interface DirectoryState {
   // to add/switch servers. Independent of `showChat`: the IRC session keeps
   // running while the modal is open.
   serverBrowserOpen: boolean;
+  // The Boson backend's nick-claim switch (GET /config): null while
+  // unknown (not loaded yet, or an older backend), then true/false.
+  // A 403 nick_claim_disabled flips it to false mid-session.
+  nickClaimEnabled: boolean | null;
 }
 
 // Pull the snapshot for the active connection, or null if none/disconnected.
@@ -282,6 +286,7 @@ export class DirectoryBloc {
   private readonly connections = new Map<string, Connection>();
   private activeServerId: string | null = null;
   private serverBrowserOpen = false;
+  private nickClaimEnabled: boolean | null = null;
 
   private readonly listeners = new Set<DirectoryListener>();
   private searchTimer: ReturnType<typeof setTimeout> | null = null;
@@ -508,6 +513,7 @@ export class DirectoryBloc {
       showChat,
       restoring: this.restoring && !showChat,
       serverBrowserOpen: this.serverBrowserOpen,
+      nickClaimEnabled: this.nickClaimEnabled,
     };
   }
 
@@ -1685,8 +1691,27 @@ export class DirectoryBloc {
     }
     this.profilePending = true;
     this.remoteSessionPending = true;
+    void this.refreshPublicConfig();
     await this.loadAccount();
     await finishListing();
+  }
+
+  // Re-read the backend's capability switches (GET /config). Best effort:
+  // on failure the last known value stands (null = assume on; a 403 from
+  // the claim itself still turns it off).
+  async refreshPublicConfig(): Promise<void> {
+    if (this.guestNick || typeof this.directory.getPublicConfig !== 'function') return;
+    try {
+      const cfg = await this.directory.getPublicConfig();
+      if (this.disposed) return;
+      this.setNickClaimEnabled(cfg.nick_claim);
+    } catch { /* keep the last known value */ }
+  }
+
+  private setNickClaimEnabled(on: boolean): void {
+    if (this.nickClaimEnabled === on) return;
+    this.nickClaimEnabled = on;
+    this.emit();
   }
 
   // The signed-in user's profile (/me) and the cloud-synced saved session
@@ -1771,6 +1796,9 @@ export class DirectoryBloc {
         this.refreshDirectory();
       }
       if (!this.guestNick && (this.profilePending || this.remoteSessionPending)) await this.loadAccount();
+      // The window woke / the network came back: an admin may have flipped
+      // the switch meanwhile.
+      void this.refreshPublicConfig();
     } finally {
       this.startupInFlight = false;
     }
@@ -2043,6 +2071,8 @@ export class DirectoryBloc {
       nickClaimAPI: {
         createNickClaim: (input) => this.directory.createNickClaim(input),
         getNickClaim: (id) => this.directory.getNickClaim(id),
+        isEnabled: () => this.nickClaimEnabled !== false,
+        onDisabled: () => this.setNickClaimEnabled(false),
       },
       // Routed through the user's bouncer → server-side history exists; enables
       // scroll-back immediately (independent of runtime ZNC detection). Keyed on

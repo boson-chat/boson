@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -9,19 +10,65 @@ import (
 
 // Config aggregates every subsystem's tunables. Loaded via
 // configor — values come from (in order of precedence):
-//   1. Environment variables (matching the `env:"NAME"` tag).
-//   2. The local JSON config file (path resolved by
-//      configFileSearchPaths below; tolerates missing).
-//   3. The `default:"..."` tag.
+//  1. Environment variables (matching the `env:"NAME"` tag).
+//  2. The local JSON config file (path resolved by
+//     configFileSearchPaths below; tolerates missing).
+//  3. The `default:"..."` tag.
 //
 // This matches the convention used across other weeb-vip Go services
 // (anime-api, gateway-proxy, etc.) — a versioned `config.dev.json`
 // in-repo carries the local defaults so `make run` works out of
 // the box, and prod overrides via env vars set by the k8s manifest.
 type Config struct {
-	AppConfig  AppConfig
-	DBConfig   DBConfig
-	AuthConfig AuthConfig
+	AppConfig      AppConfig
+	DBConfig       DBConfig
+	AuthConfig     AuthConfig
+	InternalConfig InternalConfig
+	StackConfig    StackConfig
+}
+
+// InternalConfig is the internal listener: GET /internal/config/status and
+// the admin panel's /internal/nick-claims/* endpoints. It is meant for the
+// compose network only; never publish its port.
+type InternalConfig struct {
+	// Port of the internal listener (all interfaces). Default 3001.
+	Port int `env:"INTERNAL_PORT" default:"3001"`
+	// Full listen address; wins over INTERNAL_PORT when set (e.g.
+	// 127.0.0.1:13001). "off" turns the listener off.
+	Addr string `env:"INTERNAL_ADDR"`
+	// Shared secret the admin panel sends as X-Internal-Token (or
+	// Authorization: Bearer) on /internal/nick-claims/*. Empty: those
+	// endpoints answer 503 internal_api_disabled (/internal/config/status
+	// needs no token). INTERNAL_API_TOKEN is accepted as an older name.
+	Token    string `env:"INTERNAL_TOKEN"`
+	APIToken string `env:"INTERNAL_API_TOKEN"`
+}
+
+// ListenAddr is the internal listener's address ("" = off).
+func (c InternalConfig) ListenAddr() string {
+	switch {
+	case c.Addr == "off":
+		return ""
+	case c.Addr != "":
+		return c.Addr
+	case c.Port > 0:
+		return fmt.Sprintf(":%d", c.Port)
+	}
+	return ""
+}
+
+// SharedToken is INTERNAL_TOKEN, else INTERNAL_API_TOKEN.
+func (c InternalConfig) SharedToken() string {
+	if c.Token != "" {
+		return c.Token
+	}
+	return c.APIToken
+}
+
+// StackConfig is the stack's shared config file (config/boson.yaml).
+type StackConfig struct {
+	// Path of the file, e.g. /config/boson.yaml. Empty: env values only.
+	Path string `env:"BOSON_CONFIG"`
 }
 
 type AppConfig struct {
@@ -29,24 +76,28 @@ type AppConfig struct {
 	Port           int    `env:"PORT" default:"3000"`
 	Env            string `env:"ENV" default:"development"`
 	AllowedOrigins string `env:"ALLOWED_ORIGINS" default:"http://localhost:5173"`
-	// NickClaim subsystem — automated NickServ email-confirmation
-	// flow for signed-in users. The emails minted by this feature
-	// have shape `reg-<userid>-<short>@<NickClaimEmailDomain>` and
-	// the POP3 worker (when configured) reads them out of the
-	// catch-all mailbox at PURELYMAIL_POP3_*.
-	//
-	// Defaults sized for the production deployment at boson.chat;
-	// local dev points the POP3 fields at a mailpit container (see
-	// backend/config/config.dev.json).
-	NickClaimEmailDomain      string `env:"NICK_CLAIM_EMAIL_DOMAIN" default:"boson.chat"`
+	// NickClaim subsystem: automatic NickServ registration of a user's
+	// nick on other IRC networks. The backend mints
+	// `reg+<userid>-<short>@<email domain>` addresses and a POP3 worker
+	// drains the catch-all mailbox they land in. Off unless
+	// NICK_CLAIM_ENABLED=true or `nick_claim.enabled: true` in the stack
+	// config file. The effective settings (file, then env, then defaults)
+	// are resolved by NickClaimFromEnv / LoadNickClaimFile in nickclaim.go.
+	NickClaimEnabled          bool   `env:"NICK_CLAIM_ENABLED" default:"false"`
+	NickClaimEmailDomain      string `env:"NICK_CLAIM_EMAIL_DOMAIN" default:""`
 	NickClaimRateLimitPerHour int    `env:"NICK_CLAIM_RATE_LIMIT_PER_HOUR" default:"5"`
 
-	// PurelyMail POP3 for the inbound catch-all. POP3 was picked
-	// over IMAP because mailpit (our local-dev mail receiver) only
-	// speaks POP3; using POP3 here too gives a single dev/prod code
-	// path. The worker no-ops when PurelyMailPOP3Host is empty,
-	// so local-dev runs that don't care about email skip the
-	// connection entirely.
+	// Inbound mailbox (POP3). NICK_CLAIM_POP3_* win; the older
+	// PURELYMAIL_POP3_* below are still read as fallbacks. Empty / 0
+	// means unset (NickClaimPOP3TLS is "true"/"false"/"").
+	NickClaimPOP3Host     string `env:"NICK_CLAIM_POP3_HOST" default:""`
+	NickClaimPOP3Port     int    `env:"NICK_CLAIM_POP3_PORT"`
+	NickClaimPOP3User     string `env:"NICK_CLAIM_POP3_USER" default:""`
+	NickClaimPOP3Password string `env:"NICK_CLAIM_POP3_PASSWORD" default:""`
+	NickClaimPOP3TLS      string `env:"NICK_CLAIM_POP3_TLS" default:""`
+
+	// Legacy names for the inbound mailbox (PurelyMail on boson.chat).
+	// Fallback values only: they no longer turn the feature on.
 	PurelyMailPOP3Host     string `env:"PURELYMAIL_POP3_HOST" default:""`
 	PurelyMailPOP3Port     int    `env:"PURELYMAIL_POP3_PORT" default:"995"`
 	PurelyMailPOP3User     string `env:"PURELYMAIL_POP3_USER" default:""`
@@ -59,11 +110,11 @@ type AppConfig struct {
 	// return an error when R2AccessKey is empty, so local-dev runs that
 	// don't care about avatars don't need R2 configured. Real keys live in
 	// the gitignored config.dev.json / prod env — never commit them.
-	CloudflareR2AccessKey  string `env:"CLOUDFLARE_R2_ACCESS_KEY" default:""`
-	CloudflareR2SecretKey  string `env:"CLOUDFLARE_R2_SECRET_KEY" default:""`
-	CloudflareR2Endpoint   string `env:"CLOUDFLARE_R2_ENDPOINT" default:""`
-	CloudflareR2Bucket     string `env:"CLOUDFLARE_R2_BUCKET" default:"boson"`
-	CloudflareCDNBaseURL   string `env:"CLOUDFLARE_CDN_BASE_URL" default:"https://cdn.boson.chat"`
+	CloudflareR2AccessKey string `env:"CLOUDFLARE_R2_ACCESS_KEY" default:""`
+	CloudflareR2SecretKey string `env:"CLOUDFLARE_R2_SECRET_KEY" default:""`
+	CloudflareR2Endpoint  string `env:"CLOUDFLARE_R2_ENDPOINT" default:""`
+	CloudflareR2Bucket    string `env:"CLOUDFLARE_R2_BUCKET" default:"boson"`
+	CloudflareCDNBaseURL  string `env:"CLOUDFLARE_CDN_BASE_URL" default:"https://cdn.boson.chat"`
 }
 
 type DBConfig struct {

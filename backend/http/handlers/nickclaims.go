@@ -42,8 +42,16 @@ type createNickClaimResponse struct {
 	Email string `json:"email"`
 }
 
+// nickClaimDisabled is the 403 body while a network admin has nick claims
+// turned off. The client falls back to the manual NickServ flow.
+const nickClaimDisabled = "nick_claim_disabled"
+
 func (h *NickClaimsHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request) {
 	p := middleware.MustUser(r.Context())
+	if !h.Claims.Enabled() {
+		writeError(w, stdhttp.StatusForbidden, nickClaimDisabled)
+		return
+	}
 
 	var req createNickClaimRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -59,6 +67,10 @@ func (h *NickClaimsHandler) create(w stdhttp.ResponseWriter, r *stdhttp.Request)
 
 	claim, err := h.Claims.CreateClaim(r.Context(), p.UserID, req.ServerID, req.AccountNick)
 	switch {
+	case errors.Is(err, nickclaim.ErrDisabled):
+		// Turned off between the check above and the insert (config reload).
+		writeError(w, stdhttp.StatusForbidden, nickClaimDisabled)
+		return
 	case errors.Is(err, nickclaim.ErrRateLimited):
 		// 429 — caller has minted too many claims in the last hour.
 		// Response includes the standard `error` key plus a

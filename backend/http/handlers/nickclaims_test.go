@@ -25,7 +25,16 @@ type stubNickClaimService struct {
 	getClaim          func(ctx context.Context, id, userID uuid.UUID) (*nickclaim.NickClaim, error)
 	consumeIfCaptured func(ctx context.Context, id, userID uuid.UUID) (*nickclaim.NickClaim, error)
 	emailFor          func(*nickclaim.NickClaim) string
+	disabled          bool
+	pending           int64
 }
+
+func (s *stubNickClaimService) Enabled() bool                  { return !s.disabled }
+func (s *stubNickClaimService) Configure(cfg nickclaim.Config) { s.disabled = !cfg.Enabled }
+func (s *stubNickClaimService) CurrentConfig() nickclaim.Config {
+	return nickclaim.Config{Enabled: !s.disabled}
+}
+func (s *stubNickClaimService) CountPending(context.Context) (int64, error) { return s.pending, nil }
 
 func (s *stubNickClaimService) CreateClaim(ctx context.Context, uid uuid.UUID, sid, acct string) (*nickclaim.NickClaim, error) {
 	return s.createClaim(ctx, uid, sid, acct)

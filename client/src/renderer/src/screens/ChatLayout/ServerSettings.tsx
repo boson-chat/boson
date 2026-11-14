@@ -141,6 +141,10 @@ interface ServerSettingsProps {
   // Identity panel uses this to decide whether to show the Claim
   // button (signed in only) or the existing manual register form.
   signedIn?: boolean;
+  // The Boson network has automatic nick claims turned off (GET /config
+  // → nick_claim: false, or a 403 nick_claim_disabled). The Claim button
+  // is replaced by a short note pointing at the manual form.
+  nickClaimDisabled?: boolean;
   // Optional — when both are present, an "Edit" tab is added that
   // lets the row's owner update profile-shaped fields and submit
   // them through onSaveProfile (which hits PATCH /servers/{id}).
@@ -195,7 +199,7 @@ const MENU: readonly MenuItem[] = [
 
 export function ServerSettings({
   serverDisplayName, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
-  serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
+  serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn, nickClaimDisabled,
   directoryEntry, onSaveProfile, onSaveServerImage, isOper = false,
   bouncerRoute, bouncerGloballyEnabled = false, onSaveBouncerRoute,
   bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect, networkTheme,
@@ -272,6 +276,7 @@ export function ServerSettings({
               onDetectAccountState={onDetectAccountState}
               onResumeConfirmation={onResumeConfirmation}
               signedIn={signedIn}
+              nickClaimDisabled={nickClaimDisabled}
             />
           )}
           {section === 'advanced' && (
@@ -382,6 +387,8 @@ interface IdentitySectionProps {
   // Auto-resume confirm — see ServerSettingsProps.onResumeConfirmation.
   onResumeConfirmation?: (accountName?: string, opts?: { signal?: AbortSignal }) => Promise<ResumeConfirmResult>;
   signedIn?: boolean;
+  // See ServerSettingsProps.nickClaimDisabled.
+  nickClaimDisabled?: boolean;
 }
 
 // Identity owns the full per-server account surface: current nick +
@@ -394,7 +401,7 @@ interface IdentitySectionProps {
 // for power-user use; everything a normal user wants is here.
 function IdentitySection({
   myNick, onChangeNick,
-  serverId, servicesFramework, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
+  serverId, servicesFramework, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn, nickClaimDisabled,
 }: IdentitySectionProps) {
   // --- Change-nick state ----------------------------------------------
   // Optimistic input: we update the local draft as the user types, and
@@ -606,6 +613,11 @@ function IdentitySection({
       case 'cancelled':
         setClaimState(null);
         break;
+      case 'disabled':
+        // Turned off by the network admin mid-session: the parent flips
+        // nickClaimDisabled, which swaps the card for the note below.
+        setClaimState(null);
+        break;
       case 'unavailable':
         setClaimState({ kind: 'error', message: `Auto-claim unavailable: ${result.reason}. Use the manual register form below.` });
         break;
@@ -630,7 +642,7 @@ function IdentitySection({
   // Whether to render the Claim affordance at all. Requires both
   // a signed-in user AND the wiring being threaded — guests get
   // the existing manual form unchanged.
-  const claimAvailable = Boolean(signedIn && onClaimNick);
+  const claimAvailable = Boolean(signedIn && onClaimNick && !nickClaimDisabled);
 
   const onRegister = async (): Promise<void> => {
     if (!serverId) return;
@@ -1086,6 +1098,12 @@ function IdentitySection({
                   show a "checking…" line instead of flashing Claim. An
                   in-flight claim keeps the card (and its Cancel) even though
                   the claim itself moves the status to registering. */}
+              {signedIn && nickClaimDisabled && !claimHiddenByState && (
+                <p class="services-creds-status-msg services-creds-status-msg-info" data-testid="nick-claim-disabled">
+                  Automatic nick registration is turned off on this Boson network. Register
+                  with NickServ using the form below; you'll need to confirm the email yourself.
+                </p>
+              )}
               {claimAvailable && stillDetecting && (
                 <p class="services-creds-status-msg services-creds-status-msg-info">
                   Checking <code>{(accountName.trim() || creds?.accountName || myNick || '').trim()}</code>'s

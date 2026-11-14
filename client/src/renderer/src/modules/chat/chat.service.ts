@@ -20,6 +20,7 @@ import { ErgoAccountService } from './account-service-ergo';
 import { ChanServController } from '../chanserv/chanserv.controller';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult, AccountInfo } from './account-service';
 import type { NickClaimCreateResponse, NickClaimPollResponse } from '../directory/directory.types';
+import { isNickClaimDisabledError } from '../directory/nick-claim';
 
 // NickClaimAPI is the subset of DirectoryService methods ChatService
 // needs for the automated "claim this nick" flow. Injecting via an
@@ -28,6 +29,12 @@ import type { NickClaimCreateResponse, NickClaimPollResponse } from '../director
 export interface NickClaimAPI {
   createNickClaim(input: { serverId: string; accountNick: string }): Promise<NickClaimCreateResponse>;
   getNickClaim(id: string): Promise<NickClaimPollResponse>;
+  // False when the Boson network has nick claims turned off (GET /config).
+  // Absent: assumed on; a 403 nick_claim_disabled still says otherwise.
+  isEnabled?(): boolean;
+  // Called when the backend answers 403 nick_claim_disabled (the admin
+  // turned the feature off mid-session).
+  onDisabled?(): void;
 }
 
 // ClaimResult is what claimNick() resolves to. Discrete kinds so the
@@ -40,6 +47,9 @@ export interface NickClaimAPI {
 //                     arrived (or before our poll caught it). Caller
 //                     can retry from scratch.
 //   cancelled       — caller aborted via the supplied AbortSignal.
+//   disabled        — the Boson network has nick claims turned off
+//                     (GET /config, or 403 nick_claim_disabled). Caller
+//                     shows the manual register+confirm form.
 //   unavailable     — backend rejected the create (rate-limit, no
 //                     auth, network unreachable). Caller should fall
 //                     back to the manual register+confirm form.
@@ -49,6 +59,7 @@ export type ClaimResult =
   | { kind: 'nick-taken' }
   | { kind: 'expired' }
   | { kind: 'cancelled' }
+  | { kind: 'disabled' }
   | { kind: 'unavailable'; reason: string }
   | { kind: 'failed'; reason: string };
 
@@ -1049,6 +1060,7 @@ export class ChatService {
       return { kind: 'unavailable', reason: 'no backend api wired' };
     }
     if (signal?.aborted) return { kind: 'cancelled' };
+    if (this.nickClaimAPI.isEnabled && !this.nickClaimAPI.isEnabled()) return { kind: 'disabled' };
 
     const serverId = this.serverScope?.serverId;
     if (!serverId) {
@@ -1063,6 +1075,10 @@ export class ChatService {
     try {
       mint = await this.nickClaimAPI.createNickClaim({ serverId, accountNick: accountName });
     } catch (err) {
+      if (isNickClaimDisabledError(err)) {
+        this.nickClaimAPI.onDisabled?.();
+        return { kind: 'disabled' };
+      }
       return { kind: 'unavailable', reason: claimErrReason(err) };
     }
     if (signal?.aborted) return { kind: 'cancelled' };

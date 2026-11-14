@@ -749,4 +749,45 @@ describe('ServerSettings — Identity (account UI)', () => {
     switchToIdentity();
     expect(screen.queryByText(/Boson can register/i)).toBeNull();
   });
+  // ---- Nick claims turned off by the network admin ---------------------
+
+  it('replaces the Claim CTA with a note pointing at the manual form when nick claims are off', async () => {
+    getServiceCredentialsStore().set('libera', { accountName: 'alice', status: 'no-account' });
+    const onClaimNick = vi.fn();
+    render(<ServerSettings {...baseProps({ signedIn: true, onClaimNick, nickClaimDisabled: true })} />);
+    switchToIdentity();
+    expect(await screen.findByTestId('nick-claim-disabled')).toHaveTextContent(/Automatic nick registration is turned off/);
+    expect(screen.queryByText(/Boson can register/i)).toBeNull();
+    expect(screen.queryByRole('button', { name: /Claim alice on this network/ })).toBeNull();
+    // The manual register form is still there.
+    expect(screen.getAllByText(/^Email/).length).toBeGreaterThan(0);
+    expect(onClaimNick).not.toHaveBeenCalled();
+  });
+
+  it('shows no note when the nick is already registered (Identify form is the next step)', () => {
+    getServiceCredentialsStore().set('libera', { accountName: 'alice', nickservPassword: 'pw', status: 'identified' });
+    render(<ServerSettings {...baseProps({ signedIn: true, onClaimNick: vi.fn(), nickClaimDisabled: true })} />);
+    switchToIdentity();
+    expect(screen.queryByTestId('nick-claim-disabled')).toBeNull();
+  });
+
+  it('shows no note for guests', () => {
+    render(<ServerSettings {...baseProps({ signedIn: false, nickClaimDisabled: true })} />);
+    switchToIdentity();
+    expect(screen.queryByTestId('nick-claim-disabled')).toBeNull();
+  });
+
+  it('falls back to the manual flow when the switch flips mid-session (claim answers disabled)', async () => {
+    getServiceCredentialsStore().set('libera', { accountName: 'alice', status: 'no-account' });
+    const onClaimNick = vi.fn(async () => ({ kind: 'disabled' as const }));
+    const { rerender } = render(<ServerSettings {...baseProps({ signedIn: true, onClaimNick })} />);
+    switchToIdentity();
+    fireEvent.click(await screen.findByRole('button', { name: /Claim alice on this network/ }));
+    await waitFor(() => expect(onClaimNick).toHaveBeenCalled());
+    // The parent (DirectoryBloc) flips the capability on the 403.
+    rerender(<ServerSettings {...baseProps({ signedIn: true, onClaimNick, nickClaimDisabled: true })} />);
+    expect(await screen.findByTestId('nick-claim-disabled')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Claim alice on this network/ })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
 });
