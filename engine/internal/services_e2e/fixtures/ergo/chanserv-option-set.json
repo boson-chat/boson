@@ -1,0 +1,25 @@
+{
+  "stack": "ergo",
+  "scenario": "option-set",
+  "ircdLabel": "ergo-2.19.1",
+  "recorded": "2026-11-14T13:30:21.279Z",
+  "op": "setOption",
+  "args": [
+    "#cse2e0bm2k",
+    "history",
+    "off"
+  ],
+  "sent": [
+    "SET #cse2e0bm2k history off"
+  ],
+  "replies": [
+    [
+      "Successfully changed the channel settings",
+      "The stored channel history setting is: disabled",
+      "Given current server settings, the channel history setting is: disabled"
+    ]
+  ],
+  "expect": {
+    "kind": "done"
+  }
+}

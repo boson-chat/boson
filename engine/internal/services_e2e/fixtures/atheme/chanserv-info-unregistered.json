@@ -1,0 +1,24 @@
+{
+  "stack": "atheme",
+  "scenario": "info-unregistered",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "recorded": "2026-11-14T13:30:38.818Z",
+  "op": "info",
+  "args": [
+    "#cse2ene47u"
+  ],
+  "sent": [
+    "INFO #cse2ene47u"
+  ],
+  "replies": [
+    [
+      "Channel \u0002#cse2ene47u\u0002 is not registered."
+    ]
+  ],
+  "expect": {
+    "kind": "info",
+    "info": {
+      "registered": false
+    }
+  }
+}

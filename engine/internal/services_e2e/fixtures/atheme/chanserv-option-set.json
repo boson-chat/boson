@@ -1,0 +1,23 @@
+{
+  "stack": "atheme",
+  "scenario": "option-set",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "recorded": "2026-11-14T13:30:39.641Z",
+  "op": "setOption",
+  "args": [
+    "#cse2ene47u",
+    "guard",
+    true
+  ],
+  "sent": [
+    "SET #cse2ene47u GUARD ON"
+  ],
+  "replies": [
+    [
+      "The \u0002GUARD\u0002 flag has been set for channel \u0002#cse2ene47u\u0002."
+    ]
+  ],
+  "expect": {
+    "kind": "done"
+  }
+}

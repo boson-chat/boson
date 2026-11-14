@@ -96,6 +96,9 @@ export class ChanServController {
   // service keeps those out of the Server log.
   claims(e: IrcEvent): boolean { return this.runner.claims(e); }
 
+  // Resolves when no ChanServ exchange is queued or running.
+  idle(): Promise<void> { return this.runner.idle(); }
+
   dispose(): void {
     this.disposed = true;
     this.eventListeners.clear();

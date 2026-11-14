@@ -50,6 +50,15 @@ export class ChanServRunner {
 
   get busy(): boolean { return this.activeNick !== null; }
 
+  // Resolves once every queued operation has finished.
+  async idle(): Promise<void> {
+    let seen: Promise<unknown>;
+    do {
+      seen = this.tail;
+      await seen;
+    } while (seen !== this.tail);
+  }
+
   run<T>(serviceNick: string, op: Operation<T>): Promise<T | ChanServError> {
     const next = this.tail.then(() => this.exec(serviceNick, op), () => this.exec(serviceNick, op));
     this.tail = next.catch(() => {});

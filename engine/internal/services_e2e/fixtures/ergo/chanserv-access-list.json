@@ -1,0 +1,23 @@
+{
+  "stack": "ergo",
+  "scenario": "access-list",
+  "ircdLabel": "ergo-2.19.1",
+  "recorded": "2026-11-14T13:30:21.277Z",
+  "op": "listAccess",
+  "args": [
+    "#cse2e0bm2k"
+  ],
+  "sent": [
+    "AMODE #cse2e0bm2k"
+  ],
+  "replies": [
+    [
+      "Channel #cse2e0bm2k has 2 persistent modes set",
+      "Account csf0bm2k receives mode +q",
+      "Account csh0bm2k receives mode +o"
+    ]
+  ],
+  "expect": {
+    "kind": "access"
+  }
+}

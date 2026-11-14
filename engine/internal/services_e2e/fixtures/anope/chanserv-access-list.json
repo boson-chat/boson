@@ -1,0 +1,24 @@
+{
+  "stack": "anope",
+  "scenario": "access-list",
+  "ircdLabel": "unrealircd-6 + anope-2.0",
+  "recorded": "2026-11-14T13:30:31.517Z",
+  "op": "listAccess",
+  "args": [
+    "#cse2e54pbk"
+  ],
+  "sent": [
+    "ACCESS #cse2e54pbk LIST"
+  ],
+  "replies": [
+    [
+      "Access list for #cse2e54pbk:",
+      "Number  Level  Mask",
+      "1       AOP    csh54pbk",
+      "End of access list"
+    ]
+  ],
+  "expect": {
+    "kind": "access"
+  }
+}

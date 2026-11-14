@@ -1,0 +1,22 @@
+{
+  "stack": "ergo",
+  "scenario": "register-not-opped",
+  "ircdLabel": "ergo-2.19.1",
+  "recorded": "2026-11-14T13:30:17.359Z",
+  "op": "register",
+  "args": [
+    "#cse2e0bm2k"
+  ],
+  "sent": [
+    "REGISTER #cse2e0bm2k"
+  ],
+  "replies": [
+    [
+      "You must be an oper on the channel to register it"
+    ]
+  ],
+  "expect": {
+    "kind": "error",
+    "code": "not-opped"
+  }
+}

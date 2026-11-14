@@ -1,0 +1,22 @@
+{
+  "stack": "anope",
+  "scenario": "register-not-opped",
+  "ircdLabel": "unrealircd-6 + anope-2.0",
+  "recorded": "2026-11-14T13:30:28.753Z",
+  "op": "register",
+  "args": [
+    "#cse2e54pbk"
+  ],
+  "sent": [
+    "REGISTER #cse2e54pbk"
+  ],
+  "replies": [
+    [
+      "You must be a channel operator to register the channel."
+    ]
+  ],
+  "expect": {
+    "kind": "error",
+    "code": "not-opped"
+  }
+}
