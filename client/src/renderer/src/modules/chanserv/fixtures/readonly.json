@@ -1,0 +1,69 @@
+{
+  "source": "Undernet X: gnuworld mod.cservice/CHANINFOCommand.cc + ISREGCommand.cc default strings; generic: shapes common to DALnet and other ChanServs (unverified against a live DALnet; anything else reads as unreadable)",
+  "cases": [
+    {
+      "dialect": "x",
+      "name": "X CHANINFO: registered",
+      "op": "info", "args": ["#dev"],
+      "sent": ["CHANINFO #dev"],
+      "replies": [["#dev is registered by:", "ada - last seen: 3 days, 02:11:09 ago", "Desc: Development talk", "URL: https://example.org"]],
+      "expect": { "kind": "info", "info": { "registered": true, "founder": "ada", "lastUsed": "manager seen 3 days, 02:11:09 ago", "description": "Development talk" } }
+    },
+    {
+      "dialect": "x",
+      "name": "X CHANINFO: not registered",
+      "op": "info", "args": ["#dev"],
+      "sent": ["CHANINFO #dev"],
+      "replies": [["The channel #dev is not registered"]],
+      "expect": { "kind": "info", "info": { "registered": false } }
+    },
+    {
+      "dialect": "x",
+      "name": "X: unexpected reply",
+      "op": "info", "args": ["#dev"],
+      "sent": ["CHANINFO #dev"],
+      "replies": [["Sorry, you are not authorized to use that command."]],
+      "expect": { "kind": "error", "code": "unreadable" }
+    },
+    {
+      "dialect": "generic",
+      "name": "generic INFO: founder row",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["*** #dev Info ***", "Founder: ada (ada@host.example)", "Description: Development talk", "Registered: Sat Nov 14 10:00:00 2026", "Last opping: Sun Nov 15 09:00:00 2026"]],
+      "expect": { "kind": "info", "info": { "registered": true, "founder": "ada", "registeredAt": "Sat Nov 14 10:00:00 2026", "description": "Development talk" } }
+    },
+    {
+      "dialect": "generic",
+      "name": "generic INFO: not registered",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["#dev is not registered."]],
+      "expect": { "kind": "info", "info": { "registered": false } }
+    },
+    {
+      "dialect": "generic",
+      "name": "generic INFO: unknown command",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Unknown command INFO."]],
+      "expect": { "kind": "error", "code": "unsupported" }
+    },
+    {
+      "dialect": "generic",
+      "name": "generic INFO: something we don't know",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["#dev: owner=ada created=2026-11-14"]],
+      "expect": { "kind": "error", "code": "unreadable" }
+    },
+    {
+      "dialect": "q",
+      "name": "Q: nothing is asked",
+      "op": "info", "args": ["#dev"],
+      "sent": [],
+      "replies": [],
+      "expect": { "kind": "error", "code": "unsupported" }
+    }
+  ]
+}

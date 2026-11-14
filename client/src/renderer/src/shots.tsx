@@ -62,7 +62,12 @@ function makeSession(): { emit(e: IrcEvent): void } {
   let listener: EventListener | null = null;
   return {
     serverId: 's1',
-    join: () => {}, part: () => {}, privmsg: () => {}, names: () => {}, tagmsg: () => {},
+    join: () => {}, part: () => {}, names: () => {}, tagmsg: () => {},
+    // ?chanserv=…: a scripted ChanServ answers (see chanservReplies).
+    privmsg: (target: string, body: string) => {
+      const lines = chanservReplies(target, body);
+      if (lines) setTimeout(() => { for (const l of lines) listener?.({ Kind: 'NOTICE', From: target, Target: NICK, Message: l, Raw: '' }); }, 40);
+    },
     list: () => {}, away: () => {}, nick: () => {}, nickservIdentify: () => {}, raw: () => {},
     onEvent: (fn: EventListener) => { listener = fn; return () => { listener = null; }; },
     onChannelDirectory: () => () => {},
@@ -73,6 +78,50 @@ function makeSession(): { emit(e: IrcEvent): void } {
 }
 
 const min = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+
+// ?chanserv=ergo|anope|atheme|unregistered|guest|unreadable|offer: the
+// channel's ChanServ registration, driven by scripted services replies.
+const chanservMode = new URLSearchParams(location.search).get('chanserv');
+const csState = { registered: chanservMode !== 'unregistered' && chanservMode !== 'guest' };
+function chanservReplies(target: string, body: string): string[] | null {
+  if (!chanservMode || target !== 'ChanServ') return null;
+  const [cmd = '', ...rest] = body.split(' ');
+  const verb = cmd.toUpperCase();
+  if (chanservMode === 'unreadable') {
+    return ['Information für den Raum \x02#dev\x02:', '     Gründer: ada', '  Registriert: Nov 14 10:00:00 2026 UTC'];
+  }
+  if (chanservMode === 'anope') {
+    if (verb === 'INFO') return [
+      'Information for channel \x02#dev\x02:', '        Founder: ada', '      Successor: nova', '    Description: Development talk',
+      '     Registered: Nov 02 10:00:00 2026 UTC (12 days ago)', '      Last used: Nov 14 09:12:00 2026 UTC (now)', '       Ban type: 2',
+      '        Options: Topic retention, Topic lock, Secure ops, Peace', '        Expires: Dec 14 09:12:00 2026 UTC (29 days from now)',
+    ];
+    if (verb === 'ACCESS') return ['Access list for #dev:', '  Number  Level  Mask', '  1       SOP    nova', '  2       AOP    kestrel', '  3       HOP    mox', '  4       VOP    pixel', 'End of access list'];
+    return ['Topic lock option for #dev is now \x02on\x02.'];
+  }
+  if (chanservMode === 'atheme') {
+    if (verb === 'INFO') return [
+      'Information on \x02#dev\x02:', 'Founder    : ada', 'Successor  : (none)', 'Registered : Nov 02 10:00:00 2026 +0000 (1w 5d ago)',
+      'Last used  : Nov 14 09:12:00 2026 +0000 (4m 10s ago)', 'Mode lock  : +nt', 'Flags      : GUARD SECURE TOPICLOCK', '\x02*** End of Info ***\x02',
+    ];
+    if (verb === 'FLAGS' && rest.length === 1) return [
+      'Entry    Nickname/Host          Flags', '----------------------------------------------------------------',
+      '1        ada                    +AFRefiorstv         (FOUNDER) [modified 1w 5d ago, on Nov 02 10:00:00 2026 +0000, by ada]',
+      '2        nova                   +AOehiortv           (SOP) [modified 2d ago, on Nov 12 10:00:00 2026 +0000, by ada]',
+      '3        kestrel                +AOiortv             (AOP) [modified 2d ago, on Nov 12 10:00:00 2026 +0000, by ada]',
+      '----------------------------------------------------------------', 'End of \x02#dev\x02 FLAGS listing.',
+    ];
+    return null;
+  }
+  // Ergo (default), unregistered, guest, offer.
+  if (verb === 'INFO') return csState.registered
+    ? ['Channel #dev is registered', `Founder: ${chanservMode === 'offer' ? 'nova' : NICK}`, 'Registered at: Mon, 02 Nov 2026 10:00:00 UTC', 'Last activity: Sat, 14 Nov 2026 09:12:00 UTC']
+    : ['Channel #dev is not registered'];
+  if (verb === 'GET') return ['The stored channel history setting is: default', 'Given current server settings, the channel history setting is: on'];
+  if (verb === 'AMODE') return ['Channel #dev has 5 persistent modes set', `Account ${NICK} receives mode +q`, 'Account nova receives mode +a', 'Account kestrel receives mode +o', 'Account mox receives mode +h', 'Account pixel receives mode +v'];
+  if (verb === 'REGISTER') { csState.registered = true; return ['Channel #dev successfully registered']; }
+  return null;
+}
 const NICK = 'ada';
 const CHAN = '#dev';
 
@@ -170,6 +219,19 @@ function chatView(): void {
     { history: { append: async () => {}, load: async () => [] } as never, scope: { userId: 'u', serverId: 's1', serverName: 'Nebula' } },
   );
   chat.attach();
+  if (chanservMode) {
+    const version = chanservMode === 'anope' || chanservMode === 'unreadable' ? 'UnrealIRCd-6.1.8' : chanservMode === 'atheme' ? 'solanum-1.0' : 'ergo-2.19.1';
+    session.emit({ Kind: '004', From: 'irc.nebula.example', Target: NICK, Message: '', Args: ['irc.nebula.example', version], Raw: '' });
+    if (chanservMode === 'anope' || chanservMode === 'unreadable') {
+      session.emit({ Kind: '005', From: 'irc.nebula.example', Target: NICK, Message: '', Args: ['NETWORK=Nebula'], Raw: '' });
+      session.emit({ Kind: 'NOTICE', From: 'ChanServ', Target: NICK, Message: 'Anope-2.0.20 -- build #1', Raw: '' });
+    }
+    if (chanservMode === 'atheme') session.emit({ Kind: '005', From: 'irc.nebula.example', Target: NICK, Message: '', Args: ['NETWORK=Libera.Chat'], Raw: '' });
+    if (chanservMode !== 'guest') session.emit({ Kind: '900', From: 'irc.nebula.example', Target: NICK, Message: `You are now logged in as ${NICK}`, Args: [`${NICK}!${NICK}@nebula`, NICK, `You are now logged in as ${NICK}`], Raw: '' });
+    if (chanservMode === 'offer') {
+      setTimeout(() => session.emit({ Kind: 'NOTICE', From: 'ChanServ', Target: NICK, Message: 'You have been offered ownership of channel #dev. To accept, /CS TRANSFER ACCEPT #dev', Raw: '' }), 300);
+    }
+  }
 
   const layout = (
     <ChatLayout
@@ -284,7 +346,9 @@ function makeAuth(signedIn: boolean) {
     resendVerification: async () => {}, requestPasswordReset: async () => {}, tokenRejected: async () => null,
     updateMetadata: async () => {}, markFatal: () => {},
     // ?sso=…: "Sign in with …" providers, and what signing in with one does.
-    config: async () => ({ sso_providers: [
+    config: async () => ({
+      ...(new URLSearchParams(location.search).get('policy') ? { channel_auto_register: true, channel_expiry_days: 30 } : {}),
+      sso_providers: [
       { slug: 'dex', kind: 'oidc', display_name: 'Dex', start_url: 'https://auth.boson.chat/v1/sso/dex/start' },
       { slug: 'okta', kind: 'saml', display_name: 'Okta', start_url: 'https://auth.boson.chat/v1/sso/okta/start' },
     ] }),

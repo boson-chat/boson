@@ -1,0 +1,26 @@
+{
+  "stack": "ergo",
+  "scenario": "unregister",
+  "ircdLabel": "ergo-2.19.1",
+  "recorded": "2026-11-14T13:30:26.114Z",
+  "op": "unregister",
+  "args": [
+    "#cse2e0bm2k"
+  ],
+  "sent": [
+    "UNREGISTER #cse2e0bm2k",
+    "UNREGISTER #cse2e0bm2k ykg4u"
+  ],
+  "replies": [
+    [
+      "\u0002Warning: unregistering this channel will remove all stored channel attributes.\u0002",
+      "To confirm, run this command: /CS UNREGISTER #cse2e0bm2k ykg4u"
+    ],
+    [
+      "Channel #cse2e0bm2k is now unregistered"
+    ]
+  ],
+  "expect": {
+    "kind": "done"
+  }
+}

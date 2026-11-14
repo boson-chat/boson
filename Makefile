@@ -5,7 +5,7 @@
         engine-build engine-connect engine-serve engine-env \
         test test-go test-client test-e2e hooks-install \
         test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage \
-        test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme
+        test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme test-e2e-chanserv
 
 setup: tidy up
 	@echo "Waiting for postgres..."
@@ -375,6 +375,21 @@ test-e2e-services:
 		echo "===== atheme ===== (skipped — infra/atheme/ not present)"; \
 	fi
 	@echo "===== services e2e — done ====="
+
+# ----- ChanServ e2e (live channel services) -----
+#
+# Drives the client's ChanServ adapters (client/src/renderer/src/modules/
+# chanserv) against real Ergo, UnrealIRCd+Anope and InspIRCd+Atheme in
+# docker (infra/chanserv-e2e/), and refreshes the captured transcripts under
+# engine/internal/services_e2e/fixtures/<stack>/chanserv-*.json that the
+# normal vitest run replays. CHANSERV_STACKS picks a subset.
+CHANSERV_STACKS ?= ergo,anope,atheme
+test-e2e-chanserv:
+	docker compose -f infra/chanserv-e2e/compose.yaml up -d --wait
+	@sleep 10  # services finish linking
+	cd client && CHANSERV_E2E=$(CHANSERV_STACKS) CHANSERV_E2E_WRITE=1 \
+		npx vitest run src/renderer/src/modules/chanserv/live.e2e.test.ts; \
+		status=$$?; cd .. && docker compose -f infra/chanserv-e2e/compose.yaml down -v; exit $$status
 
 # ----- Git hooks -----
 

@@ -1,0 +1,64 @@
+# Opt-in ChanServ e2e stacks: real channel services for the client's ChanServ
+# adapters to drive (client/src/renderer/src/modules/chanserv/live.e2e.test.ts).
+#
+#   make test-e2e-chanserv          # up, run, down
+#
+# Host ports (plain TCP, loopback only):
+#   16667  Ergo 2.19 (built-in ChanServ)
+#   16668  UnrealIRCd + Anope 2.0
+#   16669  InspIRCd 3 + Atheme 7.2
+#
+# The UnrealIRCd and Atheme images are amd64-only in practice (Unreal's
+# arm64 build dies with SIGILL under Docker Desktop), so they run emulated
+# on Apple silicon. No mail: registration is instant everywhere.
+name: boson-chanserv-e2e
+
+services:
+  ergo:
+    image: ghcr.io/ergochat/ergo:v2.19.1
+    ports: ['127.0.0.1:16667:6667']
+    volumes:
+      - ./ergo.yaml:/ircd/ircd.yaml:ro
+
+  unrealircd:
+    image: ircd/unrealircd:nightly
+    platform: linux/amd64
+    command: ["/app/unrealircd/bin/unrealircd", "-F"]
+    ports: ['127.0.0.1:16668:6667']
+    volumes:
+      - ./unrealircd.conf:/ircd/unrealircd.conf:ro
+      - ../anope/tls/server.cert.pem:/ircd/tls/server.cert.pem:ro
+      - ../anope/tls/server.key.pem:/ircd/tls/server.key.pem:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 6900 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+
+  anope:
+    image: anope/anope:latest
+    volumes:
+      - ./anope:/anope/conf:ro
+    depends_on:
+      unrealircd:
+        condition: service_healthy
+
+  inspircd:
+    image: inspircd/inspircd-docker:3.18
+    ports: ['127.0.0.1:16669:6667']
+    volumes:
+      - ../atheme/inspircd.conf:/inspircd/conf/inspircd.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 7000 || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  atheme:
+    image: ovdnet/atheme:latest
+    platform: linux/amd64
+    volumes:
+      - ./atheme.conf:/atheme/etc/atheme.conf:ro
+    depends_on:
+      inspircd:
+        condition: service_healthy

@@ -1,0 +1,30 @@
+{
+  "stack": "atheme",
+  "scenario": "info-transferred",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "recorded": "2026-11-14T13:30:45.261Z",
+  "op": "info",
+  "args": [
+    "#cse2ene47u"
+  ],
+  "sent": [
+    "INFO #cse2ene47u"
+  ],
+  "replies": [
+    [
+      "Information on \u0002#cse2ene47u\u0002:",
+      "Founder    : cshne47u",
+      "Registered : Nov 14 13:30:38 2026 +0000 (7s ago)",
+      "Mode lock  : +nt-lk",
+      "Flags      : GUARD",
+      "\u0002*** End of Info ***\u0002"
+    ]
+  ],
+  "expect": {
+    "kind": "info",
+    "info": {
+      "registered": true,
+      "founder": "cshne47u"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "stack": "ergo",
+  "scenario": "info-after-unregister",
+  "ircdLabel": "ergo-2.19.1",
+  "recorded": "2026-11-14T13:30:26.618Z",
+  "op": "info",
+  "args": [
+    "#cse2e0bm2k"
+  ],
+  "sent": [
+    "INFO #cse2e0bm2k"
+  ],
+  "replies": [
+    [
+      "Channel #cse2e0bm2k is not registered"
+    ]
+  ],
+  "expect": {
+    "kind": "info",
+    "info": {
+      "registered": false
+    }
+  }
+}

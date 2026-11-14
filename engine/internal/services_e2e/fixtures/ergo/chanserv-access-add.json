@@ -1,0 +1,24 @@
+{
+  "stack": "ergo",
+  "scenario": "access-add",
+  "ircdLabel": "ergo-2.19.1",
+  "recorded": "2026-11-14T13:30:20.974Z",
+  "op": "setAccess",
+  "args": [
+    "#cse2e0bm2k",
+    "csh0bm2k",
+    "op",
+    null
+  ],
+  "sent": [
+    "AMODE #cse2e0bm2k +o csh0bm2k"
+  ],
+  "replies": [
+    [
+      "Successfully set persistent mode +o on csh0bm2k"
+    ]
+  ],
+  "expect": {
+    "kind": "done"
+  }
+}
