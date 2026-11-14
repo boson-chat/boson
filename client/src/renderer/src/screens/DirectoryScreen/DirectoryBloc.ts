@@ -110,6 +110,13 @@ const RESUME_AFTER_HIDDEN_MS = 10_000;
 // The engine's probe gives a connection 5s to answer; a dead one has been
 // dropped by then, so retry once more just after.
 const RESUME_RECHECK_MS = 5_500;
+// Startup loads (the profile, the synced session, the directory list) that
+// failed — offline at launch, an API blip — are retried on this backoff
+// (doubling, capped) until they answer, and at once when the network comes
+// back or the window wakes. Before, one failure stuck the app on
+// "Reconnecting…" / an empty list until it was relaunched.
+const STARTUP_RETRY_BASE_MS = 1_000;
+const STARTUP_RETRY_MAX_MS = 30_000;
 
 const BOUNCER_REROUTE_DEBOUNCE_MS = 500;
 // Restoring channels through a bouncer: once it is on the network, wait for
@@ -317,6 +324,13 @@ export class DirectoryBloc {
   private restoring = false;
   // Latest list query token — drops late responses if a newer query started.
   private listToken = 0;
+  // Startup loads still owed (see STARTUP_RETRY_*): /me, /me/session, the list.
+  private profilePending = false;
+  private remoteSessionPending = false;
+  private listingFailed = false;
+  private startupRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private startupAttempt = 0;
+  private startupInFlight = false;
 
   // Mutable so DirectoryScreen can flip identity mid-session via
   // setIdentity() (guest ↔ account) without rebuilding the bloc.
@@ -408,6 +422,7 @@ export class DirectoryBloc {
   // connections, retry the dropped.
   private resume(): void {
     this.engine?.probe?.();
+    this.retryStartupNow();
     this.reconnectDropped();
     if (this.resumeTimer) clearTimeout(this.resumeTimer);
     this.resumeTimer = setTimeout(() => {
@@ -518,6 +533,10 @@ export class DirectoryBloc {
     }
     if (this.resumeTimer) clearTimeout(this.resumeTimer);
     if (this.bouncerRerouteTimer) clearTimeout(this.bouncerRerouteTimer);
+    if (this.startupRetryTimer) {
+      clearTimeout(this.startupRetryTimer);
+      this.startupRetryTimer = null;
+    }
     if (this.searchTimer) {
       clearTimeout(this.searchTimer);
       this.searchTimer = null;
@@ -1625,12 +1644,15 @@ export class DirectoryBloc {
     // setup, outage) the user must still see + connect to their locally-added
     // servers. Surface the error but carry on with an empty public list
     // instead of leaving `servers` null (an endless "Loading directory…" that
-    // hides local entries).
+    // hides local entries) — and retry it until it loads.
     const listToken = this.listToken;
     const listing = this.browser.search(this.browseParams()).then(
       (page) => page,
       (e: unknown) => {
-        if (!this.disposed) this.error = e instanceof Error ? e.message : String(e);
+        if (!this.disposed) {
+          this.error = e instanceof Error ? e.message : String(e);
+          this.listingFailed = true;
+        }
         return { servers: [] as Server[], hasMore: false, legacy: false, failures: [] };
       },
     );
@@ -1643,54 +1665,116 @@ export class DirectoryBloc {
       this.emit();
       this.maybeFlushPendingDeepLink();
       this.loadFacets();
+      this.scheduleStartupRetry();
     };
-    try {
-      // Guest mode: synthesise a User from the local nick — no backend /me
-      // call. The id `__guest__` is stable across reloads so chat-history
-      // scoping has a consistent key for the guest's local-only logs.
-      if (this.guestNick) {
-        this.me = {
-          id: '__guest__',
-          handle: this.guestNick,
-          is_discoverable: false,
-          encrypted_user_secret: '',
-          created_at: new Date().toISOString(),
-        };
-        this.emit();
-        this.maybeRestoreSession();
-        await finishListing();
-        return;
-      }
-      const [user, remoteSession] = await Promise.all([
-        this.directory.getMe(),
-        // Cloud-synced saved session for the signed-in user. Returns the
-        // last-PUT payload or null if nothing's stored yet. Failures here
-        // are non-fatal — we fall back to whatever's in localStorage.
-        this.directory.getSavedSession().catch(() => null),
-      ]);
-      if (this.disposed) return;
-      this.me = user;
+    // Guest mode: synthesise a User from the local nick — no backend /me
+    // call. The id `__guest__` is stable across reloads so chat-history
+    // scoping has a consistent key for the guest's local-only logs.
+    if (this.guestNick) {
+      this.me = {
+        id: '__guest__',
+        handle: this.guestNick,
+        is_discoverable: false,
+        encrypted_user_secret: '',
+        created_at: new Date().toISOString(),
+      };
+      this.emit();
+      this.maybeRestoreSession();
+      await finishListing();
+      return;
+    }
+    this.profilePending = true;
+    this.remoteSessionPending = true;
+    await this.loadAccount();
+    await finishListing();
+  }
+
+  // The signed-in user's profile (/me) and the cloud-synced saved session
+  // (/me/session), whichever are still owed. A failure leaves its flag set
+  // for scheduleStartupRetry; the rest still applies.
+  private async loadAccount(): Promise<void> {
+    const settle = <T>(p: Promise<T>) => p.then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    const [me, remote] = await Promise.all([
+      this.profilePending ? settle(this.directory.getMe()) : Promise.resolve(null),
+      this.remoteSessionPending ? settle(this.directory.getSavedSession()) : Promise.resolve(null),
+    ]);
+    if (this.disposed || this.guestNick) return;
+    if (remote?.ok) {
+      this.remoteSessionPending = false;
       // If the backend has a saved session, adopt it as authoritative —
       // last-write-wins across devices. Use saveSilent so applying the
-      // remote state doesn't immediately PUT it back to the server.
-      if (remoteSession && typeof remoteSession === 'object') {
+      // remote state doesn't immediately PUT it back to the server. Not
+      // once this device restored or connected on its own (the remote
+      // answer came late): what's running here wins, and syncs up.
+      const payload = remote.value;
+      if (payload && typeof payload === 'object' && !this.restored && this.connections.size === 0) {
         try {
-          this.sessionStore.saveSilent(remoteSession as SavedSession);
+          this.sessionStore.saveSilent(payload as SavedSession);
         } catch { /* best-effort */ }
       }
       // Now that the saved session is in place, start pushing local changes
-      // back. The subscription is set up after the initial adoption so the
-      // very first emit from `saveSilent` doesn't trigger a redundant PUT.
+      // back. Not before: a push while the remote one is still unknown
+      // could overwrite it with this device's (maybe empty) state.
       this.attachSessionSync();
-      this.emit();
-      this.maybeRestoreSession();
-      if (user) this.loadOwned();
-      await finishListing();
-    } catch (e) {
-      if (this.disposed) return;
-      this.error = e instanceof Error ? e.message : String(e);
-      this.emit();
     }
+    if (me?.ok) {
+      this.profilePending = false;
+      this.me = me.value;
+      // The profile answered: an error from an earlier attempt is resolved
+      // (unless the list is still failing — that error stands).
+      if (!this.listingFailed) this.error = null;
+      if (me.value) this.loadOwned();
+    } else if (me) {
+      this.error = me.error instanceof Error ? me.error.message : String(me.error);
+    }
+    this.emit();
+    // With the profile in: restore — the synced session if it arrived, else
+    // whatever this device saved last (adopted later if that's nothing).
+    if (!this.profilePending) this.maybeRestoreSession();
+  }
+
+  // Schedule the next retry of whatever startup load is still owed.
+  private scheduleStartupRetry(): void {
+    if (this.disposed || this.startupRetryTimer || this.startupInFlight) return;
+    if (!this.profilePending && !this.remoteSessionPending && !this.listingFailed) {
+      this.startupAttempt = 0;
+      return;
+    }
+    const delay = Math.min(STARTUP_RETRY_MAX_MS, STARTUP_RETRY_BASE_MS * 2 ** this.startupAttempt);
+    this.startupAttempt += 1;
+    this.startupRetryTimer = setTimeout(() => {
+      this.startupRetryTimer = null;
+      void this.retryStartup();
+    }, delay);
+  }
+
+  // The network is back / the window woke: retry owed loads now.
+  private retryStartupNow(): void {
+    if (this.disposed) return;
+    if (this.startupRetryTimer) {
+      clearTimeout(this.startupRetryTimer);
+      this.startupRetryTimer = null;
+    }
+    this.startupAttempt = 0;
+    void this.retryStartup();
+  }
+
+  private async retryStartup(): Promise<void> {
+    if (this.disposed || this.startupInFlight) return;
+    this.startupInFlight = true;
+    try {
+      if (this.listingFailed) {
+        this.listingFailed = false;
+        this.refreshDirectory();
+      }
+      if (!this.guestNick && (this.profilePending || this.remoteSessionPending)) await this.loadAccount();
+    } finally {
+      this.startupInFlight = false;
+    }
+    this.scheduleStartupRetry();
   }
 
   private scheduleSearch(): void {
@@ -1717,13 +1801,16 @@ export class DirectoryBloc {
       // the initial load never got `me` (account mode) — that error still
       // explains why nothing can connect.
       if (this.me !== undefined) this.error = null;
+      this.listingFailed = false;
       this.searching = false;
       this.emit();
     } catch (e) {
       if (this.disposed || token !== this.listToken) return;
       this.error = e instanceof Error ? e.message : String(e);
+      this.listingFailed = true;
       this.searching = false;
       this.emit();
+      this.scheduleStartupRetry();
     }
   }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strings"
 	"time"
 )
 
@@ -30,7 +31,15 @@ type e2eTargets struct {
 func NewE2EService(allow bool, t e2eTargets) *E2EService {
 	e := &E2EService{enabled: allow && os.Getenv("BOSON_E2E") == "1", t: t}
 	if e.enabled {
+		// BOSON_E2E_API_DOWN: the network is already down when the app
+		// starts ("1": every request; else comma-separated path prefixes,
+		// e.g. "/me" — only those fail). SetApi lifts it.
 		e.api = &apiTestControl{}
+		if v := os.Getenv("BOSON_E2E_API_DOWN"); v == "1" {
+			e.api.down = true
+		} else if v != "" {
+			e.api.downPaths = strings.Split(v, ",")
+		}
 		t.api.test = e.api
 		t.spotify.test = &spotifyTestControl{pages: map[string]string{}}
 	}
@@ -44,6 +53,7 @@ func (e *E2EService) SetApi(down bool, delayMs int) {
 	}
 	e.api.mu.Lock()
 	e.api.down, e.api.delay = down, time.Duration(delayMs)*time.Millisecond
+	e.api.downPaths = nil
 	e.api.mu.Unlock()
 }
 
