@@ -607,7 +607,13 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           <span>Loading directory…</span>
         </div>
       ) : filteredServers.length === 0 ? (
-        <div class="directory-empty">{servers && servers.length > 0 ? 'No servers match these filters.' : 'No servers found.'}</div>
+        <div class="directory-empty">
+          {/* The directories filter by language/topic themselves, so an empty
+              page with a chip on means the filters, not the search. */}
+          {(servers && servers.length > 0) || language !== 'all' || tag
+            ? 'No servers match these filters.'
+            : 'No servers found.'}
+        </div>
       ) : (
         <div class="directory-grid" role="list">
           {filteredServers.map((s) => {
