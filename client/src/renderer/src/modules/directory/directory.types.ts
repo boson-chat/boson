@@ -26,6 +26,10 @@ export interface Server {
   source?: DirectorySourceRef;
   also_listed_on?: string[];
   owned?: boolean;
+  // The id this listing had on the legacy boson API directory (a uuid), for
+  // rows imported from it. Saved sessions from before the move to the /v1
+  // directory still carry that id.
+  legacy_id?: string;
 }
 
 // Which directory a listing came from: its origin, display name, and whether

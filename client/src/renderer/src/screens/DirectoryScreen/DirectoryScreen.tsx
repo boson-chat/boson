@@ -18,6 +18,7 @@ import { ServerSettings } from '../ChatLayout/ServerSettings';
 import { useNarrow } from '../../shared/narrow';
 import { AtomLoader, Badge, BarLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
+import { findListing } from '../../modules/directory/listing-match';
 import { HostServerModal } from './HostServerModal';
 import './DirectoryScreen.css';
 
@@ -200,7 +201,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
                 bouncerUpstream: c.bouncerUpstream,
                 unread,
                 mentions,
-                iconUrl: resolveServerImages(c, state.servers).iconUrl,
+                iconUrl: resolveServerImages(c, state.servers, state.listings[c.serverId]).iconUrl,
               };
             })}
             activeServerId={activeServerId}
@@ -267,7 +268,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
             // so an owner reconnecting from a saved session still gets the
             // Edit tab. Non-owners / unresolved rows short-circuit to plain
             // ServerSettings — the tab simply doesn't appear in the menu.
-            {...buildEditableProps(target.server, me, bloc, state.servers)}
+            {...buildEditableProps(target.server, me, bloc, state.servers, state.listings[target.serverId])}
           />
         </div>
       );
@@ -297,11 +298,11 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
               bouncerUpstream: c.bouncerUpstream,
               unread,
               mentions,
-              iconUrl: resolveServerImages(c, state.servers).iconUrl,
+              iconUrl: resolveServerImages(c, state.servers, state.listings[c.serverId]).iconUrl,
             };
           })}
           activeServerId={activeServerId}
-          bannerUrl={resolveServerImages(active, state.servers).bannerUrl}
+          bannerUrl={resolveServerImages(active, state.servers, state.listings[active.serverId]).bannerUrl}
           onSelectServer={(id) => bloc.setActiveServer(id)}
           onBrowseServers={() => bloc.openServerBrowser()}
           engineState={active.engineState}
@@ -1027,6 +1028,8 @@ export function buildEditableProps(
   me: import('../../modules/directory').User | null | undefined,
   bloc: DirectoryBloc,
   directory: import('../../modules/directory').Server[] | null,
+  // The bloc's remembered/looked-up listing for this connection, if any.
+  listing?: import('../../modules/directory').Server,
 ): {
   directoryEntry?: import('../ChatLayout/ServerSettings').DirectoryEntryProfile;
   onSaveProfile?: (
@@ -1040,11 +1043,13 @@ export function buildEditableProps(
   // fields, no `registered_by`. An owner reconnecting from a saved session
   // would otherwise never see their Edit tab, so when the connection lacks
   // the profile fields we resolve the full row from the loaded directory
-  // list by id. Narrow via the `tags` property check so TS accepts the
-  // access pattern below without `any` casts.
-  const server = 'tags' in connServer
-    ? connServer
-    : directory?.find((s) => s.id === connServer.id);
+  // list — by id, legacy id or address (findListing): a session saved before
+  // the /v1 directory keys the server by its legacy uuid. The loaded row
+  // wins over the connection's own snapshot (it carries `owned` and the
+  // listing's current id, which owner calls need).
+  const server = findListing(connServer, directory)
+    ?? listing
+    ?? ('tags' in connServer ? connServer : undefined);
   if (!server) return {};
   if (!me?.id || me.id === '__guest__') return {};
   // Owned: /v1/me/networks on its directory listed it, or (legacy rows)
@@ -1069,16 +1074,18 @@ export function buildEditableProps(
 // Resolve a connection's owner-set icon/banner CDN URLs. Like the Edit-tab
 // gate, the connection may hold a full directory `Server` (carries the URLs)
 // or a cold-start `SavedServer` snapshot (doesn't) — in the latter case we
-// look the full row up by id from the loaded directory list. Both URLs are
+// look the full row up in the loaded directory list (by id, legacy id or
+// address — see findListing), then the bloc's remembered listing. Both URLs are
 // undefined when unresolved or unset, which the consumers fall back from
 // (initials tile / plain sidebar header).
 export function resolveServerImages(
   conn: import('./DirectoryBloc').DirectoryConnection,
   directory: import('../../modules/directory').Server[] | null,
+  listing?: import('../../modules/directory').Server,
 ): { iconUrl?: string; bannerUrl?: string } {
-  const full = 'tags' in conn.server
-    ? conn.server
-    : directory?.find((s) => s.id === conn.serverId);
+  const full = findListing(conn.server, directory)
+    ?? listing
+    ?? ('tags' in conn.server ? conn.server : undefined);
   return { iconUrl: full?.icon_url, bannerUrl: full?.banner_url };
 }
 

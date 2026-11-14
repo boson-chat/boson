@@ -110,3 +110,45 @@ describe('resolveServerImages', () => {
     expect(resolveServerImages(conn(fullServer), null)).toEqual({ iconUrl: undefined, bannerUrl: undefined });
   });
 });
+
+// The directory moved to /v1: listings now have `net_…` ids, while sessions
+// saved before keep the legacy uuid as the server id. The images and the Edit
+// tab must still resolve (regression: v0.48 lost every icon and banner).
+describe('saved servers from before the /v1 directory', () => {
+  const LEGACY = '398464ce-c861-4244-a16c-b26c046a1bd4';
+  const legacySaved: SavedServer = { ...savedSnapshot, id: LEGACY };
+  const v1Row: Server = {
+    ...fullServer,
+    id: 'net_01M7D62QNPD4WD8VYTAS6WRD71',
+    icon_url: 'https://directory.boson.chat/media/server-icons/b.png',
+    banner_url: 'https://directory.boson.chat/media/server-banners/b.png',
+    owned: true,
+    registered_by: undefined,
+  };
+  const conn = { serverId: LEGACY, server: legacySaved } as DirectoryConnection;
+
+  it('resolves the images by legacy_id', () => {
+    expect(resolveServerImages(conn, [{ ...v1Row, legacy_id: LEGACY }])).toEqual({
+      iconUrl: v1Row.icon_url, bannerUrl: v1Row.banner_url,
+    });
+  });
+
+  it('resolves the images by hostname + port when there is no legacy_id', () => {
+    expect(resolveServerImages(conn, [v1Row])).toEqual({ iconUrl: v1Row.icon_url, bannerUrl: v1Row.banner_url });
+  });
+
+  it('falls back to the bloc-provided listing when the page lacks the row', () => {
+    expect(resolveServerImages(conn, [], v1Row)).toEqual({ iconUrl: v1Row.icon_url, bannerUrl: v1Row.banner_url });
+  });
+
+  it('gives the owner the Edit tab on the listing id, not the saved one', () => {
+    const props = buildEditableProps(legacySaved, owner, bloc, [v1Row]);
+    expect(props.directoryEntry?.serverId).toBe(v1Row.id);
+    expect(props.directoryEntry?.iconUrl).toBe(v1Row.icon_url);
+  });
+
+  it('does not match another network', () => {
+    const other: Server = { ...v1Row, id: 'net_other', hostname: 'irc.other.example' };
+    expect(resolveServerImages(conn, [other])).toEqual({ iconUrl: undefined, bannerUrl: undefined });
+  });
+});
