@@ -1,8 +1,20 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Input, Toggle } from '@boson/shared';
+import { Button, Input, Tabs, Toggle } from '@boson/shared';
 import type { ChatChannel } from '../../modules/chat';
 import { canSetChannelMode, canSetTopic } from '../../modules/chat';
+import { sameName, type ChanServController, type ChanServState, type ChannelPolicy } from '../../modules/chanserv';
+import { ChannelRegistration } from './ChannelRegistration';
 import './ChannelSettings.css';
+
+// ChanServ for this connection, when the network has one.
+export interface ChannelSettingsChanServ {
+  ctl: ChanServController;
+  state: ChanServState;
+  myAccount?: string;
+  policy: ChannelPolicy | null;
+}
+
+export type ChannelSettingsTab = 'channel' | 'registration';
 
 interface ChannelSettingsProps {
   channel: ChatChannel;
@@ -14,7 +26,13 @@ interface ChannelSettingsProps {
   onRemoveBan: (mask: string) => void;
   // Re-request modes + ban list from the server (called once on open).
   onRefresh: () => void;
+  chanserv?: ChannelSettingsChanServ;
+  initialTab?: ChannelSettingsTab;
 }
+
+// Modes that protect a registered channel ("who can join and talk"): shown
+// with its ChanServ settings when you manage it there.
+const LOCK_FLAGS = ['R', 'M'];
 
 // Boolean channel modes we expose as toggles. (List/param modes k & l have
 // their own controls below; +p/+r etc. are omitted as rarely-useful here.)
@@ -29,9 +47,19 @@ const BOOL_MODES: ReadonlyArray<{ flag: string; label: string; hint?: string }> 
 ];
 
 export function ChannelSettings({
-  channel, myRank, onSetMode, onSetTopic, onAddBan, onRemoveBan, onRefresh,
+  channel, myRank, onSetMode, onSetTopic, onAddBan, onRemoveBan, onRefresh, chanserv, initialTab = 'channel',
 }: ChannelSettingsProps) {
   const canEdit = canSetChannelMode(myRank);
+  const cs = chanserv?.state;
+  const showRegistration = !!chanserv && !!cs?.dialect && cs.present !== false && !!cs.caps?.info;
+  const [tab, setTab] = useState<ChannelSettingsTab>(initialTab);
+  const activeTab: ChannelSettingsTab = showRegistration ? tab : 'channel';
+  // When you manage the registered channel, its join/talk locks (and, on
+  // Ergo, +t — its only topic lock) sit with the ChanServ protection options.
+  const reg = chanserv?.ctl.channel(channel.name).info;
+  const managesRegistration = showRegistration && !!reg?.registered && !reg.closed
+    && (sameName(reg.founder, chanserv?.myAccount) || canEdit);
+  const lockFlags = managesRegistration ? (cs?.dialect === 'ergo' ? [...LOCK_FLAGS, 't'] : LOCK_FLAGS) : [];
   const flags = channel.modes?.flags ?? [];
   const topicLocked = flags.includes('t');
 
@@ -79,8 +107,48 @@ export function ChannelSettings({
   useEffect(() => { setLimitDraft(channel.modes?.limit != null ? String(channel.modes.limit) : ''); }, [channel.modes?.limit]);
   useEffect(() => { setTopicDraft(channel.topic); }, [channel.topic]);
 
+  const modeRow = (m: typeof BOOL_MODES[number]) => (
+    <li key={m.flag} class="chan-mode-row">
+      <Toggle
+        checked={isOn(m.flag)}
+        disabled={!canEdit}
+        label={m.label}
+        onChange={(next) => toggleMode(m.flag, next)}
+      />
+      {m.hint && <span class="chan-mode-hint">{m.hint}</span>}
+    </li>
+  );
+
+  const tabs = showRegistration && (
+    <Tabs
+      tabs={[{ id: 'channel', label: 'Channel' }, { id: 'registration', label: 'Registration' }]}
+      active={activeTab}
+      onChange={(id) => setTab(id as ChannelSettingsTab)}
+    />
+  );
+
+  if (activeTab === 'registration' && chanserv) {
+    return (
+      <div class="chan-settings">
+        {tabs}
+        <ChannelRegistration
+          channel={channel.name}
+          ctl={chanserv.ctl}
+          state={chanserv.state}
+          myRank={myRank}
+          myAccount={chanserv.myAccount}
+          policy={chanserv.policy}
+          lockToggles={lockFlags.length > 0 && (
+            <ul class="chan-modes">{BOOL_MODES.filter((m) => lockFlags.includes(m.flag)).map(modeRow)}</ul>
+          )}
+        />
+      </div>
+    );
+  }
+
   return (
     <div class="chan-settings">
+      {tabs}
       {!canEdit && (
         <p class="chan-settings-note">You need channel operator (@) to change these.</p>
       )}
@@ -88,17 +156,7 @@ export function ChannelSettings({
       <section class="chan-settings-section">
         <h4 class="chan-settings-heading">Modes</h4>
         <ul class="chan-modes">
-          {BOOL_MODES.map((m) => (
-            <li key={m.flag} class="chan-mode-row">
-              <Toggle
-                checked={isOn(m.flag)}
-                disabled={!canEdit}
-                label={m.label}
-                onChange={(next) => toggleMode(m.flag, next)}
-              />
-              {m.hint && <span class="chan-mode-hint">{m.hint}</span>}
-            </li>
-          ))}
+          {BOOL_MODES.filter((m) => !lockFlags.includes(m.flag)).map(modeRow)}
         </ul>
 
         <div class="chan-param-row">

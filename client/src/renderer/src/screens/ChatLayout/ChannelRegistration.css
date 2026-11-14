@@ -1,0 +1,153 @@
+/* Registration tab of Channel settings. Reuses the chan-settings section,
+   heading, mode-row and param-row styles; only what's new lives here. */
+.chan-reg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* Status: the shield carries the state; text stays in the body colours. */
+.chan-reg-status {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.chan-reg-status-ok { border-left-color: var(--success); }
+.chan-reg-status-ok .chan-reg-status-icon { color: var(--success); }
+.chan-reg-status-warn { border-left-color: var(--warn); }
+.chan-reg-status-warn .chan-reg-status-icon { color: var(--warn); }
+.chan-reg-status-muted .chan-reg-status-icon,
+.chan-reg-status-pending .chan-reg-status-icon { color: var(--fg-3); }
+.chan-reg-status-pending .chan-reg-status-icon { animation: chan-reg-pulse 1.2s var(--ease-in-out) infinite; }
+@keyframes chan-reg-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) {
+  .chan-reg-status-pending .chan-reg-status-icon { animation: none; }
+}
+.chan-reg-status-icon { display: flex; padding-top: 1px; }
+.chan-reg-status-text { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.chan-reg-status-title {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--fg);
+}
+.chan-reg-status-line {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  line-height: var(--leading-body, 1.5);
+  overflow-wrap: anywhere;
+}
+.chan-reg-status-line strong { color: var(--fg); font-weight: 600; }
+.chan-reg-refresh { align-self: start; }
+
+.chan-reg-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+}
+.chan-reg-register { gap: var(--space-2); }
+
+.chan-reg-offer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: color-mix(in oklab, var(--accent), transparent 88%);
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+.chan-reg-offer p { margin: 0; }
+
+.chan-reg-ok,
+.chan-reg-error,
+.chan-reg-error p { margin: 0; font-size: var(--text-sm); }
+.chan-reg-ok { color: var(--success); }
+.chan-reg-error { color: var(--danger); }
+.chan-reg-details { margin-top: var(--space-1); font-size: var(--text-xs); color: var(--fg-3); }
+.chan-reg-details summary { cursor: pointer; }
+.chan-reg-details pre {
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken, var(--surface));
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--fg-2);
+}
+
+/* Roles: account on the left, its role picker and Remove on the right. */
+.chan-roles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 220px;
+  overflow-y: auto;
+}
+.chan-role-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken, var(--surface));
+}
+.chan-role-account {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--fg);
+}
+.chan-role-fixed { font-size: var(--text-xs); color: var(--fg-3); padding: 0 var(--space-2); }
+.chan-role-select { appearance: auto; cursor: pointer; width: auto; min-width: 132px; min-height: 30px; }
+.chan-reg .chan-param-row .chan-role-select { flex: 0 0 auto; }
+.chan-reg .chan-param-row .bds-input-sm:not(select) { min-height: 30px; }
+.chan-role-error { flex-basis: 100%; font-size: var(--text-xs); color: var(--danger); }
+.chan-option-choice { flex-wrap: wrap; }
+
+/* Ownership. */
+.chan-reg-block { display: flex; flex-direction: column; gap: var(--space-2); }
+.chan-reg-label { margin: 0; font-size: var(--text-sm); color: var(--fg-2); font-weight: 600; }
+.chan-reg-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+.chan-reg-confirm p { margin: 0; }
+.chan-reg-danger { padding-top: var(--space-4); border-top: 1px solid var(--border-soft, var(--border)); }
+.chan-reg-danger .chan-reg-label { color: var(--danger); }
+.chan-reg-danger .chan-reg-confirm { border-color: color-mix(in oklab, var(--danger), transparent 55%); }
+
+.chan-reg-source { margin: 0; font-size: var(--text-xs); color: var(--fg-3); }
+
+/* Header shield next to the channel name. */
+.chat-reg-badge { color: var(--fg-3); }
+.chat-reg-badge-on { color: var(--success); }
+
+.chan-reg-danger .chan-reg-confirm .bds-btn-primary {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--accent-on, #fff);
+}
