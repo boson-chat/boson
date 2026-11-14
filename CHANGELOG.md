@@ -1,3 +1,9 @@
+## [0.49.0](https://github.com/boson-chat/boson/compare/v0.48.1...v0.49.0) (2026-11-14)
+
+### Features
+
+* **backend:** drop the legacy server-directory tables ([#41](https://github.com/boson-chat/boson/issues/41)) ([9dad3cb](https://github.com/boson-chat/boson/commit/9dad3cbbba42ac81f060779a5270b3a507ce66c8))
+
 ## [0.48.1](https://github.com/boson-chat/boson/compare/v0.48.0...v0.48.1) (2026-11-14)
 
 ### Bug Fixes
