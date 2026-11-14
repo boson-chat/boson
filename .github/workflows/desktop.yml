@@ -66,7 +66,9 @@ jobs:
   build:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    # macOS signs and notarizes two architectures with Apple's notary
+    # service, which occasionally stalls (package-macos.sh retries it).
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 60 || 40 }}
     env:
       # 'true' only when every macOS signing/notarization secret is present.
       MAC_SIGNING: ${{ secrets.CSC_LINK != '' && secrets.CSC_KEY_PASSWORD != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
