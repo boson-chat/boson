@@ -1,3 +1,9 @@
+## [0.44.1](https://github.com/boson-chat/boson/compare/v0.44.0...v0.44.1) (2026-11-14)
+
+### Bug Fixes
+
+* **website:** ship .well-known/boson.json to Cloudflare ([6ca087e](https://github.com/boson-chat/boson/commit/6ca087e58899de31478024f95b1696f88077c493))
+
 ## [0.44.0](https://github.com/boson-chat/boson/compare/v0.43.0...v0.44.0) (2026-11-14)
 
 ### Features
