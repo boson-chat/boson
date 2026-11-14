@@ -16,6 +16,8 @@ interface ChannelSidebarProps {
   // as a header strip with the server name + gear overlaid; absent → the
   // plain text header.
   bannerUrl?: string;
+  // The network's logo (network themes), beside the server name.
+  logoUrl?: string;
   channels: ChatChannel[];
   activeChannel: string | null;
   onSelect: (name: string) => void;
@@ -50,6 +52,7 @@ interface ChannelSidebarProps {
 export function ChannelSidebar({
   serverName,
   bannerUrl,
+  logoUrl,
   channels,
   activeChannel,
   onSelect,
@@ -134,6 +137,7 @@ export function ChannelSidebar({
         class={`channel-sidebar-header ${bannerUrl ? 'channel-sidebar-header-banner' : ''}`}
         style={bannerUrl ? `background-image: url("${cssUrl(bannerUrl)}")` : undefined}
       >
+        {logoUrl && <img class="channel-sidebar-logo" src={logoUrl} alt="" draggable={false} />}
         <div class="channel-sidebar-heading">
           <div class="channel-sidebar-title sidebar-server-name">{serverName}</div>
           {(serverMeta || serverInfo?.bouncer) && (

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -67,6 +68,8 @@ type VoiceDiscovery struct {
 	Directory string `json:"directory,omitempty"`
 	// IRC is where the network's IRC server is (boson.json irc), when known.
 	IRC *NetworkIRC `json:"irc,omitempty"`
+	// Branding is the network's theme document URL (boson.json branding).
+	Branding string `json:"branding,omitempty"`
 }
 
 // NetworkIRC is a boson.json's irc block.
@@ -117,6 +120,47 @@ type bosonWellKnown struct {
 	Directory *struct {
 		URL string `json:"url"`
 	} `json:"directory"`
+	// Branding is the network's boson-theme/1 document (auth's
+	// /v1/branding): a URL, or {"url": …}.
+	Branding json.RawMessage `json:"branding"`
+}
+
+// parseWellKnownBranding reads a boson.json's branding URL ("" when absent
+// or invalid): https, or http in dev builds; any path.
+func parseWellKnownBranding(body []byte, allowHTTP bool) string {
+	var doc bosonWellKnown
+	if json.Unmarshal(body, &doc) != nil || doc.Version != 1 || len(doc.Branding) == 0 {
+		return ""
+	}
+	var raw string
+	if json.Unmarshal(doc.Branding, &raw) != nil {
+		var obj struct {
+			URL string `json:"url"`
+		}
+		if json.Unmarshal(doc.Branding, &obj) != nil {
+			return ""
+		}
+		raw = obj.URL
+	}
+	return cleanBrandingURL(raw, allowHTTP)
+}
+
+// cleanBrandingURL: an absolute https URL (http in dev builds) without
+// credentials or fragment; "" otherwise.
+func cleanBrandingURL(raw string, allowHTTP bool) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(raw) > 2048 {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return ""
+	}
+	if u.Scheme != "https" && !(allowHTTP && u.Scheme == "http") {
+		return ""
+	}
+	u.Host = strings.ToLower(u.Host)
+	return u.String()
 }
 
 // parseWellKnownNetwork reads a boson.json's auth service and directory
@@ -260,7 +304,7 @@ func (d *voiceDiscoverer) loadNetworkOverrides(paths string) {
 			d.overrideNets = map[string]*VoiceDiscovery{}
 		}
 		irc := &NetworkIRC{Host: host, Port: doc.IRC.Port, TLS: doc.IRC.TLS}
-		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Definitive: true}
+		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Branding: parseWellKnownBranding(body, true), Definitive: true}
 	}
 }
 
@@ -367,8 +411,8 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 		res.Definitive = true
 		return res
 	}
-	info, answered, auth, dir := d.fetchWellKnown(ctx, domain)
-	res.Auth, res.Directory = auth, dir
+	info, answered, auth, dir, branding := d.fetchWellKnownAll(ctx, domain)
+	res.Auth, res.Directory, res.Branding = auth, dir, branding
 	if info != nil {
 		res.Voice, res.Definitive = info, true
 		return res
@@ -394,20 +438,21 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 	return res
 }
 
-// fetchWellKnown reads the domain's boson.json: its voice, auth service
-// and directory. answered: the server replied (even 404 or an invalid
-// document), as opposed to a network error.
-func (d *voiceDiscoverer) fetchWellKnown(ctx context.Context, domain string) (info *VoiceInfo, answered bool, auth, directory string) {
+// fetchWellKnownAll reads the domain's boson.json: its voice, auth service,
+// directory and branding. answered: the server replied (even 404 or an
+// invalid document), as opposed to a network error.
+func (d *voiceDiscoverer) fetchWellKnownAll(ctx context.Context, domain string) (info *VoiceInfo, answered bool, auth, directory, branding string) {
 	body, answered := d.fetchWellKnownBody(ctx, domain)
 	if body == nil {
-		return nil, answered, "", ""
+		return nil, answered, "", "", ""
 	}
 	auth, directory = parseWellKnownNetwork(body, d.allowHTTP)
+	branding = parseWellKnownBranding(body, d.allowHTTP)
 	info, err := parseWellKnown(body, d.allowHTTP)
 	if err != nil {
-		return nil, true, auth, directory
+		return nil, true, auth, directory, branding
 	}
-	return info, true, auth, directory
+	return info, true, auth, directory, branding
 }
 
 // fetchWellKnownBody is the domain's boson.json document (nil unless it
@@ -468,6 +513,9 @@ func (d *voiceDiscoverer) load() {
 		}
 		if r.Auth != "" && !validBase(r.Auth, d.allowHTTP) || r.Directory != "" && !validBase(r.Directory, d.allowHTTP) {
 			continue
+		}
+		if r.Branding != "" && cleanBrandingURL(r.Branding, d.allowHTTP) != r.Branding {
+			r.Branding = ""
 		}
 		d.cache[host] = r
 	}

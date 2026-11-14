@@ -19,6 +19,9 @@ export interface Server {
   icon_url?: string;
   banner_url?: string;
   website_url?: string;
+  // The listing's network theme (boson-theme/1), as the directory sent it;
+  // validated by modules/ui/theme (parseNetworkTheme) before use.
+  theme?: Record<string, unknown>;
   // Multi-directory browse: the directory this row came from (the winner
   // when several list the same hostname:port), the names of the other
   // directories that list it too, and whether the signed-in user owns it

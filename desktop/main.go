@@ -100,6 +100,7 @@ func main() {
 		application.NewService(api),
 		application.NewService(secure),
 		application.NewService(NewUnfurlService(dev)),
+		application.NewService(NewBrandingService(dev)),
 		application.NewService(spotify),
 		application.NewService(NewThemesService(dataDir)),
 		application.NewService(links),

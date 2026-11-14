@@ -9,6 +9,8 @@ import { sanitizeIrcNick } from '../../modules/identity/nick';
 import { getNetworkAccounts, type NetworkAccounts } from '../../modules/netauth/network-accounts';
 import { clearLastServer, enterWithServer, loadLastServer, type LastServer } from '../../modules/netauth/other-server';
 import { OtherServer } from './OtherServer';
+import { MAIN_NETWORK_KEY, useNetworkThemes } from '../../modules/ui/theme';
+import { NetworkLoginLogo, loginBackdrop } from '../NetworkSignIn/NetworkBrand';
 import './LoginScreen.css';
 
 interface Props {
@@ -55,6 +57,23 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   const [otherAddress, setOtherAddress] = useState<string | null>(null);
   const resume = useLastServer(accounts);
 
+  // The network's branding (network themes): under "Use another server",
+  // the network's once it's found (its IRC host); otherwise boson.chat's
+  // own, when its auth service publishes one (/v1/config branding_url).
+  const [otherHost, setOtherHost] = useState<string | null>(null);
+  const themes = useNetworkThemes();
+  useEffect(() => {
+    if (typeof auth.config === 'function') void themes.refreshMain(() => auth.config());
+  }, [auth, themes]);
+  useEffect(() => { if (otherHost) void themes.refresh(otherHost); }, [otherHost, themes]);
+  const brandKey = other ? otherHost : MAIN_NETWORK_KEY;
+  const brand = brandKey ? themes.brandingFor(brandKey) : null;
+  const brandName = other ? (otherAddress ?? '') : 'boson.chat';
+  const backdrop = loginBackdrop(brand);
+  const logo = brand?.applied && (brand.logo || brand.logoWide)
+    ? <NetworkLoginLogo brand={brand} name={brandName} />
+    : <Logo />;
+
   const onSubmit = (kind: 'signin' | 'signup', e: Event) => {
     e.preventDefault();
     void (kind === 'signin' ? bloc.signIn() : bloc.signUp());
@@ -73,9 +92,9 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   // browser; Continue then signs in with what was typed.
   if (awaitingConfirmation !== null) {
     return (
-      <div class="login-screen">
+      <div {...backdrop}>
         <div class="login-container">
-          <Logo />
+          {logo}
           <Card>
             <div class="login-confirm">
               <h2 class="login-confirm-title">Check your email.</h2>
@@ -126,9 +145,9 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
     const who = session?.user.username;
     const creating = identityPrompt === 'create';
     return (
-      <div class="login-screen">
+      <div {...backdrop}>
         <div class="login-container">
-          <Logo />
+          {logo}
           <Card>
             <form class="login-confirm" onSubmit={(e) => { e.preventDefault(); void bloc.submitIdentityPassphrase(); }}>
               <h2 class="login-confirm-title">{creating ? 'Set an identity passphrase.' : 'Unlock your identity key.'}</h2>
@@ -201,9 +220,9 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
 
   if (forgotOpen) {
     return (
-      <div class="login-screen">
+      <div {...backdrop}>
         <div class="login-container">
-          <Logo />
+          {logo}
           <Card>
             <form onSubmit={(e) => { e.preventDefault(); void bloc.sendPasswordReset(); }}>
               <Field label="Email" hint="We'll email you a link to set a new password.">
@@ -243,7 +262,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
       <button
         type="button"
         class="login-guest-toggle login-server-switch"
-        onClick={() => { setOther(!other); setOtherAddress(null); }}
+        onClick={() => { setOther(!other); setOtherAddress(null); setOtherHost(null); }}
       >
         {other ? 'Back to boson.chat' : 'Use another server'}
       </button>
@@ -252,16 +271,17 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
 
   if (other) {
     return (
-      <div class="login-screen">
+      <div {...backdrop}>
         <div class="login-container">
-          <Logo />
+          {logo}
           {serverLine}
           <Card>
             <OtherServer
               accounts={accounts ?? null}
               initialAddress={resume.last?.address ?? ''}
-              onBack={() => { setOther(false); setOtherAddress(null); }}
+              onBack={() => { setOther(false); setOtherAddress(null); setOtherHost(null); }}
               onAddress={setOtherAddress}
+              onNetworkHost={setOtherHost}
             />
           </Card>
         </div>
@@ -270,9 +290,9 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   }
 
   return (
-    <div class="login-screen">
+    <div {...backdrop}>
       <div class="login-container">
-        <Logo />
+        {logo}
 
         {resume.last && resume.user && (
           <div class="login-resume">

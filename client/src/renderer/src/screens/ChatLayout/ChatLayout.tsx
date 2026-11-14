@@ -21,6 +21,7 @@ import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { useNarrow } from '../../shared/narrow';
 import { useSwipeDrawers } from './useSwipeDrawers';
 import './ChatLayout.css';
+import './NetworkPanes.css';
 
 interface Props {
   chat: ChatService;
@@ -31,6 +32,10 @@ interface Props {
   // CDN URL of the active server's wide banner, when the owner set one.
   // Rendered as the ChannelSidebar header strip; absent → plain text header.
   bannerUrl?: string;
+  // The active network's logo (network themes): the sidebar header.
+  logoUrl?: string;
+  // "Use this network's theme" toggled from a rail tile's menu.
+  onToggleNetworkTheme?: (serverId: string, on: boolean) => void;
   myNick: string;
   // Multi-server tiles. When provided, ServerRail renders one tile per
   // connection and `onSelectServer` switches the active connection. When
@@ -75,7 +80,7 @@ interface Props {
 }
 
 export function ChatLayout({
-  chat, serverName, serverHost, bannerUrl, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
+  chat, serverName, serverHost, bannerUrl, logoUrl, onToggleNetworkTheme, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
   onReorderServers,
@@ -196,12 +201,14 @@ export function ChatLayout({
           onBouncerConnect={onBouncerConnect}
           onBouncerDisconnect={onBouncerDisconnect}
           onReorderServers={onReorderServers}
+          onToggleNetworkTheme={onToggleNetworkTheme}
         />
   );
   const sidebar = (
         <ChannelSidebar
           serverName={serverName}
           bannerUrl={bannerUrl}
+          logoUrl={logoUrl}
           channels={state.channels}
           activeChannel={state.activeChannel}
           onSelect={(name) => { chat.setActive(name); setDrawer('none'); }}

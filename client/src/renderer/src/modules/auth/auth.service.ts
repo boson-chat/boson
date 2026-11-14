@@ -78,6 +78,8 @@ export interface AuthConfig {
   // The network's name, for "Sign in to <network>" (newer servers).
   site_name?: string;
   network_name?: string;
+  // The network's theme document (boson-theme/1, GET /v1/branding).
+  branding_url?: string;
 }
 
 // guest_access, defaulting to allowed when the server doesn't say.

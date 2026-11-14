@@ -1,6 +1,6 @@
 .user-panel {
   width: 240px;
-  background: var(--surface);
+  background: var(--pane-members-bg, var(--surface));
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;

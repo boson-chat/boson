@@ -5,6 +5,7 @@ import { isNarrow } from '../../shared/narrow';
 import { BottomSheet, type SheetAction } from './BottomSheet';
 import { useLongPress } from './long-press';
 import './ServerRail.css';
+import './NetworkPanes.css';
 
 export interface ServerRailTile {
   serverId: string;
@@ -22,6 +23,9 @@ export interface ServerRailTile {
   // network. Null/absent for direct connections (and until reported).
   // Drives the "Connect / Disconnect network" context-menu items.
   bouncerUpstream?: BouncerUpstreamState | null;
+  // The network has a theme of its own (network themes): `enabled` is the
+  // user's "Use this network's theme" for it. Absent: no theme, no menu item.
+  networkTheme?: { enabled: boolean };
 }
 
 interface ServerRailProps {
@@ -49,6 +53,8 @@ interface ServerRailProps {
   // Tiles can be dragged into a new order; called with every tile's server
   // id, top to bottom, after a drop that moved one. Without it tiles don't drag.
   onReorderServers?: (serverIds: string[]) => void;
+  // "Use this network's theme" toggled for a tile's network.
+  onToggleNetworkTheme?: (serverId: string, on: boolean) => void;
 }
 
 // Where a dragged tile will land: beside `serverId`, above it or below it.
@@ -69,7 +75,7 @@ export function reorderedIds(ids: readonly string[], dragged: string, target: Dr
 // view driven by `activeServerName` for legacy callers.
 export function ServerRail({
   servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings, onLeaveServer,
-  onBouncerConnect, onBouncerDisconnect, onReorderServers,
+  onBouncerConnect, onBouncerDisconnect, onReorderServers, onToggleNetworkTheme,
 }: ServerRailProps) {
   // Right-click context menu state. Anchored to the tile, positioned at the
   // event's client coords so the menu pops up under the cursor.
@@ -276,6 +282,10 @@ export function ServerRail({
         if ((upstream === 'connected' || upstream === 'connecting') && onBouncerDisconnect) {
           actions.push({ label: 'Disconnect network', onClick: () => onBouncerDisconnect(id) });
         }
+        if (tile.networkTheme && onToggleNetworkTheme) {
+          const on = tile.networkTheme.enabled;
+          actions.push({ label: on ? "Don't use this network's theme" : "Use this network's theme", onClick: () => onToggleNetworkTheme(id, !on) });
+        }
         if (onLeaveServer) actions.push({ label: 'Leave server', danger: true, onClick: () => onLeaveServer(id) });
         return (
           <BottomSheet
@@ -302,6 +312,9 @@ export function ServerRail({
             : undefined}
           onBouncerDisconnect={(upstream === 'connected' || upstream === 'connecting') && onBouncerDisconnect
             ? () => { onBouncerDisconnect(menu.serverId); closeMenu(); }
+            : undefined}
+          networkTheme={tile?.networkTheme && onToggleNetworkTheme
+            ? { enabled: tile.networkTheme.enabled, onToggle: () => { onToggleNetworkTheme(menu.serverId, !tile.networkTheme!.enabled); closeMenu(); } }
             : undefined}
         />
         );
@@ -336,10 +349,11 @@ interface ServerRailContextMenuProps {
   onLeave?: () => void;
   onBouncerConnect?: () => void;
   onBouncerDisconnect?: () => void;
+  networkTheme?: { enabled: boolean; onToggle: () => void };
 }
 
 function ServerRailContextMenu({
-  x, y, onClose, onDetails, onLeave, onBouncerConnect, onBouncerDisconnect,
+  x, y, onClose, onDetails, onLeave, onBouncerConnect, onBouncerDisconnect, networkTheme,
 }: ServerRailContextMenuProps) {
   // Layout effect: the listeners are in place before the menu is painted,
   // so an Escape or outside click right after it appears isn't missed.
@@ -379,6 +393,18 @@ function ServerRailContextMenu({
       {onBouncerDisconnect && (
         <button type="button" class="server-rail-context-item" role="menuitem" onClick={onBouncerDisconnect}>
           Disconnect network
+        </button>
+      )}
+      {networkTheme && (
+        <button
+          type="button"
+          class="server-rail-context-item server-rail-context-item-check"
+          role="menuitemcheckbox"
+          aria-checked={networkTheme.enabled}
+          onClick={networkTheme.onToggle}
+        >
+          Use this network's theme
+          <span class="server-rail-context-check" aria-hidden="true">{networkTheme.enabled ? '✓' : ''}</span>
         </button>
       )}
       {onLeave && (

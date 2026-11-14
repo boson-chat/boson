@@ -33,7 +33,16 @@ import './ServerSettings.css';
 // Deliberately not a chat-style log — see the Log section for the dev-tools
 // view of NickServ replies + CAP frames + numerics.
 
-type SectionId = 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'bouncer' | 'actions' | 'log';
+type SectionId = 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'bouncer' | 'appearance' | 'actions' | 'log';
+
+// The network's own theme (network themes), when it has one.
+export interface NetworkThemeSetting {
+  // "Use this network's theme" for this network.
+  enabled: boolean;
+  // User settings → Appearance → "Use network themes".
+  globallyEnabled: boolean;
+  onToggle: (on: boolean) => void;
+}
 
 // Snapshot of the editable profile fields. When the parent passes
 // `directoryEntry`, an "Edit" tab is shown that lets the user mutate
@@ -161,6 +170,8 @@ interface ServerSettingsProps {
   bouncerUpstream?: BouncerUpstreamState | null;
   onBouncerConnect?: () => void;
   onBouncerDisconnect?: () => void;
+  // The network's theme switch; absent when the network has no theme.
+  networkTheme?: NetworkThemeSetting;
 }
 
 interface MenuItem {
@@ -175,6 +186,7 @@ const MENU: readonly MenuItem[] = [
   { id: 'edit',     label: 'Edit',      description: 'Directory profile — owner only' },
   { id: 'opers',    label: 'Operators', description: 'Grant operator access — owner only' },
   { id: 'bouncer',  label: 'Bouncer',   description: 'Route this server through your ZNC' },
+  { id: 'appearance', label: 'Appearance', description: "This network's theme" },
   { id: 'actions',  label: 'Actions',   description: 'Reconnect or disconnect' },
   { id: 'log',      label: 'Log',       description: 'Raw engine event log' },
   { id: 'advanced', label: 'Advanced',  description: 'IRC + services command UI' },
@@ -185,7 +197,7 @@ export function ServerSettings({
   serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn,
   directoryEntry, onSaveProfile, onSaveServerImage, isOper = false,
   bouncerRoute, bouncerGloballyEnabled = false, onSaveBouncerRoute,
-  bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect,
+  bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect, networkTheme,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('info');
   // Phones: full screen, so a back chevron leads the header (as on the chat
@@ -195,7 +207,7 @@ export function ServerSettings({
   // ownership context. Filtering at render time keeps the menu uncluttered
   // for the 99% of viewers who don't own the row.
   const editable = !!(directoryEntry && onSaveProfile);
-  const visibleMenu = editable ? MENU : MENU.filter((m) => m.id !== 'edit' && m.id !== 'opers');
+  const visibleMenu = MENU.filter((m) => (editable || (m.id !== 'edit' && m.id !== 'opers')) && (networkTheme || m.id !== 'appearance'));
 
   return (
     <main class="server-settings">
@@ -290,6 +302,7 @@ export function ServerSettings({
               onDisconnectUpstream={onBouncerDisconnect}
             />
           )}
+          {section === 'appearance' && networkTheme && <NetworkThemeSection setting={networkTheme} serverName={serverDisplayName} />}
           {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
           {section === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
         </div>
@@ -3020,6 +3033,26 @@ function ServerInfoSubSection({ onRunCommand, serverLog, search }: SubSectionCom
       </div>
     </MaybeCard>
     </>
+  );
+}
+
+function NetworkThemeSection({ setting, serverName }: { setting: NetworkThemeSetting; serverName: string }) {
+  return (
+    <SectionFrame
+      title="Appearance"
+      description={`${serverName} has its own theme: colours, backgrounds and a logo. It shows while this server is the one you're on, over your own theme.`}
+    >
+      <Card>
+        <div class="server-settings-card-body">
+          <Toggle checked={setting.enabled} onChange={setting.onToggle} label="Use this network's theme" />
+          {!setting.globallyEnabled && (
+            <p class="server-settings-hint" role="note">
+              Network themes are off for every server (User settings → Appearance → Use network themes).
+            </p>
+          )}
+        </div>
+      </Card>
+    </SectionFrame>
   );
 }
 

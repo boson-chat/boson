@@ -231,6 +231,16 @@ export async function installWailsBridges(): Promise<void> {
   // spotify.go) — the page can't fetch other sites (CORS).
   w.bosonUnfurl = { fetch: (url: string) => Call.ByName('main.UnfurlService.Fetch', url) };
   w.bosonSpotify = { fetch: (url: string) => Call.ByName('main.SpotifyService.Fetch', url) };
+  // Network themes (desktop/branding.go): theme documents and their images,
+  // fetched in Go (https only, size/type limits) and shown from blob: URLs.
+  const branding = await Call.ByName('main.BrandingService.Policy').catch(() => null) as { allowLoopbackHttp?: boolean } | null;
+  if (branding) {
+    w.bosonBranding = {
+      fetch: (url: string, etag: string) => Call.ByName('main.BrandingService.Fetch', url, etag),
+      image: (url: string) => Call.ByName('main.BrandingService.Image', url),
+      allowLoopbackHttp: !!branding.allowLoopbackHttp,
+    };
+  }
   // Theme files in <data dir>/themes (desktop/themes.go).
   w.bosonThemes = {
     list: () => Call.ByName(`${THEMES}.List`),

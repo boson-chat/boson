@@ -5,11 +5,12 @@
   min-width: 0;
   overflow: hidden;
   position: relative;
+  background: var(--pane-messages-bg, transparent);
 }
 
 /* The connecting / disconnected variants share the splash + log layout. */
 .chat-area-engine {
-  background: var(--bg);
+  background: var(--pane-messages-bg, var(--bg));
 }
 
 .chat-engine-splash {

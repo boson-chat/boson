@@ -39,7 +39,7 @@ function fakeAuthServers(opts: { config?: Record<string, unknown> } = {}) {
   return { transport, seen };
 }
 
-function bridgeFor(map: Record<string, { authUrl?: string; main?: boolean }>): NetAuthBridge & { discover: ReturnType<typeof vi.fn> } {
+function bridgeFor(map: Record<string, { authUrl?: string; main?: boolean; brandingUrl?: string }>): NetAuthBridge & { discover: ReturnType<typeof vi.fn> } {
   return {
     discover: vi.fn(async (host: string) => ({ host, main: false, ...(map[host] ?? {}) })),
   };
@@ -58,6 +58,7 @@ function setup(o: { config?: Record<string, unknown>; guest?: boolean } = {}) {
     'irc.net-a.org': { authUrl: NET_A },
     'irc.net-b.org': { authUrl: NET_B + '/' },
     'irc.boson.chat': { authUrl: MAIN, main: true },
+    'irc.branded.org': { brandingUrl: 'https://branded.org/theme.json' },
   });
   const local = memLocal();
   const accounts = new NetworkAccounts({
@@ -67,6 +68,14 @@ function setup(o: { config?: Record<string, unknown>; guest?: boolean } = {}) {
 }
 
 describe('NetworkAccounts', () => {
+  it("records a network's branding URL, with or without accounts", async () => {
+    const { accounts } = setup();
+    expect(await accounts.discover('IRC.branded.org')).toBeNull();
+    expect(accounts.brandingUrlFor('irc.branded.org')).toBe('https://branded.org/theme.json');
+    await accounts.discover('irc.net-a.org');
+    expect(accounts.brandingUrlFor('irc.net-a.org')).toBeUndefined();
+  });
+
   it('discovers a network once and remembers its auth service', async () => {
     const { accounts, bridge, local } = setup();
     const link = await accounts.discover('IRC.net-a.org');

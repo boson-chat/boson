@@ -8,6 +8,8 @@ import { clearGuestSession, emitGuestChange } from '../../modules/guest/guest';
 import {
   getNetworkAccounts, hostOf, type NetworkAccounts, type NetworkAccountsSnapshot, type SignInPrompt,
 } from '../../modules/netauth/network-accounts';
+import { getNetworkThemes, useNetworkBranding } from '../../modules/ui/theme';
+import { NetworkBrandHero } from './NetworkBrand';
 import '../LoginScreen/LoginScreen.css';
 import './NetworkSignIn.css';
 
@@ -57,6 +59,10 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
     return () => { live = false; };
   }, [accounts, link.authUrl]);
 
+  // The network's branding (logo, login background), looked up again now.
+  useEffect(() => { void getNetworkThemes().refresh(link.host); }, [link.host]);
+  const brand = useNetworkBranding(link.host);
+
   const name = (cfg?.site_name || cfg?.network_name || '').trim() || accounts.nameFor(link.authUrl, prompt.serverName);
   const guestOk = prompt.allowGuest && guestAccessAllowed(cfg);
   const registration = cfg?.registration ?? 'open';
@@ -68,6 +74,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
     return (
       <Modal open={open} onClose={() => onDone('cancel')} title={`Sign in to ${name}`}>
         <div class="netauth">
+          <NetworkBrandHero brand={brand} name={name} />
           <Realm host={authHost} main />
           {!guestOk && <p class="netauth-required" role="status">{name} requires an account. Guests can't connect.</p>}
           <p class="netauth-lede">This network uses your boson.chat account. Signing in leaves guest mode on this device.</p>
@@ -88,6 +95,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
 
   return (
     <Modal open={open} onClose={() => onDone('cancel')} title={`Sign in to ${name}`}>
+      <NetworkBrandHero brand={brand} name={name} />
       <NetworkSignInForm
         auth={accounts.service(link.authUrl)}
         authHost={authHost}
