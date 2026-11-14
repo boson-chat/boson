@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -256,5 +257,138 @@ func TestVoiceTrustedPerNetwork(t *testing.T) {
 	boson := &VoiceInfo{Addr: "voice.boson.chat:7700", URL: "https://voice.boson.chat", AuthURL: "https://auth.boson.chat"}
 	if !v.trusted(boson) {
 		t.Fatal("boson.chat voice no longer trusted")
+	}
+}
+
+func TestNormalizeServerAddress(t *testing.T) {
+	for in, want := range map[string]string{
+		"example.com":                     "example.com",
+		"  Example.COM. ":                 "example.com",
+		"irc.example.com":                 "irc.example.com",
+		"irc.example.com:6697":            "irc.example.com",
+		"https://example.com/":            "example.com",
+		"https://Chat.Example.com:8443/x": "chat.example.com",
+		"ircs://irc.example.com:6697":     "irc.example.com",
+		"example.com/some/path":           "example.com",
+		"localhost":                       "localhost",
+	} {
+		if got, ok := normalizeServerAddress(in); !ok || got != want {
+			t.Errorf("%q → %q %v, want %q", in, got, ok, want)
+		}
+	}
+	for _, bad := range []string{"", "   ", "ftp://example.com", "https://user:pw@example.com", "exa mple.com", "-bad.com", "a..b", "https://", "ex_ample.com", "例子.com"} {
+		if got, ok := normalizeServerAddress(bad); ok {
+			t.Errorf("%q accepted as %q", bad, got)
+		}
+	}
+}
+
+func TestResolveCandidates(t *testing.T) {
+	for in, want := range map[string]string{
+		"example.com":         "example.com",
+		"irc.example.com":     "example.com irc.example.com",
+		"irc.net.example.com": "net.example.com irc.net.example.com",
+		"localhost":           "",
+		"10.0.0.1":            "",
+	} {
+		if got := strings.Join(resolveCandidates(in), " "); got != want {
+			t.Errorf("%q → %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNetAuthResolve(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/selfhost.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`{"version":1,"irc":{"host":"irc.selfhost.org","port":6697,"tls":true},"auth":{"url":"https://auth.selfhost.org"}}`))
+		case "/deep.example.org/.well-known/boson.json":
+			// Found on the host itself, IRC elsewhere: seeded for connect.
+			_, _ = w.Write([]byte(`{"version":1,"irc":{"host":"irc.chat.example.org","port":6667,"tls":false},"auth":{"url":"https://auth.example.org"}}`))
+		case "/plain.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`{"version":1,"irc":{"host":"irc.plain.org","port":6697,"tls":true}}`))
+		case "/noirc.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`{"version":1,"auth":{"url":"https://auth.noirc.org"}}`))
+		case "/lan.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`{"version":1,"irc":{"host":"192.168.1.5","port":6697,"tls":true},"auth":{"url":"https://auth.lan.org"}}`))
+		case "/sneaky.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`{"version":1,"irc":{"host":"irc.sneaky.org"},"auth":{"url":"https://10.0.0.8"}}`))
+		case "/garbage.org/.well-known/boson.json":
+			_, _ = w.Write([]byte(`<html>not json</html>`))
+		case "/boson.chat/.well-known/boson.json":
+			_, _ = w.Write([]byte(bosonJSON))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	d := testDiscoverer(t, srv, func(string) error { return errors.New("no") })
+	api := NewApiService("https://api.boson.chat", false, defaultAuthBase)
+	api.TrustAuth(defaultAuthBase)
+	svc := NewNetAuthService(d, api)
+
+	got := svc.Resolve("https://irc.selfhost.org/")
+	if got.Error != "" || got.Domain != "selfhost.org" || got.AuthURL != "https://auth.selfhost.org" || got.Main ||
+		got.IRC == nil || *got.IRC != (NetworkIRC{Host: "irc.selfhost.org", Port: 6697, TLS: true}) {
+		t.Fatalf("self-hosted: %+v", got)
+	}
+	if api.access(mustURL(t, "https://auth.selfhost.org/v1/config")) != accessFull {
+		t.Fatal("resolved auth not reachable")
+	}
+
+	got = svc.Resolve("deep.example.org")
+	if got.Error != "" || got.Domain != "deep.example.org" || got.IRC == nil || got.IRC.Host != "irc.chat.example.org" || got.IRC.TLS {
+		t.Fatalf("on the host itself: %+v", got)
+	}
+	// Connecting to its IRC host finds the same auth service.
+	if info := svc.Discover("irc.chat.example.org", false); info.AuthURL != "https://auth.example.org" {
+		t.Fatalf("seeded discovery: %+v", info)
+	}
+
+	if got := svc.Resolve("boson.chat"); !got.Main || got.Error != "" {
+		t.Fatalf("boson.chat: %+v", got)
+	}
+	if got := svc.Resolve("plain.org"); got.Error != resolveNoAccounts || got.IRC == nil || got.IRC.Host != "irc.plain.org" {
+		t.Fatalf("no accounts: %+v", got)
+	}
+	if got := svc.Resolve("noirc.org"); got.Error != resolveNoIRC {
+		t.Fatalf("no irc: %+v", got)
+	}
+	if got := svc.Resolve("lan.org"); got.Error != resolveNoIRC || got.Detail == "" {
+		t.Fatalf("private irc host: %+v", got)
+	}
+	if got := svc.Resolve("sneaky.org"); got.Error != resolveUntrusted || got.AuthURL != "" {
+		t.Fatalf("private auth address: %+v", got)
+	}
+	if got := svc.Resolve("garbage.org"); got.Error != resolveNoDocument {
+		t.Fatalf("invalid document: %+v", got)
+	}
+	if got := svc.Resolve("nothing.org"); got.Error != resolveNoDocument {
+		t.Fatalf("404: %+v", got)
+	}
+	if got := svc.Resolve("not a host"); got.Error != resolveInvalid {
+		t.Fatalf("invalid: %+v", got)
+	}
+
+	// Nobody answering is a different error from no boson.json.
+	srv.Close()
+	if got := svc.Resolve("gone.org"); got.Error != resolveUnreachable {
+		t.Fatalf("unreachable: %+v", got)
+	}
+}
+
+func TestNetAuthResolveOverride(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/boson.json"
+	if err := os.WriteFile(path, []byte(`{"version":1,"irc":{"host":"localhost","port":16668,"tls":false},"auth":{"url":"http://127.0.0.1:18181"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := newVoiceDiscoverer(t.TempDir(), true)
+	d.loadNetworkOverrides(path)
+	api := NewApiService("http://127.0.0.1:13000", true)
+	svc := NewNetAuthService(d, api)
+	got := svc.Resolve("localhost")
+	if got.Error != "" || got.AuthURL != "http://127.0.0.1:18181" || got.IRC == nil || *got.IRC != (NetworkIRC{Host: "localhost", Port: 16668}) {
+		t.Fatalf("override: %+v", got)
 	}
 }

@@ -65,6 +65,15 @@ type VoiceDiscovery struct {
 	// it names one. Both validated like voice.url. "" when absent.
 	Auth      string `json:"auth,omitempty"`
 	Directory string `json:"directory,omitempty"`
+	// IRC is where the network's IRC server is (boson.json irc), when known.
+	IRC *NetworkIRC `json:"irc,omitempty"`
+}
+
+// NetworkIRC is a boson.json's irc block.
+type NetworkIRC struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	TLS  bool   `json:"tls"`
 }
 
 // voiceDomain derives the domain discovery looks at, or "" when there is
@@ -250,7 +259,8 @@ func (d *voiceDiscoverer) loadNetworkOverrides(paths string) {
 		if d.overrideNets == nil {
 			d.overrideNets = map[string]*VoiceDiscovery{}
 		}
-		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, Definitive: true}
+		irc := &NetworkIRC{Host: host, Port: doc.IRC.Port, TLS: doc.IRC.TLS}
+		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Definitive: true}
 	}
 }
 
@@ -293,6 +303,19 @@ func (d *voiceDiscoverer) cached(host string) *VoiceDiscovery {
 		return &c
 	}
 	return nil
+}
+
+// seed stores a result found another way (Resolve), unless a fresh one
+// for its host is already there.
+func (d *voiceDiscoverer) seed(r *VoiceDiscovery) {
+	d.mu.Lock()
+	if prev := d.cache[r.Host]; prev != nil && prev.Auth != "" && d.now().Sub(prev.CheckedAt) < voiceDiscoveryTTL {
+		d.mu.Unlock()
+		return
+	}
+	d.cache[r.Host] = r
+	d.mu.Unlock()
+	d.save()
 }
 
 // Discover returns host's result: the cached one while it's under a day
@@ -375,31 +398,41 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 // and directory. answered: the server replied (even 404 or an invalid
 // document), as opposed to a network error.
 func (d *voiceDiscoverer) fetchWellKnown(ctx context.Context, domain string) (info *VoiceInfo, answered bool, auth, directory string) {
-	ctx, cancel := context.WithTimeout(ctx, voiceDiscoveryTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.wellKnownURL(domain), nil)
-	if err != nil {
-		return nil, false, "", ""
-	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := d.http.Do(req)
-	if err != nil {
-		return nil, false, "", ""
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, true, "", ""
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, voiceWellKnownMax+1))
-	if err != nil || len(body) > voiceWellKnownMax {
-		return nil, true, "", ""
+	body, answered := d.fetchWellKnownBody(ctx, domain)
+	if body == nil {
+		return nil, answered, "", ""
 	}
 	auth, directory = parseWellKnownNetwork(body, d.allowHTTP)
-	info, err = parseWellKnown(body, d.allowHTTP)
+	info, err := parseWellKnown(body, d.allowHTTP)
 	if err != nil {
 		return nil, true, auth, directory
 	}
 	return info, true, auth, directory
+}
+
+// fetchWellKnownBody is the domain's boson.json document (nil unless it
+// answered 200 with a body under the size limit). answered: as above.
+func (d *voiceDiscoverer) fetchWellKnownBody(ctx context.Context, domain string) (body []byte, answered bool) {
+	ctx, cancel := context.WithTimeout(ctx, voiceDiscoveryTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.wellKnownURL(domain), nil)
+	if err != nil {
+		return nil, false
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := d.http.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, true
+	}
+	body, err = io.ReadAll(io.LimitReader(resp.Body, voiceWellKnownMax+1))
+	if err != nil || len(body) > voiceWellKnownMax {
+		return nil, true
+	}
+	return body, true
 }
 
 // probeQuicvoice completes a QUIC handshake with the quicvoice ALPN.
