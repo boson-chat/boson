@@ -1,0 +1,8 @@
+# Cloudflare Workers Static Assets custom headers (not served itself).
+
+# Client discovery doc read by the boson app (and any web client) to find
+# this network's IRC, auth and voice endpoints from just "boson.chat".
+/.well-known/boson.json
+  Content-Type: application/json
+  Access-Control-Allow-Origin: *
+  Cache-Control: public, max-age=300
