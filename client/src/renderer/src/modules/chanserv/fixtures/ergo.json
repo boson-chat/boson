@@ -1,0 +1,272 @@
+{
+  "dialect": "ergo",
+  "source": "ergo v2.19.1 irc/chanserv.go, irc/services.go, irc/errors.go (strings verbatim; \\u0002 = bold)",
+  "cases": [
+    {
+      "name": "INFO: registered",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Channel #dev is registered", "Founder: ada", "Registered at: Sat, 14 Nov 2026 10:00:00 UTC"]],
+      "expect": { "kind": "info", "info": { "registered": true, "founder": "ada", "registeredAt": "Sat, 14 Nov 2026 10:00:00 UTC" } }
+    },
+    {
+      "name": "INFO: registered, a patched server adds last activity",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Channel #dev is registered", "Founder: ada", "Registered at: Sat, 14 Nov 2026 10:00:00 UTC", "Last activity: Sun, 15 Nov 2026 09:30:00 UTC"]],
+      "expect": { "kind": "info", "info": { "registered": true, "founder": "ada", "lastUsed": "Sun, 15 Nov 2026 09:30:00 UTC" } }
+    },
+    {
+      "name": "INFO: not registered",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Channel #dev is not registered"]],
+      "expect": { "kind": "info", "info": { "registered": false } }
+    },
+    {
+      "name": "INFO: purged channel",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Channel #dev was purged by the server operators and cannot be used", "Channel #dev is not registered"]],
+      "expect": { "kind": "info", "info": { "registered": false, "closed": true } }
+    },
+    {
+      "name": "INFO: registration disabled on the server",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["This command has been disabled by the server administrators"]],
+      "expect": { "kind": "error", "code": "disabled" }
+    },
+    {
+      "name": "INFO: registered header but no founder (unexpected shape)",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Channel #dev is registered"]],
+      "expect": { "kind": "error", "code": "unreadable" }
+    },
+    {
+      "name": "REGISTER: success",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Channel #dev successfully registered"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "REGISTER: guest",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You're not logged into an account"]],
+      "expect": { "kind": "error", "code": "not-logged-in" }
+    },
+    {
+      "name": "REGISTER: operator-only network",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Channel registration is restricted to server operators"]],
+      "expect": { "kind": "error", "code": "operator-only" }
+    },
+    {
+      "name": "REGISTER: not opped",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You must be an oper on the channel to register it"]],
+      "expect": { "kind": "error", "code": "not-opped" }
+    },
+    {
+      "name": "REGISTER: limit reached",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You have already registered the maximum number of channels; try dropping some with /CS UNREGISTER"]],
+      "expect": { "kind": "error", "code": "limit-reached" }
+    },
+    {
+      "name": "REGISTER: already registered",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Channel is already registered"]],
+      "expect": { "kind": "error", "code": "already-registered" }
+    },
+    {
+      "name": "REGISTER: no such channel",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["No such channel"]],
+      "expect": { "kind": "error", "code": "no-such-channel" }
+    },
+    {
+      "name": "REGISTER: purged",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["This channel was purged by the server operators and cannot be used"]],
+      "expect": { "kind": "error", "code": "closed" }
+    },
+    {
+      "name": "TRANSFER: code prompt, then pending acceptance",
+      "op": "transfer", "args": ["#dev", "nova", "ada"],
+      "sent": ["TRANSFER #dev nova", "TRANSFER #dev nova 2930242125"],
+      "replies": [
+        ["\u0002Warning: you are about to transfer control of your channel to another user.\u0002", "To confirm your channel transfer, type: /CS TRANSFER #dev nova 2930242125"],
+        ["Transfer of channel #dev to account nova succeeded, pending acceptance"]
+      ],
+      "expect": { "kind": "done", "pending": true }
+    },
+    {
+      "name": "TRANSFER: oper transfers at once",
+      "op": "transfer", "args": ["#dev", "nova", "ada"],
+      "sent": ["TRANSFER #dev nova", "TRANSFER #dev nova 77"],
+      "replies": [
+        ["\u0002Warning: you are about to transfer control of your channel to another user.\u0002", "To confirm your channel transfer, type: /CS TRANSFER #dev nova 77"],
+        ["Successfully transferred channel #dev to account nova"]
+      ],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "TRANSFER: no such account",
+      "op": "transfer", "args": ["#dev", "nobody", "ada"],
+      "sent": ["TRANSFER #dev nobody"],
+      "replies": [["Account does not exist"]],
+      "expect": { "kind": "error", "code": "no-such-account" }
+    },
+    {
+      "name": "TRANSFER: not the founder",
+      "op": "transfer", "args": ["#dev", "nova", "ada"],
+      "sent": ["TRANSFER #dev nova"],
+      "replies": [["Insufficient privileges"]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "TRANSFER ACCEPT: success",
+      "op": "acceptTransfer", "args": ["#dev"],
+      "sent": ["TRANSFER ACCEPT #dev"],
+      "replies": [["Successfully accepted ownership of channel #dev"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "TRANSFER ACCEPT: nothing offered",
+      "op": "acceptTransfer", "args": ["#dev"],
+      "sent": ["TRANSFER ACCEPT #dev"],
+      "replies": [["You weren't offered ownership of channel #dev"]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "TRANSFER ACCEPT: limit reached",
+      "op": "acceptTransfer", "args": ["#dev"],
+      "sent": ["TRANSFER ACCEPT #dev"],
+      "replies": [["You have already registered the maximum number of channels; try dropping some with /CS UNREGISTER"]],
+      "expect": { "kind": "error", "code": "limit-reached" }
+    },
+    {
+      "name": "UNREGISTER: code prompt, then unregistered",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["UNREGISTER #dev", "UNREGISTER #dev 3891245"],
+      "replies": [
+        ["\u0002Warning: unregistering this channel will remove all stored channel attributes.\u0002", "To confirm, run this command: /CS UNREGISTER #dev 3891245"],
+        ["Channel #dev is now unregistered"]
+      ],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "UNREGISTER: not the founder",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["UNREGISTER #dev"],
+      "replies": [["Insufficient privileges"]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "UNREGISTER: not registered",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["UNREGISTER #dev"],
+      "replies": [["That channel is not registered"]],
+      "expect": { "kind": "error", "code": "not-registered" }
+    },
+    {
+      "name": "AMODE list",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["AMODE #dev"],
+      "replies": [["Channel #dev has 4 persistent modes set", "Account ada receives mode +q", "Account nova receives mode +o", "Account mox receives mode +h", "Account pixel receives mode +v"]],
+      "expect": { "kind": "access", "entries": [
+        { "account": "ada", "role": "founder", "raw": "+q" },
+        { "account": "nova", "role": "op", "raw": "+o" },
+        { "account": "mox", "role": "halfop", "raw": "+h" },
+        { "account": "pixel", "role": "voice", "raw": "+v" }
+      ] }
+    },
+    {
+      "name": "AMODE list: empty",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["AMODE #dev"],
+      "replies": [["Channel #dev has 0 persistent modes set"]],
+      "expect": { "kind": "access", "entries": [] }
+    },
+    {
+      "name": "AMODE list: no access",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["AMODE #dev"],
+      "replies": [["Insufficient privileges"]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "AMODE list: unregistered channel",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["AMODE #dev"],
+      "replies": [["Channel is not registered"]],
+      "expect": { "kind": "error", "code": "not-registered" }
+    },
+    {
+      "name": "AMODE +o",
+      "op": "setAccess", "args": ["#dev", "nova", "op", null],
+      "sent": ["AMODE #dev +o nova"],
+      "replies": [["Successfully set persistent mode +o on nova"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "AMODE +a replaces a voice grant",
+      "op": "setAccess", "args": ["#dev", "pixel", "admin", "voice"],
+      "sent": ["AMODE #dev +a pixel"],
+      "replies": [["Successfully set persistent mode +a on pixel"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "AMODE -o removes",
+      "op": "setAccess", "args": ["#dev", "nova", null, "op"],
+      "sent": ["AMODE #dev -o nova"],
+      "replies": [["Successfully set persistent mode -o on nova"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "AMODE: nothing to change",
+      "op": "setAccess", "args": ["#dev", "nova", "op", "op"],
+      "sent": ["AMODE #dev +o nova"],
+      "replies": [["No changes were made"]],
+      "expect": { "kind": "done", "nochange": true }
+    },
+    {
+      "name": "AMODE: unknown account",
+      "op": "setAccess", "args": ["#dev", "ghost", "op", null],
+      "sent": ["AMODE #dev +o ghost"],
+      "replies": [["Account does not exist"]],
+      "expect": { "kind": "error", "code": "no-such-account" }
+    },
+    {
+      "name": "SET history",
+      "op": "setOption", "args": ["#dev", "history", "off"],
+      "sent": ["SET #dev history off"],
+      "replies": [["Successfully changed the channel settings", "The stored channel history setting is: off", "Given current server settings, the channel history setting is: off"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "GET history",
+      "op": "readSettings", "args": ["#dev"],
+      "sent": ["GET #dev history"],
+      "replies": [["The stored channel history setting is: default", "Given current server settings, the channel history setting is: ephemeral"]],
+      "expect": { "kind": "info", "info": { "values": { "history": "default" } } }
+    },
+    {
+      "name": "unknown subcommand",
+      "op": "setOption", "args": ["#dev", "history", "on"],
+      "sent": ["SET #dev history on"],
+      "replies": [["Unknown command. To see available commands, run: /CS HELP"]],
+      "expect": { "kind": "error", "code": "unsupported" }
+    }
+  ]
+}

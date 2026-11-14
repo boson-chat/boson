@@ -1,0 +1,270 @@
+{
+  "dialect": "atheme",
+  "source": "atheme v7.2.12 and master modules/chanserv/{info,register,drop,flags,set_*}.c, include/atheme/constants.h (\\u0002 = bold)",
+  "cases": [
+    {
+      "name": "INFO: registered with flags",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [[
+        "Information on \u0002#dev\u0002:",
+        "Founder    : ada",
+        "Successor  : (none)",
+        "Registered : Nov 14 10:00:00 2026 +0000 (1d 2h 3m ago)",
+        "Last used  : Nov 15 12:00:00 2026 +0000 (12m 5s ago)",
+        "Mode lock  : +nt-lk",
+        "Flags      : SECURE KEEPTOPIC TOPICLOCK GUARD",
+        "\u0002*** End of Info ***\u0002"
+      ]],
+      "expect": { "kind": "info", "info": {
+        "registered": true, "founder": "ada",
+        "registeredAt": "Nov 14 10:00:00 2026 +0000 (1d 2h 3m ago)",
+        "lastUsed": "Nov 15 12:00:00 2026 +0000 (12m 5s ago)",
+        "options": { "secure": true, "keeptopic": true, "topiclock": true, "guard": true }
+      } },
+      "absent": ["successor"]
+    },
+    {
+      "name": "INFO: several founders, no flags, rough last-used",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [[
+        "Information on \u0002#dev\u0002:",
+        "Founder    : ada, nova",
+        "Successor  : kestrel",
+        "Registered : Nov 14 10:00:00 2026 +0000 (5w 2d ago)",
+        "Last used  : (about 3 weeks ago)",
+        "\u0002*** End of Info ***\u0002"
+      ]],
+      "expect": { "kind": "info", "info": { "registered": true, "founder": "ada", "successor": "kestrel", "lastUsed": "about 3 weeks ago", "options": {} } }
+    },
+    {
+      "name": "INFO: not registered (master)",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["\u0002#dev\u0002 is not registered."]],
+      "expect": { "kind": "info", "info": { "registered": false } }
+    },
+    {
+      "name": "INFO: not registered (7.2)",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Channel \u0002#dev\u0002 is not registered."]],
+      "expect": { "kind": "info", "info": { "registered": false } }
+    },
+    {
+      "name": "INFO: closed by staff",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["\u0002#dev\u0002 has been closed down by the Libera.Chat administration."]],
+      "expect": { "kind": "info", "info": { "registered": true, "closed": true } }
+    },
+    {
+      "name": "REGISTER: success",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["\u0002#dev\u0002 is now registered to \u0002ada\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "REGISTER: guest",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You are not logged in."]],
+      "expect": { "kind": "error", "code": "not-logged-in" }
+    },
+    {
+      "name": "REGISTER: unverified email",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You must verify your e-mail address before you may perform this operation."]],
+      "expect": { "kind": "error", "code": "not-confirmed" }
+    },
+    {
+      "name": "REGISTER: not opped",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You must be a channel operator in \u0002#dev\u0002 in order to register it."]],
+      "expect": { "kind": "error", "code": "not-opped" }
+    },
+    {
+      "name": "REGISTER: not in the channel",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You must be in \u0002#dev\u0002 in order to register it."]],
+      "expect": { "kind": "error", "code": "not-in-channel" }
+    },
+    {
+      "name": "REGISTER: too many channels",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You have too many channels registered."]],
+      "expect": { "kind": "error", "code": "limit-reached" }
+    },
+    {
+      "name": "REGISTER: already registered",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["\u0002#dev\u0002 is already registered to \u0002nova\u0002."]],
+      "expect": { "kind": "error", "code": "already-registered" }
+    },
+    {
+      "name": "REGISTER: channel must exist",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["The channel \u0002#dev\u0002 must exist in order to register it."]],
+      "expect": { "kind": "error", "code": "no-such-channel" }
+    },
+    {
+      "name": "transfer: +F to the new founder, then drop our own +F",
+      "op": "transfer", "args": ["#dev", "nova", "ada"],
+      "sent": ["FLAGS #dev nova +F", "FLAGS #dev ada -F"],
+      "replies": [
+        ["Flags \u0002+F\u0002 were set on \u0002nova\u0002 in \u0002#dev\u0002."],
+        ["Flags \u0002-F\u0002 were set on \u0002ada\u0002 in \u0002#dev\u0002."]
+      ],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "transfer: unknown account",
+      "op": "transfer", "args": ["#dev", "ghost", "ada"],
+      "sent": ["FLAGS #dev ghost +F"],
+      "replies": [["\u0002ghost\u0002 is not registered."]],
+      "expect": { "kind": "error", "code": "no-such-account" }
+    },
+    {
+      "name": "transfer: target has too many channels",
+      "op": "transfer", "args": ["#dev", "nova", "ada"],
+      "sent": ["FLAGS #dev nova +F"],
+      "replies": [["\u0002nova\u0002 has too many channels registered."]],
+      "expect": { "kind": "error", "code": "limit-reached" }
+    },
+    {
+      "name": "DROP: key prompt replayed (master wording)",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["DROP #dev", "DROP #dev a1b2c3"],
+      "replies": [
+        ["This is a friendly reminder that you are about to \u0002DESTROY\u0002 the channel \u0002#dev\u0002.", "To avoid accidental use of this command, this operation has to be confirmed. Please confirm by replying with \u0002/msg ChanServ DROP #dev a1b2c3\u0002"],
+        ["The channel \u0002#dev\u0002 has been dropped."]
+      ],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "DROP: key prompt replayed (7.2 wording)",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["DROP #dev", "DROP #dev f00d"],
+      "replies": [
+        ["To avoid accidental use of this command, this operation has to be confirmed. Please confirm by replying with \u0002/msg ChanServ DROP #dev f00d\u0002"],
+        ["The channel \u0002#dev\u0002 has been dropped."]
+      ],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "DROP: not authorized",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["DROP #dev"],
+      "replies": [["You are not authorized to perform this operation."]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "DROP: wrong key",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["DROP #dev", "DROP #dev beef"],
+      "replies": [
+        ["Please confirm by replying with \u0002/msg ChanServ DROP #dev beef\u0002"],
+        ["Invalid key for \u0002DROP\u0002."]
+      ],
+      "expect": { "kind": "error", "code": "failed" }
+    },
+    {
+      "name": "FLAGS list",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["FLAGS #dev"],
+      "replies": [[
+        "Entry    Nickname/Host          Flags",
+        "----------------------------------------------------------------",
+        "1        ada                    +AFRefiorstv         (FOUNDER) [modified 2d 3h ago, on Nov 14 10:00:00 2026 +0000, by ada]",
+        "2        nova                   +AOehiortv           (SOP) [modified 1d ago, on Nov 15 10:00:00 2026 +0000, by ada]",
+        "3        kestrel                +AOiortv             (AOP) [modified 1d ago, on Nov 15 10:00:00 2026 +0000, by ada]",
+        "4        mox                    +AHhitv              (HOP) [modified 1d ago, on Nov 15 10:00:00 2026 +0000, by ada]",
+        "5        pixel                  +AV                  (VOP) [modified 1d ago, on Nov 15 10:00:00 2026 +0000, by ada]",
+        "6        *!*@bot.example        +V                   [modified 1d ago, on Nov 15 10:00:00 2026 +0000, by ada]",
+        "7        lurker                 +A                   [modified 1d ago, on Nov 15 10:00:00 2026 +0000, by ada]",
+        "----------------------------------------------------------------",
+        "End of \u0002#dev\u0002 FLAGS listing."
+      ]],
+      "expect": { "kind": "access", "entries": [
+        { "account": "ada", "role": "founder" },
+        { "account": "nova", "role": "admin" },
+        { "account": "kestrel", "role": "op" },
+        { "account": "mox", "role": "halfop" },
+        { "account": "pixel", "role": "voice" },
+        { "account": "*!*@bot.example", "role": "voice" },
+        { "account": "lurker", "role": null }
+      ] }
+    },
+    {
+      "name": "FLAGS: set a template",
+      "op": "setAccess", "args": ["#dev", "kestrel", "op", null],
+      "sent": ["FLAGS #dev kestrel AOP"],
+      "replies": [["Flags \u0002+AOiortv\u0002 were set on \u0002kestrel\u0002 in \u0002#dev\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "FLAGS: remove",
+      "op": "setAccess", "args": ["#dev", "kestrel", null, "op"],
+      "sent": ["FLAGS #dev kestrel -*"],
+      "replies": [["Flags \u0002-AOiortv\u0002 were set on \u0002kestrel\u0002 in \u0002#dev\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "FLAGS: unchanged",
+      "op": "setAccess", "args": ["#dev", "kestrel", "op", "op"],
+      "sent": ["FLAGS #dev kestrel AOP"],
+      "replies": [["Channel access to \u0002#dev\u0002 for \u0002kestrel\u0002 unchanged."]],
+      "expect": { "kind": "done", "nochange": true }
+    },
+    {
+      "name": "FLAGS: not allowed",
+      "op": "setAccess", "args": ["#dev", "kestrel", "admin", null],
+      "sent": ["FLAGS #dev kestrel SOP"],
+      "replies": [["You are not allowed to set \u0002+AOehiortv\u0002 on \u0002kestrel\u0002 in \u0002#dev\u0002."]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "SET GUARD ON",
+      "op": "setOption", "args": ["#dev", "guard", true],
+      "sent": ["SET #dev GUARD ON"],
+      "replies": [["The \u0002GUARD\u0002 flag has been set for channel \u0002#dev\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "SET TOPICLOCK OFF",
+      "op": "setOption", "args": ["#dev", "topiclock", false],
+      "sent": ["SET #dev TOPICLOCK OFF"],
+      "replies": [["The \u0002TOPICLOCK\u0002 flag has been removed for channel \u0002#dev\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "SET: already set",
+      "op": "setOption", "args": ["#dev", "secure", true],
+      "sent": ["SET #dev SECURE ON"],
+      "replies": [["The \u0002SECURE\u0002 flag is already set for channel \u0002#dev\u0002."]],
+      "expect": { "kind": "done", "nochange": true }
+    },
+    {
+      "name": "SET: no access",
+      "op": "setOption", "args": ["#dev", "guard", true],
+      "sent": ["SET #dev GUARD ON"],
+      "replies": [["You are not authorized to perform this command."]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "SET: unknown setting",
+      "op": "setOption", "args": ["#dev", "verbose", true],
+      "sent": ["SET #dev VERBOSE ON"],
+      "replies": [["Invalid command. Use \u0002/msg ChanServ help\u0002 for a command listing."]],
+      "expect": { "kind": "error", "code": "unsupported" }
+    }
+  ]
+}

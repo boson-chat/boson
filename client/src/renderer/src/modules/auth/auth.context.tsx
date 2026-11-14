@@ -20,6 +20,11 @@ export function useAuthService(): AuthService {
   return svc;
 }
 
+// The auth service, or null outside an AuthProvider (tests, harnesses).
+export function useOptionalAuthService(): AuthService | null {
+  return useContext(AuthContext);
+}
+
 export function useAuthState(): AuthState {
   const svc = useAuthService();
   const [state, setState] = useState<AuthState>(svc.getState());

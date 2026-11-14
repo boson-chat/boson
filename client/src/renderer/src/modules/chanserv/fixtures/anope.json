@@ -1,0 +1,286 @@
+{
+  "dialect": "anope",
+  "source": "anope 2.0.20 modules/commands/cs_{info,register,drop,access,xop,set,topic}.cpp, include/language.h, src/command.cpp, src/misc.cpp (InfoFormatter/ListFormatter layout)",
+  "cases": [
+    {
+      "name": "INFO: registered, founder's view (options shown)",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [[
+        "Information for channel \u0002#dev\u0002:",
+        "        Founder: ada",
+        "      Successor: nova",
+        "    Description: Development talk",
+        "     Registered: Nov 14 10:00:00 2026 UTC (1 day, 2 hours ago)",
+        "      Last used: Nov 15 12:00:00 2026 UTC (now)",
+        "       Ban type: 2",
+        "        Options: Topic retention, Topic lock, Peace, Security, Secure ops",
+        "      Mode lock: +nrt",
+        "        Expires: Dec 15 12:00:00 2026 UTC (29 days, 23 hours from now)"
+      ]],
+      "expect": { "kind": "info", "info": {
+        "registered": true, "founder": "ada", "successor": "nova", "description": "Development talk",
+        "lastUsed": "Nov 15 12:00:00 2026 UTC (now)",
+        "expires": "Dec 15 12:00:00 2026 UTC (29 days, 23 hours from now)",
+        "options": { "keeptopic": true, "topiclock": true, "peace": true, "secure": true, "secureops": true }
+      } }
+    },
+    {
+      "name": "INFO: founder's view, no options on",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [[
+        "Information for channel \u0002#dev\u0002:",
+        "    Founder: ada",
+        " Registered: Nov 14 10:00:00 2026 UTC (1 day ago)",
+        "  Last used: Nov 15 12:00:00 2026 UTC (now)",
+        "   Ban type: 2"
+      ]],
+      "expect": { "kind": "info", "info": { "registered": true, "founder": "ada", "options": {} } }
+    },
+    {
+      "name": "INFO: public view (no options)",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [[
+        "Information for channel \u0002#dev\u0002:",
+        "    Founder: ada",
+        " Registered: Nov 14 10:00:00 2026 UTC (1 day ago)",
+        "  Last used: Nov 15 12:00:00 2026 UTC (now)"
+      ]],
+      "expect": { "kind": "info", "info": { "registered": true, "founder": "ada" }, "absent": ["options"] }
+    },
+    {
+      "name": "INFO: not registered",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [["Channel \u0002#dev\u0002 isn't registered."]],
+      "expect": { "kind": "info", "info": { "registered": false } }
+    },
+    {
+      "name": "INFO: suspended",
+      "op": "info", "args": ["#dev"],
+      "sent": ["INFO #dev"],
+      "replies": [[
+        "Information for channel \u0002#dev\u0002:",
+        "     Founder: ada",
+        "  Registered: Nov 14 10:00:00 2026 UTC (1 day ago)",
+        "   Suspended: This channel is \u0002suspended\u0002."
+      ]],
+      "expect": { "kind": "info", "info": { "registered": true, "closed": true } }
+    },
+    {
+      "name": "REGISTER: success",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Channel \u0002#dev\u0002 registered under your account: ada"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "REGISTER: with a description",
+      "op": "register", "args": ["#dev", "Development talk"],
+      "sent": ["REGISTER #dev Development talk"],
+      "replies": [["Channel \u0002#dev\u0002 registered under your account: ada"]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "REGISTER: guest",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You must be logged into an account to use that command."]],
+      "expect": { "kind": "error", "code": "not-logged-in" }
+    },
+    {
+      "name": "REGISTER: unconfirmed account",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You must confirm your account before you can register a channel."]],
+      "expect": { "kind": "error", "code": "not-confirmed" }
+    },
+    {
+      "name": "REGISTER: not opped",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["You must be a channel operator to register the channel."]],
+      "expect": { "kind": "error", "code": "not-opped" }
+    },
+    {
+      "name": "REGISTER: limit reached",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Sorry, you have already reached your limit of \u000220\u0002 channels."]],
+      "expect": { "kind": "error", "code": "limit-reached" }
+    },
+    {
+      "name": "REGISTER: already registered",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Channel \u0002#dev\u0002 is already registered!"]],
+      "expect": { "kind": "error", "code": "already-registered" }
+    },
+    {
+      "name": "REGISTER: channel doesn't exist",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Channel \u0002#dev\u0002 doesn't exist."]],
+      "expect": { "kind": "error", "code": "no-such-channel" }
+    },
+    {
+      "name": "REGISTER: read-only services",
+      "op": "register", "args": ["#dev"],
+      "sent": ["REGISTER #dev"],
+      "replies": [["Sorry, channel registration is temporarily disabled."]],
+      "expect": { "kind": "error", "code": "disabled" }
+    },
+    {
+      "name": "SET FOUNDER: success",
+      "op": "transfer", "args": ["#dev", "nova", "ada"],
+      "sent": ["SET FOUNDER #dev nova"],
+      "replies": [["Founder of \u0002#dev\u0002 changed to \u0002nova\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "SET FOUNDER: no such account",
+      "op": "transfer", "args": ["#dev", "ghost", "ada"],
+      "sent": ["SET FOUNDER #dev ghost"],
+      "replies": [["Nick \u0002ghost\u0002 isn't registered."]],
+      "expect": { "kind": "error", "code": "no-such-account" }
+    },
+    {
+      "name": "SET FOUNDER: access denied",
+      "op": "transfer", "args": ["#dev", "nova", "ada"],
+      "sent": ["SET FOUNDER #dev nova"],
+      "replies": [["Access denied."]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "DROP: name twice drops at once",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["DROP #dev #dev"],
+      "replies": [["Channel \u0002#dev\u0002 has been dropped."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "DROP: confirmation asked again",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["DROP #dev #dev", "DROP #dev #dev"],
+      "replies": [
+        ["You must enter the channel name twice as a confirmation that you wish to drop \u0002#dev\u0002."],
+        ["Channel \u0002#dev\u0002 has been dropped."]
+      ],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "DROP: access denied",
+      "op": "unregister", "args": ["#dev"],
+      "sent": ["DROP #dev #dev"],
+      "replies": [["Access denied."]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "ACCESS LIST: XOP, numeric and flags entries",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["ACCESS #dev LIST"],
+      "replies": [[
+        "Access list for \u0002#dev\u0002:",
+        "  Number  Level  Mask",
+        "  1       QOP    ada2",
+        "  2       SOP    nova",
+        "  3       AOP    kestrel",
+        "  4       HOP    mox",
+        "  5       VOP    pixel",
+        "  6       5      orbit",
+        "  7       hov    relay",
+        "  8       1      lurker",
+        "End of access list"
+      ]],
+      "expect": { "kind": "access", "entries": [
+        { "account": "ada2", "role": "founder", "raw": "QOP" },
+        { "account": "nova", "role": "admin", "raw": "SOP" },
+        { "account": "kestrel", "role": "op", "raw": "AOP" },
+        { "account": "mox", "role": "halfop", "raw": "HOP" },
+        { "account": "pixel", "role": "voice", "raw": "VOP" },
+        { "account": "orbit", "role": "op", "raw": "5" },
+        { "account": "relay", "role": "op", "raw": "hov" },
+        { "account": "lurker", "role": null, "raw": "1" }
+      ] }
+    },
+    {
+      "name": "ACCESS LIST: empty",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["ACCESS #dev LIST"],
+      "replies": [["#dev access list is empty."]],
+      "expect": { "kind": "access", "entries": [] }
+    },
+    {
+      "name": "ACCESS LIST: access denied",
+      "op": "listAccess", "args": ["#dev"],
+      "sent": ["ACCESS #dev LIST"],
+      "replies": [["Access denied."]],
+      "expect": { "kind": "error", "code": "access-denied" }
+    },
+    {
+      "name": "AOP ADD",
+      "op": "setAccess", "args": ["#dev", "nova", "op", null],
+      "sent": ["AOP #dev ADD nova"],
+      "replies": [["\u0002nova\u0002 added to #dev AOP list."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "QOP ADD (founder-level access)",
+      "op": "setAccess", "args": ["#dev", "nova", "founder", null],
+      "sent": ["QOP #dev ADD nova"],
+      "replies": [["\u0002nova\u0002 added to #dev QOP list."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "VOP ADD: unregistered nick",
+      "op": "setAccess", "args": ["#dev", "ghost", "voice", null],
+      "sent": ["VOP #dev ADD ghost"],
+      "replies": [["Nick \u0002ghost\u0002 isn't registered."]],
+      "expect": { "kind": "error", "code": "no-such-account" }
+    },
+    {
+      "name": "ACCESS DEL",
+      "op": "setAccess", "args": ["#dev", "nova", null, "op"],
+      "sent": ["ACCESS #dev DEL nova"],
+      "replies": [["\u0002nova\u0002 deleted from #dev access list."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "ACCESS DEL: not on the list",
+      "op": "setAccess", "args": ["#dev", "nova", null, "op"],
+      "sent": ["ACCESS #dev DEL nova"],
+      "replies": [["\u0002nova\u0002 not found on #dev access list."]],
+      "expect": { "kind": "done", "nochange": true }
+    },
+    {
+      "name": "TOPIC LOCK",
+      "op": "setOption", "args": ["#dev", "topiclock", true],
+      "sent": ["TOPIC #dev LOCK"],
+      "replies": [["Topic lock option for #dev is now \u0002on\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "SET KEEPTOPIC OFF",
+      "op": "setOption", "args": ["#dev", "keeptopic", false],
+      "sent": ["SET KEEPTOPIC #dev OFF"],
+      "replies": [["Topic retention option for #dev is now \u0002off\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "SET SECUREOPS ON",
+      "op": "setOption", "args": ["#dev", "secureops", true],
+      "sent": ["SET SECUREOPS #dev ON"],
+      "replies": [["Secure ops option for #dev is now \u0002on\u0002."]],
+      "expect": { "kind": "done" }
+    },
+    {
+      "name": "SET: module not loaded",
+      "op": "setOption", "args": ["#dev", "peace", true],
+      "sent": ["SET PEACE #dev ON"],
+      "replies": [["Unknown command \u0002SET PEACE\u0002. \"/msg ChanServ HELP\" for help."]],
+      "expect": { "kind": "error", "code": "unsupported" }
+    }
+  ]
+}
