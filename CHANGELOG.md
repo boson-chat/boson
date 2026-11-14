@@ -1,3 +1,9 @@
+## [0.52.0](https://github.com/boson-chat/boson/compare/v0.51.1...v0.52.0) (2026-11-14)
+
+### Features
+
+* **client:** network themes — colors, pane backgrounds, logos, sign-in backgrounds ([#46](https://github.com/boson-chat/boson/issues/46)) ([c84b055](https://github.com/boson-chat/boson/commit/c84b0555d321d6854f16e0c5c44616965217878f))
+
 ## [0.51.1](https://github.com/boson-chat/boson/compare/v0.51.0...v0.51.1) (2026-11-14)
 
 ### Bug Fixes
