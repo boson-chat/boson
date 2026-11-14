@@ -10,7 +10,8 @@ import { ChannelVoiceAdd, ChannelVoiceRooms } from './VoiceRooms';
 import { VoiceBar } from './VoiceBar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
-import { ChannelSettings } from './ChannelSettings';
+import { ChannelSettings, type ChannelSettingsTab } from './ChannelSettings';
+import { useChannelPolicy, type ChanServState } from '../../modules/chanserv';
 import { ResizeHandle } from './ResizeHandle';
 import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/panel-sizes';
 import type { ChannelOpActions, NickProfiles } from './nick-actions';
@@ -100,6 +101,7 @@ export function ChatLayout({
   const [kickReason, setKickReason] = useState('');
   // Channel Settings modal open state (gear on the channel header).
   const [channelSettingsOpen, setChannelSettingsOpen] = useState(false);
+  const [channelSettingsTab, setChannelSettingsTab] = useState<ChannelSettingsTab>('channel');
 
   // Resizable side panels — initial width from the persisted store (localStorage,
   // which survives restarts + reinstalls), live-updated while dragging.
@@ -128,6 +130,21 @@ export function ChatLayout({
   const shownDrawer = narrow && !active && drawer === 'none' && swipe.dragX === null ? 'nav' : drawer;
   // The drawer under the chat that's showing (or being dragged into view).
   const revealed = swipe.dragX !== null ? swipe.reveal : shownDrawer === 'none' ? null : shownDrawer;
+
+  // ChanServ (channel registration) for this connection. `typeof` guard:
+  // hand-rolled test fakes have no chanserv().
+  const csCtl = typeof chat.chanserv === 'function' ? chat.chanserv() : null;
+  const [csState, setCsState] = useState<ChanServState | null>(() => csCtl?.getState() ?? null);
+  useEffect(() => (csCtl ? csCtl.subscribe(setCsState) : setCsState(null)), [csCtl]);
+  const channelPolicy = useChannelPolicy(serverHost);
+  const myAccount = typeof chat.selfIdentity === 'function' ? chat.selfIdentity().account : undefined;
+  const activeJoined = !!active?.joined;
+  useEffect(() => {
+    if (csCtl && isChannel && active && activeJoined) csCtl.ensureInfo(active.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [csCtl, isChannel, active?.name, activeJoined, csState?.dialect, csState?.present]);
+  const regInfo = csCtl && active && isChannel && csState?.present !== false ? csCtl.channel(active.name).info : undefined;
+  const registrationBadge = regInfo && !regInfo.closed ? { registered: regInfo.registered, founder: regInfo.founder } : null;
 
   const supportsOwnerAdmin = /[qa]/.test(state.serverInfo.prefix?.modes ?? 'qa');
   // Our rank in the active channel. `typeof` guard keeps hand-rolled test fakes
@@ -258,7 +275,9 @@ export function ChatLayout({
           messagesSignal={
             active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
           }
-          onOpenChannelSettings={isChannel ? () => setChannelSettingsOpen(true) : undefined}
+          onOpenChannelSettings={isChannel ? () => { setChannelSettingsTab('channel'); setChannelSettingsOpen(true); } : undefined}
+          registration={registrationBadge}
+          onOpenRegistration={isChannel ? () => { setChannelSettingsTab('registration'); setChannelSettingsOpen(true); } : undefined}
           // `typeof` guard: hand-rolled test fakes have no bouncerConnect.
           onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
           onTrustBouncerCert={typeof chat.trustBouncerCert === 'function' ? () => chat.trustBouncerCert() : undefined}
@@ -403,6 +422,9 @@ export function ChatLayout({
             onAddBan={(mask) => chat.ban(active.name, mask)}
             onRemoveBan={(mask) => chat.unban(active.name, mask)}
             onRefresh={() => { chat.requestChannelModes(active.name); chat.requestBanList(active.name); }}
+            key={`${active.name}:${channelSettingsTab}`}
+            initialTab={channelSettingsTab}
+            chanserv={csCtl && csState ? { ctl: csCtl, state: csState, myAccount, policy: channelPolicy } : undefined}
           />
         )}
       </Modal>

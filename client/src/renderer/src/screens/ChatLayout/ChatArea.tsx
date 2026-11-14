@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { Menu, PlugZap, Settings, ShieldAlert, Unplug, Users } from 'lucide-preact';
+import { Menu, PlugZap, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
 import { BarLoader } from '@boson/shared';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
@@ -90,6 +90,10 @@ interface ChatAreaProps {
   // Opens the Channel Settings modal (modes / bans / topic). Present only for
   // channel targets; absent for DMs / the ~server log.
   onOpenChannelSettings?: () => void;
+  // ChanServ registration of the active channel, when known: a small shield
+  // next to its name that opens the Registration tab.
+  registration?: { registered: boolean; founder?: string } | null;
+  onOpenRegistration?: () => void;
   // Ask the active server's bouncer to connect its upstream network. Drives
   // the bouncer-upstream strip's [Connect] button; when omitted the strip
   // still shows state but without the action.
@@ -138,6 +142,8 @@ export function ChatArea({
   avatarFor,
   messagesSignal,
   onOpenChannelSettings,
+  registration,
+  onOpenRegistration,
   onBouncerConnect,
   onTrustBouncerCert,
   onRejectBouncerCert,
@@ -330,6 +336,18 @@ export function ChatArea({
           <PaneBackButton onBack={onBack} />
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
+          {registration && prefix === '#' && (
+            <button
+              type="button"
+              class={`chat-icon-btn chat-reg-badge${registration.registered ? ' chat-reg-badge-on' : ''}`}
+              onClick={onOpenRegistration}
+              disabled={!onOpenRegistration}
+              title={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
+              aria-label={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
+            >
+              {registration.registered ? <ShieldCheck size={14} aria-hidden="true" /> : <ShieldOff size={14} aria-hidden="true" />}
+            </button>
+          )}
           {topic && (
             <span
               class="chat-channel-topic"
