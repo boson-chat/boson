@@ -87,8 +87,12 @@ test('signed-in user claims their handle via the backend; the password syncs E2E
     const dev2 = await launchApp({ profile: second });
     try {
       expect(await loginAs(dev2.page, account)).toBe('directory');
-      // The cloud-saved session may already have reconnected the server.
-      if (!(await dev2.page.locator('.sidebar-status-dot').isVisible())) {
+      // The cloud-saved session usually reconnects the server on its own; give
+      // the restore a moment before connecting by hand (checking at once
+      // raced the restore, which then hid the search box we were waiting on).
+      const statusDot = dev2.page.locator('.sidebar-status-dot');
+      await statusDot.waitFor({ timeout: 10_000 }).catch(() => {});
+      if (!(await statusDot.isVisible())) {
         await dev2.page.getByPlaceholder('Search servers…').fill(seeded.name);
         await serverCard(dev2.page, seeded.name).getByRole('button', { name: 'Connect' }).click();
       }

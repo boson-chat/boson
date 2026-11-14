@@ -282,6 +282,9 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
             // Guests get a synthetic `me` (id __guest__) but no Boson account: no
             // backend nick-claim, no E2E-encrypted password sync.
             signedIn={Boolean(me) && !guestNick}
+            // The network admin turned automatic nick claims off: the
+            // Identity panel shows the manual NickServ form with a note.
+            nickClaimDisabled={state.nickClaimEnabled === false}
             // Ownership check: render the Edit tab only when the signed-in
             // account owns the row. The connection may hold a cold-start
             // SavedServer snapshot (no profile fields); buildEditableProps

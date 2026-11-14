@@ -8,6 +8,7 @@ import {
   getServiceCredentialsStore,
 } from './services-credentials';
 import type { NickClaimPollResponse } from '../directory/directory.types';
+import { HttpError } from '../../shared/http/http.client';
 
 // Tests for ChatService.claimNick — the end-to-end automated
 // "claim this nick" flow for signed-in users. The flow has many
@@ -283,5 +284,67 @@ describe('ChatService.claimNick — persistence', () => {
     fireRegisterPendingReply(session);
     ctrl.abort();
     await promise;
+  });
+});
+
+describe('ChatService.claimNick — nick claims turned off by the network', () => {
+  it('skips the backend entirely when the capability says off', async () => {
+    const create = vi.fn(async () => ({ id: 'x', email: 'reg@x' }));
+    const api: NickClaimAPI = {
+      createNickClaim: create,
+      getNickClaim: async () => { throw new Error('not reached'); },
+      isEnabled: () => false,
+    };
+    const { chat, session } = buildChat(api);
+    const result = await chat.claimNick('Nyan');
+    expect(result).toEqual({ kind: 'disabled' });
+    expect(create).not.toHaveBeenCalled();
+    expect(session.sentPrivmsgs).toEqual([]);
+  });
+
+  it('maps 403 nick_claim_disabled to disabled and reports it (setting flipped mid-session)', async () => {
+    const onDisabled = vi.fn();
+    const api: NickClaimAPI = {
+      createNickClaim: async () => {
+        throw new HttpError(403, 'nick_claim_disabled', { error: 'nick_claim_disabled' });
+      },
+      getNickClaim: async () => { throw new Error('not reached'); },
+      isEnabled: () => true,
+      onDisabled,
+    };
+    const { chat, session } = buildChat(api);
+    const result = await chat.claimNick('Nyan');
+    expect(result).toEqual({ kind: 'disabled' });
+    expect(onDisabled).toHaveBeenCalledTimes(1);
+    expect(session.sentPrivmsgs).toEqual([]);
+    // Nothing was left pending in the credentials store.
+    expect(getServiceCredentialsStore().get('srv-test')?.pendingRegistration).toBeUndefined();
+  });
+
+  it('keeps other 403s as unavailable', async () => {
+    const onDisabled = vi.fn();
+    const api: NickClaimAPI = {
+      createNickClaim: async () => { throw new HttpError(403, 'forbidden', { error: 'forbidden' }); },
+      getNickClaim: async () => { throw new Error('not reached'); },
+      onDisabled,
+    };
+    const { chat } = buildChat(api);
+    const result = await chat.claimNick('Nyan');
+    expect(result.kind).toBe('unavailable');
+    expect(onDisabled).not.toHaveBeenCalled();
+  });
+
+  it('still resumes an existing claim while off (claims stay readable)', async () => {
+    const api: NickClaimAPI = {
+      createNickClaim: async () => { throw new Error('not reached'); },
+      getNickClaim: async () => ({ status: 'expired' }),
+      isEnabled: () => false,
+    };
+    const { chat } = buildChat(api);
+    getServiceCredentialsStore().set('srv-test', {
+      accountName: 'Nyan', status: 'pending-confirmation', pendingRegistration: { id: 'c-old', email: 'reg@x' },
+    });
+    const result = await chat.resumePendingConfirmation('Nyan');
+    expect(result).toEqual({ kind: 'expired' });
   });
 });

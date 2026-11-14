@@ -3,6 +3,7 @@ import type {
   NickClaimCreateResponse,
   NickClaimPollResponse,
   NickservSecretDTO,
+  PublicConfig,
   NickservSecretsListResponse,
   BouncerSecretDTO,
   BouncerGetResponse,
@@ -119,6 +120,18 @@ export class DirectoryService {
   // an `email` to use at REGISTER time, then polls for the captured
   // confirmation code. ChatService.claimNick() wraps these two calls
   // with the actual NickServ register + confirm wire dance.
+
+  // The network's capability switches (public, no auth). Older backends
+  // without GET /config predate the switch, so a 404 means "on".
+  async getPublicConfig(): Promise<PublicConfig> {
+    try {
+      const res = await this.http.get<Partial<PublicConfig> | null>('/config');
+      return { nick_claim: res?.nick_claim !== false };
+    } catch (e) {
+      if (e instanceof HttpError && e.status === 404) return { nick_claim: true };
+      throw e;
+    }
+  }
 
   async createNickClaim(input: { serverId: string; accountNick: string }): Promise<NickClaimCreateResponse> {
     return this.http.post<NickClaimCreateResponse>('/me/nick-claims', {

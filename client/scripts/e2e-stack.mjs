@@ -169,6 +169,10 @@ function backendEnv() {
     AUTH_JWKS_URL: `${stack.auth.url}/.well-known/jwks.json`,
     AUTH_ISSUER: stack.auth.url,
     AUTH_AUDIENCE: 'boson',
+    // Nick claims are off by default; the e2e stack runs them (inbound =
+    // the catch-all Mailpit, via the older PURELYMAIL_* names on purpose:
+    // they still work as fallbacks).
+    NICK_CLAIM_ENABLED: 'true',
     PURELYMAIL_POP3_HOST: '127.0.0.1',
     PURELYMAIL_POP3_PORT: String(mail.pop3Port),
     PURELYMAIL_POP3_USER: mail.pop3User,
@@ -176,6 +180,8 @@ function backendEnv() {
     PURELYMAIL_POP3_TLS: 'false',
     NICK_CLAIM_EMAIL_DOMAIN: 'boson.chat',
     NICK_CLAIM_RATE_LIMIT_PER_HOUR: '1000',
+    INTERNAL_ADDR: `127.0.0.1:${stack.backend.internalPort}`,
+    INTERNAL_TOKEN: stack.backend.internalToken,
     CLOUDFLARE_R2_ACCESS_KEY: stack.minio.accessKey,
     CLOUDFLARE_R2_SECRET_KEY: stack.minio.secretKey,
     CLOUDFLARE_R2_ENDPOINT: stack.minio.endpoint,
@@ -183,6 +189,8 @@ function backendEnv() {
     CLOUDFLARE_CDN_BASE_URL: `${stack.minio.endpoint}/${stack.minio.bucket}`,
   };
   delete env.GOCOVERDIR;
+  // Env-only config: a stray BOSON_CONFIG from the shell must not apply.
+  delete env.BOSON_CONFIG;
   if (coverage) env.GOCOVERDIR = backendCoverDir;
   return env;
 }

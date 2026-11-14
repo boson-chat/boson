@@ -17,10 +17,11 @@ import (
 // don't touch Postgres — the repo is the unit boundary, and the
 // repo's own integration tests live in repository_test.go.
 type stubRepo struct {
-	createFn      func(ctx context.Context, userID uuid.UUID, serverID, accountNick string) (*nickclaim.NickClaim, error)
-	countSinceFn  func(ctx context.Context, userID uuid.UUID, since time.Time) (int64, error)
-	findByIDFn    func(ctx context.Context, id, userID uuid.UUID) (*nickclaim.NickClaim, error)
-	consumeCalls  int
+	createFn     func(ctx context.Context, userID uuid.UUID, serverID, accountNick string) (*nickclaim.NickClaim, error)
+	countSinceFn func(ctx context.Context, userID uuid.UUID, since time.Time) (int64, error)
+	findByIDFn   func(ctx context.Context, id, userID uuid.UUID) (*nickclaim.NickClaim, error)
+	consumeCalls int
+	pending      int64
 }
 
 func (s *stubRepo) Create(ctx context.Context, userID uuid.UUID, serverID, accountNick string) (*nickclaim.NickClaim, error) {
@@ -45,6 +46,9 @@ func (s *stubRepo) ExpireBefore(_ context.Context, _ time.Time) (int64, error) {
 func (s *stubRepo) CountSince(ctx context.Context, userID uuid.UUID, since time.Time) (int64, error) {
 	return s.countSinceFn(ctx, userID, since)
 }
+func (s *stubRepo) CountPending(_ context.Context) (int64, error) {
+	return s.pending, nil
+}
 func (s *stubRepo) MailUIDCaptured(_ context.Context, _ string) (bool, error) {
 	return false, nil
 }
@@ -64,7 +68,7 @@ func TestService_CreateClaim_HappyPath(t *testing.T) {
 			return expected, nil
 		},
 	}
-	svc := nickclaim.NewService(repo, nickclaim.Config{})
+	svc := nickclaim.NewService(repo, nickclaim.Config{Enabled: true})
 
 	got, err := svc.CreateClaim(context.Background(), uid, "srv-1", "Nyan")
 	require.NoError(t, err)
@@ -79,7 +83,7 @@ func TestService_CreateClaim_RateLimited(t *testing.T) {
 			return nil, nil
 		},
 	}
-	svc := nickclaim.NewService(repo, nickclaim.Config{RateLimitPerHour: 5})
+	svc := nickclaim.NewService(repo, nickclaim.Config{Enabled: true, RateLimitPerHour: 5})
 
 	_, err := svc.CreateClaim(context.Background(), uuid.New(), "srv", "Nyan")
 	assert.ErrorIs(t, err, nickclaim.ErrRateLimited)
@@ -92,7 +96,7 @@ func TestService_CreateClaim_RejectsEmptyInputs(t *testing.T) {
 			return 0, nil
 		},
 	}
-	svc := nickclaim.NewService(repo, nickclaim.Config{})
+	svc := nickclaim.NewService(repo, nickclaim.Config{Enabled: true})
 
 	_, err := svc.CreateClaim(context.Background(), uuid.New(), "", "Nyan")
 	assert.Error(t, err)
@@ -145,7 +149,7 @@ func TestService_ConsumeIfCaptured_FlipsCapturedToConsumed(t *testing.T) {
 			return &updated, nil
 		},
 	}
-	svc := nickclaim.NewService(repo, nickclaim.Config{})
+	svc := nickclaim.NewService(repo, nickclaim.Config{Enabled: true})
 
 	got, err := svc.ConsumeIfCaptured(context.Background(), id, uid)
 	require.NoError(t, err)
@@ -160,11 +164,41 @@ func TestService_ConsumeIfCaptured_NoOpForOtherStatuses(t *testing.T) {
 		repo := &stubRepo{
 			findByIDFn: func(_ context.Context, _, _ uuid.UUID) (*nickclaim.NickClaim, error) { return row, nil },
 		}
-		svc := nickclaim.NewService(repo, nickclaim.Config{})
+		svc := nickclaim.NewService(repo, nickclaim.Config{Enabled: true})
 
 		got, err := svc.ConsumeIfCaptured(context.Background(), id, uid)
 		require.NoError(t, err, "status=%s", s)
 		assert.Equal(t, s, got.Status, "status=%s should stay unchanged", s)
 		assert.Equal(t, 0, repo.consumeCalls, "MarkConsumed shouldn't fire for status=%s", s)
 	}
+}
+
+func TestService_CreateClaim_Disabled(t *testing.T) {
+	repo := &stubRepo{
+		countSinceFn: func(_ context.Context, _ uuid.UUID, _ time.Time) (int64, error) {
+			t.Fatal("nothing is read while disabled")
+			return 0, nil
+		},
+	}
+	svc := nickclaim.NewService(repo, nickclaim.Config{}) // zero value = off
+	assert.False(t, svc.Enabled())
+	_, err := svc.CreateClaim(context.Background(), uuid.New(), "srv-1", "Nyan")
+	assert.ErrorIs(t, err, nickclaim.ErrDisabled)
+
+	// Turned on live (config reload), then off again.
+	svc.Configure(nickclaim.Config{Enabled: true, EmailDomain: "example.com"})
+	assert.True(t, svc.Enabled())
+	assert.Equal(t, 5, svc.CurrentConfig().RateLimitPerHour, "defaults still apply")
+	assert.Equal(t, "reg+00000000000000000000000000000000-abc@example.com",
+		svc.EmailFor(&nickclaim.NickClaim{ShortToken: "abc"}))
+	svc.Configure(nickclaim.Config{})
+	_, err = svc.CreateClaim(context.Background(), uuid.New(), "srv-1", "Nyan")
+	assert.ErrorIs(t, err, nickclaim.ErrDisabled)
+}
+
+func TestService_CountPending(t *testing.T) {
+	svc := nickclaim.NewService(&stubRepo{pending: 7}, nickclaim.Config{})
+	n, err := svc.CountPending(context.Background())
+	require.NoError(t, err)
+	assert.EqualValues(t, 7, n)
 }

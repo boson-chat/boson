@@ -117,6 +117,12 @@ export interface User {
   created_at: string;
 }
 
+// GET /config on the backend: the network's capability switches.
+export interface PublicConfig {
+  // Automatic NickServ registration on other networks (POST /me/nick-claims).
+  nick_claim: boolean;
+}
+
 // ---- NickClaim (automated NickServ email-confirmation flow) ---------
 
 export interface NickClaimCreateResponse {

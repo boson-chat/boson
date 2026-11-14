@@ -84,6 +84,34 @@ Channel settings has a Registration tab, and a shield next to the channel name s
 
 `make test-e2e-chanserv` runs the adapters end to end against real Ergo, UnrealIRCd+Anope and InspIRCd+Atheme in docker (`infra/chanserv-e2e/`) and refreshes the captured transcripts (`engine/internal/services_e2e/fixtures/*/chanserv-*.json`) that the normal test run replays.
 
+### Nick claims (automatic NickServ registration)
+
+A signed-in user can have Boson register their nick on another IRC network: the api mints a `reg+<userid>-<token>@<email_domain>` (plus-addressed) address (`POST /me/nick-claims`), the client sends NickServ `REGISTER` with it, and the api's POP3 worker drains the catch-all mailbox that address lands in and hands the code back (`GET /me/nick-claims/{id}`) for `CONFIRM`. It is **off by default**; a network admin turns it on. boson.chat runs with it on. The inbound mailbox must be **dedicated** to this (a catch-all for the domain): the worker deletes every message it can't match to a claim.
+
+Settings: the `nick_claim:` section of the stack config file (`BOSON_CONFIG=/config/boson.yaml`, watched and applied live: enabling or disabling starts or stops the worker, inbound changes restart it), else env, else defaults. The inbound mailbox is its own config, separate from the auth service's outbound SMTP.
+
+```yaml
+nick_claim:
+  enabled: false                 # NICK_CLAIM_ENABLED (default false)
+  email_domain: example.com      # NICK_CLAIM_EMAIL_DOMAIN; reg+…@domain must reach the inbound mailbox (catch-all)
+  rate_limit_per_hour: 5         # NICK_CLAIM_RATE_LIMIT_PER_HOUR
+  inbound:
+    protocol: pop3               # only pop3
+    host: pop3.example.com       # NICK_CLAIM_POP3_HOST
+    port: 995                    # NICK_CLAIM_POP3_PORT
+    tls: true                    # NICK_CLAIM_POP3_TLS
+    user: reg@example.com        # NICK_CLAIM_POP3_USER
+```
+
+The password is env only: `NICK_CLAIM_POP3_PASSWORD`. The older `PURELYMAIL_POP3_{HOST,PORT,USER,PASSWORD,TLS}` are still read as fallbacks, but no longer turn the feature on. `enabled: true` needs `email_domain` and `inbound.host`; without them the feature stays off and the error is reported. `boson export-config` prints the section from the env plus the file if `BOSON_CONFIG` exists (with `enabled: true` when `NICK_CLAIM_ENABLED=true` or a POP3 host is set; no database needed) for moving an install to the file.
+
+While it is off, no worker runs, `POST /me/nick-claims` answers `403 {"error":"nick_claim_disabled"}`, existing claims stay readable, and `GET /config` (public, no auth) says `{"nick_claim": false}`: the client hides the one-click claim and points to the manual NickServ form.
+
+The api's internal listener (`INTERNAL_PORT`, default `3001`, or a full `INTERNAL_ADDR`; compose network only, never publish it) serves:
+
+- `GET /internal/config/status`: the stack config contract's status plus `"nick_claim": {"enabled", "worker": "stopped"|"running"|"error", "last_poll_at", "last_error"}`, no token.
+- `GET /internal/nick-claims/status` (`{enabled, email_domain, inbound:{host,port,tls,user,password_set}, worker:{…}, pending_claims, config_error?}`) and `POST /internal/nick-claims/test` (connect + sign in + STAT, against the config in use or unsaved values in `{"inbound":{…}}`; the stored password is only reused for the host in use), with `X-Internal-Token: $INTERNAL_TOKEN` (or `Authorization: Bearer`; `INTERNAL_API_TOKEN` is accepted as the env name too). Empty token: `503 internal_api_disabled`.
+
 ### Skip auth (guest mode)
 
 On the login screen, click **"Continue without an account"** and pick a nick — you'll land directly in the directory. No backend `/me`, no encrypted identity, no sync. Useful for kicking the tyres.

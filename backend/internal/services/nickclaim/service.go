@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,12 +16,19 @@ var (
 	// claims than the per-window budget. The handler maps this to
 	// HTTP 429.
 	ErrRateLimited = errors.New("nick claim rate limit exceeded")
+	// ErrDisabled is returned by CreateClaim while the network admin has
+	// nick claims turned off. The handler maps it to 403
+	// {"error":"nick_claim_disabled"}. Reading existing claims still works.
+	ErrDisabled = errors.New("nick claims are disabled on this network")
 )
 
 // Config is the subset of app config the service needs. Keeps
 // service-layer code independent of the larger AppConfig struct
 // (test seam + boundary discipline).
 type Config struct {
+	// Enabled turns minting on. Off by default (zero value): a network
+	// admin enables it with nick_claim.enabled / NICK_CLAIM_ENABLED.
+	Enabled bool
 	// EmailDomain is the right-hand-side of the recipient address.
 	// Defaults to "boson.chat" in production; tests override.
 	EmailDomain string
@@ -31,8 +39,20 @@ type Config struct {
 }
 
 type ServiceImpl interface {
+	// Enabled reports whether new claims can be minted right now.
+	Enabled() bool
+
+	// Configure swaps the live settings (config file reload).
+	Configure(cfg Config)
+
+	// CurrentConfig returns the live settings.
+	CurrentConfig() Config
+
+	// CountPending counts claims still waiting for their email.
+	CountPending(ctx context.Context) (int64, error)
+
 	// CreateClaim mints a pending row and returns it. Enforces the
-	// per-user rate limit.
+	// per-user rate limit; ErrDisabled while the feature is off.
 	CreateClaim(ctx context.Context, userID uuid.UUID, serverID, accountNick string) (*NickClaim, error)
 
 	// GetClaim returns the claim if it belongs to userID. Returns
@@ -51,18 +71,45 @@ type ServiceImpl interface {
 
 type Service struct {
 	Repository RepositoryImpl
-	Config     Config
 	now        func() time.Time
+
+	mu  sync.RWMutex
+	cfg Config
 }
 
 func NewService(repo RepositoryImpl, cfg Config) ServiceImpl {
+	s := &Service{Repository: repo, now: time.Now}
+	s.Configure(cfg)
+	return s
+}
+
+func normalizeConfig(cfg Config) Config {
 	if cfg.EmailDomain == "" {
 		cfg.EmailDomain = "boson.chat"
 	}
 	if cfg.RateLimitPerHour <= 0 {
 		cfg.RateLimitPerHour = 5
 	}
-	return &Service{Repository: repo, Config: cfg, now: time.Now}
+	return cfg
+}
+
+func (s *Service) Configure(cfg Config) {
+	cfg = normalizeConfig(cfg)
+	s.mu.Lock()
+	s.cfg = cfg
+	s.mu.Unlock()
+}
+
+func (s *Service) CurrentConfig() Config {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.cfg
+}
+
+func (s *Service) Enabled() bool { return s.CurrentConfig().Enabled }
+
+func (s *Service) CountPending(ctx context.Context) (int64, error) {
+	return s.Repository.CountPending(ctx)
 }
 
 // NewServiceWithClock — test seam.
@@ -73,6 +120,10 @@ func NewServiceWithClock(repo RepositoryImpl, cfg Config, now func() time.Time) 
 }
 
 func (s *Service) CreateClaim(ctx context.Context, userID uuid.UUID, serverID, accountNick string) (*NickClaim, error) {
+	cfg := s.CurrentConfig()
+	if !cfg.Enabled {
+		return nil, ErrDisabled
+	}
 	serverID = strings.TrimSpace(serverID)
 	accountNick = strings.TrimSpace(accountNick)
 	if serverID == "" || accountNick == "" {
@@ -84,7 +135,7 @@ func (s *Service) CreateClaim(ctx context.Context, userID uuid.UUID, serverID, a
 	if err != nil {
 		return nil, err
 	}
-	if count >= int64(s.Config.RateLimitPerHour) {
+	if count >= int64(cfg.RateLimitPerHour) {
 		return nil, ErrRateLimited
 	}
 
@@ -125,5 +176,5 @@ func (s *Service) EmailFor(c *NickClaim) string {
 	//   reg+550e8400e29b41d4a716446655440000-abc12345@boson.chat
 	// is 60 chars, well within typical 64-char limits.
 	uid := strings.ReplaceAll(c.UserID.String(), "-", "")
-	return fmt.Sprintf("reg+%s-%s@%s", uid, c.ShortToken, s.Config.EmailDomain)
+	return fmt.Sprintf("reg+%s-%s@%s", uid, c.ShortToken, s.CurrentConfig().EmailDomain)
 }
