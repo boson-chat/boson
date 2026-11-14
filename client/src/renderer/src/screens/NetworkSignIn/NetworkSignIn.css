@@ -1,0 +1,120 @@
+/* "Sign in to <network>" — the network's own sign-in, inside a Modal.
+   Built from the login screen's pieces (errors, notices, SSO buttons); the
+   one new element is the realm line: which server sees the password. */
+
+.netauth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.netauth-realm {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  min-width: 0;
+}
+.netauth-realm-prompt { color: var(--accent); }
+.netauth-realm-text { min-width: 0; overflow-wrap: anywhere; }
+.netauth-realm-host { color: var(--fg); }
+
+.netauth-required {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--warn);
+  background: color-mix(in oklab, var(--warn), transparent 92%);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.netauth-lede {
+  margin: 0;
+  color: var(--fg-2);
+  font-size: var(--text-base);
+  line-height: var(--leading-body);
+}
+.netauth-strong { color: var(--accent); font-family: var(--font-mono); font-weight: 500; }
+
+.netauth-form,
+.netauth-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.netauth-panel { gap: var(--space-3); }
+.netauth-panel-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.netauth-hint {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  line-height: var(--leading-body);
+}
+
+.netauth-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.netauth-actions > .login-guest-toggle { align-self: center; }
+.netauth-row { display: flex; justify-content: space-between; gap: var(--space-2); }
+
+.netauth-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-soft);
+}
+.netauth-foot-text { font-size: var(--text-sm); color: var(--fg-3); }
+
+/* The sidebar line under the server header. */
+.netauth-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  min-width: 0;
+}
+.netauth-bar-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.netauth-bar-user { color: var(--fg-2); }
+.netauth-bar-signin {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font: inherit;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color var(--motion-instant) var(--ease-standard), background var(--motion-instant) var(--ease-standard);
+}
+.netauth-bar-signin:hover { border-color: var(--accent); background: var(--accent-dim); }
+.netauth-bar-signin:focus-visible { outline: none; box-shadow: var(--focus-ring); }

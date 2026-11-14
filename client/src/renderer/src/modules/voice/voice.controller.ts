@@ -4,9 +4,11 @@
 // in the desktop app (desktop/voice.go); this drives it over the bridge and
 // keeps a snapshot the UI renders.
 //
-// Voice is per IRC server and only offered when the server's voice uses the
-// boson auth service the user is signed in to (its tokens are what the
-// voice server accepts). Other servers show no voice UI.
+// Voice is per IRC server and only offered when the server's voice uses an
+// auth service the app has an account realm for — the boson.chat one, or
+// the network's own (a self-hosted network the user added) — since its
+// tokens are what the voice server accepts. Tokens come from that service's
+// session, never another's. Other servers show no voice UI.
 
 import type { VoiceBridge } from './voice.bridge';
 import {
@@ -47,8 +49,12 @@ export interface VoiceToken {
 export interface VoiceControllerOptions {
   // The boson auth service the app signs in to (VITE_AUTH_URL).
   authUrl: string;
-  // A voice token from that service (AuthService.voiceToken).
-  voiceToken: (rooms?: string[]) => Promise<VoiceToken>;
+  // A voice token from the auth service at authUrl (the main one when
+  // omitted): AuthService.voiceToken of that service's session.
+  voiceToken: (rooms?: string[], authUrl?: string) => Promise<VoiceToken>;
+  // Whether authUrl is a self-hosted network's auth service the app knows
+  // (NetworkAccounts); its voice is then offered with that account.
+  knowsAuth?: (authUrl: string) => boolean;
   // Room list poll interval while a server's panel is open.
   pollMs?: number;
   now?: () => number;
@@ -84,7 +90,10 @@ export class VoiceController {
   private callServerName = '';
   private readonly listeners = new Set<(s: VoiceSnapshot) => void>();
   private watchers = new Map<string, { count: number; timer: ReturnType<typeof setInterval> | null }>();
-  private listToken: VoiceToken | null = null;
+  // List tokens per auth service.
+  private listTokens = new Map<string, VoiceToken>();
+  // Which auth service each host's voice uses.
+  private hostAuth: Record<string, string> = {};
   private pttDown = false;
   private offs: Array<() => void> = [];
   private settings: VoiceSettings;
@@ -176,7 +185,9 @@ export class VoiceController {
       try {
         const info = await this.bridge!.discover(host, refresh);
         // Only voice tied to the boson account the app signs in to.
-        const ours = info.available && normalizeAuthUrl(info.authUrl) === normalizeAuthUrl(this.opts.authUrl);
+        const auth = normalizeAuthUrl(info.authUrl);
+        const ours = info.available && (auth === normalizeAuthUrl(this.opts.authUrl) || !!(auth && this.opts.knowsAuth?.(auth)));
+        if (ours) this.hostAuth[host] = auth;
         this.discoveredAt[host] = this.now();
         this.patchServer(host, {
           discovery: ours ? 'available' : 'none',
@@ -232,7 +243,7 @@ export class VoiceController {
     if (!force && typeof document !== 'undefined' && document.hidden) return;
     let token: string;
     try {
-      token = await this.listVoiceToken();
+      token = await this.listVoiceToken(host);
     } catch (err) {
       this.patchServer(host, { roomsError: tokenErrorText(err), roomsErrorKind: 'token' });
       return;
@@ -244,7 +255,7 @@ export class VoiceController {
       this.patchServer(host, { roomsError: errText(err), roomsErrorKind: 'server' });
       return;
     }
-    if (r.errorKind === 'token') this.listToken = null;
+    if (r.errorKind === 'token') this.listTokens.delete(this.authFor(host));
     if (r.error) {
       this.patchServer(host, { roomsError: r.error, roomsErrorKind: r.errorKind ?? 'server' });
       return;
@@ -301,7 +312,7 @@ export class VoiceController {
     if (!this.bridge) throw new VoiceRoomError('unavailable_voice', 'Voice needs the desktop app.');
     let token: string;
     try {
-      token = await this.listVoiceToken();
+      token = await this.listVoiceToken(host);
     } catch (err) {
       throw new VoiceRoomError('token', tokenErrorText(err));
     }
@@ -311,7 +322,7 @@ export class VoiceController {
     } catch (err) {
       throw new VoiceRoomError('server', errText(err));
     }
-    if (r.code === 'unauthorized') this.listToken = null;
+    if (r.code === 'unauthorized') this.listTokens.delete(this.authFor(host));
     if (r.error || r.code) throw new VoiceRoomError(r.code ?? 'server', roomErrorText(r), r.retryAfter);
     if (refresh) void this.refreshRooms(host, true);
     return r;
@@ -319,10 +330,32 @@ export class VoiceController {
 
   // A token for listing rooms (any room), reused while it's good for
   // another minute. Joining always gets its own, for that room.
-  private async listVoiceToken(): Promise<string> {
-    if (this.listToken && this.listToken.expiresAt - TOKEN_MARGIN_MS > this.now()) return this.listToken.token;
-    this.listToken = await this.opts.voiceToken();
-    return this.listToken.token;
+  private async listVoiceToken(host: string): Promise<string> {
+    const auth = this.authFor(host);
+    const cached = this.listTokens.get(auth);
+    if (cached && cached.expiresAt - TOKEN_MARGIN_MS > this.now()) return cached.token;
+    const t = await this.voiceTokenFor(host);
+    this.listTokens.set(auth, t);
+    return t.token;
+  }
+
+  // The auth service host's voice uses ('' until discovered: the main one).
+  private authFor(host: string): string {
+    return this.hostAuth[host] ?? normalizeAuthUrl(this.opts.authUrl);
+  }
+
+  private voiceTokenFor(host: string, rooms?: string[]): Promise<VoiceToken> {
+    const auth = this.authFor(host);
+    const main = auth === normalizeAuthUrl(this.opts.authUrl);
+    return main ? this.opts.voiceToken(rooms) : this.opts.voiceToken(rooms, auth);
+  }
+
+  // Re-asks the shell whether host has voice the app may use (after its
+  // network's auth service became known), whatever the day-long cache says.
+  recheck(host: string): Promise<void> {
+    const h = host.trim().toLowerCase();
+    delete this.discoveredAt[h];
+    return this.discover(h);
   }
 
   // ---- the call ----
@@ -339,7 +372,7 @@ export class VoiceController {
     });
     let token: string;
     try {
-      token = (await this.opts.voiceToken([room.id])).token;
+      token = (await this.voiceTokenFor(host, [room.id])).token;
     } catch (err) {
       this.setCall({ ...this.call, status: 'error', error: tokenErrorText(err), errorKind: 'token' });
       return;

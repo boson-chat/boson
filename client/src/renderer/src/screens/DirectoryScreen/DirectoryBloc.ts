@@ -28,6 +28,8 @@ import {
 import type { Facets, HostingApi, NetworkSort } from '../../modules/directory/network-api';
 import type { NetworkDirectories } from '../../modules/directory/networks';
 import { findListing } from '../../modules/directory/listing-match';
+import { getNetworkAccounts, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
+import { isAccountRequired, isAccountRequiredText, isSaslFailure, resolveIrcLogin } from '../../modules/netauth/irc-login';
 
 // A dropped connection's conversations, handed to its replacement.
 type ConversationCarry = ReturnType<ChatService['exportConversations']>;
@@ -221,6 +223,10 @@ export interface DirectoryBlocDeps {
   // The network directories (multi-source /v1 browse, owner calls). Absent:
   // the legacy single-page /servers list from `directory`.
   networks?: NetworkDirectories;
+  // Accounts on self-hosted networks ("Sign in to <network>"): the IRC
+  // login with the network's own account. Default: the app's instance
+  // (null without the desktop shell).
+  netAccounts?: NetworkAccounts | null;
 }
 
 const SEARCH_DEBOUNCE_MS = 200;
@@ -240,6 +246,10 @@ export class DirectoryBloc {
   private readonly sessionStore: SessionStore;
   private readonly history: ChatHistoryStore | null;
   private readonly getUserId: () => string | null;
+  private readonly netAccountsDep: NetworkAccounts | null | undefined;
+  // Servers to connect to as a guest next time though signed in to their
+  // network (the user chose that after the IRC server refused the token).
+  private readonly guestOnce = new Set<string>();
 
   private me: User | null | undefined = undefined;
   private servers: Server[] | null = null;
@@ -314,6 +324,7 @@ export class DirectoryBloc {
 
   constructor(deps: DirectoryBlocDeps) {
     this.auth = deps.auth;
+    this.netAccountsDep = deps.netAccounts;
     this.directory = deps.directory;
     this.networks = deps.networks ?? null;
     this.browser = deps.networks?.browser ?? new LegacyBrowser((p) => deps.directory.listServers(p));
@@ -1806,7 +1817,7 @@ export class DirectoryBloc {
     // Sanitize the Boson handle into an IRC-legal nick — boson handles are
     // typically email-shaped, but IRC servers reject `@` and `.` with 432
     // ERR_ERRONEUSNICKNAME and registration stalls silently.
-    const ircNick = sanitizeIrcNick(this.me.handle);
+    let ircNick = sanitizeIrcNick(this.me.handle);
     // Pull the stored NickServ password for this server (if any) so
     // the engine can auto-identify after RPL_WELCOME. Plain-text in
     // localStorage today; same path that the Advanced settings panel
@@ -1866,6 +1877,27 @@ export class DirectoryBloc {
         bouncerNoFloodControl = profile.floodControl === false;
       }
     }
+    // The network's own account (self-hosted boson networks, and boson.chat
+    // itself): log in to IRC with its access token (SASL OAUTHBEARER), as
+    // its username. A connect the user started may ask them to sign in
+    // first, or to go on as a guest. Not through a bouncer: the bouncer
+    // logs in upstream itself.
+    let oauthbearer: { token: string } | undefined;
+    let loginLink: NetworkLink | null = null;
+    if (!viaBouncer) {
+      const guestOnce = this.guestOnce.delete(server.id);
+      const login = await resolveIrcLogin(this.netAccounts(), server.hostname, {
+        interactive: opts.focus !== false && !this.restoring,
+        serverName: server.name,
+        guest: guestOnce,
+      });
+      if (login === 'cancel') return;
+      loginLink = login.link;
+      if (login.token) {
+        oauthbearer = { token: login.token };
+        if (login.nick) ircNick = login.nick;
+      }
+    }
     // Re-check after the awaits above: a concurrent connectWith for this
     // server (restore + a click) may have registered it meanwhile, and a
     // second ChatService on the same session would double every event.
@@ -1896,6 +1928,7 @@ export class DirectoryBloc {
       tls,
       nick: ircNick,
       sasl,
+      ...(oauthbearer ? { oauthbearer } : {}),
       nickservPassword: storedCreds?.nickservPassword,
       serverPass,
       tlsInsecure,
@@ -1982,8 +2015,13 @@ export class DirectoryBloc {
     // on the bouncer): nothing would ever work, and Connect network just
     // gets "You must be connected with a network…". End it and say why.
     let networkMissing: string | null = null;
+    // The network wants an account: it refused a guest (FAIL
+    // ACCOUNT_REQUIRED), or refused our token (904).
+    let accountRefusal: 'required' | 'token' | null = null;
     const unsubscribeAuth = session.onEvent((e) => {
       if (e.Kind === '464') passwordRejected = e.Message || 'Password incorrect';
+      if (!viaBouncer && isAccountRequired(e)) accountRefusal = 'required';
+      if (!viaBouncer && oauthbearer && isSaslFailure(e)) accountRefusal = 'token';
       if (viaBouncer && networkMissing === null && e.Kind === 'PRIVMSG' && /^\*.*status$/i.test(e.From ?? '')) {
         const m = /^Network (\S+) doesn't exist/.exec(e.Message ?? '');
         if (m || /^You must be connected with a network/.test(e.Message ?? '')) {
@@ -1998,6 +2036,7 @@ export class DirectoryBloc {
       // numeric, etc.) on the connection itself — without this the splash
       // would just say "Disconnected" with no reason.
       if (sessionError) conn.error = sessionError;
+      if (!viaBouncer && !oauthbearer && accountRefusal === null && isAccountRequiredText(sessionError)) accountRefusal = 'required';
       // Clear stale errors once we successfully reach connected.
       if (state === 'connected') conn.error = null;
       if (state === 'connected') {
@@ -2031,7 +2070,17 @@ export class DirectoryBloc {
         // Schedule the next reconnect attempt (no-op if cancelled or
         // already-disposed). Idle is the pre-connect resting state and
         // not a drop, so we skip auto-reconnect for it.
-        if (state === 'disconnected' && networkMissing !== null) {
+        if (state === 'disconnected' && accountRefusal !== null) {
+          const name = loginLink ? (this.netAccounts()?.nameFor(loginLink.authUrl, server.name) ?? server.name) : server.name;
+          conn.error = accountRefusal === 'token'
+            ? `${name} didn't accept your account for IRC. Sign in again, or connect as a guest.`
+            : `${name} requires an account. Sign in to connect.`;
+          this.cancelAutoReconnect(server.id);
+          this.autoReconnect.get(server.id)!.cancelledForError = true;
+          const kind = accountRefusal;
+          accountRefusal = null;
+          void this.askToSignIn(server, kind);
+        } else if (state === 'disconnected' && networkMissing !== null) {
           conn.error = `Your bouncer has no network named "${networkMissing}". Check the network name in this server's settings (Bouncer), or pull the list in Directory → Bouncer.`;
           this.cancelAutoReconnect(server.id);
           this.autoReconnect.get(server.id)!.cancelledForError = true;
@@ -2133,6 +2182,31 @@ export class DirectoryBloc {
     // Pre-emit so subscribers see the new connection immediately, even
     // before the engine's first onState notification.
     this.emit();
+  }
+
+  private netAccounts(): NetworkAccounts | null {
+    return this.netAccountsDep === undefined ? getNetworkAccounts() : this.netAccountsDep;
+  }
+
+  // The IRC server refused us for want of an account (or refused our
+  // token): show the network's sign-in, and reconnect with what the user
+  // picks.
+  private async askToSignIn(server: Server | SavedServer, kind: 'required' | 'token'): Promise<void> {
+    const accounts = this.netAccounts();
+    const link = await accounts?.discover(server.hostname).catch(() => null);
+    if (!accounts || !link || this.disposed) return;
+    if (kind === 'required') accounts.setGuestChosen(server.hostname, false);
+    const outcome = await accounts.promptSignIn({
+      link,
+      serverName: server.name,
+      reason: kind === 'token' ? 'expired' : 'required',
+      allowGuest: kind === 'token' && await accounts.guestAllowed(link),
+    });
+    if (outcome === 'cancel' || this.disposed || !this.connections.has(server.id)) return;
+    if (outcome === 'guest') this.guestOnce.add(server.id);
+    const ar = this.autoReconnect.get(server.id);
+    if (ar) { ar.cancelled = false; ar.cancelledForError = false; }
+    await this.reconnectServer(server.id);
   }
 
   // Drop listeners + (optionally) send a per-server disconnect to the engine.

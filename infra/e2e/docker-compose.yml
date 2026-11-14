@@ -28,6 +28,10 @@
 #   auth-postgres 127.0.0.1:16433  the auth service's DB (auth/auth/auth)
 #   directory 127.0.0.1:18480  boson network directory (github.com/boson-chat/directory)
 #   directory-postgres 127.0.0.1:16434  the directory's DB (directory/directory/directory)
+#   auth2     127.0.0.1:18181  a SECOND auth service: a self-hosted network's own
+#   auth2-postgres 127.0.0.1:16435  its DB (auth/auth/auth)
+#   ergo2     127.0.0.1:16668  that network's IRC (the boson stack's Ergo image:
+#                              accounts in auth2, SASL OAUTHBEARER, no guests)
 #
 # The auth service is a private repo, so its image comes from outside:
 # e2e-stack.mjs builds it from a checkout ($AUTH_SRC, default ../auth next
@@ -276,3 +280,72 @@ services:
         condition: service_healthy
       auth:
         condition: service_started
+
+  # ---- a self-hosted network (network-signin.spec.ts) --------------------------
+  # Its own auth service (same image as `auth`, separate database and issuer)
+  # and its own Ergo, as a network running the boson stack would have. The app
+  # finds it through BOSON_NETWORK_JSON (the spec's boson.json for `localhost`).
+  # Mail goes to the users' Mailpit; sign-ups need no verification here.
+  auth2-postgres:
+    image: postgres:18-alpine
+    ports:
+      - '127.0.0.1:16435:5432'
+    environment:
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: auth
+      POSTGRES_DB: auth
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U auth -d auth']
+      interval: 1s
+      timeout: 3s
+      retries: 60
+
+  auth2:
+    image: ${AUTH_IMAGE:-boson-e2e-auth:local}
+    pull_policy: never
+    ports:
+      - '127.0.0.1:18181:8080'
+    environment:
+      ENV: development
+      PUBLIC_URL: http://127.0.0.1:18181
+      COOKIE_SECURE: 'false'
+      DATABASE_URL: postgres://auth:auth@auth2-postgres:5432/auth?sslmode=disable
+      AUTH_KEY_ENCRYPTION_KEY: ZTJlLXNlbGZob3N0LW5ldHdvcmsta2V5LXRtcGZzISE=
+      REGISTRATION: open
+      REQUIRE_EMAIL_VERIFICATION: 'false'
+      SITE_NAME: Selfhost
+      SMTP_HOST: auth-mailpit
+      SMTP_PORT: '1025'
+      SMTP_TLS: none
+      SMTP_FROM: Selfhost <no-reply@selfhost.test>
+      RATE_LIMIT_IP_BURST: '1000'
+      RATE_LIMIT_IP_PER_MINUTE: '1000'
+      RATE_LIMIT_ACCOUNT_BURST: '100'
+      RATE_LIMIT_ACCOUNT_PER_MINUTE: '100'
+    depends_on:
+      auth2-postgres:
+        condition: service_healthy
+
+  ergo2:
+    image: ${STACK_ERGO_IMAGE:-harbor.floret.dev/boson/stack-ergo:2.19.1}
+    entrypoint: ['/ircd-bin/ergo']
+    command: ['run', '--conf', '/etc/ergo2/ircd.yaml']
+    ports:
+      - '127.0.0.1:16668:6667'
+    environment:
+      # boson-ergo auth-script: verify OAUTHBEARER tokens against auth2.
+      AUTH_JWKS_URL: http://auth2:8080/.well-known/jwks.json
+      AUTH_ISSUER: http://127.0.0.1:18181
+      IRC_ROLES: 'false'
+    tmpfs:
+      - /ircd:mode=1777
+    volumes:
+      - ./ergo2.yaml:/etc/ergo2/ircd.yaml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 6667']
+      interval: 1s
+      timeout: 2s
+      retries: 30
+

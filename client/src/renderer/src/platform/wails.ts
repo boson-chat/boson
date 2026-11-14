@@ -292,6 +292,13 @@ export async function installWailsBridges(): Promise<void> {
       open: (url: string) => Call.ByName('main.LinksService.Open', url),
     };
   }
+  // "Sign in to <network>": which auth service a network uses, from its
+  // boson.json (desktop/netauth.go). Desktop only, like voice.
+  if (await Call.ByName('main.NetAuthService.Discover', '', false).then(() => true, () => false)) {
+    w.bosonNetAuth = {
+      discover: (host: string, refresh: boolean) => Call.ByName('main.NetAuthService.Discover', host, refresh),
+    };
+  }
   w.bosonEngine = {
     discovery: async () => ({ url: 'wails:engine', token: 'in-process', socket: WailsEngineSocket }),
   };

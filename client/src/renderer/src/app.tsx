@@ -19,6 +19,7 @@ import { DirectoryScreen } from './screens/DirectoryScreen';
 import { TitleBar } from './screens/TitleBar/TitleBar';
 import { UserSettings } from './screens/UserSettings/UserSettings';
 import { Inbox } from './screens/Inbox/Inbox';
+import { NetworkSignInHost } from './screens/NetworkSignIn/NetworkSignIn';
 import { loadGuestSession, onGuestChange, type GuestSession } from './modules/guest/guest';
 import { getMemoStore, type Memo } from './modules/memos';
 import { publishOpenConversation, publishReadMemo } from './modules/inbox-nav/inbox-nav';
@@ -133,6 +134,8 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
         identity={identity}
         auth={auth}
       />
+      {/* "Sign in to <network>" (self-hosted networks' own accounts). */}
+      <NetworkSignInHost />
       <Inbox
         open={inboxOpen}
         memos={memos}

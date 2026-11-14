@@ -39,6 +39,8 @@ interface ChannelSidebarProps {
   // sits at the foot of the list (the voice-connected bar).
   voice?: ComponentChildren;
   footer?: ComponentChildren;
+  // Under the header: the network account line (NetworkAccountBar).
+  account?: ComponentChildren;
   // A text channel's voice channels, shown under its row (Discord style),
   // and an extra button on the row (the voice "+").
   channelVoice?: (channel: string) => ComponentChildren;
@@ -60,6 +62,7 @@ export function ChannelSidebar({
   width,
   voice,
   footer,
+  account,
   channelVoice,
   channelAction,
 }: ChannelSidebarProps) {
@@ -161,6 +164,8 @@ export function ChannelSidebar({
           </button>
         )}
       </div>
+
+      {account}
 
       <div class="channel-list">
         {realChannels.length === 0 && dms.length === 0 && (

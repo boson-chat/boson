@@ -15,7 +15,8 @@
 //      ZNC, the backend's Postgres, the catch-all Mailpit, MinIO (+ bucket),
 //      the boson auth service with its Postgres and the users' Mailpit, and
 //      the network directory (github.com/boson-chat/directory, fake DNS) with
-//      its Postgres.
+//      its Postgres; and a self-hosted network (auth2 + ergo2: a second auth
+//      service and the boson stack's Ergo) for the network sign-in specs.
 //      The auth image is built from $AUTH_SRC (default: an `auth` checkout
 //      next to this repo) unless $AUTH_IMAGE names one to use. `up` creates
 //      the stack's admin account (stack.json auth.admin) for the tests.
@@ -58,6 +59,8 @@ const compose = ['compose', '-f', join(e2eDir, 'docker-compose.yml')];
 const COMPOSE_SERVICES = [
   'ergo', 'znc', 'postgres', 'mailpit-archive', 'mailpit', 'minio', 'auth-postgres', 'auth-mailpit', 'auth',
   'directory-postgres', 'directory',
+  // A self-hosted network: its own auth service and Ergo (network-signin.spec.ts).
+  'auth2-postgres', 'auth2', 'ergo2',
 ];
 
 function log(msg) {
@@ -125,6 +128,8 @@ function prepareAuthImage() {
 async function authUp() {
   const auth = stack.auth;
   await waitFor(`auth service on ${auth.url}/readyz`, async () => (await fetch(`${auth.url}/readyz`)).ok, 60_000);
+  const auth2 = stack.selfhost.auth;
+  await waitFor(`self-hosted network's auth service on ${auth2.url}/readyz`, async () => (await fetch(`${auth2.url}/readyz`)).ok, 60_000);
   // The tests' admin account (looks users up, disables them afterwards).
   // `user create` marks the email verified; rerunning on a live stack finds
   // it taken, which is fine.
@@ -284,6 +289,7 @@ function status() {
     `  minio       ${stack.minio.endpoint}`,
     `  auth        ${stack.auth.url}  (users' mailpit ${stack.auth.mailpitUrl}; admin ${stack.auth.admin.username})`,
     `  directory   ${stack.directory.url}  (db :${stack.directory.dbPort})`,
+    `  selfhost    irc ${stack.selfhost.irc.host}:${stack.selfhost.irc.port}, auth ${stack.selfhost.auth.url}  (a second network: own accounts, no guests)`,
     `  backend     ${stack.backend.url}  ${pid ? `(pid ${pid})` : '[not running]'}`,
   ].join('\n'));
 }

@@ -532,3 +532,8 @@
   gap: var(--space-2);
   flex-shrink: 0;
 }
+
+/* ---------- Network accounts section ---------- */
+
+.netauth-account + .netauth-account { border-top: 1px solid var(--border-soft); }
+.netauth-account-detail { padding: 0 var(--space-1) var(--space-3); margin: 0; }

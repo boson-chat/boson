@@ -198,3 +198,11 @@
 }
 @keyframes login-sso-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .login-sso-spinner { animation: none; } }
+
+/* boson.chat takes no guests: said under "Continue without an account". */
+.login-guest-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  line-height: var(--leading-body);
+}

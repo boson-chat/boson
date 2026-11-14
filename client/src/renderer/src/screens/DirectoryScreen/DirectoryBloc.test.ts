@@ -2224,4 +2224,132 @@ describe('DirectoryBloc', () => {
       bloc.dispose();
     });
   });
+
+  describe('network accounts (self-hosted sign-in)', () => {
+    // A stand-in for NetworkAccounts: irc.net.org's network has its own
+    // auth service; the user may or may not be signed in to it.
+    function fakeAccounts(o: { signedIn?: boolean; guestOk?: boolean } = {}) {
+      let signedIn = o.signedIn ?? false;
+      const link = { host: 'irc.net.org', authUrl: 'https://auth.net.org', main: false };
+      const prompts: Array<{ reason: string; allowGuest: boolean; resolve: (r: string) => void }> = [];
+      const guest = new Set<string>();
+      const accounts = {
+        discover: vi.fn(async (h: string) => (h === 'irc.net.org' ? link : null)),
+        sessionFor: () => (signedIn ? { user: { username: 'alice' } } : null),
+        ircToken: vi.fn(async () => (signedIn ? 'net-token' : null)),
+        guestAllowed: vi.fn(async () => o.guestOk ?? true),
+        guestChosen: (h: string) => guest.has(h),
+        setGuestChosen: (h: string, on: boolean) => { if (on) guest.add(h); else guest.delete(h); },
+        nameFor: () => 'Net',
+        promptSignIn: vi.fn((p: { reason: string; allowGuest: boolean }) => new Promise((resolve) => prompts.push({ ...p, resolve }))),
+      };
+      return { accounts, prompts, signIn: () => { signedIn = true; } };
+    }
+
+    async function netBloc(accounts: unknown) {
+      const engine = fakeEngine();
+      const server = fakeServer('net', { hostname: 'irc.net.org' });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(),
+        directory: fakeDirectory({ user: fakeUser('alice-handle'), servers: [server] }),
+        identity: fakeIdentity(),
+        engine: engine.client,
+        sessionStore: new SessionStore(memoryStorage()),
+        netAccounts: accounts as never,
+      });
+      await flushPromises(4);
+      return { bloc, engine, server };
+    }
+
+    it('logs in to IRC with the network token (OAUTHBEARER) as the network username', async () => {
+      const { accounts } = fakeAccounts({ signedIn: true });
+      const { bloc, engine, server } = await netBloc(accounts);
+      await bloc.connect(server);
+      expect(engine.connectCalls[0]).toMatchObject({ oauthbearer: { token: 'net-token' }, nick: 'alice' });
+      expect(accounts.promptSignIn).not.toHaveBeenCalled();
+      bloc.dispose();
+    });
+
+    it('asks first when signed out; a guest connects without a token', async () => {
+      const { accounts, prompts } = fakeAccounts();
+      const { bloc, engine, server } = await netBloc(accounts);
+      const p = bloc.connect(server);
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0]).toMatchObject({ reason: 'connect', allowGuest: true });
+      expect(engine.connectCalls).toHaveLength(0);
+      prompts[0]!.resolve('guest');
+      await p;
+      expect(engine.connectCalls[0]?.oauthbearer).toBeUndefined();
+      expect(engine.connectCalls[0]?.nick).toBe('alice-handle');
+      bloc.dispose();
+    });
+
+    it("doesn't connect when the sign-in is cancelled", async () => {
+      const { accounts, prompts } = fakeAccounts({ guestOk: false });
+      const { bloc, engine, server } = await netBloc(accounts);
+      const p = bloc.connect(server);
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0]).toMatchObject({ reason: 'required', allowGuest: false });
+      prompts[0]!.resolve('cancel');
+      await p;
+      expect(engine.connectCalls).toHaveLength(0);
+      bloc.dispose();
+    });
+
+    it('turns "no guests" from the IRC server into a sign-in, then reconnects with the account', async () => {
+      const { accounts, prompts, signIn } = fakeAccounts();
+      accounts.setGuestChosen('irc.net.org', true);
+      const { bloc, engine, server } = await netBloc(accounts);
+      await bloc.connect(server);
+      const s = engine.sessionFor('net');
+      s._emitEvent({ Kind: 'FAIL', Args: ['*', 'ACCOUNT_REQUIRED'], Message: 'You must log in with SASL to join this server' } as IrcEvent);
+      s._setState('disconnected', 'ERROR: You must log in with SASL to join this server');
+      expect(activeConnection(bloc.getState())?.error).toMatch(/Net requires an account/);
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0]).toMatchObject({ reason: 'required', allowGuest: false });
+      expect(accounts.guestChosen('irc.net.org')).toBe(false);
+      signIn();
+      prompts[0]!.resolve('signed-in');
+      await vi.waitFor(() => expect(engine.connectCalls).toHaveLength(2));
+      expect(engine.connectCalls[1]).toMatchObject({ oauthbearer: { token: 'net-token' } });
+      bloc.dispose();
+    });
+
+    it('a refused token offers signing in again or a guest connect', async () => {
+      const { accounts, prompts } = fakeAccounts({ signedIn: true });
+      const { bloc, engine, server } = await netBloc(accounts);
+      await bloc.connect(server);
+      const s = engine.sessionFor('net');
+      s._emitEvent({ Kind: '904', Message: 'SASL authentication failed' } as IrcEvent);
+      s._setState('disconnected', 'closing connection: SASL authentication failed');
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0]).toMatchObject({ reason: 'expired', allowGuest: true });
+      prompts[0]!.resolve('guest');
+      await vi.waitFor(() => expect(engine.connectCalls).toHaveLength(2));
+      expect(engine.connectCalls[1]?.oauthbearer).toBeUndefined();
+      bloc.dispose();
+    });
+
+    it('bouncer routes never send the network token', async () => {
+      const { accounts } = fakeAccounts({ signedIn: true });
+      setBouncerStore(await fastBouncerStore({ enabled: true, host: 'znc.example', port: 6697, tls: true, username: 'u', password: 'p' } as BouncerProfile));
+      const storage = memoryStorage();
+      const sessionStore = new SessionStore(storage);
+      const engine = fakeEngine();
+      const server = fakeServer('net', { hostname: 'irc.net.org' });
+      sessionStore.upsertServer({ id: 'net', name: 'net', hostname: 'irc.net.org', port: 6697, tls: true });
+      sessionStore.setServerBouncer?.('net', { route: true, network: 'net' });
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory: fakeDirectory({ user: fakeUser(), servers: [server] }), identity: fakeIdentity(),
+        engine: engine.client, sessionStore, netAccounts: accounts as never,
+      });
+      await flushPromises(4);
+      bloc.setServerBouncer('net', { route: true, network: 'net' });
+      await bloc.connect(server);
+      const c = engine.connectCalls.at(-1)!;
+      expect(c.serverPass).toBeTruthy();
+      expect(c.oauthbearer).toBeUndefined();
+      bloc.dispose();
+    });
+  });
 });

@@ -52,6 +52,34 @@ describe('VoiceController', () => {
     expect(s['irc.ircforever.org']?.discovery).toBe('none');
   });
 
+  it("offers a self-hosted network's voice with that network's own tokens", async () => {
+    const bridge = createFakeVoiceBridge({
+      servers: { 'irc.boson.chat': {}, 'irc.net.org': { authUrl: 'https://auth.net.org' } },
+      rooms: { 'irc.boson.chat': [GENERAL], 'irc.net.org': [GENERAL] },
+    });
+    const known = new Set<string>();
+    const voiceToken = vi.fn(async (rooms?: string[], auth?: string) => ({ token: `${auth ?? 'main'}:${rooms?.join(',') ?? 'list'}`, expiresAt: Date.now() + 300_000 }));
+    const c = new VoiceController(bridge, {
+      authUrl: 'https://auth.boson.chat', voiceToken, knowsAuth: (a) => known.has(a), pollMs: 50, keyTarget: null,
+    });
+    await c.discover('irc.net.org');
+    expect(c.getSnapshot().servers['irc.net.org']?.discovery).toBe('none');
+    // The network's auth service became known (its sign-in was set up).
+    known.add('https://auth.net.org');
+    await c.recheck('irc.net.org');
+    expect(c.getSnapshot().servers['irc.net.org']?.discovery).toBe('available');
+    await c.refreshRooms('irc.net.org', true);
+    await c.discover('irc.boson.chat');
+    await c.refreshRooms('irc.boson.chat', true);
+    expect(bridge.calls.filter((x) => x.method === 'rooms').map((x) => x.args)).toEqual([
+      ['irc.net.org', 'https://auth.net.org:list'],
+      ['irc.boson.chat', 'main:list'],
+    ]);
+    await c.join('irc.net.org', { id: 'general', name: 'General' });
+    expect(voiceToken).toHaveBeenLastCalledWith(['general'], 'https://auth.net.org');
+    c.dispose();
+  });
+
   it('discovers once, and again on refresh', async () => {
     const { c, bridge } = setup();
     await c.discover('irc.boson.chat');
