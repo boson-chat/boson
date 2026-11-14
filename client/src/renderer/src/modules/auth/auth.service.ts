@@ -79,7 +79,8 @@ export interface AuthConfig {
   site_name?: string;
   network_name?: string;
   // The network's theme document (boson-theme/1, GET /v1/branding).
-  branding_url?: string;
+  // null when the network has none.
+  branding_url?: string | null;
 }
 
 // guest_access, defaulting to allowed when the server doesn't say.
