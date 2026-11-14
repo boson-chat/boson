@@ -478,6 +478,9 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}
 	}
+	if p.OAuthBearer != nil && p.OAuthBearer.Token != "" {
+		cfg.OAuthBearer = &irc.SASLOAuthBearer{Token: p.OAuthBearer.Token}
+	}
 
 	client, err := irc.New(cfg)
 	if err != nil {
