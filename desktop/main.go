@@ -103,6 +103,11 @@ func main() {
 	}
 	// Voice channels (desktop only; voice.go).
 	services = append(services, voiceServices(dataDir, authBase, dev)...)
+	// "Sign in with …": the loopback redirect listener (sso.go). Desktop
+	// only; phones would need a boson:// redirect instead.
+	if !mobileOS {
+		services = append(services, application.NewService(NewSSOService()))
+	}
 	app := application.New(application.Options{
 		Name:        "Boson",
 		Description: "Boson chat",
