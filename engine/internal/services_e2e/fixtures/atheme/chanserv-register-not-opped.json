@@ -1,0 +1,22 @@
+{
+  "stack": "atheme",
+  "scenario": "register-not-opped",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "recorded": "2026-11-14T13:30:38.820Z",
+  "op": "register",
+  "args": [
+    "#cse2ene47u"
+  ],
+  "sent": [
+    "REGISTER #cse2ene47u"
+  ],
+  "replies": [
+    [
+      "You must be a channel operator in \u0002#cse2ene47u\u0002 in order to register it."
+    ]
+  ],
+  "expect": {
+    "kind": "error",
+    "code": "not-opped"
+  }
+}

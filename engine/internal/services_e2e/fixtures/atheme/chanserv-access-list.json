@@ -1,0 +1,26 @@
+{
+  "stack": "atheme",
+  "scenario": "access-list",
+  "ircdLabel": "inspircd-3.18 + atheme-7.2.12",
+  "recorded": "2026-11-14T13:30:39.637Z",
+  "op": "listAccess",
+  "args": [
+    "#cse2ene47u"
+  ],
+  "sent": [
+    "FLAGS #cse2ene47u"
+  ],
+  "replies": [
+    [
+      "Entry Nickname/Host          Flags",
+      "----- ---------------------- -----",
+      "1     csfne47u               +AFORaefhioqrstv     (#cse2ene47u) [modified 1s ago, on Nov 14 13:30:38 2026 +0000, by csfne47u]",
+      "2     cshne47u               +AOehiortv           (AOP) (#cse2ene47u) [modified 0s ago, on Nov 14 13:30:39 2026 +0000, by csfne47u]",
+      "----- ---------------------- -----",
+      "End of \u0002#cse2ene47u\u0002 FLAGS listing."
+    ]
+  ],
+  "expect": {
+    "kind": "access"
+  }
+}

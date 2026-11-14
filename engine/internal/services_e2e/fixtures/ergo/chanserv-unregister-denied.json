@@ -1,0 +1,22 @@
+{
+  "stack": "ergo",
+  "scenario": "unregister-denied",
+  "ircdLabel": "ergo-2.19.1",
+  "recorded": "2026-11-14T13:30:26.110Z",
+  "op": "unregister",
+  "args": [
+    "#cse2e0bm2k"
+  ],
+  "sent": [
+    "UNREGISTER #cse2e0bm2k"
+  ],
+  "replies": [
+    [
+      "Insufficient privileges"
+    ]
+  ],
+  "expect": {
+    "kind": "error",
+    "code": "access-denied"
+  }
+}

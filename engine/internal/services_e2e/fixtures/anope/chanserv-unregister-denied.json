@@ -1,0 +1,22 @@
+{
+  "stack": "anope",
+  "scenario": "unregister-denied",
+  "ircdLabel": "unrealircd-6 + anope-2.0",
+  "recorded": "2026-11-14T13:30:35.130Z",
+  "op": "unregister",
+  "args": [
+    "#cse2e54pbk"
+  ],
+  "sent": [
+    "DROP #cse2e54pbk #cse2e54pbk"
+  ],
+  "replies": [
+    [
+      "Access denied."
+    ]
+  ],
+  "expect": {
+    "kind": "error",
+    "code": "access-denied"
+  }
+}

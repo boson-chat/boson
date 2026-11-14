@@ -1,0 +1,24 @@
+{
+  "stack": "anope",
+  "scenario": "access-remove",
+  "ircdLabel": "unrealircd-6 + anope-2.0",
+  "recorded": "2026-11-14T13:30:32.722Z",
+  "op": "setAccess",
+  "args": [
+    "#cse2e54pbk",
+    "csh54pbk",
+    null,
+    "op"
+  ],
+  "sent": [
+    "ACCESS #cse2e54pbk DEL csh54pbk"
+  ],
+  "replies": [
+    [
+      "\u0002csh54pbk\u0002 deleted from #cse2e54pbk access list."
+    ]
+  ],
+  "expect": {
+    "kind": "done"
+  }
+}
