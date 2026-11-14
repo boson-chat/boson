@@ -17,6 +17,7 @@ import { getAdapter } from './adapters';
 import { AnopeAccountService } from './account-service-anope';
 import { AthemeAccountService } from './account-service-atheme';
 import { ErgoAccountService } from './account-service-ergo';
+import { ChanServController } from '../chanserv/chanserv.controller';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult, AccountInfo } from './account-service';
 import type { NickClaimCreateResponse, NickClaimPollResponse } from '../directory/directory.types';
 
@@ -402,6 +403,9 @@ export class ChatService {
   // into ChatState so the UI can render it. Null until the engine
   // has classified.
   private servicesFramework: 'atheme' | 'anope' | 'ergo' | 'unknown' | null = null;
+  // Channel registration (ChanServ) state for this connection; created on
+  // attach. Null on hand-rolled session fakes without onEvent.
+  private chanservCtl: ChanServController | null = null;
   private unsubscribeServices: (() => void) | null = null;
   private unsubscribeBouncerUpstream: (() => void) | null = null;
 
@@ -530,8 +534,17 @@ export class ChatService {
     this.unsubscribeServices = this.session.onServicesFramework((fw) => {
       if (this.servicesFramework === fw) return;
       this.servicesFramework = fw;
+      this.chanservCtl?.updateSignals();
       this.emit();
     });
+    this.chanservCtl?.dispose();
+    this.chanservCtl = new ChanServController(
+      (t, m) => this.session.privmsg(t, m),
+      {
+        signals: () => ({ framework: this.servicesFramework, version: this.serverInfo.version, network: this.serverInfo.network }),
+        myAccount: () => this.myAccount,
+      },
+    );
     // Bouncer upstream state (is ZNC connected to the real network?).
     // Sticky on the session, so a late attach replays the current value.
     // Optional-call: lightweight test fakes may not implement it.
@@ -662,6 +675,8 @@ export class ChatService {
     // a torn-down chat service.
     this.unsubscribeServices?.();
     this.unsubscribeServices = null;
+    this.chanservCtl?.dispose();
+    this.chanservCtl = null;
     this.unsubscribeBouncerUpstream?.();
     this.unsubscribeBouncerUpstream = null;
   }
@@ -678,6 +693,9 @@ export class ChatService {
   }
 
   setNick(nick: string): void { this.myNick = nick; }
+
+  // ChanServ (channel registration) for this connection. Null before attach.
+  chanserv(): ChanServController | null { return this.chanservCtl; }
 
   // Our own host + services account on this server, learned from the
   // extended-join self-join echo, CHGHOST, ACCOUNT, and the 900 numeric.
@@ -2248,6 +2266,9 @@ export class ChatService {
     // buffered and inserted as a group on BATCH end — routed away from the
     // live path (no serverLog flood, no unread bump, no inbox mirror).
     if (e.Kind === 'ACK') { this.confirmSent(Number(e.Message)); return; }
+    // ChanServ operations read replies first, so a reply they consume is
+    // recognised by the routing below.
+    if (!e.Tags?.batch) this.chanservCtl?.handleEvent(e);
     const batchRef = e.Tags?.batch;
     if (!batchRef) this.noteServerClock(e);
     if (batchRef) {
@@ -2305,6 +2326,9 @@ export class ChatService {
         // rename Nyan→Nyan2 the welcome-numeric sync somehow missed) — without
         // it, every MemoServ reply gets dropped right here.
         if (!isToMe && !isChannel && !isWildcard && !isServiceSender(e.From)) return;
+        // A ChanServ reply the channel-settings UI asked for (INFO lookups
+        // and the like) is read there, not echoed into the Server log.
+        if (!isChannel && this.chanservCtl?.claims(e)) return;
         // Inbox routing uses an ALLOWLIST, not a denylist. The Inbox is for
         // things you read asynchronously and addressed-to-you: MemoServ memos
         // and real-user DMs (the DM mirror is further down). Everything else a
@@ -2885,6 +2909,7 @@ export class ChatService {
         if (args[0]) next.serverName = args[0];
         if (args[1]) next.version = args[1];
         this.serverInfo = next;
+        this.chanservCtl?.updateSignals();
         this.emit();
         break;
       }
@@ -2898,6 +2923,9 @@ export class ChatService {
         // the persisted status immediately — no NickServ NOTICE
         // round-trip needed. Account name lives in Args[2] on
         // engines that split params; fall back to e.Message tail.
+        // Our account, for ChanServ (founder checks, who may register).
+        const loggedInAs = e.Args?.[1] || e.Message?.match(/logged in as (\S+?)\.?$/i)?.[1];
+        if (loggedInAs) this.updateSelfIdentity(undefined, loggedInAs);
         const serverId = this.serverScope?.serverId;
         if (!serverId) break;
         const store = getServiceCredentialsStore();
@@ -2905,6 +2933,11 @@ export class ChatService {
         if (existing.status !== 'identified') {
           store.set(serverId, { ...existing, status: 'identified' });
         }
+        break;
+      }
+      case '901': {
+        // RPL_LOGGEDOUT: no account any more.
+        this.updateSelfIdentity(undefined, '');
         break;
       }
       case 'CAP': {
@@ -2943,6 +2976,7 @@ export class ChatService {
           const value = tok.slice(eq + 1);
           if (key === 'NETWORK' && value && this.serverInfo.network !== value) {
             this.serverInfo = { ...this.serverInfo, network: value };
+            this.chanservCtl?.updateSignals();
             this.emit();
           }
           if (key === 'CHATHISTORY') {

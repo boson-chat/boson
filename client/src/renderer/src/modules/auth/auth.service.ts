@@ -67,6 +67,11 @@ export interface AuthConfig {
   registration?: string;
   require_email_verification?: boolean;
   sso_providers: SSOProvider[];
+  // New channels are registered to the logged-in user who creates them
+  // (default true when absent on servers that know the setting).
+  channel_auto_register?: boolean;
+  // Registered channels nobody uses for this many days are dropped; 0 = never.
+  channel_expiry_days?: number;
 }
 
 // An external sign-in linked to the account (GET /v1/me/identities).
