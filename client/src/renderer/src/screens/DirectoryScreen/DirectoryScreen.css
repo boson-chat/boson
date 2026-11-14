@@ -319,6 +319,15 @@
   color: var(--accent);
 }
 
+.directory-card-tag-source {
+  text-transform: none;
+  color: var(--fg-2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .directory-card-tag-verified {
   border-color: color-mix(in oklab, var(--success, #10b981), transparent 60%);
   color: var(--success, #10b981);
@@ -606,7 +615,7 @@
   .directory-title { font-size: var(--text-xl); }
   .directory-header { margin-bottom: var(--space-5); }
   .directory-filters { margin-bottom: var(--space-5); }
-  .directory-search { min-width: 0; width: 100%; }
+  .directory-search { min-width: 0; width: 100%; flex-basis: 100%; }
   /* Refresh + "Add your server to the community" wrap instead of running
      off a phone's edge. */
   .directory-header-actions { flex-wrap: wrap; }
@@ -858,4 +867,52 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+}
+
+/* Tag + sort controls beside the language chips. */
+.directory-select {
+  appearance: auto;
+  cursor: pointer;
+  width: auto;
+  min-height: 30px;
+  max-width: 200px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* Why the list may be partial (legacy fallback, a directory down). */
+.directory-source-note {
+  margin: calc(-1 * var(--space-4)) 0 var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+
+/* Infinite scroll: the sentinel loads the next page as it nears the
+   viewport; the button is the keyboard / no-observer path. */
+.directory-more {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6) 0 var(--space-2);
+}
+.directory-more-sentinel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+}
+.directory-more-bar { width: 100%; }
+
+/* Hosting modal: which directory the listing goes to. */
+.host-server-directory-select {
+  appearance: auto;
+  cursor: pointer;
+  min-height: 32px;
+}
+.host-server-directory-note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
 }

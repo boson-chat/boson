@@ -20,6 +20,13 @@ import {
   removeLocalServer,
   type LocalServer,
 } from '../../modules/directory/local-servers';
+import {
+  LegacyBrowser,
+  type DirectoryBrowser,
+  type BrowseParams,
+} from '../../modules/directory/multi-directory';
+import type { Facets, HostingApi, NetworkSort } from '../../modules/directory/network-api';
+import type { NetworkDirectories } from '../../modules/directory/networks';
 
 // A dropped connection's conversations, handed to its replacement.
 type ConversationCarry = ReturnType<ChatService['exportConversations']>;
@@ -124,8 +131,26 @@ export interface DirectoryState {
   filteredServers: Server[] | null;
   query: string;
   language: string;
+  // Tag filter ('' = any) and sort order ('' = the directory's default).
+  tag: string;
+  sort: NetworkSort | '';
   showNsfw: boolean;
   error: string | null;
+  // Paging (multi-directory browse): more rows to load, and a load in flight.
+  hasMore: boolean;
+  loadingMore: boolean;
+  // Tag + language counts across the enabled directories; null until loaded
+  // (or with the legacy API, which has none).
+  facets: Facets | null;
+  // Rows came from the legacy /servers fallback (no directory answered).
+  legacyDirectory: boolean;
+  // Directories that didn't answer the last search while others did.
+  directoryFailures: ReadonlyArray<{ source: string; message: string }>;
+  // The directories filter + sort server-side (/v1): the tag and sort
+  // controls apply. False for the legacy /servers list.
+  serverFilters: boolean;
+  // More than one directory is enabled: cards show which one lists them.
+  multiDirectory: boolean;
   // True while a search / refresh refetch of the list is in flight. The
   // initial load is covered by `servers === null`.
   searching: boolean;
@@ -181,6 +206,9 @@ export interface DirectoryBlocDeps {
   // Guest mode: when set, the bloc uses this nick as a synthetic User and
   // skips the backend /me call entirely. Servers list is still fetched.
   guestNick?: string;
+  // The network directories (multi-source /v1 browse, owner calls). Absent:
+  // the legacy single-page /servers list from `directory`.
+  networks?: NetworkDirectories;
 }
 
 const SEARCH_DEBOUNCE_MS = 200;
@@ -208,6 +236,15 @@ export class DirectoryBloc {
   // One bouncer network-discovery probe at a time.
   private bouncerProbeInFlight = false;
   private language = 'all';
+  private tag = '';
+  private sort: NetworkSort | '' = '';
+  private hasMore = false;
+  private loadingMore = false;
+  private facets: Facets | null = null;
+  private legacyDirectory = false;
+  private directoryFailures: ReadonlyArray<{ source: string; message: string }> = [];
+  private readonly browser: DirectoryBrowser;
+  private readonly networks: NetworkDirectories | null;
   private showNsfw = false;
   private error: string | null = null;
   // Insertion-ordered map of serverId → connection. We rely on Map's
@@ -266,6 +303,8 @@ export class DirectoryBloc {
   constructor(deps: DirectoryBlocDeps) {
     this.auth = deps.auth;
     this.directory = deps.directory;
+    this.networks = deps.networks ?? null;
+    this.browser = deps.networks?.browser ?? new LegacyBrowser((p) => deps.directory.listServers(p));
     this.identity = deps.identity;
     this.engine = deps.engine;
     this.sessionStore = deps.sessionStore ?? new SessionStore();
@@ -295,6 +334,14 @@ export class DirectoryBloc {
     // Bouncer profile changes (edited, turned off/on, or arriving late from
     // another device) re-route the connections that use it.
     this.unsubscribeBouncerProfile = getBouncerStore().subscribe(() => this.scheduleBouncerReroute());
+    // Directories added, removed or switched in Settings: browse them.
+    // Also while the first load is in flight: its answer is for the old list.
+    this.unsubscribeSources = this.networks?.sources.subscribe(() => {
+      if (this.disposed) return;
+      this.refreshDirectory();
+      this.loadFacets();
+      this.loadOwned();
+    }) ?? null;
     // The engine is back (its socket reopened — e.g. a new engine session
     // after a crash): bring dropped servers back now instead of waiting out
     // their backoff.
@@ -314,6 +361,7 @@ export class DirectoryBloc {
   }
 
   private unsubscribeBouncerProfile: (() => void) | null = null;
+  private unsubscribeSources: (() => void) | null = null;
   private unsubscribeEngineReconnect: (() => void) | null = null;
   private hiddenAt: number | null = null;
   private resumeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -401,8 +449,17 @@ export class DirectoryBloc {
       filteredServers: this.computeFiltered(),
       query: this.query,
       language: this.language,
+      tag: this.tag,
+      sort: this.sort,
       showNsfw: this.showNsfw,
       error: this.error,
+      hasMore: this.hasMore,
+      loadingMore: this.loadingMore,
+      facets: this.facets,
+      legacyDirectory: this.legacyDirectory,
+      directoryFailures: this.directoryFailures,
+      serverFilters: this.browser.serverSideFilters && !this.legacyDirectory,
+      multiDirectory: (this.networks?.sources.enabled().length ?? 0) > 1,
       searching: this.searching,
       connections: this.snapshotConnections(),
       activeServerId: this.activeServerId,
@@ -421,6 +478,8 @@ export class DirectoryBloc {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.unsubscribeSources?.();
+    this.unsubscribeSources = null;
     this.unsubscribeBouncerProfile?.();
     this.unsubscribeBouncerProfile = null;
     this.unsubscribeEngineReconnect?.();
@@ -472,6 +531,93 @@ export class DirectoryBloc {
     if (this.language === l) return;
     this.language = l;
     this.emit();
+    // The /v1 directories filter by language themselves (a page of rows
+    // could otherwise hold none in that language).
+    if (this.browser.serverSideFilters && this.servers !== null) this.refreshDirectory();
+  }
+
+  setTag(t: string): void {
+    if (this.tag === t) return;
+    this.tag = t;
+    this.emit();
+    if (this.browser.serverSideFilters && this.servers !== null) this.refreshDirectory();
+  }
+
+  setSort(sort: NetworkSort | ''): void {
+    if (this.sort === sort) return;
+    this.sort = sort;
+    this.emit();
+    if (this.browser.serverSideFilters && this.servers !== null) this.refreshDirectory();
+  }
+
+  // Infinite scroll: the next page from every directory with more rows.
+  async loadMore(): Promise<void> {
+    if (!this.hasMore || this.loadingMore || this.searching || this.servers === null) return;
+    const token = this.listToken;
+    this.loadingMore = true;
+    this.emit();
+    try {
+      const page = await this.browser.loadMore();
+      if (this.disposed || token !== this.listToken) return;
+      this.applyPage(page);
+    } catch (e) {
+      if (this.disposed || token !== this.listToken) return;
+      this.error = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (!this.disposed && token === this.listToken) {
+        this.loadingMore = false;
+        this.emit();
+      }
+    }
+  }
+
+  private browseParams(): BrowseParams {
+    const p: BrowseParams = {};
+    if (this.query) p.q = this.query;
+    if (this.showNsfw) p.nsfw = true;
+    if (this.browser.serverSideFilters) {
+      if (this.language !== 'all') p.lang = this.language;
+      if (this.tag) p.tag = this.tag;
+      if (this.sort) p.sort = this.sort;
+    }
+    return p;
+  }
+
+  private applyPage(page: { servers: Server[]; hasMore: boolean; legacy: boolean; failures: ReadonlyArray<{ source: string; message: string }> }): void {
+    this.servers = page.servers;
+    this.hasMore = page.hasMore;
+    this.legacyDirectory = page.legacy && this.browser.serverSideFilters;
+    this.directoryFailures = page.failures;
+  }
+
+  private loadFacets(): void {
+    if (!this.browser.facets) return;
+    void this.browser.facets({ nsfw: this.showNsfw || undefined }).then((f) => {
+      if (this.disposed) return;
+      this.facets = f.tags.length || f.languages.length ? f : null;
+      this.emit();
+    }, () => { /* filters fall back to the built-in languages */ });
+  }
+
+  // Which listings are the user's (Edit tab), then re-merge the loaded rows.
+  private loadOwned(): void {
+    if (!this.networks || this.guestNick) return;
+    void this.networks.refreshOwned().then(() => {
+      if (this.disposed || this.searching || this.servers === null || this.legacyDirectory) return;
+      const page = this.networks!.browser.current();
+      if (page.legacy) return;
+      this.applyPage(page);
+      this.emit();
+    });
+  }
+
+  // The owner API for a listing: its own directory's /v1 when it has a
+  // source, else the legacy boson API.
+  private hostingFor(serverID: string): HostingApi {
+    const row = this.servers?.find((s) => s.id === serverID)
+      ?? (this.connections.get(serverID)?.server as Server | undefined);
+    const api = row && 'tags' in row ? this.networks?.ownerApiFor(row) : null;
+    return api ?? this.directory;
   }
 
   setShowNsfw(v: boolean): void {
@@ -483,6 +629,7 @@ export class DirectoryBloc {
     // have could never reveal one. Turning it off refetches too, so the
     // page of results is filled with SFW rows again.
     if (this.servers !== null) this.refreshDirectory();
+    if (this.servers !== null) this.loadFacets();
   }
 
   setMe(u: User): void {
@@ -1094,7 +1241,8 @@ export class DirectoryBloc {
     const merged = mergeWithLocal(this.servers, loadLocalServers());
     return merged.filter((s) => {
       if (!this.showNsfw && s.is_nsfw) return false;
-      if (this.language !== 'all' && !s.languages.includes(this.language)) return false;
+      if (this.language !== 'all' && !s.languages.some((l) => l.toLowerCase() === this.language.toLowerCase())) return false;
+      if (this.tag && !s.tags.some((t) => t.toLowerCase() === this.tag.toLowerCase())) return false;
       return true;
     });
   }
@@ -1147,7 +1295,7 @@ export class DirectoryBloc {
       isNsfw: boolean;
     }>,
   ): Promise<void> {
-    const updated = await this.directory.updateServerProfile(serverID, {
+    const updated = await this.hostingFor(serverID).updateServerProfile(serverID, {
       name: patch.name,
       description: patch.description,
       tags: patch.tags,
@@ -1158,7 +1306,7 @@ export class DirectoryBloc {
     // connection's `server` snapshot so the UI binds to fresh data
     // without a full /servers re-fetch.
     if (this.servers) {
-      this.servers = this.servers.map((s) => (s.id === serverID ? updated : s));
+      this.servers = this.servers.map((s) => (s.id === serverID ? { ...s, ...updated } : s));
     }
     const conn = this.connections.get(serverID);
     if (conn) conn.server = updated;
@@ -1168,11 +1316,12 @@ export class DirectoryBloc {
   // Upload (image != null) or remove (null) the server's icon/banner, then
   // refresh the in-memory row + connection snapshot like updateServerProfile.
   async setServerImage(serverID: string, kind: 'icon' | 'banner', image: Blob | null): Promise<void> {
+    const api = this.hostingFor(serverID);
     const updated = image
-      ? await this.directory.uploadServerImage(serverID, kind, image)
-      : await this.directory.deleteServerImage(serverID, kind);
+      ? await api.uploadServerImage(serverID, kind, image)
+      : await api.deleteServerImage(serverID, kind);
     if (this.servers) {
-      this.servers = this.servers.map((s) => (s.id === serverID ? updated : s));
+      this.servers = this.servers.map((s) => (s.id === serverID ? { ...s, ...updated } : s));
     }
     const conn = this.connections.get(serverID);
     if (conn) conn.server = updated;
@@ -1394,19 +1543,23 @@ export class DirectoryBloc {
     // servers. Surface the error but carry on with an empty public list
     // instead of leaving `servers` null (an endless "Loading directory…" that
     // hides local entries).
-    const listing = this.directory.listServers().then(
-      (list) => list,
+    const listToken = this.listToken;
+    const listing = this.browser.search(this.browseParams()).then(
+      (page) => page,
       (e: unknown) => {
         if (!this.disposed) this.error = e instanceof Error ? e.message : String(e);
-        return [] as Server[];
+        return { servers: [] as Server[], hasMore: false, legacy: false, failures: [] };
       },
     );
     const finishListing = async (): Promise<void> => {
-      const list = await listing;
+      const page = await listing;
       if (this.disposed) return;
-      this.servers = list;
+      // A search started meanwhile owns the list now.
+      if (listToken === this.listToken) this.applyPage(page);
+      else if (this.servers === null) this.servers = page.servers;
       this.emit();
       this.maybeFlushPendingDeepLink();
+      this.loadFacets();
     };
     try {
       // Guest mode: synthesise a User from the local nick — no backend /me
@@ -1448,6 +1601,7 @@ export class DirectoryBloc {
       this.attachSessionSync();
       this.emit();
       this.maybeRestoreSession();
+      if (user) this.loadOwned();
       await finishListing();
     } catch (e) {
       if (this.disposed) return;
@@ -1467,16 +1621,15 @@ export class DirectoryBloc {
 
   private async runSearch(token: number): Promise<void> {
     this.searching = true;
+    // A page load for the previous search is moot now.
+    this.loadingMore = false;
     this.emit();
     try {
-      const list = await this.directory.listServers({
-        q: this.query || undefined,
-        nsfw: this.showNsfw || undefined,
-      });
+      const page = await this.browser.search(this.browseParams());
       // If a newer search started while we were in flight, drop this result
       // (that search owns `searching` now).
       if (this.disposed || token !== this.listToken) return;
-      this.servers = list;
+      this.applyPage(page);
       // The backend answered: an earlier list failure is resolved. Not when
       // the initial load never got `me` (account mode) — that error still
       // explains why nothing can connect.

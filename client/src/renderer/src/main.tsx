@@ -67,6 +67,8 @@ void (async () => {
   const props = buildApp({
     authUrl,
     bosonUrl,
+    directoryUrl: import.meta.env.VITE_DIRECTORY_URL || undefined,
+    dev: import.meta.env.DEV,
     engineUrl,
     engineToken,
     engineSocket,

@@ -21,6 +21,9 @@ import { ServerSettings } from './screens/ChatLayout/ServerSettings';
 import { getThemeStore } from './modules/ui/theme';
 import { VoiceController, setVoiceController, setVoiceSettings } from './modules/voice';
 import { createFakeVoiceBridge } from './modules/voice/voice.fake';
+import { NetworkDirectories } from './modules/directory/networks';
+import { configureDirectorySources } from './modules/directory/sources';
+import { fakeDirectory, fakeTransport, type FakeNetwork } from './modules/directory/test-directory-server';
 
 // ?theme=<id> (e.g. daylight) picks a built-in theme for the shot.
 const themeParam = new URLSearchParams(location.search).get('theme');
@@ -261,6 +264,47 @@ function directoryService(): DirectoryService {
 
 const app = () => document.getElementById('app')!;
 
+// ---- Multi-directory: the main directory plus a user-added one ----
+const MAIN_NETWORKS: FakeNetwork[] = [
+  ...SERVERS.map((s) => ({ ...s, id: `net_${s.id}`, status: 'verified' as const, languages: ['en'], created_at: s.registered_at })),
+  ...Array.from({ length: 30 }, (_, i) => ({
+    id: `net_x${i}`, hostname: `irc.community${i}.example`, name: `Community ${i + 1}`,
+    description: 'A small network for friends of friends.', tags: ['community'], languages: i % 3 ? ['en'] : ['de'],
+    user_count: 40 - i, created_at: '2026-03-01T00:00:00Z',
+  })),
+];
+const PEER_NETWORKS: FakeNetwork[] = [
+  { id: 'net_h1', hostname: 'irc.helix.example', name: 'Helix', description: 'A friendly community for self-hosters, devs, and tinkerers.', tags: ['community', 'tech'], languages: ['en'], user_count: 412 },
+  { id: 'net_h2', hostname: 'irc.hacklab.example', name: 'Hacklab Helsinki', description: 'Hardware, soldering nights and the occasional sauna.', tags: ['hardware', 'makers'], languages: ['fi', 'en'], user_count: 57, icon_url: 'https://picsum.photos/seed/hacklab/72/72' },
+  { id: 'net_h3', hostname: 'irc.kahvi.example', name: 'Kahvi', description: 'Suomenkielinen yleiskanava.', tags: ['general'], languages: ['fi'], user_count: 31 },
+];
+
+function multiDirectoryNetworks(): NetworkDirectories {
+  const transport = fakeTransport([
+    fakeDirectory('https://directory.boson.chat', 'Boson Network Directory', MAIN_NETWORKS, { operator: 'boson.chat' }),
+    fakeDirectory('https://directory.hacklab.example', 'Hacklab Directory', PEER_NETWORKS, { operator: 'Hacklab ry', authIssuer: 'https://auth.boson.chat' }),
+  ], { user: 'usr_1' });
+  const storage = new Map<string, string>();
+  const sources = configureDirectorySources({
+    transport, authUrl: 'https://auth.boson.chat',
+    storage: { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => { storage.set(k, v); } },
+  });
+  void sources.refreshDefault();
+  if (new URLSearchParams(location.search).get('peer') !== '0') void sources.add('directory.hacklab.example');
+  return new NetworkDirectories(sources, { getToken: async () => 'jwt' }, transport, async () => []);
+}
+
+function multiDirView(): void {
+  installApi(true);
+  const networks = multiDirectoryNetworks();
+  render(
+    <AuthProvider service={makeAuth(true)}>
+      <DirectoryScreen directory={directoryService()} networks={networks} engine={null} identity={makeIdentity()} />
+    </AuthProvider>,
+    app(),
+  );
+}
+
 function directoryView(): void {
   installApi(true);
   render(
@@ -283,6 +327,7 @@ function authView(): void {
 
 function settingsView(): void {
   installApi(true);
+  multiDirectoryNetworks();
   installVoice();
   render(
     <AuthProvider service={makeAuth(true)}>
@@ -345,6 +390,7 @@ function servicesView(): void {
 const view = new URLSearchParams(location.search).get('view') ?? 'chat';
 if (view === 'chat') chatView();
 else if (view === 'directory') directoryView();
+else if (view === 'multidir') multiDirView();
 else if (view === 'auth') authView();
 else if (view === 'settings') settingsView();
 else if (view === 'services') servicesView();

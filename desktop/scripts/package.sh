@@ -61,6 +61,9 @@ tags=production,nolibopusfile
 # Another YouTube wrapper origin (default https://boson.chat; a PR's website
 # preview to try changes to it). Unset: the build's default.
 [[ -n "${YOUTUBE_WRAPPER:-}" ]] && ldflags="$ldflags -X main.youtubeWrapperOrigin=$YOUTUBE_WRAPPER"
+# The default network directory the API proxy may fully reach; keep it the
+# same as the renderer's VITE_DIRECTORY_URL. Unset: https://directory.boson.chat.
+[[ -n "${VITE_DIRECTORY_URL:-}" ]] && ldflags="$ldflags -X main.directoryBase=$VITE_DIRECTORY_URL"
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage" "$desktop/wails_windows_$arch.syso"' EXIT
 
