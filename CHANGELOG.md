@@ -1,3 +1,9 @@
+## [0.46.0](https://github.com/boson-chat/boson/compare/v0.45.0...v0.46.0) (2026-11-14)
+
+### Features
+
+* voice channel management and sign in with SSO ([#35](https://github.com/boson-chat/boson/issues/35)) ([46e01e9](https://github.com/boson-chat/boson/commit/46e01e9acdcc04e0c75b6a1d507503f433227b8d))
+
 ## [0.45.0](https://github.com/boson-chat/boson/compare/v0.44.1...v0.45.0) (2026-11-14)
 
 ### Features
