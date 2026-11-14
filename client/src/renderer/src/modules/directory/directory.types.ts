@@ -9,7 +9,7 @@ export interface Server {
   languages: string[];
   is_nsfw: boolean;
   is_featured: boolean;
-  verification_status: 'pending' | 'verified' | 'lapsed';
+  verification_status: 'pending' | 'verified' | 'lapsed' | 'blocked';
   health_status: 'up' | 'down' | 'unknown';
   user_count?: number;
   registered_by?: string;
@@ -18,6 +18,22 @@ export interface Server {
   // absent when unset. Owners manage these via the icon/banner endpoints.
   icon_url?: string;
   banner_url?: string;
+  website_url?: string;
+  // Multi-directory browse: the directory this row came from (the winner
+  // when several list the same hostname:port), the names of the other
+  // directories that list it too, and whether the signed-in user owns it
+  // there. All absent on legacy /servers rows and local entries.
+  source?: DirectorySourceRef;
+  also_listed_on?: string[];
+  owned?: boolean;
+}
+
+// Which directory a listing came from: its origin, display name, and whether
+// it is the built-in default (directory.boson.chat).
+export interface DirectorySourceRef {
+  url: string;
+  name: string;
+  isDefault: boolean;
 }
 
 // Owner-scoped server view returned from POST /servers,

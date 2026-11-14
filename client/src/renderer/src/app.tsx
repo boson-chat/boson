@@ -4,6 +4,8 @@ import { AuthProvider, AuthService, useAuthState } from './modules/auth';
 import { signOutAndForget } from './modules/auth/sign-out';
 import { SessionStore } from './modules/session';
 import { DirectoryService } from './modules/directory';
+import { NetworkDirectories } from './modules/directory/networks';
+import { configureDirectorySources, syncDirectoriesToShell } from './modules/directory/sources';
 import { EngineClient, type WebSocketCtor } from './modules/engine';
 import { IDBChatHistoryStore, type ChatHistoryStore } from './modules/history';
 import { IdentityService } from './modules/identity';
@@ -28,17 +30,19 @@ interface AppProps {
   engine: EngineClient | null;
   identity: IdentityService;
   history: ChatHistoryStore;
+  // The network directories (directory.boson.chat + any the user added).
+  networks?: NetworkDirectories;
 }
 
-export function App({ auth, directory, engine, identity, history }: AppProps) {
+export function App({ auth, directory, engine, identity, history, networks }: AppProps) {
   return (
     <AuthProvider service={auth}>
-      <AppShell auth={auth} directory={directory} engine={engine} identity={identity} history={history} />
+      <AppShell auth={auth} directory={directory} engine={engine} identity={identity} history={history} networks={networks} />
     </AuthProvider>
   );
 }
 
-function AppShell({ auth, directory, engine, identity, history }: AppProps) {
+function AppShell({ auth, directory, engine, identity, history, networks }: AppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   // Elsewhere in the app can open settings at a section (the voice bar).
@@ -100,7 +104,7 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
         inboxUnreadCount={unreadCount}
       />
       <div class="app-frame-body">
-        <Router directory={directory} engine={engine} identity={identity} history={history} />
+        <Router directory={directory} engine={engine} identity={identity} history={history} networks={networks} />
       </div>
       <UserSettings
         open={settingsOpen}
@@ -143,11 +147,12 @@ function AppShell({ auth, directory, engine, identity, history }: AppProps) {
 // same trick the marketing site uses (see website/src/app.tsx).
 type RouteKey = 'loading' | 'restoring' | 'auth-error' | 'guest' | 'login' | 'app';
 
-function Router({ directory, engine, identity, history }: {
+function Router({ directory, engine, identity, history, networks }: {
   directory: DirectoryService;
   engine: EngineClient | null;
   identity: IdentityService;
   history: ChatHistoryStore;
+  networks?: NetworkDirectories;
 }) {
   const { session, loading, error } = useAuthState();
   const identityUnlocked = useIdentityUnlocked(identity);
@@ -180,7 +185,7 @@ function Router({ directory, engine, identity, history }: {
     // DirectoryScreen accepts an optional `guestNick` and proceeds without
     // ever calling the backend's /me endpoint.
     key = 'guest';
-    content = <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} guestNick={guest.nick} />;
+    content = <DirectoryScreen directory={directory} networks={networks} engine={engine} identity={identity} history={history} guestNick={guest.nick} />;
   } else if (session && !identityUnlocked && restoring && lastKey.current !== 'login') {
     // The auth session is restored from the keychain at launch. If the keychain
     // has the user_secret too, we'll have unlocked the identity above. If not,
@@ -192,7 +197,7 @@ function Router({ directory, engine, identity, history }: {
     content = <LoginScreen directory={directory} identity={identity} />;
   } else {
     key = 'app';
-    content = <DirectoryScreen directory={directory} engine={engine} identity={identity} history={history} />;
+    content = <DirectoryScreen directory={directory} networks={networks} engine={engine} identity={identity} history={history} />;
   }
 
   lastKey.current = key;
@@ -245,6 +250,11 @@ export interface BuildAppOptions {
   // The boson auth service, e.g. https://auth.boson.chat.
   authUrl: string;
   bosonUrl: string;
+  // The default network directory (VITE_DIRECTORY_URL), default
+  // https://directory.boson.chat.
+  directoryUrl?: string;
+  // Dev builds: allow http:// directories on loopback.
+  dev?: boolean;
   engineUrl?: string;
   engineToken?: string;
   // Stands in for WebSocket when the engine isn't reached over one (Wails).
@@ -261,6 +271,22 @@ export function buildApp(opts: BuildAppOptions): AppProps {
     tokenRejected: (t) => auth.tokenRejected(t),
   });
   const directory = new DirectoryService(http);
+  const sources = configureDirectorySources({
+    defaultUrl: opts.directoryUrl,
+    authUrl: opts.authUrl,
+    allowLoopbackHttp: !!opts.dev,
+  });
+  // The desktop proxy may reach the user's directories (read-only) — tell it
+  // which, now and whenever the list changes.
+  syncDirectoriesToShell(sources);
+  void sources.refreshDefault();
+  const networks = new NetworkDirectories(
+    sources,
+    { getToken: () => auth.getToken(), tokenRejected: (t) => auth.tokenRejected(t) },
+    undefined,
+    // Old deployments (no directory service yet): the boson API's /servers.
+    (p) => directory.listServers(p),
+  );
   // Pass the real `windowSecureStorage` so the identity can persist to the
   // OS keychain. In tests, callers construct IdentityService with their own
   // in-memory implementation.
@@ -284,5 +310,5 @@ export function buildApp(opts: BuildAppOptions): AppProps {
   // pull on unlock, debounced push on change, no-op while locked.
   new BouncerSyncService(identity, directory).start();
 
-  return { auth, directory, engine, identity, history };
+  return { auth, directory, engine, identity, history, networks };
 }

@@ -1,5 +1,5 @@
+import type { HostingApi } from '../../modules/directory/network-api';
 import type {
-  DirectoryService,
   RegisterServerInput,
   ServerWithToken,
   VerifyResponse,
@@ -78,6 +78,9 @@ export interface ServerHostingState {
   registerSubmitting: boolean;
   registerError: string | null;
   verify: VerifyStatus;
+  // The listing being removed, and why the last removal failed.
+  removingId: string | null;
+  removeError: string | null;
 }
 
 type Listener = (s: ServerHostingState) => void;
@@ -92,13 +95,37 @@ const initialState: ServerHostingState = {
   registerSubmitting: false,
   registerError: null,
   verify: { kind: 'idle' },
+  removingId: null,
+  removeError: null,
 };
 
 export class ServerHostingBloc {
   private state: ServerHostingState = initialState;
   private listeners = new Set<Listener>();
 
-  constructor(private readonly directory: DirectoryService) {}
+  // `directory` is the chosen directory's owner API (/v1), or the legacy
+  // boson API's /servers.
+  constructor(private readonly directory: HostingApi) {}
+
+  // Listings can be removed (the /v1 directories; not the legacy API).
+  get canRemove(): boolean {
+    return typeof this.directory.deleteServer === 'function' && (this.directory.supportsDelete?.() ?? true);
+  }
+
+  async remove(serverID: string): Promise<void> {
+    if (!this.directory.deleteServer) return;
+    this.set({ removingId: serverID, removeError: null });
+    try {
+      await this.directory.deleteServer(serverID);
+      this.set({
+        removingId: null,
+        myServers: this.state.myServers.filter((s) => s.id !== serverID),
+        ...(this.state.active?.id === serverID ? { active: null, screen: 'list' as const } : {}),
+      });
+    } catch (err) {
+      this.set({ removingId: null, removeError: messageOf(err) });
+    }
+  }
 
   getState(): ServerHostingState { return this.state; }
 

@@ -46,6 +46,9 @@ if (!process.argv.includes('--skip-renderer')) {
       RENDERER_OUT_DIR: renderer,
       VITE_AUTH_URL: stack.auth.url,
       VITE_BOSON_API_URL: stack.backend.url,
+      // No network directory in the e2e stack: a closed loopback port, so
+      // browse and hosting fall back to the backend's legacy /servers.
+      VITE_DIRECTORY_URL: 'http://127.0.0.1:9',
       // The engine runs in-process; never a developer's `make engine-serve`.
       VITE_ENGINE_URL: '',
       VITE_ENGINE_TOKEN: '',

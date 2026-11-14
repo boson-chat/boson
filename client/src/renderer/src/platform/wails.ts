@@ -221,7 +221,12 @@ export async function installWailsBridges(): Promise<void> {
   w.bosonPlatform = platformName((await System.Environment()).OS);
   applyPhoneScale(String(w.bosonPlatform));
   w.bosonWindow = windowBridge;
-  w.bosonApi = { fetch: apiFetch };
+  w.bosonApi = {
+    fetch: apiFetch,
+    // The user's network directories the proxy may read from (apiproxy.go).
+    setDirectories: (entries: unknown[]) => Call.ByName('main.ApiService.SetDirectories', entries),
+    checkDirectory: (url: string) => Call.ByName('main.ApiService.CheckDirectory', url) as Promise<ApiResponse>,
+  };
   // Link previews and Spotify cards, fetched in Go (desktop/unfurl.go,
   // spotify.go) — the page can't fetch other sites (CORS).
   w.bosonUnfurl = { fetch: (url: string) => Call.ByName('main.UnfurlService.Fetch', url) };
