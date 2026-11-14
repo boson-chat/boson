@@ -3,7 +3,6 @@ package http
 import (
 	stdhttp "net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,17 +28,8 @@ func newTestRouter() (*stdhttp.ServeMux, *[]string) {
 	publicMux.HandleFunc("GET /health", func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
 		_, _ = w.Write([]byte("public:health"))
 	})
-	publicMux.HandleFunc("GET /servers", func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
-		_, _ = w.Write([]byte("public:list"))
-	})
-	publicMux.HandleFunc("GET /servers/{id}", func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
-		_, _ = w.Write([]byte("public:get"))
-	})
 
 	protectedMux := stdhttp.NewServeMux()
-	protectedMux.HandleFunc("POST /servers", func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
-		_, _ = w.Write([]byte("protected:create"))
-	})
 	protectedMux.HandleFunc("GET /me", func(w stdhttp.ResponseWriter, _ *stdhttp.Request) {
 		_, _ = w.Write([]byte("protected:me"))
 	})
@@ -49,43 +39,26 @@ func newTestRouter() (*stdhttp.ServeMux, *[]string) {
 	return router, &hits
 }
 
-func TestBuildRouter_PublicDirectoryRoutesBypassAuth(t *testing.T) {
+func TestBuildRouter_HealthBypassesAuth(t *testing.T) {
 	router, hits := newTestRouter()
 
-	// GET /servers — anonymous directory browse.
 	rr := httptest.NewRecorder()
-	router.ServeHTTP(rr, httptest.NewRequest("GET", "/servers", nil))
-	assert.Equal(t, stdhttp.StatusOK, rr.Code)
-	assert.Equal(t, "public:list", rr.Body.String())
-
-	// GET /servers/{id} — anonymous directory detail.
-	rr = httptest.NewRecorder()
-	router.ServeHTTP(rr, httptest.NewRequest("GET", "/servers/abc-123", nil))
-	assert.Equal(t, stdhttp.StatusOK, rr.Code)
-	assert.Equal(t, "public:get", rr.Body.String())
-
-	// GET /health — bypasses auth.
-	rr = httptest.NewRecorder()
 	router.ServeHTTP(rr, httptest.NewRequest("GET", "/health", nil))
 	assert.Equal(t, stdhttp.StatusOK, rr.Code)
 	assert.Equal(t, "public:health", rr.Body.String())
-
-	// Most important assertion: none of the public routes ran the auth
-	// middleware. A regression that re-gates the directory would surface here.
-	assert.Empty(t, *hits, "public routes must not pass through the auth middleware")
+	assert.Empty(t, *hits, "/health must not pass through the auth middleware")
 }
 
-func TestBuildRouter_ServerCreateGoesThroughAuth(t *testing.T) {
+func TestBuildRouter_RemovedDirectoryRoutesHitAuth(t *testing.T) {
+	// The directory moved to its own service; /servers is no longer a
+	// public route here and falls through to auth like any unknown path.
 	router, hits := newTestRouter()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/servers", strings.NewReader(`{}`))
-	router.ServeHTTP(rr, req)
+	router.ServeHTTP(rr, httptest.NewRequest("GET", "/servers", nil))
 
-	// Auth ran before the protected handler dispatched.
-	assert.Equal(t, []string{"POST /servers"}, *hits)
-	assert.Equal(t, stdhttp.StatusOK, rr.Code)
-	assert.Equal(t, "protected:create", rr.Body.String())
+	assert.Equal(t, []string{"GET /servers"}, *hits)
+	assert.Equal(t, stdhttp.StatusNotFound, rr.Code)
 }
 
 func TestBuildRouter_CatchAllRoutesGoThroughAuth(t *testing.T) {

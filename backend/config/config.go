@@ -29,14 +29,6 @@ type AppConfig struct {
 	Port           int    `env:"PORT" default:"3000"`
 	Env            string `env:"ENV" default:"development"`
 	AllowedOrigins string `env:"ALLOWED_ORIGINS" default:"http://localhost:5173"`
-	// Local-dev convenience: when true, POST /servers/{id}/verify auto-
-	// succeeds without actually issuing any DNS queries. The verify
-	// cron does the same. Avoids needing to own (and add a TXT record
-	// to) a real public hostname when registering against a localhost
-	// IRCd. Production deployments leave this OFF — Helm doesn't set
-	// the env var in the prod chart.
-	SkipDNSVerify bool `env:"SKIP_DNS_VERIFY" default:"false"`
-
 	// NickClaim subsystem — automated NickServ email-confirmation
 	// flow for signed-in users. The emails minted by this feature
 	// have shape `reg-<userid>-<short>@<NickClaimEmailDomain>` and

@@ -1,6 +1,6 @@
 .PHONY: setup up down logs build tidy run migrate-up migrate-down migrate-create reset \
         auth-up auth-down auth-logs auth-admin \
-        ergo-up typingbot seed-dev dev-up dev-down \
+        ergo-up typingbot dev-up dev-down \
         client-install client-env client-dev client-build desktop-dev desktop-build \
         engine-build engine-connect engine-serve engine-env \
         test test-go test-client test-e2e hooks-install \
@@ -92,7 +92,6 @@ auth-admin:
 # `docker compose --profile X up` step.
 dev-up: tidy up auth-up ergo-up mailpit-up minio-up
 	@$(MAKE) migrate-up
-	@$(MAKE) seed-dev
 
 ergo-up: mailpit-up
 	docker compose --profile testing up -d ergo
@@ -115,13 +114,6 @@ mailpit-up:
 minio-up:
 	docker compose --profile dev-storage up -d minio minio-setup
 	@echo "minio is up — S3:9000  console:9001 (minioadmin/minioadmin)  bucket: boson"
-
-# Inserts the local ergo IRCd into the directory so it shows up in Boson's
-# server browser. Idempotent (ON CONFLICT DO UPDATE). Dev-only — not part of
-# the migration set, so production directories aren't polluted with localhost.
-seed-dev:
-	@docker compose exec -T postgres psql -U boson -d boson -v ON_ERROR_STOP=1 < backend/db/seeds/dev-ergo.sql
-	@echo "seeded Local Ergo into the directory (localhost:6667)"
 
 # Fake second user that emits IRCv3 `+typing=active` TAGMSGs on a loop. Run
 # this in another terminal after `make ergo-up`, then point Boson at
@@ -304,7 +296,7 @@ test-e2e-app-down:
 # stack's IRC endpoint. That's the full renderer → WebSocket → engine →
 # IRC → reply → renderer round-trip; the Go suite only proves the
 # bottom half of the pipeline.
-test-e2e-services-ergo: ergo-up engine-build seed-dev
+test-e2e-services-ergo: ergo-up engine-build
 	@echo "Waiting for ergo readiness..."
 	@timeout 30 bash -c 'until echo > /dev/tcp/127.0.0.1/6667 2>/dev/null; do sleep 0.2; done' || \
 		{ echo "ergo never came up on :6667"; exit 1; }
@@ -327,9 +319,6 @@ test-e2e-services-anope: engine-build
 	@timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/6668 2>/dev/null; do sleep 0.5; done' || \
 		{ echo "anope+unreal never came up on :6668"; exit 1; }
 	@sleep 5  # give Anope's burst link to settle
-	@# Seed the directory so the Playwright spec can find the stack
-	@# as a `verified` row (public GET /servers filters out pending).
-	@docker compose exec -T postgres psql -U boson -d boson -v ON_ERROR_STOP=1 < backend/db/seeds/dev-anope.sql
 	E2E_ANOPE_HOST=127.0.0.1 E2E_ANOPE_PORT=6668 \
 		go test -tags=e2e -count=1 -v ./engine/internal/services_e2e/anope/...
 	@echo "---- Playwright NickServ flow against anope ----"
@@ -347,7 +336,6 @@ test-e2e-services-atheme: engine-build
 	@timeout 60 bash -c 'until echo > /dev/tcp/127.0.0.1/6669 2>/dev/null; do sleep 0.5; done' || \
 		{ echo "atheme+inspircd never came up on :6669"; exit 1; }
 	@sleep 5
-	@docker compose exec -T postgres psql -U boson -d boson -v ON_ERROR_STOP=1 < backend/db/seeds/dev-atheme.sql
 	E2E_ATHEME_HOST=127.0.0.1 E2E_ATHEME_PORT=6669 \
 		go test -tags=e2e -count=1 -v ./engine/internal/services_e2e/atheme/...
 	@echo "---- Playwright NickServ flow against atheme ----"

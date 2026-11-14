@@ -29,7 +29,7 @@ const (
 	// KiB PNG claiming 30000×30000 decodes to gigabytes of pixels and OOMs
 	// the process. We reject on DecodeConfig (which only reads the header)
 	// before ever allocating the pixel buffer. 24MP comfortably covers any
-	// legitimate avatar/banner source while capping a decode at ~96 MiB.
+	// legitimate avatar source while capping a decode at ~96 MiB.
 	MaxImagePixels = 24 * 1000 * 1000
 )
 
@@ -43,12 +43,9 @@ type ServiceImpl interface {
 	// Configured reports whether R2 is wired up; handlers 503 when false.
 	Configured() bool
 	// Process validates + normalizes a user avatar (square 256²) and uploads
-	// it. Thin wrapper over ProcessImage. Best-effort deletes prevKey.
+	// it under `avatars/<id>-<hash>.png` (content-addressed, immutable).
+	// Best-effort deletes prevKey.
 	Process(ctx context.Context, userID uuid.UUID, raw []byte, prevKey string) (key string, err error)
-	// ProcessImage is the general pipeline: decode → cover-crop to width×height
-	// → re-encode PNG → upload under `<namespace>/<id>-<hash>.png` (content-
-	// addressed, immutable). Used for server icons/banners as well as avatars.
-	ProcessImage(ctx context.Context, namespace, id string, raw []byte, prevKey string, width, height int) (key string, err error)
 	// Remove best-effort deletes the object at key.
 	Remove(ctx context.Context, key string) error
 	// URLFor builds the public CDN URL for a stored key (empty in → empty out).
@@ -74,10 +71,12 @@ func (s *Service) URLFor(key string) string {
 }
 
 func (s *Service) Process(ctx context.Context, userID uuid.UUID, raw []byte, prevKey string) (string, error) {
-	return s.ProcessImage(ctx, "avatars", userID.String(), raw, prevKey, avatarSize, avatarSize)
+	return s.processImage(ctx, "avatars", userID.String(), raw, prevKey, avatarSize, avatarSize)
 }
 
-func (s *Service) ProcessImage(ctx context.Context, namespace, id string, raw []byte, prevKey string, width, height int) (string, error) {
+// processImage is the general pipeline: decode → cover-crop to width×height
+// → re-encode PNG → upload under `<namespace>/<id>-<hash>.png`.
+func (s *Service) processImage(ctx context.Context, namespace, id string, raw []byte, prevKey string, width, height int) (string, error) {
 	if !s.Configured() {
 		return "", ErrNotConfigured
 	}
@@ -135,8 +134,7 @@ func (s *Service) Remove(ctx context.Context, key string) error {
 
 // normalizeCover center-crops src to the target aspect ratio then high-quality
 // scales it to width×height ("cover" fit), so every stored image is a uniform
-// size regardless of the source dimensions. width == height gives a square
-// (avatars, server icons); a wide target gives a banner.
+// size regardless of the source dimensions.
 func normalizeCover(src image.Image, width, height int) image.Image {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()
