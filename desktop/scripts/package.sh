@@ -11,6 +11,10 @@
 #            WebKitGTK 6.0 (libgtk-4-1, libwebkitgtk-6.0-4) at runtime; the
 #            -dev packages to build.
 #
+# Both link libopus statically for voice (scripts/build-opus.sh, cached in
+# OPUS_PREFIX, default desktop/build/.opus) and need cgo: Windows builds
+# with MSYS2's MinGW-w64 gcc (plus cmake, ninja and pkgconf) on PATH.
+#
 # Environment: SKIP_RENDERER=1 reuses client/out/renderer as it is.
 # Needs the wails3 CLI on PATH (Windows: for the .syso).
 #
@@ -44,6 +48,16 @@ cp -R "$client/out/renderer" "$desktop/frontend/dist"
 touch "$desktop/frontend/dist/.gitkeep"
 
 ldflags="-s -w -X main.appVersion=$VERSION"
+# Voice: libopus, built static (nolibopusfile: only libopus is used).
+OPUS_PREFIX="${OPUS_PREFIX:-$desktop/build/.opus}/$os-$arch"
+"$here/build-opus.sh" "$OPUS_PREFIX"
+export PKG_CONFIG_PATH="$OPUS_PREFIX/lib/pkgconfig"
+[[ "$os" == windows ]] && PKG_CONFIG_PATH="$(cygpath -m "$PKG_CONFIG_PATH")"
+# Go's build cache doesn't key on PKG_CONFIG_PATH; CGO_CFLAGS it does.
+opus_inc="$OPUS_PREFIX/include"
+[[ "$os" == windows ]] && opus_inc="$(cygpath -m "$opus_inc")"
+export CGO_CFLAGS="${CGO_CFLAGS:-} -I$opus_inc"
+tags=production,nolibopusfile
 # Another YouTube wrapper origin (default https://boson.chat; a PR's website
 # preview to try changes to it). Unset: the build's default.
 [[ -n "${YOUTUBE_WRAPPER:-}" ]] && ldflags="$ldflags -X main.youtubeWrapperOrigin=$YOUTUBE_WRAPPER"
@@ -59,14 +73,24 @@ if [[ "$os" == windows ]]; then
   wails3 generate syso -arch "$arch" -icon "$desktop/build/windows/icon.ico" \
     -manifest "$stage/wails.exe.manifest" -info "$stage/info.json" \
     -out "$desktop/wails_windows_$arch.syso"
-  (cd "$desktop" && CGO_ENABLED=0 go build -tags production -trimpath -buildvcs=false \
-    -ldflags "$ldflags -H windowsgui" -o "$stage/Boson/Boson.exe" .)
+  # cgo for voice (miniaudio, libopus); -static so Boson.exe needs no
+  # MinGW runtime DLLs next to it.
+  (cd "$desktop" && CGO_ENABLED=1 go build -tags "$tags" -trimpath -buildvcs=false \
+    -ldflags "$ldflags -H windowsgui -extldflags=-static" -o "$stage/Boson/Boson.exe" .)
+  if objdump -p "$stage/Boson/Boson.exe" | grep -iE 'DLL Name: (libopus|libgcc|libwinpthread|libstdc)'; then
+    echo "Boson.exe needs MinGW DLLs" >&2
+    exit 1
+  fi
   artifact="$out/Boson-$VERSION-windows-$arch.zip"
   rm -f "$artifact"
   (cd "$stage" && powershell -NoProfile -Command "Compress-Archive -Path Boson -DestinationPath '$(cygpath -w "$artifact")'")
 else
-  (cd "$desktop" && CGO_ENABLED=1 go build -tags production -trimpath -buildvcs=false \
+  (cd "$desktop" && CGO_ENABLED=1 go build -tags "$tags" -trimpath -buildvcs=false \
     -ldflags "$ldflags" -o "$stage/Boson/boson" .)
+  if ldd "$stage/Boson/boson" | grep -q libopus; then
+    echo "the binary links a shared libopus" >&2
+    exit 1
+  fi
   cp "$desktop/build/appicon.png" "$stage/Boson/boson.png"
   cat > "$stage/Boson/boson.desktop" <<DESKTOP
 [Desktop Entry]

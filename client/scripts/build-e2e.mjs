@@ -77,6 +77,8 @@ if (process.platform === 'darwin') {
   env.CGO_CFLAGS = `${env.CGO_CFLAGS ?? ''} -mmacosx-version-min=12.0`.trim();
   env.CGO_LDFLAGS = `${env.CGO_LDFLAGS ?? ''} -mmacosx-version-min=12.0`.trim();
 }
+// novoiceaudio: no voice audio (libopus, miniaudio) in the e2e build —
+// Playwright can't use a mic, and macOS would need libopus to build it.
 const bin = join(desktopDir, 'bin', `boson-e2e-server${process.platform === 'win32' ? '.exe' : ''}`);
 // The e2e bundle talks to the e2e backend and auth service; let the API
 // proxy reach them.
@@ -85,5 +87,5 @@ const ldflags = `-X main.apiBase=${stack.backend.url} -X main.authBase=${stack.a
 const cover = process.env.E2E_COVERAGE === '1'
   ? ['-cover', '-coverpkg=github.com/boson-chat/boson/desktop,github.com/boson-chat/boson/engine/...']
   : [];
-run('go', ['build', '-tags', 'server', ...cover, '-ldflags', ldflags, '-o', bin, '.'], { cwd: desktopDir, env });
+run('go', ['build', '-tags', 'server,novoiceaudio', ...cover, '-ldflags', ldflags, '-o', bin, '.'], { cwd: desktopDir, env });
 console.log(`e2e app built: ${bin}${process.env.E2E_COVERAGE === '1' ? ' (coverage build)' : ''}`);

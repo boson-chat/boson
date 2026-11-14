@@ -159,11 +159,14 @@ client-build:
 # from client/ against client/.env (the local backend). Dev builds have the
 # webview inspector and may reach a local backend on any loopback port.
 # The native toolchain: Go with cgo (macOS: Xcode; Linux: GTK 4 and
-# WebKitGTK 6.0 dev packages; Windows: WebView2, which Windows 10/11 ship).
+# WebKitGTK 6.0 dev packages; Windows: WebView2, which Windows 10/11 ship),
+# plus libopus and pkg-config for voice (macOS: brew install opus pkgconf;
+# Debian/Ubuntu: libopus-dev pkg-config). BOSON_VOICE_JSON=<a boson.json>
+# points one IRC host at a local quicvoiced (dev builds only).
 desktop-dev: client-env
 	cd client && npx vite build --mode development
 	rm -rf desktop/frontend/dist && cp -R client/out/renderer desktop/frontend/dist && touch desktop/frontend/dist/.gitkeep
-	cd desktop && go run -ldflags "-X main.devBuild=true -X main.apiBase=http://localhost:3000 -X main.authBase=http://localhost:8080 -X main.appVersion=$$(node -p "require('../client/package.json').version")" .
+	cd desktop && go run -tags nolibopusfile -ldflags "-X main.devBuild=true -X main.apiBase=http://localhost:3000 -X main.authBase=http://localhost:8080 -X main.appVersion=$$(node -p "require('../client/package.json').version")" .
 
 # A release build of the desktop app for this machine: macOS → a signed
 # .app + DMG for Apple Silicon and for Intel (ARCHS=arm64 for one; notarized
