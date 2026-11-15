@@ -258,7 +258,7 @@ test.describe('perf', () => {
     for (let i = 1; i <= HISTORY; i++) {
       let line = `line ${i} — the quick brown fox jumps over the lazy dog`;
       if (i % 7 === 0) line += ' and **bold** with `code` in it';
-      if (i % 11 === 0) line += ` see #${other.slice(1)} and ${nick}`;
+      if (i % 11 === 0) line += ` see #${other.slice(1)} and @someone`;
       if (i % 13 === 0) line = `line ${i} ${'a longer message that wraps over a couple of lines in the list; '.repeat(3)}`;
       if (i % 50 === 0) line = `line ${i} pic http://127.0.0.1:${s.port}/img/h${i}.png`;
       peer.privmsg(big, line);
@@ -311,13 +311,12 @@ test.describe('perf', () => {
     }
     for (const [ci, c] of chans.entries()) {
       for (let i = 1; i <= HISTORY; i++) {
-        let line = `${c} line ${i} — the quick brown fox jumps over the lazy dog`;
-        if (i % 25 === 0) line = `${c} line ${i} pic http://127.0.0.1:${s.port}/img/${i % 100 === 0 ? 'big' : 's'}${ci}x${i}.png`;
+        let line = `k${ci} line ${i} — the quick brown fox jumps over the lazy dog`;
+        if (i % 25 === 0) line = `k${ci} line ${i} pic http://127.0.0.1:${s.port}/img/${i % 100 === 0 ? 'big' : 's'}${ci}x${i}.png`;
         peer.privmsg(c, line);
       }
     }
-    const last = chans[chans.length - 1]!;
-    await expect(messages(page).getByText(`${last} line ${HISTORY} pic`)).toBeVisible({ timeout: 300_000 });
+    await expect(messages(page).getByText(`k${chans.length - 1} line ${HISTORY} pic`)).toBeVisible({ timeout: 300_000 });
     await page.waitForTimeout(3000);
     const series: Array<Record<string, number>> = [];
     const sample = async (round: number): Promise<void> => {
@@ -327,8 +326,8 @@ test.describe('perf', () => {
     };
     await sample(0);
     for (let round = 1; round <= 3; round++) {
-      for (const c of chans) {
-        await timeOpen(page, c, `${c} line ${HISTORY} pic`);
+      for (const [ci, c] of chans.entries()) {
+        await timeOpen(page, c, `k${ci} line ${HISTORY} pic`);
         await page.waitForTimeout(500);
         await scrollThrough(page);
       }
