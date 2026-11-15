@@ -37,7 +37,7 @@ test('drag channels into a new order; it survives a reload and a relaunch', asyn
   // photographed) mid-drag.
   const from = (await row(page, c).boundingBox())!;
   const to = (await row(page, a).boundingBox())!;
-  await page.mouse.move(from.x + 40, from.y + from.height / 2);
+  await row(page, c).hover({ position: { x: 40, y: from.height / 2 } });
   await page.mouse.down();
   await page.mouse.move(from.x + 40, from.y + from.height / 2 - 6, { steps: 3 });
   await page.mouse.move(to.x + 40, to.y + 4, { steps: 8 });
