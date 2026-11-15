@@ -278,3 +278,23 @@ describe('ChannelSidebarBloc', () => {
     });
   });
 });
+
+describe('ChannelSidebarBloc channel order', () => {
+  const ch = (name: string) => ({
+    name, messages: [], joined: true, members: [], typing: [], unread: 0, mentions: 0, topic: '',
+  }) as unknown as ChatChannel;
+
+  it('applies the saved order within each section and flags a custom order', () => {
+    let order: string[] | undefined;
+    const channels = [ch('#a'), ch('alice'), ch('#b'), ch('#c'), ch('bob')];
+    const bloc = new ChannelSidebarBloc({ getChannels: () => channels, getOrder: () => order, onJoin: () => {} });
+    expect(bloc.getState().realChannels.map((c) => c.name)).toEqual(['#a', '#b', '#c']);
+    expect(bloc.getState().customOrder).toBe(false);
+    order = ['bob', '#c', '#a', 'alice'];
+    const s = bloc.getState();
+    // #b has no saved place: after the saved ones.
+    expect(s.realChannels.map((c) => c.name)).toEqual(['#c', '#a', '#b']);
+    expect(s.dms.map((c) => c.name)).toEqual(['bob', 'alice']);
+    expect(s.customOrder).toBe(true);
+  });
+});

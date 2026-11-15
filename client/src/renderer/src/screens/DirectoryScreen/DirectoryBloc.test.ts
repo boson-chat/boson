@@ -1696,6 +1696,42 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('reorderChannels() saves the channel order per server, keeps it over a reconnect, and resets', async () => {
+    const engine = fakeEngine();
+    const a = fakeServer('a');
+    const store = new SessionStore(memoryStorage());
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: fakeDirectory({ user: fakeUser('alice'), servers: [a] }),
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore: store,
+    });
+    await flushPromises(4);
+    await bloc.connect(a);
+    await flushPromises(2);
+    store.setChannels('a', ['#x', '#Y', '#z']);
+    expect(bloc.channelOrder('a')).toBeUndefined();
+
+    bloc.reorderChannels('a', ['#z', '#x', '#Y']);
+    expect(bloc.channelOrder('a')).toEqual(['#z', '#x', '#y']);
+    // Reordering again while #Y is still being rejoined keeps its place.
+    bloc.reorderChannels('a', ['#x', '#z']);
+    expect(bloc.channelOrder('a')).toEqual(['#x', '#z', '#y']);
+
+    // Keyed by the saved server, not the connection: a reconnect (a fresh
+    // session + ChatService) keeps it.
+    engine.sessionFor('a')._setState('disconnected');
+    await bloc.connect(a);
+    await flushPromises(2);
+    expect(engine.connectCalls).toHaveLength(2);
+    expect(bloc.channelOrder('a')).toEqual(['#x', '#z', '#y']);
+
+    bloc.resetChannelOrder('a');
+    expect(bloc.channelOrder('a')).toBeUndefined();
+    bloc.dispose();
+  });
+
   it('connect() to a different server adds a second concurrent connection', async () => {
     const engine = fakeEngine();
     const a = fakeServer('a');

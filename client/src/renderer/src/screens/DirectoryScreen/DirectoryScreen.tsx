@@ -329,6 +329,9 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           onBouncerConnect={(id) => bloc.bouncerConnect(id)}
           onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
           onReorderServers={(ids) => bloc.reorderServers(ids)}
+          channelOrder={bloc.channelOrder(active.serverId)}
+          onReorderChannels={(names) => bloc.reorderChannels(active.serverId, names)}
+          onResetChannelOrder={() => bloc.resetChannelOrder(active.serverId)}
         />
         <Modal
           open={serverBrowserOpen}

@@ -78,13 +78,19 @@ interface Props {
   onBouncerDisconnect?: (serverId: string) => void;
   // The rail was dragged into a new order (server ids, top to bottom).
   onReorderServers?: (serverIds: string[]) => void;
+  // The user's channel-list order for the active server (channel keys),
+  // and the handlers that save / reset it. Without onReorderChannels the
+  // channel list doesn't reorder.
+  channelOrder?: readonly string[];
+  onReorderChannels?: (names: string[]) => void;
+  onResetChannelOrder?: () => void;
 }
 
 export function ChatLayout({
   chat, serverName, serverHost, bannerUrl, logoUrl, onToggleNetworkTheme, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
-  onReorderServers,
+  onReorderServers, channelOrder, onReorderChannels, onResetChannelOrder,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -215,6 +221,9 @@ export function ChatLayout({
           onSelect={(name) => { chat.setActive(name); setDrawer('none'); }}
           onJoin={(name) => chat.join(name)}
           onPart={(name) => chat.part(name)}
+          channelOrder={channelOrder}
+          onReorderChannels={onReorderChannels}
+          onResetChannelOrder={onResetChannelOrder}
           channelDirectory={state.channelDirectory.entries}
           onOpenSettings={
             onOpenServerSettings && activeServerId
