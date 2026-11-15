@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { FilesController, uploadMessage } from './files.service';
+import { FilesController, sendChunks, uploadMessage } from './files.service';
 import type { FilesBridge, FilesCall } from './files-bridge';
 
 const FILES = 'https://files.example.org';
@@ -54,7 +54,7 @@ describe('FilesController', () => {
     await vi.waitFor(() => expect(post).toHaveBeenCalledWith(`at the beach ${url}`));
     expect(b.beginUpload).toHaveBeenCalledWith(expect.objectContaining({ filesUrl: FILES, auth: 'Guest gt1', name: 'beach.jpg', size: 3, type: 'image/jpeg' }));
     expect(calls.filter((x) => x.path === '/v1/guest-token')).toHaveLength(1);
-    expect(fetchFn).toHaveBeenCalledWith('/_boson/files/upload/t1', expect.objectContaining({ method: 'POST' }));
+    expect(fetchFn).toHaveBeenCalledWith('/_boson/files/upload/t1?offset=0', expect.objectContaining({ method: 'POST' }));
   });
 
   it('an account uses its bearer token', async () => {
@@ -124,5 +124,49 @@ describe('FilesController', () => {
   it('uploadMessage', () => {
     expect(uploadMessage('https://x/f/a/b', '')).toBe('https://x/f/a/b');
     expect(uploadMessage('https://x/f/a/b', '  look\nhere ')).toBe('look here https://x/f/a/b');
+  });
+});
+
+describe('sendChunks', () => {
+  const more = () => new Response('{}', { status: 202, headers: { 'X-Boson-Upload': 'more' } });
+
+  it('sends the file in order as ArrayBuffer chunks, ?offset= on each, and returns the last answer', async () => {
+    const bytes = new Uint8Array(10).map((_, i) => i);
+    const seen: { url: string; body: number[] }[] = [];
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      expect(init.body).toBeInstanceOf(ArrayBuffer);
+      seen.push({ url, body: [...new Uint8Array(init.body as ArrayBuffer)] });
+      return seen.length < 3 ? more() : answer(201, { url: 'u' });
+    });
+    const res = await sendChunks(fetchFn as unknown as typeof fetch, '/_boson/files/upload/t1', new Blob([bytes]), 4, new AbortController().signal);
+    expect(res.status).toBe(201);
+    expect(seen.map((x) => x.url)).toEqual(['/_boson/files/upload/t1?offset=0', '/_boson/files/upload/t1?offset=4', '/_boson/files/upload/t1?offset=8']);
+    expect(seen.flatMap((x) => x.body)).toEqual([...bytes]);
+  });
+
+  it('stops at the first answer that is not "more" (a refusal part-way)', async () => {
+    const fetchFn = vi.fn().mockResolvedValueOnce(more()).mockResolvedValueOnce(answer(413, { error: 'quota_exceeded' }));
+    const res = await sendChunks(fetchFn as unknown as typeof fetch, '/p', new Blob(['abcdefghij']), 3, new AbortController().signal);
+    expect(res.status).toBe(413);
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops sending once aborted', async () => {
+    const ac = new AbortController();
+    const fetchFn = vi.fn(async () => { ac.abort(); return more(); });
+    await expect(sendChunks(fetchFn as unknown as typeof fetch, '/p', new Blob(['abcdefghij']), 3, ac.signal)).rejects.toThrow();
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a controller upload goes in chunks and finishes', async () => {
+    const { b } = bridge();
+    const url = `${FILES}/f/AbCdEfGhIjKlMnOpQrStUv/a.bin`;
+    const fetchFn = vi.fn().mockResolvedValueOnce(more()).mockResolvedValueOnce(more()).mockResolvedValueOnce(answer(201, { url }));
+    const c = new FilesController({ bridge: b, signedIn: () => false, fetch: fetchFn as unknown as typeof fetch, doneLingerMs: 0, chunkBytes: 2 });
+    await c.ensure('irc.example.org');
+    const post = vi.fn();
+    c.upload({ host: 'irc.example.org', channel: '#a', file: new Blob(['abcde']), name: 'a.bin', post });
+    await vi.waitFor(() => expect(post).toHaveBeenCalledWith(url));
+    expect(fetchFn.mock.calls.map((x) => x[0])).toEqual(['/_boson/files/upload/t1?offset=0', '/_boson/files/upload/t1?offset=2', '/_boson/files/upload/t1?offset=4']);
   });
 });

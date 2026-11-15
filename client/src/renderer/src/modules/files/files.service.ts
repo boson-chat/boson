@@ -78,6 +78,8 @@ export interface FilesControllerDeps {
   now?: () => number;
   // How long a finished upload's row stays.
   doneLingerMs?: number;
+  // Upload chunk size (tests).
+  chunkBytes?: number;
 }
 
 interface Running {
@@ -92,6 +94,41 @@ const hostKey = (h: string): string => h.trim().toLowerCase();
 function parseJson<T>(body: string | undefined): T | null {
   if (!body) return null;
   try { return JSON.parse(body) as T; } catch { return null; }
+}
+
+// Uploads go to the shell in chunks of this many bytes, each an
+// ArrayBuffer body. Not the File itself: WKWebView (macOS) passes a Blob or
+// File request body to the app's custom-scheme handler as no body at all,
+// while an ArrayBuffer arrives whole on every webview. A chunk at a time
+// keeps a large file out of memory (desktop/files.go serveUpload).
+export const UPLOAD_CHUNK_BYTES = 4 * 1024 * 1024;
+
+// The shell's answer to a chunk that wasn't the last.
+const MORE_HEADER = 'X-Boson-Upload';
+
+// sendChunks POSTs file to path in order, ?offset=<n> on each, one at a
+// time. Returns the shell's answer to the last chunk, or to the first one
+// it didn't answer "more" to (a refusal part-way).
+export async function sendChunks(
+  doFetch: typeof fetch, path: string, file: Blob, chunkBytes: number, signal: AbortSignal,
+): Promise<Response> {
+  const size = file.size;
+  const step = Math.max(1, Math.floor(chunkBytes));
+  for (let offset = 0; ; ) {
+    const end = Math.min(offset + step, size);
+    const chunk = await file.slice(offset, end).arrayBuffer();
+    if (signal.aborted) throw new DOMException('aborted', 'AbortError');
+    const sep = path.includes('?') ? '&' : '?';
+    const res = await doFetch(`${path}${sep}offset=${offset}`, {
+      method: 'POST',
+      body: chunk,
+      headers: { 'Content-Type': 'application/octet-stream' },
+      signal,
+    });
+    if (res.headers.get(MORE_HEADER) !== 'more' || end >= size) return res;
+    await res.text().catch(() => '');
+    offset = end;
+  }
 }
 
 // The message posted for a finished upload: "<caption> <url>", or the URL.
@@ -296,12 +333,7 @@ export class FilesController {
       let body = '';
       let retryAfter: string | null = null;
       try {
-        const res = await doFetch(ticket.path, {
-          method: 'POST',
-          body: req.file,
-          headers: { 'Content-Type': 'application/octet-stream' },
-          signal: run.abort.signal,
-        });
+        const res = await sendChunks(doFetch, ticket.path, req.file, this.deps.chunkBytes ?? UPLOAD_CHUNK_BYTES, run.abort.signal);
         status = res.status;
         retryAfter = res.headers.get('Retry-After');
         body = await res.text();
