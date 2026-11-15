@@ -1,5 +1,3 @@
-//go:build !ios && !android
-
 package main
 
 import (
@@ -16,7 +14,7 @@ import (
 // ("Sign in to <network>"), from the network's /.well-known/boson.json (the
 // same discovery voice uses), and lets the API proxy reach it. The renderer
 // asks only for networks the user added or joined; the origin is validated
-// here either way (ApiService.TrustNetworkAuth). Desktop only, like SSO.
+// here either way (ApiService.TrustNetworkAuth). On desktop and mobile.
 type NetAuthService struct {
 	disc *voiceDiscoverer
 	api  *ApiService
