@@ -5,6 +5,7 @@
 // tests use). Never imported by main.tsx; never in the app build.
 import { render } from 'preact';
 import './styles.css';
+import { trackVisualViewport } from './shared/visual-viewport';
 import { ChatService } from './modules/chat';
 import type { IrcEvent, EventListener } from './modules/engine';
 import { ChatLayout } from './screens/ChatLayout';
@@ -30,6 +31,7 @@ const themeParam = new URLSearchParams(location.search).get('theme');
 if (themeParam) localStorage.setItem('boson:theme:v1', JSON.stringify({ active: themeParam }));
 // Apply the saved theme (local storage), as main.tsx does in the app.
 void getThemeStore().init();
+trackVisualViewport();
 
 // ---- Stub the desktop embed bridges so cards render rich content ----
 type W = typeof window & { bosonUnfurl?: unknown; bosonSpotify?: unknown };

@@ -29,6 +29,29 @@ html { touch-action: manipulation; }
   padding-right: env(safe-area-inset-right, 0px);
 }
 
+/* Touch screens: the app is exactly the visible area, above the on-screen
+   keyboard (shared/visual-viewport.ts sets these). With the keyboard up the
+   home indicator is hidden behind it, so no bottom inset then. */
+html.vv-tracked #app {
+  height: var(--app-height, 100%);
+  position: relative;
+  top: var(--app-top, 0px);
+}
+html.kb-open #app { padding-bottom: 0; }
+/* Screens sized to the window (100vh) follow it too; under the title bar
+   the frame's flex layout shrinks them to what's left. */
+html.vv-tracked .app-shell,
+html.vv-tracked .directory-screen { height: var(--app-height, 100vh); }
+/* Full-screen overlays (dialogs, sheets) end at the keyboard too, so a
+   field in them isn't typed into blind. */
+html.vv-tracked .bds-modal-backdrop,
+html.vv-tracked .bottom-sheet-backdrop {
+  top: var(--app-top, 0px);
+  bottom: auto;
+  height: var(--app-height, 100%);
+}
+html.kb-open .bottom-sheet { padding-bottom: var(--space-4); }
+
 body {
   margin: 0;
   font-family: var(--font-body);
