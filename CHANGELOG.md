@@ -1,3 +1,9 @@
+## [0.55.0](https://github.com/boson-chat/boson/compare/v0.54.0...v0.55.0) (2026-11-15)
+
+### Features
+
+* light + dark variants for network themes in the client ([#51](https://github.com/boson-chat/boson/issues/51)) ([76232d8](https://github.com/boson-chat/boson/commit/76232d828cf9eb1fcfd0b3ce29f1a7278c211449))
+
 ## [0.54.0](https://github.com/boson-chat/boson/compare/v0.53.0...v0.54.0) (2026-11-14)
 
 ### Features
