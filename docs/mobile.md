@@ -91,6 +91,10 @@ plugin. More native glue, same renderer.
 | Themes folder | files + watcher | app sandbox; no "open folder" | same |
 | Opening links | default browser | SFSafariViewController / Safari | Custom Tabs / browser |
 | YouTube wrapper | from boson.chat | same (WKWebView, as macOS) | check in Phase 0 (Android WebView) |
+| Network sign-in discovery (boson.json `auth.url`) | Go (`NetAuthService`) | same | same |
+| File uploads | Go (`FilesService`), 4 MiB ArrayBuffer chunks to `/_boson/files/` | same (WKWebView passes ArrayBuffer bodies whole) | same; untested on the Android WebView |
+| Voice | QUIC + Opus (cgo audio) | not yet | not yet |
+| "Sign in with …" (SSO) | loopback redirect listener | not yet (needs a `boson://` redirect) | same |
 
 The renderer already reads the platform (`bosonPlatform`); it gains `ios`
 and `android`, which switch the layout and hide desktop-only UI.
