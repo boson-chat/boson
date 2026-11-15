@@ -53,6 +53,9 @@ function loadMermaid(): Promise<typeof import('mermaid').default> {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: 'strict',
+      // mermaid's default is ELK, which isn't bundled (EPL-2.0; see
+      // src/build/no-elk.ts). A diagram asking for ELK falls back to dagre.
+      layout: 'dagre',
       theme: prefersDarkDiagrams() ? 'dark' : 'default',
       fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-body') || undefined,
     });

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { elkJsAlias, noElkLayouts, noElkLayoutsEsbuild } from './src/build/no-elk';
 
 // The renderer: built into out/renderer, which the desktop app (desktop/)
 // embeds; `npm run dev` serves it in a browser on :5173, where it talks to a
@@ -76,7 +77,10 @@ const coverageBuild = process.env['E2E_COVERAGE'] === '1';
 export default defineConfig({
   root: resolve(__dirname, 'src/renderer'),
   envDir: resolve(__dirname), // client/.env, not src/renderer/.env
-  plugins: [preact(), injectFreshEngineDiscovery()],
+  plugins: [preact(), injectFreshEngineDiscovery(), noElkLayouts()],
+  // elkjs (EPL-2.0) never reaches the bundle: see src/build/no-elk.ts.
+  resolve: { alias: [elkJsAlias] },
+  optimizeDeps: { esbuildOptions: { plugins: [noElkLayoutsEsbuild()] } },
   server: { port: 5173, strictPort: true },
   build: {
     outDir: resolve(__dirname, process.env['RENDERER_OUT_DIR'] || 'out/renderer'),
