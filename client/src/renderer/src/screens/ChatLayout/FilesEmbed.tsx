@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
+import { usePauseOffscreen } from '../../shared/use-offscreen';
 import { Download, FileText, FileX } from 'lucide-preact';
 import { filesViewUrl, formatBytes, formatDuration, type FilesLink } from '../../modules/files';
 import { INLINE_BOX, imagesBridge, reserveStyle, useCachedImage } from '../../shared/image-cache';
@@ -49,6 +50,8 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
   const img = useCachedImage(cached ? link.url : null, { kind: 'file', box: INLINE_BOX });
   const [state, setState] = useState<State>({ phase: 'loading' });
   const view = filesViewUrl(link.url);
+  const player = useRef<HTMLVideoElement & HTMLAudioElement>(null);
+  usePauseOffscreen(player);
 
   useEffect(() => {
     if (cached) return;
@@ -108,7 +111,7 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
     return (
       <div class="files-embed files-video" data-testid="files-embed" data-state="ready" data-media="video">
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <video src={view} controls preload="metadata" aria-label={link.name} />
+        <video ref={player} src={view} controls preload="metadata" aria-label={link.name} />
         <FootLine link={link} meta={meta} openExternal={openExternal} />
       </div>
     );
@@ -118,7 +121,7 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
       <div class="files-embed files-audio" data-testid="files-embed" data-state="ready" data-media="audio">
         <FootLine link={link} meta={meta} openExternal={openExternal} />
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <audio src={view} controls preload="metadata" aria-label={link.name} />
+        <audio ref={player} src={view} controls preload="metadata" aria-label={link.name} />
       </div>
     );
   }

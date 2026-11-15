@@ -87,6 +87,9 @@ interface ChatAreaProps {
   // through ChatLayout → ChatService.loadOlderHistory. Omitted in legacy
   // fixtures, in which case the scrollback affordance simply doesn't show.
   onLoadOlder?: (channel: string) => void;
+  // Whether the user reads at the bottom of the conversation (memory
+  // windows: ChatService.setViewport).
+  onViewport?: (channel: string, atBottom: boolean) => void;
   // The active channel's live message signal (fine-grained reactivity). When
   // omitted (legacy fixtures/tests), ChatArea falls back to wrapping
   // `channel.messages` in a throwaway signal.
@@ -149,6 +152,7 @@ export function ChatArea({
   activeServerId,
   onOpenServerSettings,
   onLoadOlder,
+  onViewport,
   avatarFor,
   messagesSignal,
   onOpenChannelSettings,
@@ -485,6 +489,7 @@ export function ChatArea({
         channelName={channel.name}
         avatarFor={avatarFor}
         onLoadOlder={onLoadOlder ? () => onLoadOlder(channel.name) : undefined}
+        onViewport={onViewport}
         historySupported={!!onLoadOlder && !!serverInfo?.scrollbackAvailable}
         historyLoading={channel.history?.loading}
         historyExhausted={channel.history?.exhausted}

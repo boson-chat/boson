@@ -1,5 +1,7 @@
 import type { AuthService } from '../../modules/auth';
 import { ChatService, type ChatState } from '../../modules/chat';
+import { DEFAULT_WINDOWS } from '../../modules/chat/chat.service';
+import { createOlderStore, type OlderStore } from '../../modules/history/older-store';
 import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
@@ -792,6 +794,14 @@ export class DirectoryBloc {
   // No-op when the server isn't a live connection.
   // Persist the user's Connect / Disconnect network choice on the route (see
   // SavedServerBouncer.upstreamOff).
+  // Per server: where its conversations' lines go when they leave memory.
+  private readonly olderStores = new Map<string, OlderStore>();
+  private olderStoreFor(serverId: string): OlderStore {
+    let s = this.olderStores.get(serverId);
+    if (!s) { s = createOlderStore(serverId); this.olderStores.set(serverId, s); }
+    return s;
+  }
+
   private rememberUpstreamWanted(serverId: string, wanted: boolean): void {
     const route = this.getServerBouncer(serverId);
     if (!route || !!route.upstreamOff === !wanted) return;
@@ -2090,6 +2100,10 @@ export class DirectoryBloc {
       // have this, so without it their notifications carry no server name.
       server: { serverId: server.id, serverName: server.name },
       onBouncerUpstreamWanted: (wanted) => this.rememberUpstreamWanted(server.id, wanted),
+      // Small in-memory windows; what leaves memory goes to IndexedDB (one
+      // store per server, kept across its reconnects).
+      olderStore: this.olderStoreFor(server.id),
+      windows: DEFAULT_WINDOWS,
     });
     if (opts.carry) chat.seedConversations(opts.carry);
     else {

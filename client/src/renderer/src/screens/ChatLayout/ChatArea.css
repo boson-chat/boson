@@ -368,7 +368,15 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  /* The list keeps the reader's place itself (message-render.tsx). */
+  overflow-anchor: none;
+  position: relative;
 }
+
+/* Windowed rows: a row contains its own margins, so its measured height is
+   all the space it takes; the spacers stand in for rows not in the DOM. */
+.vrow { display: flow-root; }
+.vspacer { flex: none; }
 
 .messages-inner {
   display: flex;
@@ -1295,7 +1303,14 @@
 .chat-load-older {
   display: flex;
   justify-content: center;
+  align-items: center;
   padding: var(--space-2) 0;
+  /* One height in every state (button, loading, loaded, the end): the
+     list keeps the reader's place by the rows below it, and at the very
+     top a ribbon that shrank would pull them up. */
+  box-sizing: border-box;
+  height: 48px;
+  flex: none;
 }
 .chat-load-older-btn {
   background: var(--surface);
@@ -1317,6 +1332,7 @@
 .chat-load-older:has(.chat-load-older-bar) {
   flex-direction: column;
   align-items: stretch;
+  justify-content: flex-start;
   text-align: center;
 }
 .chat-load-older-loading {

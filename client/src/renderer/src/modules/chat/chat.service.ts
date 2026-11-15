@@ -1,6 +1,7 @@
 import { signal, type Signal } from '@preact/signals';
 import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
+import { MemoryOlderStore, type OlderStore } from '../history/older-store';
 import { containsNickMention } from './mention';
 import type { NotifyEvent } from '../ui/notifier';
 import {
@@ -182,6 +183,20 @@ const IN_MEMORY_MESSAGE_CAP = 1500;
 const OLDER_CAP = 10_000;
 const OLDER_PAGE = 50;
 
+// Memory windows (deps.windows; the app sets them, legacy callers keep the
+// caps above). The conversation on screen, read at the bottom, keeps its
+// newest `active` lines; the others a `tail` (sidebar previews, unread);
+// the rest goes to the OlderStore (IndexedDB) and comes back on scroll-up.
+// While the user reads further up nothing is trimmed off what they loaded;
+// back at the bottom it's trimmed to the window again.
+export interface MemoryWindows {
+  active: number;
+  tail: number;
+  // Lines per scroll-up page from the OlderStore.
+  page: number;
+}
+export const DEFAULT_WINDOWS: MemoryWindows = { active: 200, tail: 50, page: 100 };
+
 // How long a scroll-back request waits for the server before the ribbon shows
 // an error (covers a CHATHISTORY / *playback request that gets no reply).
 const LOAD_OLDER_TIMEOUT_MS = 8_000;
@@ -300,12 +315,6 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
 // unchanged.
 type InternalChannel = Omit<ChatChannel, 'messages'> & { messages: Signal<ChatMessage[]> };
 
-// Identity of a line for the `older` store: its msgid, else what dedupe
-// compares (time, sender, text).
-function olderKey(m: ChatMessage): string {
-  return m.msgid ? `id:${m.msgid}` : `${m.serverTime ?? m.timestamp}\u0000${m.from}\u0000${m.text}`;
-}
-
 // Whether two copies of a line were sent at the same moment: by the server's
 // own stamp when both have one (skew corrections differ between connections),
 // else by our timestamp.
@@ -344,8 +353,17 @@ export class ChatService {
   // Lines older than what's in memory, oldest first (see OLDER_CAP), and
   // how many of them scroll-up has put back, which raises that
   // conversation's in-memory cap so live traffic doesn't push them out again.
-  private readonly older = new Map<string, ChatMessage[]>();
+  private readonly older: OlderStore;
+  // Whether the OlderStore is shared with the next ChatService of this
+  // server (DirectoryBloc's), so a reconnect needn't hand it over.
+  private readonly olderShared: boolean;
   private readonly revealed = new Map<string, number>();
+  // Memory windows (null: the legacy caps).
+  private readonly windows: MemoryWindows | null;
+  // The conversation on screen and whether it's read at the bottom (from
+  // the message list: setViewport).
+  private viewportAtBottom = true;
+  private visibleKey: string | null = null;
   // Open `chathistory-targets` batches (ref → targets listed so far): the
   // reply to the CHATHISTORY TARGETS sent on attach.
   private readonly targetBatches = new Map<string, string[]>();
@@ -478,8 +496,16 @@ export class ChatService {
       // Told when the user asks the bouncer to connect (true) or disconnect
       // (false) its network, so the choice can outlive this connection.
       onBouncerUpstreamWanted?: (wanted: boolean) => void;
+      // Where lines that leave memory go (IndexedDB in the app; shared
+      // across this server's connections). Default: in memory.
+      olderStore?: OlderStore;
+      // Small in-memory windows (see MemoryWindows); off by default.
+      windows?: MemoryWindows;
     },
   ) {
+    this.older = deps?.olderStore ?? new MemoryOlderStore(OLDER_CAP);
+    this.olderShared = !!deps?.olderStore;
+    this.windows = deps?.windows ?? null;
     this.persistence = persistence ?? null;
     const sid = (session as Partial<ServerSession>).serverId;
     this.serverScope = persistence?.scope ?? deps?.server ?? (sid ? { serverId: sid } : null);
@@ -512,7 +538,11 @@ export class ChatService {
     const out: Array<{ name: string; messages: ChatMessage[]; older?: ChatMessage[]; active?: true }> = [];
     for (const ch of this.channels.values()) {
       const messages = ch.messages.peek();
-      const older = this.older.get(ch.name);
+      // A shared store stays with the server; a private one (memory) is
+      // handed over whole.
+      const held = !this.olderShared && this.older.has(ch.name) ? this.older.takeNewest(ch.name, OLDER_CAP) : null;
+      const older = Array.isArray(held) && held.length > 0 ? held : undefined;
+      if (older) this.older.put(ch.name, older);
       const active = ch.name === this.activeChannel;
       if (messages.length > 0 || older || active) {
         out.push({ name: ch.name, messages, ...(older ? { older } : {}), ...(active ? { active: true as const } : {}) });
@@ -530,9 +560,13 @@ export class ChatService {
         this.ensureChannel(c.name);
         this.activeChannel = this.channelKey(c.name);
       }
-      if (c.messages.length === 0 && !c.older?.length) continue;
+      if (c.messages.length === 0 && !c.older?.length) {
+        if (this.older.has(this.channelKey(c.name))) { this.ensureChannel(c.name); this.markScrollbackAvailable(); }
+        continue;
+      }
       const ch = this.ensureChannel(c.name);
       if (c.older?.length) this.stashOlder(this.channelKey(c.name), c.older);
+      else if (this.older.has(this.channelKey(c.name))) this.markScrollbackAvailable();
       const fresh = c.messages.filter((m) => !this.isDuplicateMessage(ch, m));
       const merged = [...fresh, ...ch.messages.peek()].sort((a, b) => a.timestamp - b.timestamp);
       ch.messages.value = this.capMessages(this.channelKey(c.name), merged);
@@ -1917,7 +1951,7 @@ export class ChatService {
   private cmdClear(): void {
     if (!this.activeChannel) return;
     const ch = this.channels.get(this.activeChannel);
-    this.older.delete(this.activeChannel);
+    this.older.drop(this.activeChannel);
     this.revealed.delete(this.activeChannel);
     if (ch) {
       ch.messages.value = [];
@@ -3220,7 +3254,11 @@ export class ChatService {
         if (prepend.length === 0) return;
         // Persisted messages predate anything that arrived during this session
         // for this channel, so they go first.
-        ch.messages.value = [...prepend, ...ch.messages.peek()];
+        // Within the conversation's window; the rest is held aside for
+        // scroll-up.
+        ch.messages.value = this.windows
+          ? this.capMessages(key, [...prepend, ...ch.messages.peek()])
+          : [...prepend, ...ch.messages.peek()];
         this.emit();
       })
       .catch(() => {
@@ -3239,7 +3277,7 @@ export class ChatService {
       this.hydratedChannels.delete(key);
       // Same for chathistory: re-fetch backlog on rejoin.
       this.historyRequested.delete(key);
-      this.older.delete(key);
+      this.older.drop(key);
       this.revealed.delete(key);
       this.pendingHistoryKind.delete(key);
       this.clearLoadOlderTimeout(key);
@@ -3384,6 +3422,13 @@ export class ChatService {
     if (!ch || ch.history?.loading || ch.history?.exhausted) return;
     const first = ch.messages.peek()[0];
 
+    // Lines that left memory come back first (IndexedDB / memory), then
+    // the server's own history.
+    if (this.older.has(key)) {
+      this.takeOlderPage(key, ch);
+      return;
+    }
+
     if (this.chathistorySupported()) {
       if (!first) return; // nothing to anchor before yet
       const pivot = new Date(first.timestamp).toISOString();
@@ -3406,18 +3451,94 @@ export class ChatService {
       return;
     }
 
-    // No history command (plain ZNC): hand back lines held aside.
-    const older = this.older.get(key) ?? [];
-    const page = older.slice(-OLDER_PAGE);
-    const rest = older.slice(0, older.length - page.length);
-    if (rest.length > 0) this.older.set(key, rest);
-    else this.older.delete(key);
-    if (page.length > 0) {
-      this.revealed.set(key, (this.revealed.get(key) ?? 0) + page.length);
-      ch.messages.value = [...page, ...ch.messages.peek()];
-    }
-    ch.history = { loading: false, exhausted: rest.length === 0 };
+    ch.history = { loading: false, exhausted: true };
     this.emit();
+  }
+
+  // A page of held lines back above what's shown.
+  private takeOlderPage(key: string, ch: InternalChannel): void {
+    const n = this.windows?.page ?? OLDER_PAGE;
+    const got = this.older.takeNewest(key, n);
+    const apply = (page: ChatMessage[]): void => {
+      if (this.channels.get(key) !== ch) return;
+      if (page.length > 0) {
+        this.revealed.set(key, (this.revealed.get(key) ?? 0) + page.length);
+        const shown = ch.messages.peek();
+        const fresh = page.filter((m) => !this.isDuplicateMessage(ch, m));
+        ch.messages.value = [...fresh, ...shown];
+      }
+      const serverHistory = this.chathistorySupported() || this.playbackSupported();
+      ch.history = { loading: false, exhausted: !serverHistory && !this.older.has(key) };
+      this.emit();
+    };
+    if (Array.isArray(got)) { apply(got); return; }
+    ch.history = { loading: true, exhausted: false };
+    this.emit();
+    void got.then(apply, () => apply([]));
+  }
+
+  // ---- memory windows ----
+
+  // The message list reports whether the user reads at the bottom of the
+  // conversation on screen. Back at the bottom, what they'd scrolled up
+  // through leaves memory again.
+  setViewport(channel: string, atBottom: boolean): void {
+    if (!this.windows) return;
+    const key = this.channelKey(channel);
+    if (key !== this.visibleKey) return;
+    const was = this.viewportAtBottom;
+    this.viewportAtBottom = atBottom;
+    if (atBottom && !was) this.trimTo(key, this.windows.active);
+  }
+
+  // The conversation on screen changed (active channel, server in front):
+  // the one left goes down to a tail; the new one is filled to a window.
+  private syncVisible(): void {
+    if (!this.windows) return;
+    const next = this.isForeground ? this.activeChannel : null;
+    if (next === this.visibleKey) return;
+    const prev = this.visibleKey;
+    this.visibleKey = next;
+    this.viewportAtBottom = true;
+    if (prev) this.trimTo(prev, this.windows.tail);
+    if (next) this.fillWindow(next);
+  }
+
+  private trimTo(key: string, n: number): void {
+    const ch = this.channels.get(key);
+    if (!ch) return;
+    this.revealed.delete(key);
+    const msgs = ch.messages.peek();
+    if (msgs.length <= n) return;
+    this.stashOlder(key, msgs.slice(0, msgs.length - n));
+    ch.messages.value = msgs.slice(msgs.length - n);
+    if (ch.history?.exhausted) ch.history = { loading: false, exhausted: false };
+    this.emit();
+  }
+
+  // Bring the on-screen conversation back up to its window from the store.
+  private fillWindow(key: string): void {
+    const ch = this.channels.get(key);
+    if (!ch || !this.windows) return;
+    const want = this.windows.active - ch.messages.peek().length;
+    if (want <= 0 || !this.older.has(key)) return;
+    const got = this.older.takeNewest(key, want);
+    const apply = (page: ChatMessage[]): void => {
+      if (this.channels.get(key) !== ch || page.length === 0) return;
+      const fresh = page.filter((m) => !this.isDuplicateMessage(ch, m));
+      ch.messages.value = [...fresh, ...ch.messages.peek()];
+      this.emit();
+    };
+    if (Array.isArray(got)) apply(got);
+    else void got.then(apply, () => {});
+  }
+
+  // The cap for key's in-memory list right now.
+  private capFor(key: string, live: boolean): number {
+    if (!this.windows) return IN_MEMORY_MESSAGE_CAP;
+    if (key !== this.visibleKey) return this.windows.tail;
+    if (this.viewportAtBottom || !live) return this.windows.active + (this.revealed.get(key) ?? 0);
+    return Number.POSITIVE_INFINITY;
   }
 
   // Keep a conversation's newest lines within its cap (raised by what
@@ -3425,37 +3546,29 @@ export class ChatService {
   // the user has scrolled back, new lines grow the cap instead of pushing
   // what they're reading off the top (up to OLDER_CAP extra).
   private capMessages(key: string, msgs: ChatMessage[], live = false): ChatMessage[] {
-    let extra = this.revealed.get(key) ?? 0;
-    if (live && extra > 0 && msgs.length > IN_MEMORY_MESSAGE_CAP + extra) {
-      extra = Math.min(OLDER_CAP, msgs.length - IN_MEMORY_MESSAGE_CAP);
-      this.revealed.set(key, extra);
+    let cap: number;
+    if (!this.windows) {
+      let extra = this.revealed.get(key) ?? 0;
+      if (live && extra > 0 && msgs.length > IN_MEMORY_MESSAGE_CAP + extra) {
+        extra = Math.min(OLDER_CAP, msgs.length - IN_MEMORY_MESSAGE_CAP);
+        this.revealed.set(key, extra);
+      }
+      cap = IN_MEMORY_MESSAGE_CAP + extra;
+    } else {
+      cap = this.capFor(key, live);
     }
-    const cap = IN_MEMORY_MESSAGE_CAP + extra;
     if (msgs.length <= cap) return msgs;
     this.stashOlder(key, msgs.slice(0, msgs.length - cap));
     return msgs.slice(msgs.length - cap);
   }
 
-  private olderKeys(key: string): Set<string> {
-    return new Set((this.older.get(key) ?? []).map(olderKey));
-  }
-
-  // Add lines to a conversation's `older` store: deduped, oldest first,
-  // newest OLDER_CAP kept. Makes scroll-up available (again).
+  // Add lines to a conversation's `older` store (deduped there). Makes
+  // scroll-up available (again).
   private stashOlder(key: string, msgs: readonly ChatMessage[]): void {
-    const prev = this.older.get(key) ?? [];
-    const seen = this.olderKeys(key);
-    const add = msgs.filter((m) => {
-      const k = olderKey(m);
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-    if (add.length === 0) return;
-    const next = [...prev, ...add].sort((a, b) => a.timestamp - b.timestamp);
-    this.older.set(key, next.length > OLDER_CAP ? next.slice(next.length - OLDER_CAP) : next);
+    if (msgs.length === 0) return;
+    this.older.put(key, msgs.map(stripPending));
     const ch = this.channels.get(key);
-    if (ch?.history?.exhausted && !this.chathistorySupported() && !this.playbackSupported()) {
+    if (ch?.history?.exhausted && this.older.has(key)) {
       ch.history = { loading: false, exhausted: false };
     }
     this.markScrollbackAvailable();
@@ -3521,8 +3634,7 @@ export class ChatService {
     // Dedupe by msgid AND content (from+text+timestamp): a server may replay
     // the same buffer on every attach with no msgid, so msgid-only dedupe lets
     // reconnect dups pile up. isDuplicateMessage covers both.
-    const aside = this.olderKeys(key);
-    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !aside.has(olderKey(m)));
+    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !this.older.contains(key, m));
     if (fresh.length > 0) {
       // Stable: among equal timestamps what was already shown stays first.
       const merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
@@ -3536,7 +3648,7 @@ export class ChatService {
     const serverHistory = this.chathistorySupported() || this.playbackSupported();
     ch.history = {
       loading: false,
-      exhausted: serverHistory ? batch.msgs.length < this.chathistoryLimit() : !this.older.has(key),
+      exhausted: this.older.has(key) ? false : serverHistory ? batch.msgs.length < this.chathistoryLimit() : true,
     };
     this.pendingHistoryKind.delete(key);
     this.clearLoadOlderTimeout(key);
@@ -3760,6 +3872,9 @@ export class ChatService {
   // notification (the expensive clone + Preact re-render) is deferred.
   private emitScheduled = false;
   private emit(): void {
+    // Every change passes here: a cheap check for a change of the
+    // conversation on screen (memory windows).
+    this.syncVisible();
     if (this.emitScheduled) return;
     this.emitScheduled = true;
     setTimeout(() => {
