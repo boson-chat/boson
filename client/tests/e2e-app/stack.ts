@@ -9,8 +9,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 export const CLIENT_DIR = resolve(here, '../..');
 export const REPO_ROOT = resolve(CLIENT_DIR, '..');
 export const E2E_INFRA_DIR = join(REPO_ROOT, 'infra', 'e2e');
-// Runtime dir of the host-run backend (pid, log, coverage counters).
-export const E2E_RUN_DIR = join(E2E_INFRA_DIR, '.run');
 
 // The e2e renderer build (scripts/build-e2e.mjs). E2E_OUT_DIR lets several
 // authors build + run their own copy side by side; resolved like the build

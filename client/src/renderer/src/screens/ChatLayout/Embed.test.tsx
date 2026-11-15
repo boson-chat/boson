@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { render, screen, fireEvent, act } from '@testing-library/preact';
 import { MessageEmbeds, youtubeWrapperOrigin, YOUTUBE_WRAPPER_TIMEOUT_MS } from './Embed';
 import { setEmbedSettings, __resetEmbedSettingsCache } from '../../modules/ui/embeds.store';
@@ -168,10 +168,15 @@ describe('MessageEmbeds', () => {
     }
   }));
 
-  it('boson.chat hosts the same wrapper the app serves', () => {
-    const pub = (dir: string, f: string) => readFileSync(join(__dirname, dir, f), 'utf8');
+  // boson.chat is boson-chat/website: checked against a checkout of it next to
+  // this repo (or BOSON_WEBSITE_DIR) when there is one.
+  const websitePublic = join(
+    process.env['BOSON_WEBSITE_DIR'] ?? resolve(__dirname, '../../../../../../../website'), 'public',
+  );
+  it.skipIf(!existsSync(join(websitePublic, 'youtube-embed.html')))('boson.chat hosts the same wrapper the app serves', () => {
+    const pub = (dir: string, f: string) => readFileSync(join(dir, f), 'utf8');
     for (const f of ['youtube-embed.html', 'youtube-embed.js']) {
-      expect(pub('../../../../../../website/public', f)).toBe(pub('../../../public', f));
+      expect(pub(websitePublic, f)).toBe(pub(join(__dirname, '../../../public'), f));
     }
   });
 

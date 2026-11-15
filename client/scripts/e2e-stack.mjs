@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Brings the real-app e2e stack up / down (client/tests/e2e-app/):
 //
-//   node scripts/e2e-stack.mjs up       # compose (incl. auth service) + migrations + backend
+//   node scripts/e2e-stack.mjs up       # compose (incl. auth service, backend + its migrations)
 //   node scripts/e2e-stack.mjs down     # stop all of it, drop its state
 //   node scripts/e2e-stack.mjs status
 //   node scripts/e2e-stack.mjs restart-backend
@@ -20,40 +20,28 @@
 //      The auth image is built from $AUTH_SRC (default: an `auth` checkout
 //      next to this repo) unless $AUTH_IMAGE names one to use. `up` creates
 //      the stack's admin account (stack.json auth.admin) for the tests.
-//   2. The Go backend, built from this checkout into infra/e2e/.run/ and run
-//      on the host (`serve`, after `migrate up`). Built with the `boson_dev`
-//      tag. With E2E_COVERAGE=1 it's a `-cover` build that flushes counters
-//      on SIGUSR1 (backend/cmd/server/coverflush_e2e.go) for the coverage
-//      report.
-//
-// The backend's working directory is infra/e2e/.run, where none of the
-// backend/config/config.dev.json search paths resolve: everything comes from
-// the env below, never a developer's local config (which may hold real mail
-// credentials).
+//   2. The boson backend (github.com/boson-chat/backend) from its image
+//      ($BACKEND_IMAGE, default pinned in the compose file): `migrate up`
+//      as the one-shot `backend-migrate`, then `serve` as `backend`, once
+//      the auth service is ready. Env-only config, set in the compose file.
+//      Its log: `docker compose -f infra/e2e/docker-compose.yml logs backend`.
 //
 // `down` only ever stops what this script started: the compose project
-// `boson-e2e` and the backend PID in
-// infra/e2e/.run/backend.pid (after checking its command is our binary).
-import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// `boson-e2e`.
+import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const clientDir = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = join(clientDir, '..');
 const e2eDir = join(repoRoot, 'infra', 'e2e');
-const runDir = join(e2eDir, '.run');
 const stack = JSON.parse(readFileSync(join(e2eDir, 'stack.json'), 'utf8'));
 
-const coverage = process.env.E2E_COVERAGE === '1';
-const GO = process.env.GO ?? 'go';
 const AUTH_IMAGE = process.env.AUTH_IMAGE ?? '';
 const AUTH_SRC = process.env.AUTH_SRC ?? join(repoRoot, '..', 'auth');
 const LOCAL_AUTH_IMAGE = 'boson-e2e-auth:local';
-const backendBin = join(runDir, process.platform === 'win32' ? 'boson-e2e-backend.exe' : 'boson-e2e-backend');
-const pidFile = join(runDir, 'backend.pid');
-const logFile = join(runDir, 'backend.log');
-export const backendCoverDir = join(runDir, 'backend-cover');
+const BACKEND_IMAGE = process.env.BACKEND_IMAGE ?? '';
 
 const compose = ['compose', '-f', join(e2eDir, 'docker-compose.yml')];
 const COMPOSE_SERVICES = [
@@ -96,17 +84,21 @@ async function waitFor(what, fn, timeoutMs) {
 
 // ---- compose ---------------------------------------------------------------
 
+function composeEnv() {
+  return { ...process.env, AUTH_IMAGE: AUTH_IMAGE || LOCAL_AUTH_IMAGE };
+}
+
 function composeUp() {
   prepareAuthImage();
   run('docker', [...compose, 'up', '-d', '--force-recreate', '--wait', '--wait-timeout', '120', ...COMPOSE_SERVICES], {
-    env: { ...process.env, AUTH_IMAGE: AUTH_IMAGE || LOCAL_AUTH_IMAGE },
+    env: composeEnv(),
   });
   // One-shot bucket setup (loops until MinIO answers, then exits).
   run('docker', [...compose, 'run', '--rm', '--build', 'minio-setup']);
 }
 
 function composeDown() {
-  run('docker', [...compose, 'down', '-v', '--remove-orphans']);
+  run('docker', [...compose, 'down', '-v', '--remove-orphans'], { env: composeEnv() });
 }
 
 // ---- auth service ----------------------------------------------------------
@@ -135,7 +127,7 @@ async function authUp() {
   // it taken, which is fine.
   const r = spawnSync('docker', [...compose, 'exec', '-T', 'auth', './auth', 'user', 'create',
     '--username', auth.admin.username, '--email', auth.admin.email, '--role', 'admin', '--password-stdin'], {
-    input: `${auth.admin.password}\n`, encoding: 'utf8', env: { ...process.env, AUTH_IMAGE: AUTH_IMAGE || LOCAL_AUTH_IMAGE },
+    input: `${auth.admin.password}\n`, encoding: 'utf8', env: composeEnv(),
   });
   if (r.status !== 0 && !/taken|exists/i.test(`${r.stdout}${r.stderr}`)) {
     throw new Error(`creating the e2e admin failed: ${r.stderr || r.stdout}`);
@@ -153,120 +145,31 @@ async function directoryUp() {
 
 // ---- backend ---------------------------------------------------------------
 
-function backendEnv() {
-  const pg = stack.postgres;
-  const mail = stack.catchallMail;
-  const env = {
-    ...process.env,
-    PORT: String(stack.backend.port),
-    ENV: 'e2e',
-    DBHOST: pg.host,
-    DBPORT: String(pg.port),
-    DBNAME: pg.database,
-    DBUSERNAME: pg.user,
-    DBPASSWORD: pg.password,
-    DBSSLMODE: 'disable',
-    AUTH_JWKS_URL: `${stack.auth.url}/.well-known/jwks.json`,
-    AUTH_ISSUER: stack.auth.url,
-    AUTH_AUDIENCE: 'boson',
-    // Nick claims are off by default; the e2e stack runs them (inbound =
-    // the catch-all Mailpit, via the older PURELYMAIL_* names on purpose:
-    // they still work as fallbacks).
-    NICK_CLAIM_ENABLED: 'true',
-    PURELYMAIL_POP3_HOST: '127.0.0.1',
-    PURELYMAIL_POP3_PORT: String(mail.pop3Port),
-    PURELYMAIL_POP3_USER: mail.pop3User,
-    PURELYMAIL_POP3_PASSWORD: mail.pop3Password,
-    PURELYMAIL_POP3_TLS: 'false',
-    NICK_CLAIM_EMAIL_DOMAIN: 'boson.chat',
-    NICK_CLAIM_RATE_LIMIT_PER_HOUR: '1000',
-    INTERNAL_ADDR: `127.0.0.1:${stack.backend.internalPort}`,
-    INTERNAL_TOKEN: stack.backend.internalToken,
-    CLOUDFLARE_R2_ACCESS_KEY: stack.minio.accessKey,
-    CLOUDFLARE_R2_SECRET_KEY: stack.minio.secretKey,
-    CLOUDFLARE_R2_ENDPOINT: stack.minio.endpoint,
-    CLOUDFLARE_R2_BUCKET: stack.minio.bucket,
-    CLOUDFLARE_CDN_BASE_URL: `${stack.minio.endpoint}/${stack.minio.bucket}`,
-  };
-  delete env.GOCOVERDIR;
-  // Env-only config: a stray BOSON_CONFIG from the shell must not apply.
-  delete env.BOSON_CONFIG;
-  if (coverage) env.GOCOVERDIR = backendCoverDir;
-  return env;
-}
-
-function buildBackend() {
-  mkdirSync(runDir, { recursive: true });
-  const tags = coverage ? 'boson_dev,boson_e2ecover' : 'boson_dev';
-  // atomic: runtime/coverage.WriteCountersDir (the SIGUSR1 flush) refuses
-  // other modes.
-  const coverFlags = coverage ? ['-cover', '-covermode=atomic', '-coverpkg=./backend/...'] : [];
-  run(GO, ['build', '-tags', tags, ...coverFlags, '-o', backendBin, './backend/cmd/server'], {
-    cwd: repoRoot,
-    env: { ...process.env, CGO_ENABLED: '0' },
-  });
-}
-
-function readPid() {
-  if (!existsSync(pidFile)) return null;
-  const pid = Number(readFileSync(pidFile, 'utf8').trim());
-  return Number.isInteger(pid) && pid > 0 ? pid : null;
-}
-
-// Only signal the PID if it is still OUR binary (PIDs get reused).
-export function ourBackendPid() {
-  const pid = readPid();
-  if (!pid) return null;
-  if (process.platform === 'win32') return pid;
-  const r = capture('ps', ['-p', String(pid), '-o', 'command=']);
-  return r.ok && r.out.includes(backendBin) ? pid : null;
-}
-
-async function stopBackend() {
-  const pid = ourBackendPid();
-  if (pid) {
-    log(`stopping backend (pid ${pid})`);
-    try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
-    await waitFor('backend to exit', () => {
-      try { process.kill(pid, 0); return false; } catch { return true; }
-    }, 10_000).catch(() => {
-      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
-    });
-  }
-  rmSync(pidFile, { force: true });
-}
-
-function assertNoDevConfig(cwd) {
-  for (const rel of ['backend/config/config.dev.json', 'config/config.dev.json', '../config/config.dev.json']) {
-    if (existsSync(join(cwd, rel))) throw new Error(`backend would load ${join(cwd, rel)}; refusing to start`);
-  }
-}
-
+// The backend (github.com/boson-chat/backend) runs from its image as the
+// compose services `backend-migrate` (one-shot `migrate up`) and `backend`
+// (`serve`), started once the auth service answers. $BACKEND_IMAGE overrides
+// the image (default: the pinned release in docker-compose.yml).
 async function startBackend() {
-  await stopBackend();
-  assertNoDevConfig(runDir);
-  const env = backendEnv();
-  if (coverage) {
-    // Fresh counters per backend start (the migration run's land here too).
-    rmSync(backendCoverDir, { recursive: true, force: true });
-    mkdirSync(backendCoverDir, { recursive: true });
-  }
-  log('migrating the e2e database');
-  run(backendBin, ['migrate', 'up'], { cwd: runDir, env });
-  const out = openSync(logFile, 'w');
-  const child = spawn(backendBin, ['serve'], { cwd: runDir, env, detached: true, stdio: ['ignore', out, out] });
-  closeSync(out);
-  child.unref();
-  writeFileSync(pidFile, `${child.pid}\n`);
-  log(`backend pid ${child.pid}, log ${logFile}`);
+  if (BACKEND_IMAGE && !capture('docker', ['image', 'inspect', BACKEND_IMAGE]).ok) run('docker', ['pull', BACKEND_IMAGE]);
+  log('migrating the e2e database and starting the backend');
+  // --no-deps: the rest of the stack is up already (and restart-backend must
+  // leave it alone).
+  run('docker', [...compose, 'run', '--rm', '--no-deps', 'backend-migrate'], { env: composeEnv() });
+  run('docker', [...compose, 'up', '-d', '--force-recreate', '--no-deps', '--wait', '--wait-timeout', '60', 'backend'], {
+    env: composeEnv(),
+  });
   await waitFor(`backend on ${stack.backend.url}/health`, async () => {
-    if (!ourBackendPid()) throw new Error(`backend exited — see ${logFile}`);
     const res = await fetch(`${stack.backend.url}/health`);
     return res.ok;
   }, 30_000).catch((err) => {
-    console.error(readFileSync(logFile, 'utf8').split('\n').slice(-30).join('\n'));
+    run('docker', [...compose, 'logs', '--no-color', '--tail', '30', 'backend'], { env: composeEnv() });
     throw err;
   });
+}
+
+function backendRunning() {
+  const r = capture('docker', [...compose, 'ps', '--status', 'running', '-q', 'backend'], { env: composeEnv() });
+  return r.ok && r.out.trim() !== '';
 }
 
 // ---- commands ---------------------------------------------------------------
@@ -276,19 +179,17 @@ async function up() {
   composeUp();
   await authUp();
   await directoryUp();
-  buildBackend();
   await startBackend();
-  log(`up in ${((Date.now() - t0) / 1000).toFixed(1)}s${coverage ? ' (backend coverage build)' : ''}`);
+  log(`up in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   status();
 }
 
 async function down() {
-  await stopBackend();
   composeDown();
 }
 
 function status() {
-  const pid = ourBackendPid();
+  const running = backendRunning();
   console.log([
     `  ergo        ${stack.irc.host}:${stack.irc.port}`,
     `  znc         ${stack.znc.host}:${stack.znc.port}  (${stack.znc.users[0]}..${stack.znc.users.at(-1)} / ${stack.znc.password})`,
@@ -298,7 +199,7 @@ function status() {
     `  auth        ${stack.auth.url}  (users' mailpit ${stack.auth.mailpitUrl}; admin ${stack.auth.admin.username})`,
     `  directory   ${stack.directory.url}  (db :${stack.directory.dbPort})`,
     `  selfhost    irc ${stack.selfhost.irc.host}:${stack.selfhost.irc.port}, auth ${stack.selfhost.auth.url}  (a second network: own accounts, no guests)`,
-    `  backend     ${stack.backend.url}  ${pid ? `(pid ${pid})` : '[not running]'}`,
+    `  backend     ${stack.backend.url}  ${running ? `(${BACKEND_IMAGE || 'pinned image'})` : '[not running]'}`,
   ].join('\n'));
 }
 
@@ -309,7 +210,7 @@ if (isMain) {
     up,
     down,
     status: async () => status(),
-    'restart-backend': async () => { buildBackend(); await startBackend(); },
+    'restart-backend': startBackend,
   };
   if (!commands[cmd]) {
     console.error(`usage: e2e-stack.mjs <${Object.keys(commands).join('|')}>`);

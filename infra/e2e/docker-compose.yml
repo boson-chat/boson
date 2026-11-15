@@ -1,12 +1,14 @@
 # Isolated infra for the real-app (Wails) e2e suite (client/tests/e2e-app/).
 #
-#   node client/scripts/e2e-stack.mjs up     # this file + backend
+#   node client/scripts/e2e-stack.mjs up
 #   node client/scripts/e2e-stack.mjs down
 #
 # (or `make test-e2e-app-up` / `make test-e2e-app-down`). The guest-only
 # specs need just ergo + ZNC; account-mode specs also need Postgres, the
 # catch-all Mailpit, MinIO, the boson auth service (+ its Postgres and the
-# users' Mailpit) and the Go backend, which e2e-stack.mjs runs on the host.
+# users' Mailpit) and the boson backend (github.com/boson-chat/backend), run
+# from its image ($BACKEND_IMAGE, default below) after a one-shot
+# `migrate up`.
 #
 # Deliberately a separate compose PROJECT (`name: boson-e2e`) with its own
 # network, no named volumes and non-default host ports, so it can run next to
@@ -16,6 +18,8 @@
 #
 #   ergo      127.0.0.1:16667  IRC (plain)
 #   znc       127.0.0.1:16501  bouncer, users tester1..tester8 (pw `pw`)
+#   backend   127.0.0.1:13000  boson backend API (github.com/boson-chat/backend)
+#             127.0.0.1:13001  its internal listener (token e2e-internal-token)
 #   postgres  127.0.0.1:16432  backend DB (boson/boson/boson)
 #   mailpit   127.0.0.1:11025  SMTP  ← ergo's NickServ mailto callback
 #             127.0.0.1:11110  POP3  → backend nick-claim worker (e2e/e2e)
@@ -79,7 +83,7 @@ services:
       retries: 30
 
   # The backend's own database (the auth service has its own, as in
-  # production). Migrated by e2e-stack.mjs (`server migrate up`).
+  # production). Migrated by backend-migrate below.
   postgres:
     image: postgres:16-alpine
     ports:
@@ -95,6 +99,68 @@ services:
       interval: 1s
       timeout: 3s
       retries: 60
+
+  # ---- boson backend ---------------------------------------------------------
+  # github.com/boson-chat/backend from its released image. Env-only config
+  # (the image ships no config file); endpoints match stack.json. Tokens carry
+  # the issuer the app signs in with (the host URL); the keys are fetched
+  # inside the network. Avatars go to MinIO over the network, their URLs
+  # (CDN base) are the host's MinIO port so the app can load them.
+  backend-migrate:
+    image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.55.0}}
+    command: ['migrate', 'up']
+    environment: &backend-env
+      ENV: e2e
+      PORT: '3000'
+      DBHOST: postgres
+      DBPORT: '5432'
+      DBNAME: boson
+      DBUSERNAME: boson
+      DBPASSWORD: boson
+      DBSSLMODE: disable
+      AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
+      AUTH_ISSUER: http://127.0.0.1:18180
+      AUTH_AUDIENCE: boson
+      # Nick claims are off by default; the e2e stack runs them (inbound =
+      # the catch-all Mailpit, via the older PURELYMAIL_* names on purpose:
+      # they still work as fallbacks).
+      NICK_CLAIM_ENABLED: 'true'
+      PURELYMAIL_POP3_HOST: mailpit
+      PURELYMAIL_POP3_PORT: '1110'
+      PURELYMAIL_POP3_USER: e2e
+      PURELYMAIL_POP3_PASSWORD: e2e
+      PURELYMAIL_POP3_TLS: 'false'
+      NICK_CLAIM_EMAIL_DOMAIN: boson.chat
+      NICK_CLAIM_RATE_LIMIT_PER_HOUR: '1000'
+      INTERNAL_ADDR: ':3001'
+      INTERNAL_TOKEN: e2e-internal-token
+      CLOUDFLARE_R2_ACCESS_KEY: minioadmin
+      CLOUDFLARE_R2_SECRET_KEY: minioadmin
+      CLOUDFLARE_R2_ENDPOINT: http://minio:9000
+      CLOUDFLARE_R2_BUCKET: boson
+      CLOUDFLARE_CDN_BASE_URL: http://127.0.0.1:19000/boson
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.55.0}}
+    command: ['serve']
+    ports:
+      - '127.0.0.1:13000:3000'
+      - '127.0.0.1:13001:3001'
+    environment: *backend-env
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      auth:
+        condition: service_started
 
   # The boson.chat catch-all mailbox (PurelyMail in production): ergo's
   # NickServ verification mails land here and the backend's nick-claim POP3

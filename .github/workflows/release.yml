@@ -4,8 +4,8 @@
 # scripts/sync-version.cjs, commits the bump back to main with [skip ci],
 # pushes a tag (vX.Y.Z), and creates the GitHub Release.
 #
-# Tagging is the trigger for the downstream artifact workflows
-# (release-docker, desktop) — they publish to the GitHub Release
+# Tagging is the trigger for the downstream artifact workflow
+# (desktop) — it publishes to the GitHub Release
 # this workflow just opened. No coordination via inputs/outputs needed.
 name: Release
 
@@ -81,4 +81,3 @@ jobs:
           set -e
           echo "Dispatching downstream builds for $NEW_TAG"
           gh workflow run "Desktop app"            --ref "$NEW_TAG"
-          gh workflow run "Release Docker images"   --ref "$NEW_TAG"

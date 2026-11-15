@@ -1,14 +1,13 @@
 #!/usr/bin/env node
-// Syncs a new version string into every package.json that ships as part of
-// the boson monorepo. Called by semantic-release's @semantic-release/exec
+// Syncs a new version string into every package.json in this repo (the
+// client and packages/*). Called by semantic-release's @semantic-release/exec
 // hook during the `prepare` step — the @semantic-release/git plugin then
 // commits + pushes the changes alongside the tag.
 //
 // Usage: node scripts/sync-version.cjs <version>
 //
-// Single version across the monorepo is intentional for v0.x — the user
-// plans to split into separate repos later, at which point each repo can
-// own its own release cadence.
+// The backend (boson-chat/backend) and the website (boson-chat/website)
+// have their own repos and release cadence.
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +22,6 @@ const repoRoot = path.resolve(__dirname, '..');
 const explicit = [
   'package.json',
   'client/package.json',
-  'website/package.json',
 ];
 
 const targets = [...explicit];

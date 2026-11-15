@@ -18,7 +18,7 @@ import (
 // wrapper and the wrapper frames YouTube. The renderer gets the origin from
 // WrapperOrigin (platform/wails.ts → Embed.tsx).
 //
-// The app frames boson.chat's copy (website/public/, main.youtubeWrapperOrigin):
+// The app frames boson.chat's copy (boson-chat/website's public/, main.youtubeWrapperOrigin):
 // in WebKit a loopback wrapper still got the player's error for some
 // videos, and a real https site is what YouTube expects. With no remote
 // origin (the e2e build, which stubs YouTube) it serves the two files

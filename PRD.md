@@ -20,13 +20,13 @@ A **desktop chat app** that looks and feels like Discord, built on top of real I
 
 ## Architecture
 
-All three components below live in a single monorepo (`boson/`), one top-level folder each:
+The client and engine live in this repo (`boson/`), one top-level folder each; the backend is its own repo:
 
 - **Electron client** → `client/`
 - **Local Go process (engine)** → `engine/` (binary at `engine/cmd/engine/`; packages `engine/ipc/`, `engine/irc/`)
-- **Backend** → `backend/` (binary at `backend/cmd/server/`; packages `backend/http/`, `backend/db/`, `backend/internal/`, `backend/config/`)
+- **Backend** → [boson-chat/backend](https://github.com/boson-chat/backend) (binary at `cmd/server/`), released as the image `harbor.floret.dev/boson/backend`
 
-Infra (`infra/`, `Makefile`, `Dockerfile`, `docker-compose.yml`) stays at the repo root.
+Infra (`infra/`, `Makefile`, `docker-compose.yml`) stays at the repo root.
 
 ### Client (desktop app)
 

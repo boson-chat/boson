@@ -1,9 +1,11 @@
-// Screenshots for the website's Themes docs.
+// Screenshots for the website's Themes docs (boson-chat/website: a checkout
+// next to this repo, or BOSON_WEBSITE_DIR).
 import { test, expect, type Page } from '@playwright/test';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const OUT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../website/public/screenshots');
+const WEBSITE_DIR = process.env['BOSON_WEBSITE_DIR'] ?? resolve(dirname(fileURLToPath(import.meta.url)), '../../../../website');
+const OUT = resolve(WEBSITE_DIR, 'public/screenshots');
 const shot = (page: Page, name: string) => page.screenshot({ path: resolve(OUT, name) });
 // Settings shots are cropped to the dialog (plus a margin) so it fills the frame.
 async function dialogShot(page: Page, name: string): Promise<void> {

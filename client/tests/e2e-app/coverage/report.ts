@@ -5,18 +5,16 @@
 //   coverage/e2e/engine/    index.html (go tool cover) + coverage.out + lcov.info
 //                           + packages.txt / functions.txt (the desktop app's
 //                           Go binary: desktop/ + the engine packages)
-//   coverage/e2e/backend/   same as engine/, for the Go API server (only when
-//                           the e2e stack's backend is a coverage build)
 //   coverage/e2e/summary.md per-layer totals + least-covered files
 //
 // Called from global-teardown.ts, so it runs after every coverage run,
 // passing or not.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 import MCR from 'monocart-coverage-reports';
 import {
-  APP_OUT_DIR, BACKEND_COVER_DIR, BACKEND_PID_FILE, CLIENT_DIR, COVERAGE_DIR, RAW, REPO_ROOT,
+  APP_OUT_DIR, CLIENT_DIR, COVERAGE_DIR, RAW, REPO_ROOT,
   RENDERER_CHUNK_URL,
 } from './config';
 
@@ -126,7 +124,7 @@ function rawV8Entries(): V8Entry[] {
   return renderer;
 }
 
-// ---- Go layers (engine, backend) --------------------------------------------
+// ---- Go layer (engine) -----------------------------------------------------
 
 function go(args: string[], cwd = REPO_ROOT): string {
   const r = spawnSync(process.env['GO'] ?? 'go', args, { cwd, encoding: 'utf8' });
@@ -146,34 +144,11 @@ async function waitForEngineFlush(timeoutMs = 15_000): Promise<void> {
   }
 }
 
-// The e2e stack's backend runs for the whole session: ask it (SIGUSR1, see
-// backend/cmd/server/coverflush_e2e.go) to write a counter snapshot and wait
-// for it. 'none' when there's no coverage-built backend running.
-async function flushBackendCoverage(timeoutMs = 10_000): Promise<'none' | 'flushed'> {
-  if (!existsSync(BACKEND_PID_FILE) || !existsSync(BACKEND_COVER_DIR)) return 'none';
-  const pid = Number(readFileSync(BACKEND_PID_FILE, 'utf8').trim());
-  const newest = (): number => Math.max(0, ...listFiles(BACKEND_COVER_DIR)
-    .filter((f) => basename(f).startsWith('covcounters.'))
-    .map((f) => statSync(f).mtimeMs));
-  const before = newest();
-  try {
-    process.kill(pid, 'SIGUSR1');
-  } catch {
-    return 'none'; // not running any more
-  }
-  const deadline = Date.now() + timeoutMs;
-  while (newest() <= before && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
-  if (newest() <= before) {
-    throw new Error(`backend (pid ${pid}) wrote no coverage snapshot on SIGUSR1 — see infra/e2e/.run/backend.log`);
-  }
-  return 'flushed';
-}
-
 // Root module path: profile paths are reported relative to the repo root.
 const ROOT_MODULE = 'github.com/boson-chat/boson';
 
 function goLayer(opts: {
-  layer: 'engine' | 'backend'; name: string; scope: string; rawDir: string;
+  layer: 'engine'; name: string; scope: string; rawDir: string;
   // Where the go tools resolve the profile's packages (the desktop module
   // for the Wails binary, which the root module doesn't contain).
   cwd?: string;
@@ -288,16 +263,6 @@ export async function generateE2eCoverageReport(): Promise<void> {
     });
     if (!layer) console.warn('[e2e-coverage] no app coverage — was it built with E2E_COVERAGE=1?');
     return layer;
-  });
-  // Optional layer: guest-only runs don't need the backend at all.
-  await attempt('backend', async () => {
-    if ((await flushBackendCoverage()) === 'none') {
-      console.warn('[e2e-coverage] no backend coverage — bring the stack up with E2E_COVERAGE=1 (make test-e2e-app-coverage does)');
-      return SKIPPED;
-    }
-    return goLayer({
-      layer: 'backend', name: 'Backend (Go)', scope: 'backend/... (API server + migrations)', rawDir: BACKEND_COVER_DIR,
-    });
   });
 
   const md = markdown(layers);

@@ -1,4 +1,4 @@
-.PHONY: setup up down logs build tidy run migrate-up migrate-down migrate-create reset \
+.PHONY: down logs tidy \
         auth-up auth-down auth-logs auth-admin \
         ergo-up typingbot dev-up dev-down \
         client-install client-env client-dev client-build desktop-dev desktop-build \
@@ -7,17 +7,14 @@
         test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage \
         test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme test-e2e-chanserv
 
-setup: tidy up
-	@echo "Waiting for postgres..."
-	@sleep 3
-	$(MAKE) migrate-up
+# The backend (API server, migrations) and the website live in their own
+# repos: github.com/boson-chat/backend and github.com/boson-chat/website.
+# Run the backend from a checkout of boson-chat/backend (its README has the
+# dev setup) or its image, harbor.floret.dev/boson/backend; `make client-env`
+# points the client at it on http://localhost:3000.
 
 tidy:
 	go mod tidy
-
-up:
-	docker compose up -d postgres
-	@echo "Postgres is up on localhost:5432"
 
 down:
 	docker compose down
@@ -25,38 +22,11 @@ down:
 logs:
 	docker compose logs -f
 
-build:
-	docker compose build api
-
-stack-up:
-	docker compose up -d --build
-
-stack-down:
-	docker compose down -v
-
-run:
-	go run -tags boson_dev ./backend/cmd/server serve
-
-migrate-up:
-	go run ./backend/cmd/server migrate up
-
-migrate-down:
-	go run ./backend/cmd/server migrate down
-
-migrate-create:
-	@if [ -z "$(name)" ]; then echo "usage: make migrate-create name=create_users_table"; exit 1; fi
-	@mkdir -p backend/db/migrations
-	@seq=$$(printf "%06d" $$(( $$(ls backend/db/migrations 2>/dev/null | grep -E '^[0-9]+_' | head -n 1 | cut -d_ -f1 | sed 's/^0*//' || echo 0) + 1 ))); \
-	touch backend/db/migrations/$${seq}_$(name).up.sql backend/db/migrations/$${seq}_$(name).down.sql; \
-	echo "Created backend/db/migrations/$${seq}_$(name).{up,down}.sql"
-
-reset: stack-down setup
-
 # ----- boson auth service (local accounts + tokens) -----
 #
 # github.com/boson-chat/auth from a checkout next to this repo (override with
 # AUTH_SRC=/path/to/auth). Public API on http://localhost:8080, its mail in
-# the Mailpit at http://localhost:8026. The backend's defaults
+# the Mailpit at http://localhost:8026. The backend's dev defaults
 # (AUTH_JWKS_URL / AUTH_ISSUER) and `make client-env` point at it.
 
 AUTH_SRC ?= ../auth
@@ -84,14 +54,14 @@ auth-admin:
 
 # ----- Combined dev flows -----
 
-# Full local dev stack: boson Postgres + the auth service + local ergo IRCd
-# + mailpit (the inbound mailbox the nick-claim IMAP worker reads).
+# Local dev services: the auth service + local ergo IRCd + mailpit (the
+# inbound mailbox the backend's nick-claim worker reads) + MinIO (avatars).
+# The backend itself runs from boson-chat/backend (its own Postgres).
 # ergo and mailpit aren't strictly required for every dev session, but
 # the running cost is low and including them by default makes the
 # nick-claim flow + chat e2e tests "just work" without a separate
 # `docker compose --profile X up` step.
-dev-up: tidy up auth-up ergo-up mailpit-up minio-up
-	@$(MAKE) migrate-up
+dev-up: tidy auth-up ergo-up mailpit-up minio-up
 
 ergo-up: mailpit-up
 	docker compose --profile testing up -d ergo
@@ -101,15 +71,15 @@ ergo-up: mailpit-up
 # web UI at http://localhost:8025. The backend's nickclaim worker
 # polls POP3 here in dev and against PurelyMail in production; same
 # code path either way (POP3 because mailpit doesn't speak IMAP).
-# Auth is `dev:dev` — matches the .env.example defaults so the
-# backend connects out of the box.
+# Auth is `dev:dev` — matches the backend's .env.example defaults so
+# it connects out of the box.
 mailpit-up:
 	docker compose --profile dev-mail up -d mailpit
 	@echo "mailpit is up — SMTP:1025  POP3:1110 (dev:dev)  UI: http://localhost:8025"
 
 # MinIO — local S3-compatible store for the avatar/profile-image feature.
 # The backend points its CLOUDFLARE_R2_* config here in dev (see
-# backend/config/config.dev.json). minio-setup creates the `boson` bucket
+# boson-chat/backend's config). minio-setup creates the `boson` bucket
 # and makes it anonymously readable so avatar URLs load in the client.
 minio-up:
 	docker compose --profile dev-storage up -d minio minio-setup
@@ -214,18 +184,17 @@ engine-connect:
 # Run Go + TS unit tests. Skip E2E (run via `make test-e2e`).
 test: test-go test-client
 
-# Go test suite — needs Postgres running on :5432 (make up).
-# -p 1 serializes packages because they share the test database.
+# Go test suite (the engine; desktop/ is its own module).
 test-go:
-	go test -p 1 ./...
+	go test ./...
 
 # Client unit tests via Vitest (renderer code).
 test-client:
 	cd client && npm test
 
 # Playwright E2E. Requires:
-#   - make dev-up (postgres + auth service + ergo)
-#   - make run (boson backend in another shell)
+#   - make dev-up (auth service + ergo + mailpit + minio)
+#   - the boson backend (boson-chat/backend) on :3000
 # Builds the engine binary first so playwright's webServer can launch it
 # without paying the `go run` compile cost on every test run.
 test-e2e: engine-build
@@ -245,8 +214,10 @@ test-e2e: engine-build
 # (client/scripts/e2e-stack.mjs): compose project boson-e2e (ergo :16667,
 # ZNC :16501, Postgres :16432, catch-all Mailpit :11025/:11110/:18025, MinIO
 # :19000, the auth service :18180 + its users' Mailpit :18325 — built from
-# $(AUTH_SRC), default ../auth, or $AUTH_IMAGE) and the Go backend on :13000
-# (built from this checkout, run on the host). None of it touches the dev
+# $(AUTH_SRC), default ../auth, or $AUTH_IMAGE — the network directory
+# :18480, and the boson backend :13000 from its image
+# harbor.floret.dev/boson/backend, pinned in infra/e2e/docker-compose.yml,
+# or $BACKEND_IMAGE). None of it touches the dev
 # stack's containers, ports or volumes; endpoints are in
 # infra/e2e/stack.json. Each test runs the app with a throwaway HOME /
 # XDG_RUNTIME_DIR / data dir, so the real app's data and keychain are left
@@ -262,13 +233,11 @@ test-e2e-app: test-e2e-app-up
 	cd client && npm run build:e2e-app
 	cd client && npm run test:e2e:app
 
-# Same suite with code coverage for all three layers (renderer, the Go app +
-# engine, Go backend) → client/coverage/e2e/ (HTML + lcov per layer,
-# summary.md). Brings the stack up with a coverage-built backend (so
-# its counters cover just this run) and leaves a coverage build in out-e2e;
-# the next `make test-e2e-app` rebuilds both normally.
-test-e2e-app-coverage:
-	E2E_COVERAGE=1 $(E2E_STACK) up
+# Same suite with code coverage for the renderer and the Go app + engine
+# → client/coverage/e2e/ (HTML + lcov per layer, summary.md). Leaves a
+# coverage build in out-e2e; the next `make test-e2e-app` rebuilds it
+# normally. (The backend's coverage is boson-chat/backend's.)
+test-e2e-app-coverage: test-e2e-app-up
 	cd client && E2E_COVERAGE=1 npm run build:e2e-app
 	cd client && npm run test:e2e:app:coverage
 

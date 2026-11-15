@@ -2,7 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Website screenshots of the real screens with mock data, via the
 // screenshot harness (src/renderer/src/shots.tsx, served at /shots.html by
-// the renderer-only Vite server). Writes PNGs into website/public/screenshots.
+// the renderer-only Vite server). Writes PNGs into the website's
+// public/screenshots (boson-chat/website: ../website next to this repo, or
+// BOSON_WEBSITE_DIR).
 //
 //   npx playwright test -c tests/shots/playwright.shots.config.ts
 export default defineConfig({

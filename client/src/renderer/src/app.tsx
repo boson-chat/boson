@@ -160,7 +160,7 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
 // Stable identifier per top-level "view" we render below. Used as the
 // `key` on the wrapper so swapping between login / directory / loading
 // states re-mounts the wrapper and replays the CSS entrance animation —
-// same trick the marketing site uses (see website/src/app.tsx).
+// same trick the marketing site uses (see boson-chat/website's src/app.tsx).
 type RouteKey = 'loading' | 'restoring' | 'auth-error' | 'guest' | 'login' | 'app';
 
 function Router({ directory, engine, identity, history, networks }: {

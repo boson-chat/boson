@@ -11,7 +11,7 @@ export interface AuthUser {
   // app keys the keychain and scrollback on.
   id: string;
   // The backend's id for this user (users.id): UUIDv5 of `id`
-  // (backend/internal/services/authidentity).
+  // (boson-chat/backend: internal/services/authidentity).
   bosonId: string;
   username: string;
   email: string;
