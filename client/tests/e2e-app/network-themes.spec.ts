@@ -17,7 +17,8 @@
 // rail tile and sidebar header; switching servers swaps the theme; the
 // per-network toggle (rail menu) and the global switch (Appearance) turn it
 // off; the theme is revalidated with its ETag on connect; a directory
-// listing's theme applies.
+// listing's theme applies, in its light variant for a user on a light theme
+// and its primary (dark) once they switch to a dark one.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -39,6 +40,10 @@ const SHOTS = process.env['NETTHEME_SHOTS_DIR'] ?? '';
 const DEFAULT_ACCENT = '#D97706';
 const NET_ACCENT = '#7c3aed';
 const DIR_ACCENT = '#0ea5e9';
+// The listing theme's light variant (for users on a light theme).
+const DIR_LIGHT_ACCENT = '#0369a1';
+const DIR_LIGHT_BG = '#f4faff';
+const DIR_LIGHT_SERVERS_BG = '#e0f2fe';
 
 const LOGO_SVG = (fill: string): string =>
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="${fill}"/>` +
@@ -106,6 +111,12 @@ async function startBrandingServer(): Promise<BrandingServer> {
     base: 'dark',
     colors: { accent: DIR_ACCENT },
     logo: `${base}/img/dirlogo.svg`,
+    variants: {
+      light: {
+        colors: { accent: DIR_LIGHT_ACCENT, bg: DIR_LIGHT_BG },
+        panes: { servers: { bg: DIR_LIGHT_SERVERS_BG } },
+      },
+    },
   });
   const etag = '"theme-1"';
   const send = (res: ServerResponse, status: number, type: string, body: string | Buffer, headers: Record<string, string> = {}): void => {
@@ -196,6 +207,25 @@ async function shot(page: Page, name: string): Promise<void> {
   if (!SHOTS) return;
   await page.waitForTimeout(500);
   await page.screenshot({ path: join(SHOTS, `${name}.png`) });
+}
+
+// Adds the spec's directory (Settings → Directories) and connects to its
+// one listing as a guest.
+async function connectToListing(page: Page, brand: BrandingServer): Promise<void> {
+  await continueAsGuest(page, `g${uid()}`);
+  await page.getByRole('button', { name: 'User settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'User settings' });
+  await settings.getByRole('tab', { name: /Directories/ }).click();
+  await settings.getByPlaceholder('directory.example.org').fill(brand.url);
+  await settings.getByRole('button', { name: 'Add directory' }).click();
+  await expect(settings.getByText('Themed e2e directory', { exact: false }).first()).toBeVisible({ timeout: 15_000 });
+  await settings.getByRole('button', { name: 'Close' }).click();
+
+  await searchDirectory(page, brand.listing.name);
+  const card = serverCard(page, brand.listing.name);
+  await expect(card).toBeVisible({ timeout: 20_000 });
+  await card.getByRole('button', { name: 'Connect' }).click();
+  await expectConnected(page, brand.listing.name);
 }
 
 async function openAppearance(page: Page) {
@@ -349,25 +379,39 @@ test.describe('network themes', () => {
   test("a directory listing's theme applies to a network that has none of its own", async ({ launchApp }) => {
     test.setTimeout(120_000);
     const { page } = await launchApp();
-    await continueAsGuest(page, `g${uid()}`);
-
-    // Add the spec's directory (Settings → Directories).
-    await page.getByRole('button', { name: 'User settings' }).click();
-    const settings = page.getByRole('dialog', { name: 'User settings' });
-    await settings.getByRole('tab', { name: /Directories/ }).click();
-    await settings.getByPlaceholder('directory.example.org').fill(brand.url);
-    await settings.getByRole('button', { name: 'Add directory' }).click();
-    await expect(settings.getByText('Themed e2e directory', { exact: false }).first()).toBeVisible({ timeout: 15_000 });
-    await settings.getByRole('button', { name: 'Close' }).click();
-
-    await searchDirectory(page, brand.listing.name);
-    const card = serverCard(page, brand.listing.name);
-    await expect(card).toBeVisible({ timeout: 20_000 });
-    await card.getByRole('button', { name: 'Connect' }).click();
-    await expectConnected(page, brand.listing.name);
+    await connectToListing(page, brand);
     await expect.poll(() => accent(page)).toBe(DIR_ACCENT);
     await expect(railTile(page, brand.listing.name).locator('img.server-item-icon')).toHaveAttribute('src', /^blob:/, { timeout: 15_000 });
     await expect(page.locator('.channel-sidebar-logo')).toHaveAttribute('src', /^blob:/);
     await shot(page, '07-directory-listing-theme');
+  });
+
+  test("a network's light variant shows on a light theme, its primary on a dark one", async ({ launchApp }) => {
+    test.setTimeout(120_000);
+    const { page } = await launchApp();
+    await connectToListing(page, brand);
+    // The user is on Terminal (dark): the primary.
+    await expect.poll(() => accent(page)).toBe(DIR_ACCENT);
+    expect(await cssVar(page, '--pane-servers-bg')).toBe('');
+
+    // Switch to Daylight (light): the light variant.
+    const settings = await openAppearance(page);
+    await settings.getByRole('radio', { name: /^Daylight/ }).click();
+    await expect(settings.getByRole('radio', { name: /^Daylight/ })).toHaveAttribute('aria-checked', 'true');
+    await expect.poll(() => accent(page)).toBe(DIR_LIGHT_ACCENT);
+    expect(await cssVar(page, '--bg')).toBe(DIR_LIGHT_BG);
+    expect(await cssVar(page, '--pane-servers-bg')).toBe(DIR_LIGHT_SERVERS_BG);
+    expect(await page.evaluate(() => document.documentElement.dataset['themeBase'])).toBe('light');
+    await settings.getByRole('button', { name: 'Close' }).click();
+    expect(await page.locator('.server-rail').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(224, 242, 254)');
+    await shot(page, '08-light-variant');
+
+    // Back to a dark theme: the primary again.
+    const again = await openAppearance(page);
+    await again.getByRole('radio', { name: /^Terminal/ }).click();
+    await expect.poll(() => accent(page)).toBe(DIR_ACCENT);
+    expect(await cssVar(page, '--pane-servers-bg')).toBe('');
+    expect(await page.evaluate(() => document.documentElement.dataset['themeBase'])).toBe('dark');
+    await again.getByRole('button', { name: 'Close' }).click();
   });
 });

@@ -185,6 +185,7 @@ export function AppearancePanel() {
           />
           <p class="appearance-hint">
             A network can have its own colours, backgrounds and logo. While you're on it, they show over your theme.
+            If it has a light and a dark version, you get the one that matches your theme.
             Turn one network's off from its server menu or Server settings.
           </p>
         </div>

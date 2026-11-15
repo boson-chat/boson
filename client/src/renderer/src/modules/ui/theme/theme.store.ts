@@ -198,7 +198,8 @@ export class ThemeStore {
   }
 
   // What's on screen: the user's theme (or the preview), with the network's
-  // merged over it.
+  // merged over it — its variant for the user's base when it has one, so
+  // switching the app between dark and light re-picks it.
   effectiveTheme(): Theme {
     const own = this.preview ?? this.resolveActive().theme;
     return this.preview || !this.overlay ? own : mergeNetworkTheme(own, this.overlay.theme).theme;
@@ -264,7 +265,7 @@ export class ThemeStore {
     for (const name of PANE_VAR_NAMES) root.style.removeProperty(name);
     for (const name of PANE_NAMES) delete root.dataset[paneImageKey(name)];
     if (net && merged) {
-      const { vars, withImage } = paneVars(merged.panes, net.images);
+      const { vars, withImage } = paneVars(merged.panes, net.images, merged.imageSlots);
       for (const [k, v] of Object.entries(vars)) root.style.setProperty(k, v);
       for (const name of withImage) root.dataset[paneImageKey(name)] = '';
       root.dataset['networkTheme'] = net.host;
