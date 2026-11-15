@@ -6,18 +6,31 @@
 // the 403 on POST /me/nick-claims, existing claims staying readable, and
 // the internal status/test endpoints the admin panel uses.
 //
-// A second process instead of flipping the shared one: other specs claim
-// nicks in parallel against the shared api.
-import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+// A second container instead of flipping the shared one: other specs claim
+// nicks in parallel against the shared api. It runs the shared api's image
+// on the stack's compose network (so it reaches Postgres, auth and Mailpit
+// by their service names), with the config file's directory mounted in.
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { chmodSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test, expect, randomNick, uid } from './fixtures';
 import { signInWithPassword } from './helpers/auth';
-import { E2E_RUN_DIR, STACK } from './stack';
+import { E2E_INFRA_DIR, STACK } from './stack';
 
-const BIN = join(E2E_RUN_DIR, process.platform === 'win32' ? 'boson-e2e-backend.exe' : 'boson-e2e-backend');
 const TOKEN = STACK.backend.internalToken;
+
+// The shared api's container: its image and compose network.
+function sharedBackend(): { image: string; network: string } {
+  const ps = spawnSync('docker', ['compose', '-f', join(E2E_INFRA_DIR, 'docker-compose.yml'), 'ps', '-q', 'backend'], { encoding: 'utf8' });
+  const id = ps.stdout.trim().split('\n')[0];
+  if (ps.status !== 0 || !id) throw new Error(`no e2e backend container: ${ps.stderr}`);
+  const inspect = spawnSync('docker', ['inspect', '--format', '{{.Config.Image}}|{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}', id], { encoding: 'utf8' });
+  const [image, network] = inspect.stdout.trim().split('|');
+  if (inspect.status !== 0 || !image || !network) throw new Error(`docker inspect ${id} failed: ${inspect.stderr}`);
+  return { image, network };
+}
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -46,17 +59,19 @@ function writeAtomic(path: string, content: string): void {
   renameSync(tmp, path);
 }
 
+// Inside the compose network: the catch-all Mailpit's service name and port.
+const MAILPIT_POP3 = { host: 'mailpit', port: 1110 };
+
 const mailpitInbound = `  inbound:
     protocol: pop3
-    host: 127.0.0.1
-    port: ${STACK.catchallMail.pop3Port}
+    host: ${MAILPIT_POP3.host}
+    port: ${MAILPIT_POP3.port}
     tls: false
     user: ${STACK.catchallMail.pop3User}
 `;
 
 test('nick claims: on in the e2e stack; off by default elsewhere, and the config file turns them on and off live', async ({ account }) => {
   test.setTimeout(90_000);
-  test.skip(!existsSync(BIN), `no e2e backend binary at ${BIN}`);
 
   // ---- the shared e2e api: on ----
   expect((await json(`${STACK.backend.url}/config`)).body).toEqual({ nick_claim: true });
@@ -65,7 +80,7 @@ test('nick claims: on in the e2e stack; off by default elsewhere, and the config
   expect(shared.body).toMatchObject({
     enabled: true,
     email_domain: 'boson.chat',
-    inbound: { host: '127.0.0.1', port: STACK.catchallMail.pop3Port, tls: false, user: STACK.catchallMail.pop3User, password_set: true },
+    inbound: { host: MAILPIT_POP3.host, port: MAILPIT_POP3.port, tls: false, user: STACK.catchallMail.pop3User, password_set: true },
     worker: { running: true },
   });
   // Whether a password is set, never the password itself.
@@ -87,30 +102,38 @@ test('nick claims: on in the e2e stack; off by default elsewhere, and the config
   expect(minted.body.email).toMatch(/^reg\+[a-f0-9]{32}-[a-z0-9]{8}@boson\.chat$/);
 
   // ---- a second api with the self-hosted defaults: off ----
-  const dir = mkdtempSync('/tmp/boson-e2e-nickclaim-');
+  const dir = mkdtempSync(join(tmpdir(), 'boson-e2e-nickclaim-'));
+  // The image runs as a non-root user: let it read (and watch) the mount.
+  chmodSync(dir, 0o755);
+  const containerDir = '/etc/boson-e2e';
   const configPath = join(dir, 'boson.yaml');
-  writeFileSync(configPath, 'version: 1\n');
+  writeFileSync(configPath, 'version: 1\n', { mode: 0o644 });
   const [port, internalPort] = [await freePort(), await freePort()];
   const base = `http://127.0.0.1:${port}`;
   const internalBase = `http://127.0.0.1:${internalPort}`;
-  const pg = STACK.postgres;
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    PORT: String(port), ENV: 'e2e',
-    DBHOST: pg.host, DBPORT: String(pg.port), DBNAME: pg.database, DBUSERNAME: pg.user, DBPASSWORD: pg.password, DBSSLMODE: 'disable',
-    AUTH_JWKS_URL: `${STACK.auth.url}/.well-known/jwks.json`, AUTH_ISSUER: STACK.auth.url, AUTH_AUDIENCE: 'boson',
-    INTERNAL_ADDR: `127.0.0.1:${internalPort}`, INTERNAL_TOKEN: TOKEN,
-    BOSON_CONFIG: configPath,
+  const { image, network } = sharedBackend();
+  const name = `boson-e2e-nickclaim-${uid()}`;
+  const env: Record<string, string> = {
+    ENV: 'e2e',
+    DBHOST: 'postgres', DBPORT: '5432', DBNAME: STACK.postgres.database, DBUSERNAME: STACK.postgres.user,
+    DBPASSWORD: STACK.postgres.password, DBSSLMODE: 'disable',
+    AUTH_JWKS_URL: 'http://auth:8080/.well-known/jwks.json', AUTH_ISSUER: STACK.auth.url, AUTH_AUDIENCE: 'boson',
+    INTERNAL_ADDR: ':3001', INTERNAL_TOKEN: TOKEN,
+    BOSON_CONFIG: `${containerDir}/boson.yaml`,
     // Only the password comes from env; the old names alone don't enable it.
     PURELYMAIL_POP3_PASSWORD: STACK.catchallMail.pop3Password,
     NICK_CLAIM_EMAIL_DOMAIN: 'boson.chat',
   };
-  delete env['GOCOVERDIR'];
-  delete env['NICK_CLAIM_ENABLED'];
   let child: ChildProcess | null = null;
   let logs = '';
   try {
-    child = spawn(BIN, ['serve'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child = spawn('docker', [
+      'run', '--rm', '--name', name, '--network', network,
+      '-p', `127.0.0.1:${port}:3000`, '-p', `127.0.0.1:${internalPort}:3001`,
+      '-v', `${dir}:${containerDir}`,
+      ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]),
+      image, 'serve',
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout?.on('data', (b) => { logs += String(b); });
     child.stderr?.on('data', (b) => { logs += String(b); });
     await expect.poll(async () => {
@@ -129,7 +152,7 @@ test('nick claims: on in the e2e stack; off by default elsewhere, and the config
     const off = await internal(internalBase, '/internal/nick-claims/status');
     expect(off.body).toMatchObject({ enabled: false, worker: { running: false } });
     expect((await json<Record<string, any>>(`${internalBase}/internal/config/status`)).body)
-      .toMatchObject({ ok: true, path: configPath, nick_claim: { enabled: false, worker: 'stopped' } });
+      .toMatchObject({ ok: true, path: `${containerDir}/boson.yaml`, nick_claim: { enabled: false, worker: 'stopped' } });
 
     // ---- the admin enables it in the config file: live ----
     writeAtomic(configPath, `version: 1\nnick_claim:\n  enabled: true\n  email_domain: boson.chat\n${mailpitInbound}`);
@@ -154,6 +177,7 @@ test('nick claims: on in the e2e stack; off by default elsewhere, and the config
     console.error(`second api log:\n${logs.split('\n').slice(-40).join('\n')}`);
     throw err;
   } finally {
+    spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' });
     child?.kill('SIGTERM');
     rmSync(dir, { recursive: true, force: true });
   }

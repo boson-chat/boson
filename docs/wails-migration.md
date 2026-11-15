@@ -15,7 +15,7 @@ Starting point: main at 0.36.4 on Electron 44.7, electron-vite and electron-buil
   - Packaging and signing: `.github/workflows/desktop.yml` builds macOS (a DMG each for Apple Silicon and Intel, Developer ID signed, notarized, stapled), Windows (zip) and Linux (tar.gz) on every PR, and attaches them to the GitHub Release on every tag.
   - Electron is gone: `client/src/main`, the preload, electron-vite, electron-builder and the Electron release workflow. The renderer builds with plain Vite.
 - **Phase 0 findings:**
-  - YouTube refuses `wails://` (error 153), and in WebKit some videos refuse a loopback wrapper page too. The app frames the wrapper from `https://boson.chat` (`website/public/youtube-embed.*`).
+  - YouTube refuses `wails://` (error 153), and in WebKit some videos refuse a loopback wrapper page too. The app frames the wrapper from `https://boson.chat` (boson-chat/website's `public/youtube-embed.*`).
   - Notifications need the bundled `.app`.
 - **Not done:**
   - Phase 5: the signed update feed. The app checks GitHub for a newer release and opens the release page; it doesn't install in place.

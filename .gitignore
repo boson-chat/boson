@@ -45,7 +45,6 @@ go.work.sum
 .env.*
 !.env.example
 config/config.dev.json
-backend/config/config.dev.json
 **/config.dev.json
 
 # Local scratch — e.g. a saved recovery code from manual testing. Never commit.
@@ -57,5 +56,5 @@ postgres-data/
 # Release tooling
 CHANGELOG.md.bak
 
-# Real-app e2e stack runtime (backend binary, pid, logs, coverage counters)
+# Leftovers of the old host-run e2e backend (binary, pid, logs, coverage)
 infra/e2e/.run/

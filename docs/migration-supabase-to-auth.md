@@ -50,7 +50,7 @@ auth_identities (auth_user_id text PRIMARY KEY,  -- the token's sub, usr_<ULID>
 ## The import tool
 
 `server import-supabase-users` (the backend binary; in a checkout:
-`go run ./backend/cmd/server import-supabase-users`). It reads boson's
+`go run ./cmd/server import-supabase-users` in [boson-chat/backend](https://github.com/boson-chat/backend)). It reads boson's
 database through the usual `DB*` env, and writes the auth service's database
 directly (the auth service has no import API).
 

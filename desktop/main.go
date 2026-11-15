@@ -33,7 +33,7 @@ var (
 	// appVersion is the release this build is (client/package.json's version).
 	appVersion = "0.0.0-dev"
 	// youtubeWrapperOrigin is the https origin hosting the YouTube wrapper
-	// (website/public/youtube-embed.*); empty uses the app's own loopback
+	// (boson-chat/website's public/youtube-embed.*); empty uses the app's own loopback
 	// copy. WebKit needs a real site for some videos (a loopback wrapper
 	// still got the player's error).
 	youtubeWrapperOrigin = "https://boson.chat"

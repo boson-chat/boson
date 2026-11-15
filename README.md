@@ -4,16 +4,20 @@ A desktop chat app that feels like Discord, built on real IRC. See [PRD.md](./PR
 
 ## Architecture
 
-Components in one monorepo:
+The client repo:
 
 ```
 desktop/            The desktop app (Wails v3, Go): native window, the engine in-process, OS services
 client/             Preact renderer (the UI the desktop app shows)
 engine/             Go IRC engine — run inside the desktop app; `engine serve` bridges it over a WebSocket for browser dev
-backend/            Go HTTP API — verifies auth-service tokens, user identity/sessions, nick claims, presence
-packages/shared/    @boson/shared — design system (Button, Card, …) shared with the website
-website/            Public marketing site (Preact + Vite)
+packages/shared/    @boson/shared — design system (Button, Card, …)
+infra/              Local and e2e stacks (ergo, ZNC, services packages), compose files
 ```
+
+Elsewhere:
+
+- The HTTP API (verifies auth-service tokens, user identity/sessions, nick claims, presence) is [boson-chat/backend](https://github.com/boson-chat/backend), released as the image `harbor.floret.dev/boson/backend`.
+- The public marketing site (boson.chat) is [boson-chat/website](https://github.com/boson-chat/website).
 
 The public server directory is its own service, [boson-chat/directory](https://github.com/boson-chat/directory) (https://directory.boson.chat), which also answers the legacy `api.boson.chat/servers` routes; the backend no longer serves `/servers`.
 
@@ -27,8 +31,9 @@ Accounts and sign-in are the boson auth service ([boson-chat/auth](https://githu
 - **Node** ≥ 22.12 + npm
 - For the desktop app: a cgo toolchain — macOS: Xcode; Linux: GTK 4 + WebKitGTK 6.0 dev packages (`libgtk-4-dev libwebkitgtk-6.0-dev`); Windows: MSYS2's MinGW-w64 gcc (WebView2 ships with Windows 10/11)
 - For voice in the desktop app: `pkg-config` and libopus for dev builds (macOS: `brew install opus pkgconf`; Debian/Ubuntu: `libopus-dev pkg-config`), `cmake` for release builds (they build a static libopus: `desktop/scripts/build-opus.sh`). The voice SDK is the public Go module `github.com/boson-chat/quicvoice`.
-- **Docker** + `docker compose` (Postgres + the auth service + ergo IRCd run in containers)
+- **Docker** + `docker compose` (the auth service + ergo IRCd + Mailpit + MinIO run in containers)
 - **The auth service** — a checkout of [boson-chat/auth](https://github.com/boson-chat/auth) next to this one (`gh repo clone boson-chat/auth ../auth`, or set `AUTH_SRC`). Accounts, sign-in and tokens live there; `make auth-up` builds and runs it.
+- **The backend** (for signed-in features) — [boson-chat/backend](https://github.com/boson-chat/backend), run from its checkout (see its README) on `http://localhost:3000`.
 
 ### First-time setup
 
@@ -38,20 +43,19 @@ make dev-up
 
 That single command spins up everything needed:
 
-- Postgres on `:5432` (via `docker compose`)
 - The boson auth service on `http://localhost:8080` (`make auth-up`); its mail (verification, password reset) lands in the Mailpit at `http://localhost:8026`
 - Local ergo IRCd on `:6667` (under the `testing` profile, so it doesn't run in production stacks)
-- Runs `migrate-up` on the boson DB
+- Mailpit (`:1025` SMTP, `:1110` POP3, UI `http://localhost:8025`) and MinIO (`:9000`), which the backend's nick claims and avatars use in dev
 
-You only need to run this once per machine. Subsequent boots are just `make up && make auth-up && make ergo-up` (or `make dev-up` again — all sub-steps are idempotent).
+`make dev-up` is idempotent; rerun it after a reboot.
 
 ### Day-to-day: four shells
 
 After `make dev-up`, run these in **four separate terminals**:
 
 ```bash
-# 1. Boson HTTP API (identity, user sessions, nick claims, presence)
-make run
+# 1. Boson HTTP API (identity, user sessions, nick claims, presence), from a
+#    boson-chat/backend checkout — see its README
 
 # 2. Local IRC engine (WebSocket bridge between the renderer and IRC)
 make engine-serve
@@ -86,31 +90,7 @@ Channel settings has a Registration tab, and a shield next to the channel name s
 
 ### Nick claims (automatic NickServ registration)
 
-A signed-in user can have Boson register their nick on another IRC network: the api mints a `reg+<userid>-<token>@<email_domain>` (plus-addressed) address (`POST /me/nick-claims`), the client sends NickServ `REGISTER` with it, and the api's POP3 worker drains the catch-all mailbox that address lands in and hands the code back (`GET /me/nick-claims/{id}`) for `CONFIRM`. It is **off by default**; a network admin turns it on. boson.chat runs with it on. The inbound mailbox must be **dedicated** to this (a catch-all for the domain): the worker deletes every message it can't match to a claim.
-
-Settings: the `nick_claim:` section of the stack config file (`BOSON_CONFIG=/config/boson.yaml`, watched and applied live: enabling or disabling starts or stops the worker, inbound changes restart it), else env, else defaults. The inbound mailbox is its own config, separate from the auth service's outbound SMTP.
-
-```yaml
-nick_claim:
-  enabled: false                 # NICK_CLAIM_ENABLED (default false)
-  email_domain: example.com      # NICK_CLAIM_EMAIL_DOMAIN; reg+…@domain must reach the inbound mailbox (catch-all)
-  rate_limit_per_hour: 5         # NICK_CLAIM_RATE_LIMIT_PER_HOUR
-  inbound:
-    protocol: pop3               # only pop3
-    host: pop3.example.com       # NICK_CLAIM_POP3_HOST
-    port: 995                    # NICK_CLAIM_POP3_PORT
-    tls: true                    # NICK_CLAIM_POP3_TLS
-    user: reg@example.com        # NICK_CLAIM_POP3_USER
-```
-
-The password is env only: `NICK_CLAIM_POP3_PASSWORD`. The older `PURELYMAIL_POP3_{HOST,PORT,USER,PASSWORD,TLS}` are still read as fallbacks, but no longer turn the feature on. `enabled: true` needs `email_domain` and `inbound.host`; without them the feature stays off and the error is reported. `boson export-config` prints the section from the env plus the file if `BOSON_CONFIG` exists (with `enabled: true` when `NICK_CLAIM_ENABLED=true` or a POP3 host is set; no database needed) for moving an install to the file.
-
-While it is off, no worker runs, `POST /me/nick-claims` answers `403 {"error":"nick_claim_disabled"}`, existing claims stay readable, and `GET /config` (public, no auth) says `{"nick_claim": false}`: the client hides the one-click claim and points to the manual NickServ form.
-
-The api's internal listener (`INTERNAL_PORT`, default `3001`, or a full `INTERNAL_ADDR`; compose network only, never publish it) serves:
-
-- `GET /internal/config/status`: the stack config contract's status plus `"nick_claim": {"enabled", "worker": "stopped"|"running"|"error", "last_poll_at", "last_error"}`, no token.
-- `GET /internal/nick-claims/status` (`{enabled, email_domain, inbound:{host,port,tls,user,password_set}, worker:{…}, pending_claims, config_error?}`) and `POST /internal/nick-claims/test` (connect + sign in + STAT, against the config in use or unsaved values in `{"inbound":{…}}`; the stored password is only reused for the host in use), with `X-Internal-Token: $INTERNAL_TOKEN` (or `Authorization: Bearer`; `INTERNAL_API_TOKEN` is accepted as the env name too). Empty token: `503 internal_api_disabled`.
+A signed-in user can have Boson register their nick on another IRC network: the api mints a plus-addressed email (`POST /me/nick-claims`), the client sends NickServ `REGISTER` with it, and the api hands the confirmation code back (`GET /me/nick-claims/{id}`) for `CONFIRM`. It is off by default per network; while it is off, `GET /config` says `{"nick_claim": false}` and the client hides the one-click claim and points to the manual NickServ form. Configuration (the `nick_claim:` section, the inbound mailbox, the internal admin endpoints) is documented in [boson-chat/backend](https://github.com/boson-chat/backend).
 
 ### Skip auth (guest mode)
 
@@ -128,56 +108,13 @@ make client-build       # production bundle in client/out/
 
 ## Website (marketing site)
 
-The public marketing site lives at `website/` — Preact + Vite + TypeScript, no backend. It shares the design system (`@boson/shared`) with the client, so `Button`, `Card`, `Badge`, `BosonGlyph`, tokens, etc. stay visually in sync.
-
-### Run the dev server
-
-```bash
-cd website
-npm install             # only the first time (npm workspaces handles @boson/shared)
-npm run dev             # vite dev server on http://localhost:5174
-```
-
-The site has no backend dependencies — you can run it standalone without `make dev-up`.
-
-### Build for deploy
-
-```bash
-cd website
-npm run build           # static bundle in website/dist/
-npm run preview         # serve the built dist/ locally for a final smoke
-```
-
-`vite build` produces a fully static `dist/` folder you can host anywhere (Netlify, Cloudflare Pages, GitHub Pages, S3+CloudFront).
-
-### Routes
-
-`preact-iso` handles routing client-side. Pages live in `website/src/pages/`:
-
-| Route | Page |
-|---|---|
-| `/` | `IndexPage` — landing + feature highlights |
-| `/about` | `AboutPage` |
-| `/docs` | `DocsPage` |
-| `/download` | `DownloadPage` |
-| `*` | `NotFoundPage` |
-
-### Exposing the dev server publicly (ngrok / Cloudflare tunnel)
-
-Vite's `server.allowedHosts` is set to `true` in `website/vite.config.ts`, so any tunnel URL works without further config. Run `ngrok http 5174` (or your tunnel of choice) and share the URL.
-
-### Typecheck
-
-```bash
-cd website
-npm run typecheck       # tsc --noEmit
-```
+The public marketing site is its own repo, [boson-chat/website](https://github.com/boson-chat/website). Its download links point at this repo's release assets (see [Releases](#releases)).
 
 ## Run the tests
 
 ```bash
-make test               # Go + TS unit tests (requires Postgres up)
-make test-go            # Just Go
+make test               # Go + TS unit tests
+make test-go            # Just Go (the engine)
 make test-client        # Just renderer (vitest)
 make test-e2e           # Playwright E2E (needs the full dev stack + engine built)
 make test-e2e-app       # Real desktop app E2E (needs only Docker — see below)
@@ -204,10 +141,10 @@ cd client
 npm run build:e2e-app    # → client/out-e2e + desktop/bin/boson-e2e-server; rerun after code changes
 npm run test:e2e:app     # add e.g. `-- bouncer` to run one spec file
 node scripts/e2e-stack.mjs status            # what's running where
-node scripts/e2e-stack.mjs restart-backend   # after backend code changes
+node scripts/e2e-stack.mjs restart-backend   # recreate the backend container (re-runs migrations)
 ```
 
-Needs docker, Go and an auth service checkout (`../auth`, or `AUTH_SRC=…`; or `AUTH_IMAGE=…` for a built image). `make test-e2e-app-up`
+Needs docker, Go and an auth service checkout (`../auth`, or `AUTH_SRC=…`; or `AUTH_IMAGE=…` for a built image). The backend runs from its image, `harbor.floret.dev/boson/backend`, at the version pinned in `infra/e2e/docker-compose.yml` (`BACKEND_IMAGE=…` or `BACKEND_IMAGE_TAG=…` to try another, e.g. one built from a boson-chat/backend checkout). `make test-e2e-app-up`
 (`client/scripts/e2e-stack.mjs up`, ~10s warm, idempotent) brings up the
 isolated stack; endpoints are in `infra/e2e/stack.json`:
 
@@ -215,21 +152,20 @@ isolated stack; endpoints are in `infra/e2e/stack.json`:
 | --- | --- | --- |
 | ergo | `127.0.0.1:16667` | NickServ registration mails the catch-all Mailpit |
 | ZNC 1.9 | `127.0.0.1:16501` | users `tester1`..`tester8` / `pw`, network `ergo`; leased one per test |
-| Postgres | `127.0.0.1:16432` | the backend's DB (`boson`/`boson`), migrated on `up` |
+| Postgres | `127.0.0.1:16432` | the backend's DB (`boson`/`boson`), migrated on `up` (`backend-migrate`: the image's `migrate up`) |
 | Network directory | `http://127.0.0.1:18480` | [boson-chat/directory](https://github.com/boson-chat/directory) image, fake DNS, no verify/health workers; its own Postgres on `:16434`. The e2e build's default directory |
 | Mailpit (catch-all) | SMTP `:11025`, POP3 `:11110`, UI `http://127.0.0.1:18025` | boson.chat catch-all: ergo writes, the backend's nick-claim worker drains |
 | MinIO | `http://127.0.0.1:19000` (console `:19001`) | R2 stand-in, bucket `boson` (public read) |
 | Auth service | `http://127.0.0.1:18180` | boson auth service (own Postgres on `:16433`), email verification required; admin `e2eadmin` for the tests' lookups |
 | Mailpit (auth) | `http://127.0.0.1:18325` | the users' inboxes: verification / password-reset mail |
-| Backend | `http://127.0.0.1:13000` | built from this checkout (`boson_dev`), run on the host |
+| Backend | `http://127.0.0.1:13000` (internal listener `:13001`) | [boson-chat/backend](https://github.com/boson-chat/backend) image, env-only config in the compose file |
 
 Isolation, so it can run next to a live dev stack:
 
 - Compose project `boson-e2e` (own containers, network, ports) — the dev
   `boson-*` containers are never touched. Compose state is tmpfs.
-- The backend runs from `infra/e2e/.run/` (binary, pid, log) with all config
-  from env, so a local `backend/config/config.dev.json` (which may hold real
-  mail credentials) is never loaded; `down` only kills the PID it started.
+- The backend runs in the same compose project with all config from env, so
+  no local backend config (which may hold real mail credentials) is loaded.
 - The renderer is built into `client/out-e2e/` (`E2E_OUT_DIR` to change;
   not `client/out/`) with the backend/auth URLs pinned to the e2e
   stack, so a local `client/.env` can't leak in.
@@ -244,41 +180,35 @@ Isolation, so it can run next to a live dev stack:
   own `E2E_OUT_DIR` / `E2E_RESULTS_DIR` / `E2E_COVERAGE_DIR`.
 
 Failures leave a screenshot and the app's log (Go services, engine,
-renderer console) in `client/test-results/e2e-app/`; the backend logs to
-`infra/e2e/.run/backend.log`. CI runs the same suite on Linux
+renderer console) in `client/test-results/e2e-app/`; the backend's log is
+`docker compose -f infra/e2e/docker-compose.yml logs backend`. CI runs the same suite on Linux
 (`.github/workflows/e2e.yml`).
 
 #### Coverage
 
 ```bash
-make test-e2e-app-coverage   # coverage stack + build + run → client/coverage/e2e/
+make test-e2e-app-coverage   # stack + coverage build + run → client/coverage/e2e/
 
-# Iterating (stack already up with E2E_COVERAGE=1):
+# Iterating (stack already up):
 cd client
 E2E_COVERAGE=1 npm run build:e2e-app
 npm run test:e2e:app:coverage
 ```
 
-`E2E_COVERAGE=1` builds the renderer with source maps (unminified), the
-app with `go build -cover` and (on `e2e-stack.mjs up`) the backend with
-`go build -cover`, then measures three layers across every launch in the
-run (relaunches included):
+`E2E_COVERAGE=1` builds the renderer with source maps (unminified) and the
+app with `go build -cover`, then measures two layers across every launch in
+the run (relaunches included). The backend's coverage is collected in its own
+repo.
 
 - **Renderer** — Playwright's JS coverage, started before the page loads and
   taken just before the app closes (`tests/e2e-app/desktop-app.ts`).
 - **App + engine** — `GOCOVERDIR` for the desktop app's binary (`desktop/`
   and the `engine/` packages it links in); counters are written when it
   exits on SIGTERM.
-- **Backend** — the stack's backend runs for the whole session, so the report
-  sends it SIGUSR1 and it writes a counter snapshot
-  (`backend/cmd/server/coverflush_e2e.go`, `boson_e2ecover` builds only).
-  Counters span the backend's lifetime — `make test-e2e-app-coverage`
-  restarts it so they cover just that run (plus `migrate up`). Skipped with a
-  warning when the backend isn't a coverage build.
 
-Reports are mapped back to `client/src/…`, `desktop/…`, `engine/…` and
-`backend/…` (node_modules, tests and the shared workspace package are
-excluded): `renderer/`, `engine/` and `backend/` each hold an `index.html`
+Reports are mapped back to `client/src/…`, `desktop/…` and `engine/…`
+(node_modules, tests and the shared workspace package are excluded):
+`renderer/` and `engine/` each hold an `index.html`
 and `lcov.info`, and `summary.md` has per-layer totals plus the
 least-covered files. CI runs with coverage on, adds `summary.md` to the job
 summary and uploads the reports as the `e2e-app-coverage` artifact. A
@@ -291,15 +221,11 @@ Every release tag (cut by semantic-release on `main`) builds the desktop app
 on macOS, Windows and Linux (`.github/workflows/desktop.yml`) and attaches it
 to the GitHub Release: `Boson-mac-arm64.dmg` and `Boson-mac-x64.dmg`
 (Apple Silicon and Intel; Developer ID signed, notarized), `Boson-windows-x64.zip`, `Boson-linux-x86_64.tar.gz` and
-`SHA256SUMS.txt`. The website's download links point at those names.
+`SHA256SUMS.txt`. The website's ([boson-chat/website](https://github.com/boson-chat/website)) download links point at those names. The backend image is released from [boson-chat/backend](https://github.com/boson-chat/backend).
 
 ## Useful one-shots
 
 ```bash
-make migrate-up         # apply DB migrations
-make migrate-down       # roll back one migration
-make migrate-create name=add_foo_table
-
 make engine-build       # build engine/cmd/engine binary → bin/engine
 make engine-connect SERVER=irc.libera.chat NICK=alice
                         # smoke test — no client needed
@@ -312,12 +238,10 @@ make hooks-install      # install the pre-commit hook (go vet + tests + typechec
 - **Sign-in says it can't reach the sign-in service** — start the auth service: `make auth-up` (and `make client-env`).
 - **Engine log panel inside Server settings shows "no entries"** — the engine binary isn't running, or the discovery file at `~/.boson/engine.json` is stale. Restart `make engine-serve`.
 - **Connection drops with no error in the splash** — open Server settings → Engine log. The raw IRC frames are there, including any 4xx/5xx server replies.
-- **`CORS policy: Method PUT is not allowed`** — restart `make run` after a backend code change.
+- **`CORS policy: Method PUT is not allowed`** — restart the backend (boson-chat/backend) after a backend code change.
 - **WSL: identity won't persist across restarts** — no keychain available; the app silently falls back to a machine-derived AES-GCM key. Fine for dev.
 
 ## Layout reference
 
 The `screens/` and `design-systems/` folders at the repo root hold the original visual mockups (HTML + tokens.css). They're the source of truth for the look — the client implementation should match them, not the other way around.
 
-
-claude --resume 0bc9161b-c730-4cca-a78d-4e02b9989201

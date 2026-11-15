@@ -99,5 +99,5 @@ Endpoints and paths: `STACK` / `APP_DIR` (`stack.ts`), `IRC_HOST` /
 ## Coverage
 
 `make test-e2e-app-coverage` writes `client/coverage/e2e/summary.md` with
-four layers (renderer, main + preload, engine, backend); see the repo README.
+two layers (renderer, the Go app + engine); see the repo README.
 New specs are measured automatically.

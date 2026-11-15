@@ -1,5 +1,0 @@
-DROP TABLE IF EXISTS reports;
-DROP TABLE IF EXISTS handle_changes;
-DROP TABLE IF EXISTS user_server_links;
-DROP TABLE IF EXISTS servers;
-DROP TABLE IF EXISTS users;
