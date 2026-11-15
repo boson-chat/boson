@@ -81,15 +81,15 @@ test('profile image: upload, replace and remove land in object storage and the t
   const img = await fetch(first.avatar_url!);
   expect(img.status).toBe(200);
   expect(img.headers.get('content-type')).toBe('image/png');
-  await expect(dialog.locator('.user-settings-avatar img')).toHaveAttribute('src', first.avatar_url!);
+  await expect(dialog.locator('.user-settings-avatar img')).toHaveAttribute('data-src', first.avatar_url!);
   // Mirrored into the session metadata → the title bar shows it at once.
-  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('src', first.avatar_url!);
+  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('data-src', first.avatar_url!);
 
   // ---- replace: new object, the old one is deleted ----
   await file.setInputFiles({ name: 'blue.png', mimeType: 'image/png', buffer: png(48, 48, [20, 40, 230]) });
   await expect.poll(() => avatarKey(account.bosonId), { timeout: 20_000 }).not.toBe(firstKey);
   const second = await api.get<{ avatar_url?: string }>('/me');
-  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('src', second.avatar_url!);
+  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('data-src', second.avatar_url!);
   expect((await fetch(second.avatar_url!)).status).toBe(200);
   expect((await fetch(first.avatar_url!)).status).not.toBe(200);
 
@@ -120,11 +120,11 @@ test('a fresh sign-in shows the profile image set before', async ({ launchApp, a
 
   const { page } = await launchApp();
   expect(await loginAs(page, account)).toBe('directory');
-  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('src', url!);
+  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('data-src', url!);
   // And again after signing out and back in on this device.
   await signOut(page);
   expect(await loginAs(page, account)).toBe('directory');
-  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('src', url!);
+  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('data-src', url!);
 });
 
 // ---- recovery code ---------------------------------------------------------

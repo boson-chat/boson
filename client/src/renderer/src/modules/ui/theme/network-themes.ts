@@ -1,3 +1,4 @@
+import { imageCacheUrl } from '../../../shared/image-cache';
 import { isBrandingUrl, parseNetworkTheme, themeHasLook, themeImages, type ImageSlot, type NetworkTheme } from './network-theme';
 import type { NetworkOverlay } from './theme.store';
 
@@ -390,6 +391,17 @@ export class NetworkThemes {
     const make = this.deps.createObjectURL ?? ((b: Blob) => URL.createObjectURL(b));
     const bridge = this.bridge();
     try {
+      // The shell's image cache (desktop/imagecache.go, the branding
+      // rules): the image is shown from its route on the app's own origin,
+      // streamed from disk after the first time — its bytes never in the
+      // JS heap. Checked once here, so a refused image shows nothing.
+      const cached = imageCacheUrl(url, 'theme');
+      if (cached) {
+        const res = await fetch(cached, { method: 'HEAD' });
+        if (res.ok) return cached;
+        if (res.status === 403 || res.status === 415) return null;
+        // Anything else (no such route, a hiccup): the bridge below.
+      }
       if (bridge) {
         const r = await bridge.image(url);
         if (!r.data || !r.contentType || !IMAGE_TYPES.includes(r.contentType)) return null;

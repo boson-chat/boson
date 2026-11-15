@@ -83,8 +83,8 @@ test('drop an image onto the profile picture picker', async ({ launchApp, accoun
   await expect.poll(key, { timeout: 20_000 }).not.toBe('');
   const me = await api.get<{ avatar_url?: string }>('/me');
   expect(me.avatar_url).toMatch(new RegExp(`^${STACK.minio.endpoint}/${STACK.minio.bucket}/.+\\.png$`));
-  await expect(dialog.locator('.user-settings-avatar img')).toHaveAttribute('src', me.avatar_url!);
-  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('src', me.avatar_url!);
+  await expect(dialog.locator('.user-settings-avatar img')).toHaveAttribute('data-src', me.avatar_url!);
+  await expect(page.locator('.title-bar-user-avatar img')).toHaveAttribute('data-src', me.avatar_url!);
   await expect(picker.getByText('Please choose an image file.')).toBeHidden();
   expect(page.url()).toBe(url); // the drop didn't navigate the window
 

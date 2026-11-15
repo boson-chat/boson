@@ -272,6 +272,16 @@ export async function installWailsBridges(): Promise<void> {
       allowLoopbackHttp: !!branding.allowLoopbackHttp,
     };
   }
+  // The on-disk image cache (desktop/imagecache.go): every image the page
+  // shows is fetched from /_boson/img on the app's own origin.
+  if (await Call.ByName('main.ImageCacheService.Stats').then(() => true, () => false)) {
+    w.bosonImages = {
+      route: '/_boson/img',
+      stats: () => Call.ByName('main.ImageCacheService.Stats'),
+      setLimitMB: (mb: number) => Call.ByName('main.ImageCacheService.SetLimitMB', mb),
+      clear: () => Call.ByName('main.ImageCacheService.Clear'),
+    };
+  }
   // Theme files in <data dir>/themes (desktop/themes.go).
   w.bosonThemes = {
     list: () => Call.ByName(`${THEMES}.List`),

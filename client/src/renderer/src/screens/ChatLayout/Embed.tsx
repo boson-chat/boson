@@ -9,6 +9,8 @@ import {
 } from '../../modules/ui/embeds.store';
 import { getUnfurl } from '../../shared/unfurl';
 import { getSpotify, type SpotifyInfo } from '../../shared/spotify';
+import { CachedImg } from '../../shared/CachedImg';
+import { INLINE_BOX, type ImageKind } from '../../shared/image-cache';
 
 type SpotifyFn = (url: string) => Promise<SpotifyInfo | null>;
 import './Embed.css';
@@ -64,7 +66,7 @@ export function MessageEmbeds({ text, unfurl, spotify }: { text: string; unfurl?
       {fileLinks.map((l) => (
         <FilesEmbed key={l.url} link={l} onOpenImage={setLightbox} openExternal={openExternal} />
       ))}
-      {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
+      {lightbox && <Lightbox url={lightbox} kind="file" onClose={() => setLightbox(null)} />}
       {visible.map((c) => (
         <EmbedItem
           key={c.url}
@@ -101,6 +103,11 @@ function EmbedItem({
 }
 
 // Image: click-to-load thumbnail → click opens a full-screen in-app lightbox.
+// Inline it's the cache's thumbnail (a big image scaled down once, on disk);
+// the lightbox loads the full one. Its box is reserved from the size the
+// cache reported, so nothing jumps when it lands.
+const INLINE_MAX_H = 280;
+
 function ImageEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; dismissBtn: preact.ComponentChildren }) {
   const [loaded, setLoaded] = useState(auto);
   const [lightbox, setLightbox] = useState(false);
@@ -109,7 +116,7 @@ function ImageEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
       {dismissBtn}
       {loaded ? (
         <button type="button" class="embed-media-btn" onClick={() => setLightbox(true)} aria-label="Open image">
-          <img class="embed-img" src={c.url} alt="" loading="lazy" />
+          <CachedImg class="embed-img" url={c.url} box={INLINE_BOX} maxHeight={INLINE_MAX_H} loading="lazy" />
         </button>
       ) : (
         <button type="button" class="embed-chip" onClick={() => setLoaded(true)}>
@@ -242,7 +249,7 @@ function YouTubeEmbed({
             aria-label={canInline && !failed ? 'Play video' : 'Watch on YouTube'}
             title={failed ? "YouTube won't play this video here. Watch it on YouTube." : undefined}
           >
-            <img class="embed-img" src={card?.image ?? thumb} alt="" loading="lazy" />
+            <CachedImg class="embed-img" url={card?.image ?? thumb} box={INLINE_BOX} loading="lazy" />
             <span class="embed-yt-play" aria-hidden="true" />
           </button>
         ) : (
@@ -314,7 +321,7 @@ function SpotifyEmbed({
       {dismissBtn}
       <div class="embed-spotify-card">
         {info?.cover
-          ? <img class="embed-spotify-cover" src={info.cover} alt="" loading="lazy" />
+          ? <CachedImg class="embed-spotify-cover" url={info.cover} box={{ w: 256, h: 256 }} loading="lazy" />
           : <div class="embed-spotify-cover embed-spotify-cover-fallback"><SpotifyIcon /></div>}
         <div class="embed-spotify-info">
           <span class="embed-spotify-brand"><SpotifyIcon /> Spotify · {label}</span>
@@ -379,7 +386,8 @@ function SpotifyIcon() {
 }
 
 // Full-screen image viewer, portaled to <body>; close on backdrop click / Esc.
-function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
+// The full image, from the cache (inline previews are thumbnails).
+function Lightbox({ url, kind = 'web', onClose }: { url: string; kind?: ImageKind; onClose: () => void }) {
   // Layout effect, not a passive one: Preact defers passive effects to the
   // next animation frame, so an Escape pressed right after the lightbox
   // appears would otherwise land before the listener exists and be lost.
@@ -390,7 +398,9 @@ function Lightbox({ url, onClose }: { url: string; onClose: () => void }) {
   }, [onClose]);
   return createPortal(
     <div class="embed-lightbox" role="dialog" aria-modal="true" onClick={onClose}>
-      <img class="embed-lightbox-img" src={url} alt="" onClick={(e) => e.stopPropagation()} />
+      <span onClick={(e) => e.stopPropagation()} class="embed-lightbox-frame">
+        <CachedImg class="embed-lightbox-img" url={url} kind={kind} />
+      </span>
       <button type="button" class="embed-lightbox-close" aria-label="Close" onClick={onClose}>×</button>
     </div>,
     document.body,
@@ -470,7 +480,7 @@ function WebsiteEmbed({
           {card.description && <span class="embed-card-desc">{card.description}</span>}
           {card.image && (
             <a class="embed-card-media" href={c.url} target="_blank" rel="noopener noreferrer" aria-label={card.title ?? c.domain}>
-              <img class="embed-card-img" src={card.image} alt="" loading="lazy" />
+              <CachedImg class="embed-card-img" url={card.image} box={INLINE_BOX} loading="lazy" />
             </a>
           )}
         </div>

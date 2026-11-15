@@ -26,6 +26,8 @@ import { getVoiceController } from '../../modules/voice';
 import { HttpError } from '../../shared/http/http.client';
 import { DirectoriesSection } from './DirectoriesSection';
 import { NetworkAccountsSection } from './NetworkAccountsSection';
+import { forgetDims, imagesBridge, type ImageCacheStats } from '../../shared/image-cache';
+import { formatBytes } from '../../modules/files';
 // Pulled at build time from client/package.json. semantic-release keeps
 // every workspace package.json in lockstep with the latest tag via
 // scripts/sync-version.cjs, so this matches what the GitHub release
@@ -472,7 +474,56 @@ function ContentSection() {
           <Toggle checked={s.websites} disabled={!s.enabled} label="Website cards" onChange={(v) => update({ websites: v })} />
         </div>
       </Card>
+      <ImageCacheCard />
     </SectionFrame>
+  );
+}
+
+// Images seen before load from this device (desktop/imagecache.go). Only in
+// the desktop app.
+const IMAGE_CACHE_SIZES_MB = [250, 500, 1000, 2000];
+
+function ImageCacheCard() {
+  const bridge = imagesBridge();
+  const [stats, setStats] = useState<ImageCacheStats | null>(null);
+  useEffect(() => {
+    if (!bridge) return;
+    let alive = true;
+    void bridge.stats().then((st) => { if (alive) setStats(st); }, () => {});
+    return () => { alive = false; };
+  }, [bridge]);
+  if (!bridge) return null;
+  const limitMB = stats ? Math.round(stats.limitBytes / 1048576) : 500;
+  const sizes = IMAGE_CACHE_SIZES_MB.includes(limitMB) ? IMAGE_CACHE_SIZES_MB : [...IMAGE_CACHE_SIZES_MB, limitMB].sort((a, b) => a - b);
+  return (
+    <Card>
+      <div class="user-settings-card-body user-settings-image-cache">
+        <p class="user-settings-image-cache-text">
+          Images you've seen are kept on this device, so they show at once next time.
+          {stats && !stats.error && <> Using <strong>{formatBytes(stats.usedBytes)}</strong> of {formatBytes(stats.limitBytes)}.</>}
+        </p>
+        <div class="user-settings-image-cache-actions">
+          <label class="user-settings-image-cache-label">
+            Keep up to
+            <select
+              class="bds-input bds-input-sm"
+              aria-label="Image cache size"
+              value={String(limitMB)}
+              onChange={(e) => { void bridge.setLimitMB(Number((e.target as HTMLSelectElement).value)).then(setStats); }}
+            >
+              {sizes.map((mb) => <option key={mb} value={String(mb)}>{mb >= 1000 ? `${mb / 1000} GB` : `${mb} MB`}</option>)}
+            </select>
+          </label>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => { forgetDims(); void bridge.clear().then(setStats); }}
+          >
+            Clear image cache
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 

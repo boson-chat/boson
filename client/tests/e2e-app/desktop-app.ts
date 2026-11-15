@@ -25,7 +25,8 @@ import type { LaunchedApp, Profile } from './fixtures';
 import { COVERAGE, RAW, RENDERER_CHUNK_URL } from './coverage/config';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
-export const APP_BIN = join(repoRoot, 'desktop', 'bin', `boson-e2e-server${process.platform === 'win32' ? '.exe' : ''}`);
+// E2E_APP_BIN: another build of the app (perf.spec.ts compares two).
+export const APP_BIN = process.env['E2E_APP_BIN'] || join(repoRoot, 'desktop', 'bin', `boson-e2e-server${process.platform === 'win32' ? '.exe' : ''}`);
 
 // The launched app's handle: the server process, its browser context and
 // the second-launch stand-in.

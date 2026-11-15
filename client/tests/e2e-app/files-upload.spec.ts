@@ -139,10 +139,10 @@ test.describe('file uploads', () => {
     const url = `${files.url}/f/${up.id}/sunset%20at%20the%20bay.png`;
     await expect(page.locator('.message-row-text').filter({ hasText: `Tonight ${url}` })).toBeVisible({ timeout: 15_000 });
     const embed = page.locator('[data-testid="files-embed"][data-media="image"]');
-    await expect(embed.locator('img')).toHaveAttribute('src', /^blob:/, { timeout: 15_000 });
-    expect(await embed.locator('img').evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(320);
+    await expect(embed.locator('img')).toHaveAttribute('src', /^\/_boson\/img\?k=file&/, { timeout: 15_000 });
+    await expect.poll(() => embed.locator('img').evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(320);
     await embed.getByRole('button', { name: 'Open sunset at the bay.png' }).click();
-    await expect(page.locator('.embed-lightbox img')).toHaveAttribute('src', /^blob:/);
+    await expect(page.locator('.embed-lightbox img')).toHaveAttribute('src', /^\/_boson\/img\?k=file&/);
     await page.keyboard.press('Escape');
     await expect(page.locator('.embed-lightbox')).toBeHidden();
 
@@ -202,7 +202,7 @@ test.describe('file uploads', () => {
     await expect.poll(() => files.files.length, { timeout: 20_000 }).toBe(1);
     expect(files.files[0]!.auth).toMatch(/^Guest guest-1-/);
     expect(files.guestTokens).toBe(1);
-    await expect(page.locator('[data-testid="files-embed"][data-media="image"] img')).toHaveAttribute('src', /^blob:/, { timeout: 15_000 });
+    await expect(page.locator('[data-testid="files-embed"][data-media="image"] img')).toHaveAttribute('src', /^\/_boson\/img\?k=file&/, { timeout: 15_000 });
 
     // A second upload reuses the token.
     await page.getByTestId('attach-input').setInputFiles({ name: 'b.txt', mimeType: 'text/plain', buffer: Buffer.from('b') });

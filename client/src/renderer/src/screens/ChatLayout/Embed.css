@@ -372,3 +372,9 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+
+/* Lightbox: the frame only stops the backdrop's click; the image sizes
+   against the backdrop as before. */
+.embed-lightbox-frame { display: contents; }
+/* An image's box is reserved (inline style) before it decodes: show it. */
+.embed-img, .embed-card-img { background: var(--surface); }

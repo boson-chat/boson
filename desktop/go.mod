@@ -9,6 +9,7 @@ require (
 	github.com/quic-go/quic-go v0.65.0
 	github.com/wailsapp/wails/v3 v3.0.0-beta.30
 	github.com/zalando/go-keyring v0.2.6
+	golang.org/x/image v0.41.0
 )
 
 replace github.com/boson-chat/boson => ../

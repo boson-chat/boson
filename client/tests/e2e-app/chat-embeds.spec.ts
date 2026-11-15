@@ -108,7 +108,9 @@ test.describe('embeds', () => {
     await expect(card.locator('.embed-card-title')).toHaveText('Boson & the e2e article');
     await expect(card.locator('.embed-card-desc')).toHaveText('A page served by the test, unfurled by the app.');
     const ogImg = card.locator('img.embed-card-img');
-    await expect(ogImg).toHaveAttribute('src', `http://127.0.0.1:${s.port}/og.png`);
+    // Through the app's image cache (desktop/imagecache.go).
+    await expect(ogImg).toHaveAttribute('data-src', `http://127.0.0.1:${s.port}/og.png`);
+    await expect(ogImg).toHaveAttribute('src', /^\/_boson\/img\?k=web&/);
     await expect.poll(() => ogImg.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(2);
     const pageHit = s.hits.find((h) => h.path === '/article.html');
     expect(pageHit?.host).toBe(`${HOST}:${s.port}`);
@@ -141,7 +143,7 @@ test.describe('embeds', () => {
     await row('img1').getByRole('button', { name: 'Open image' }).click();
     const lightbox = page.locator('.embed-lightbox');
     await expect(lightbox).toBeVisible();
-    await expect(lightbox.locator('img')).toHaveAttribute('src', `http://127.0.0.1:${s.port}/cat.png`);
+    await expect(lightbox.locator('img')).toHaveAttribute('data-src', `http://127.0.0.1:${s.port}/cat.png`);
     await page.keyboard.press('Escape');
     await expect(lightbox).toHaveCount(0);
     await row('img1').getByRole('button', { name: 'Open image' }).click();

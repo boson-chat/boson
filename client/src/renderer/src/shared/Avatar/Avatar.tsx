@@ -1,4 +1,5 @@
 import { nickColor, nickInitial } from '../../modules/chat/nick-color';
+import { CachedImg } from '../CachedImg';
 import './Avatar.css';
 
 interface AvatarProps {
@@ -27,7 +28,17 @@ export function Avatar({ nick, url, size = 24, class: className }: AvatarProps) 
       style={style}
       aria-hidden="true"
     >
-      {url ? <img class="bds-avatar-image" src={url} alt="" loading="lazy" /> : nickInitial(nick)}
+      {url
+        // From the image cache: a small thumbnail (2× the tile) kept on disk
+        // and, decoded, in memory — every row of a nick shares one.
+        ? <CachedImg class="bds-avatar-image" url={url} box={avatarBox(size)} loading="lazy" />
+        : nickInitial(nick)}
     </span>
   );
+}
+
+// Thumbnail boxes in a few steps, so tiles of similar size share one.
+function avatarBox(size: number): { w: number; h: number } {
+  const px = size <= 32 ? 64 : size <= 64 ? 128 : 256;
+  return { w: px, h: px };
 }
