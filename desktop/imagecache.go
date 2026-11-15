@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -69,6 +70,9 @@ type ImageCacheService struct {
 
 	flightMu sync.Mutex
 	flight   map[string]*imageCall
+
+	thumbMu sync.Mutex
+	release *time.Timer
 }
 
 // imageSource is one kind of image: which URLs it may fetch and how.
@@ -116,6 +120,9 @@ const (
 	imageThumbMinBytes = 200 << 10
 	imageThumbMaxPix   = 50_000_000
 	imageThumbMaxBox   = 4096
+	// Memory used scaling images goes back to the OS this long after the
+	// last one.
+	imageReleaseAfter = 2 * time.Second
 )
 
 // ImageCacheStats is what Settings shows.
@@ -529,7 +536,7 @@ func (c *ImageCacheService) lookup(ctx context.Context, kind string, src imageSo
 			return orig, nil
 		}
 	}
-	thumb, ct, tw, th, err := makeThumb(body, bw, bh)
+	thumb, ct, tw, th, err := c.thumbnail(body, bw, bh)
 	if err != nil || len(thumb) >= len(body) {
 		return orig, nil
 	}
@@ -800,6 +807,21 @@ func sniffImage(body []byte, declared string) (string, int, int, error) {
 		return d, 0, 0, nil
 	}
 	return "", 0, 0, fmt.Errorf("%w (%s)", errNotImage, ct)
+}
+
+// thumbnail runs makeThumb one at a time (decoding a photo takes tens of
+// MB for a moment) and, once a burst of them is over, hands that memory
+// back to the OS instead of keeping it in the Go heap.
+func (c *ImageCacheService) thumbnail(body []byte, bw, bh int) ([]byte, string, int, int, error) {
+	c.thumbMu.Lock()
+	defer c.thumbMu.Unlock()
+	out, ct, w, h, err := makeThumb(body, bw, bh)
+	if c.release == nil {
+		c.release = time.AfterFunc(imageReleaseAfter, debug.FreeOSMemory)
+	} else {
+		c.release.Reset(imageReleaseAfter)
+	}
+	return out, ct, w, h, err
 }
 
 // makeThumb scales body down to fit bw×bh (either may be 0: unbounded),
