@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { ChatService } from './chat.service';
+import { ChatService, parseCtcp } from './chat.service';
+import type { NotifyEvent } from '../ui/notifier';
 import { SERVICE_CHANNEL } from './services';
 import type { EventListener, IrcEvent, ServerSession } from '../engine';
 import { MemoryChatHistoryStore } from '../history';
@@ -1408,5 +1409,121 @@ describe('ChatService join progress', () => {
     engine.emit(makeEvent({ Kind: '315', Target: '#ai' }));
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#ai' }));
     expect(state(chat, '#ai')).toMatchObject({ namesLoaded: false, whoLoaded: false });
+  });
+});
+
+// What the chat service offers the desktop notifier (modules/ui/notifier.ts
+// decides from settings + window state; these pin the inputs it gets).
+describe('ChatService desktop notification events', () => {
+  function withNotes(nick = 'me'): { chat: ChatService; engine: FakeServerSession; notes: NotifyEvent[] } {
+    const { chat, engine } = makeChat(nick);
+    const notes: NotifyEvent[] = [];
+    chat.setNotifier((ev) => notes.push(ev));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: nick, Target: '#a' }));
+    engine.emit(makeEvent({ Kind: 'JOIN', From: nick, Target: '#b' }));
+    return { chat, engine, notes };
+  }
+
+  it('flags a message in the open conversation (foreground server, active channel)', () => {
+    const { chat, engine, notes } = withNotes();
+    chat.setForeground(true);
+    chat.setActive('#a');
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'alice', Target: '#a', Message: 'me: look' }));
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'alice', Target: '#b', Message: 'me: here too' }));
+    expect(notes.map((n) => [n.channel, n.kind, n.open])).toEqual([['#a', 'mention', true], ['#b', 'mention', false]]);
+  });
+
+  it('does not flag the active channel of a background server as open', () => {
+    const { chat, engine, notes } = withNotes();
+    chat.setActive('#a');
+    chat.setForeground(false);
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'alice', Target: '#a', Message: 'me: look' }));
+    expect(notes[0]!.open).toBe(false);
+  });
+
+  it('flags an open DM conversation too', () => {
+    const { chat, engine, notes } = withNotes();
+    chat.setForeground(true);
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'bob', Target: 'me', Message: 'first' }));
+    chat.setActive('bob');
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'bob', Target: 'me', Message: 'second' }));
+    expect(notes.map((n) => [n.kind, n.open])).toEqual([['dm', false], ['dm', true]]);
+  });
+
+  it.each(['VERSION', 'PING 12345', 'TIME', 'CLIENTINFO', 'FINGER'])(
+    'a CTCP %s request opens no DM, bumps nothing and does not notify',
+    (req) => {
+      const { chat, engine, notes } = withNotes();
+      engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'prober', Target: 'me', Message: `\x01${req}\x01` }));
+      expect(notes).toEqual([]);
+      const state = chat.getState();
+      expect(state.channels.find((c) => c.name === 'prober')).toBeUndefined();
+      expect(state.channels.some((c) => c.unread > 0 || c.mentions > 0)).toBe(false);
+    },
+  );
+
+  it('a CTCP reply NOTICE and a channel CTCP are quiet too; ACTION still notifies', () => {
+    const { chat, engine, notes } = withNotes();
+    chat.setActive('#b');
+    engine.emit(makeEvent({ Kind: 'NOTICE', From: 'prober', Target: 'me', Message: '\x01VERSION mIRC v7\x01' }));
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'prober', Target: '#a', Message: '\x01VERSION\x01' }));
+    expect(notes).toEqual([]);
+    expect(chat.getState().channels.find((c) => c.name === '#a')?.unread).toBe(0);
+    expect(chat.getState().channels.find((c) => c.name === 'prober')).toBeUndefined();
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'alice', Target: 'me', Message: '\x01ACTION waves at me\x01' }));
+    expect(notes.map((n) => [n.kind, n.text])).toEqual([['dm', 'waves at me']]);
+  });
+
+  it('treats our own nick case-insensitively (echo from a bouncer / other device)', () => {
+    const { chat, engine, notes } = withNotes('James');
+    chat.setActive('#b');
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'james', Target: '#a', Message: 'James: note to self' }));
+    expect(notes).toEqual([]);
+    expect(chat.getState().channels.find((c) => c.name === '#a')?.unread).toBe(0);
+    // …and a DM addressed to a differently-cased target is still for us.
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'bob', Target: 'JAMES', Message: 'hi' }));
+    expect(notes.map((n) => n.kind)).toEqual(['dm']);
+  });
+
+  it('NOTICEs never notify unless sent to us directly and naming us', () => {
+    const { chat, engine, notes } = withNotes();
+    chat.setActive('#b');
+    engine.emit(makeEvent({ Kind: 'NOTICE', From: 'feedbot', Target: '#a', Message: 'me: new post!' }));
+    engine.emit(makeEvent({ Kind: 'NOTICE', From: 'feedbot', Target: 'me', Message: 'your daily digest' }));
+    expect(notes).toEqual([]);
+    // Still counted in-app.
+    expect(chat.getState().channels.find((c) => c.name === '#a')?.unread).toBe(1);
+    engine.emit(makeEvent({ Kind: 'NOTICE', From: 'carol', Target: 'me', Message: 'me, ping (notice)' }));
+    expect(notes.map((n) => [n.kind, n.from])).toEqual([['dm', 'carol']]);
+  });
+
+  it('ZNC buffer playback without server-time is quiet backlog', () => {
+    const { chat, engine, notes } = withNotes();
+    chat.setActive('#b');
+    const znc = (target: string, text: string): void =>
+      engine.emit(makeEvent({ Kind: 'PRIVMSG', From: '***', Target: target, Message: text }));
+    znc('#a', 'Buffer Playback...');
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'alice', Target: '#a', Message: '[12:00:01] me: old ping' }));
+    znc('#a', 'Playback Complete.');
+    znc('me', 'Buffer Playback...');
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'bob', Target: 'me', Message: '[12:00:02] old dm' }));
+    znc('me', 'Playback Complete.');
+    expect(notes).toEqual([]);
+    expect(chat.getState().channels.find((c) => c.name === '#a')?.unread).toBe(0);
+    expect(chat.getState().channels.find((c) => c.name === 'bob')?.unread ?? 0).toBe(0);
+    // Live again after the end marker.
+    engine.emit(makeEvent({ Kind: 'PRIVMSG', From: 'alice', Target: '#a', Message: 'me: live ping' }));
+    expect(notes.map((n) => n.text)).toEqual(['me: live ping']);
+  });
+});
+
+describe('parseCtcp', () => {
+  it('parses CTCP framing and ignores plain text', () => {
+    expect(parseCtcp('\x01VERSION\x01')).toEqual({ command: 'VERSION', args: '' });
+    expect(parseCtcp('\x01ping 123\x01')).toEqual({ command: 'PING', args: '123' });
+    expect(parseCtcp('\x01ACTION waves')).toEqual({ command: 'ACTION', args: 'waves' });
+    expect(parseCtcp('hello')).toBeNull();
+    expect(parseCtcp('\x01\x01')).toBeNull();
+    expect(parseCtcp(undefined)).toBeNull();
   });
 });

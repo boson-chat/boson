@@ -15,6 +15,19 @@ export interface BosonWindowBridge {
   show?(): Promise<void>;
   isMaximized(): Promise<boolean>;
   onMaximizedChange(fn: (maximized: boolean) => void): () => void;
+  // The native window's own focus / visibility, from the shell's window
+  // events (desktop app with a real window only), so the notifier doesn't
+  // depend on the webview's DOM focus/blur alone.
+  attention?(): Promise<WindowAttention>;
+  onAttentionChange?(fn: () => void): () => void;
+}
+
+// Whether the user can be looking at the app: `focused` = the window has
+// keyboard focus; `visible` = it's on screen (not minimised or hidden), even
+// if another app has focus.
+export interface WindowAttention {
+  focused: boolean;
+  visible: boolean;
 }
 
 declare global {

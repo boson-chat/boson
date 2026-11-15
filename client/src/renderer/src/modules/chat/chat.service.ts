@@ -140,6 +140,21 @@ const DM_BACKLOG_MAX_TARGETS = 50;
 // doesn't mark channels unread / notify / hit the Inbox. Live messages are
 // stamped within network latency (sub-second), so the window is generous.
 const BACKLOG_AGE_MS = 30_000;
+// ZNC buffer playback without server-time: see ChatService.inZncPlayback.
+const ZNC_QUERY_PLAYBACK = '\0query';
+const ZNC_PLAYBACK_MAX_MS = 60_000;
+
+// A CTCP message: \x01COMMAND [args]\x01 (the closing \x01 is optional in
+// the wild). Null for ordinary text.
+export function parseCtcp(text: string | undefined): { command: string; args: string } | null {
+  if (!text || text.charCodeAt(0) !== 1) return null;
+  const body = text.slice(1).replace(/\x01$/, '');
+  const sp = body.indexOf(' ');
+  const command = (sp < 0 ? body : body.slice(0, sp)).toUpperCase();
+  if (!command) return null;
+  return { command, args: sp < 0 ? '' : body.slice(sp + 1) };
+}
+
 // Server clock skew estimation. A bouncer stamps server-time with its OWN
 // clock; when that clock runs minutes slow, live messages from others sort
 // above lines we just sent (stamped locally) and look like backlog (no unread
@@ -1975,6 +1990,33 @@ export class ChatService {
     if (key) this.maybeRefreshNames(key);
   }
 
+  // ZNC without server-time replays its buffers live-looking, framed by
+  // `:***!znc@znc.in PRIVMSG <#chan|you> :Buffer Playback...` … `Playback
+  // Complete.` (ZNC's default ChanBufferStart/End). Everything between the
+  // markers — and the markers — is replay: quiet, like time-tagged backlog.
+  // Keyed by channel, or ZNC_QUERY_PLAYBACK for the query buffers (addressed
+  // to us). A lost end marker expires after ZNC_PLAYBACK_MAX_MS.
+  private zncPlayback = new Map<string, number>();
+  private inZncPlayback(scope: string, from: string, text: string | undefined): boolean {
+    const now = Date.now();
+    if (from === '***') {
+      if (text === 'Buffer Playback...') { this.zncPlayback.set(scope, now); return true; }
+      if (text === 'Playback Complete.') { this.zncPlayback.delete(scope); return true; }
+    }
+    const at = this.zncPlayback.get(scope);
+    if (at === undefined) return false;
+    if (now - at > ZNC_PLAYBACK_MAX_MS) { this.zncPlayback.delete(scope); return false; }
+    return true;
+  }
+
+  // IRC nicks are case-insensitive (ASCII casemapping, as the services
+  // helpers assume — rfc1459's []\~ folding only matters for names nobody
+  // types): a bouncer or another device can echo our own line as "james"
+  // while we're "James".
+  private isMe(nick: string | undefined): boolean {
+    return !!nick && !!this.myNick && nick.toLowerCase() === this.myNick.toLowerCase();
+  }
+
   // Bump unread + mention counts for an incoming message in `channel`.
   // No-op when the message is from us, or when this server is foregrounded
   // AND the channel matches the active one (the user is literally watching
@@ -1987,8 +2029,8 @@ export class ChatService {
   // handler calls bumpUnread BEFORE appendMessage (which is what would
   // otherwise create the channel), so a DM from a brand-new sender would
   // silently no-op without this guard.
-  private bumpUnread(channel: string, from: string, text: string): void {
-    if (from === this.myNick) return;
+  private bumpUnread(channel: string, from: string, text: string, notice = false): void {
+    if (this.isMe(from)) return;
     const key = this.channelKey(channel);
     // Service / server log channel never bumps — it's informational, and the
     // whole point of routing service NOTICEs there is to keep them quiet.
@@ -1999,11 +2041,20 @@ export class ChatService {
     const isDM = !key.startsWith('#') && !key.startsWith('&');
     const isMention = isDM || containsNickMention(text, this.myNick);
 
-    // Desktop notification — fired for every live message (not just the ones
-    // that bump unread below); the notifier decides based on settings + window
-    // focus, so a mention in the channel you're viewing still alerts you when
-    // the window is in the background.
-    if (this.notifier) {
+    const open = this.isForeground && this.activeChannel === key;
+
+    // Desktop notification — offered for every live message (not just the
+    // ones that bump unread below), flagged with whether it's in the
+    // conversation open on screen. The notifier decides from settings +
+    // window state: never while the window is focused, and never for the
+    // open conversation while the window is visible (even behind another
+    // app) — only a minimised / hidden window gets banners for it.
+    //
+    // NOTICEs never raise a banner (bots, services, channel notices — by
+    // convention automated, and noisy), except a notice sent to us directly
+    // that names us: that's a person trying to get our attention.
+    const notify = !notice || (isDM && containsNickMention(text, this.myNick));
+    if (this.notifier && notify) {
       const scope = this.serverScope;
       this.notifier({
         serverId: scope?.serverId ?? '',
@@ -2012,10 +2063,11 @@ export class ChatService {
         from,
         text,
         kind: isDM ? 'dm' : isMention ? 'mention' : 'message',
+        open,
       });
     }
 
-    if (this.isForeground && this.activeChannel === key) return;
+    if (open) return;
     const ch = this.ensureChannel(channel);
     ch.unread += 1;
     if (isMention) ch.mentions += 1;
@@ -2326,7 +2378,7 @@ export class ChatService {
       case 'NOTICE': {
         if (!e.Target) return;
         const t = e.Target;
-        const isToMe = t === this.myNick;
+        const isToMe = this.isMe(t);
         const isChannel = t.startsWith('#') || t.startsWith('&');
         const isWildcard = isServerWildcardTarget(t);
         // Drop anything that isn't a channel, addressed to us, a known
@@ -2376,17 +2428,31 @@ export class ChatService {
         //   - real channel (#foo): keep the original target
         //   - service / server-host / wildcard: pseudo `~server` (quiet log)
         //   - DM from a real user: virtual channel keyed by the sender
-        const channel = isChannel
+        let channel = isChannel
           ? t
           : (isServiceSender(e.From) || isWildcard ? SERVICE_CHANNEL : e.From);
         let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
         let text = e.Message;
+        // CTCP other than ACTION (VERSION / PING / TIME / CLIENTINFO … and
+        // their NOTICE replies) is machine-to-machine: the engine answers the
+        // requests itself. Logged quietly in ~server, never a DM tab, an
+        // unread, a notification or an Inbox entry.
+        const ctcp = parseCtcp(text);
+        if (ctcp && ctcp.command !== 'ACTION') {
+          channel = SERVICE_CHANNEL;
+          kind = 'notice';
+          const where = isChannel ? ` to ${t}` : '';
+          text = e.Kind === 'NOTICE'
+            ? `CTCP ${ctcp.command} reply from ${e.From}${ctcp.args ? `: ${ctcp.args}` : ''}`
+            : `CTCP ${ctcp.command} from ${e.From}${where}${ctcp.args ? ` ${ctcp.args}` : ''}`;
+        }
+        const quiet = !!ctcp && ctcp.command !== 'ACTION';
         // Anyone sending a message is, by definition, active right now.
         this.touchMemberActivity(e.From, Date.now());
         // account-tag keeps a talker's account fresh (and our own) for
         // presence matching — covers members who were silent at our join.
         if (e.Account) {
-          if (e.From === this.myNick) this.updateSelfIdentity(undefined, e.Account);
+          if (this.isMe(e.From)) this.updateSelfIdentity(undefined, e.Account);
           else if (isChannel) this.updateMemberField(e.From, { account: e.Account });
         }
         // A real message implicitly cancels any pending `+typing=active` for
@@ -2403,11 +2469,12 @@ export class ChatService {
         // Inbox — just show it in the channel with its original timestamp.
         // Only triggers when the server actually stamped a `time` tag.
         const ts = this.timestampOf(e);
-        const isBacklog = !!e.Tags?.time && ts < Date.now() - BACKLOG_AGE_MS;
+        const isBacklog = (!!e.Tags?.time && ts < Date.now() - BACKLOG_AGE_MS)
+          || this.inZncPlayback(isChannel ? this.channelKey(t) : ZNC_QUERY_PLAYBACK, e.From, e.Message);
         // Bump unread counters BEFORE appendMessage — appendMessage emits to
         // subscribers, and we want them to see the fresh counter state in
         // the same render cycle. Otherwise the badge lags by one message.
-        if (!isBacklog) this.bumpUnread(channel, e.From, text);
+        if (!isBacklog && !quiet) this.bumpUnread(channel, e.From, text, e.Kind === 'NOTICE');
         this.appendMessage(channel, {
           id: this.id(),
           kind,
@@ -2421,14 +2488,14 @@ export class ChatService {
         // server-wildcard pseudo-channel, not our own echo) into the Inbox so
         // it holds everything addressed to the user. Unlike services these
         // STAY visible as a chat conversation too.
-        if (!isBacklog && isToMe && !isChannel && !isWildcard && !isServiceSender(e.From) && e.From !== this.myNick) {
+        if (!isBacklog && !quiet && isToMe && !isChannel && !isWildcard && !isServiceSender(e.From) && !this.isMe(e.From)) {
           this.storeInboxEntry(e.From, text, 'dm');
         }
         // Mirror channel mentions of our nick into the Inbox (Mentions tab)
         // so pings across servers collect in one place. Real channel messages
         // from someone else that name us; the source channel is carried for
         // click-through. (Our own lines never count as a mention.)
-        if (!isBacklog && isChannel && e.From !== this.myNick && containsNickMention(text, this.myNick)) {
+        if (!isBacklog && !quiet && isChannel && !this.isMe(e.From) && containsNickMention(text, this.myNick)) {
           this.storeInboxEntry(e.From, text, 'mention', channel);
         }
         break;

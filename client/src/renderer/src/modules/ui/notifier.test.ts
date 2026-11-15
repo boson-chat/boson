@@ -8,22 +8,40 @@ const ev = (over: Partial<NotifyEvent> = {}): NotifyEvent => ({
 
 describe('shouldNotify', () => {
   const on = DEFAULT_NOTIFICATION_SETTINGS;
+  const focused = { focused: true, visible: true };
+  const behind = { focused: false, visible: true }; // another app has focus
+  const minimised = { focused: false, visible: false };
 
   it('never notifies while the window is focused', () => {
-    expect(shouldNotify(ev(), on, true)).toBe(false);
+    expect(shouldNotify(ev(), on, focused)).toBe(false);
+    expect(shouldNotify(ev({ kind: 'dm' }), on, focused)).toBe(false);
+    expect(shouldNotify(ev({ open: true }), on, focused)).toBe(false);
   });
   it('notifies mentions + DMs when blurred (defaults)', () => {
-    expect(shouldNotify(ev({ kind: 'mention' }), on, false)).toBe(true);
-    expect(shouldNotify(ev({ kind: 'dm' }), on, false)).toBe(true);
+    expect(shouldNotify(ev({ kind: 'mention' }), on, behind)).toBe(true);
+    expect(shouldNotify(ev({ kind: 'dm' }), on, behind)).toBe(true);
+  });
+  it('stays quiet for the open conversation while the window is visible', () => {
+    expect(shouldNotify(ev({ kind: 'mention', open: true }), on, behind)).toBe(false);
+    expect(shouldNotify(ev({ kind: 'dm', open: true }), on, behind)).toBe(false);
+    expect(shouldNotify(ev({ kind: 'message', open: true }), { ...on, allMessages: true }, behind)).toBe(false);
+  });
+  it('still notifies for other conversations while the window is visible but unfocused', () => {
+    expect(shouldNotify(ev({ kind: 'mention', open: false }), on, behind)).toBe(true);
+  });
+  it('notifies for everything, the open conversation included, when minimised / hidden', () => {
+    expect(shouldNotify(ev({ kind: 'mention', open: true }), on, minimised)).toBe(true);
+    expect(shouldNotify(ev({ kind: 'dm', open: true }), on, minimised)).toBe(true);
+    expect(shouldNotify(ev({ kind: 'mention' }), on, minimised)).toBe(true);
   });
   it('does not notify plain messages unless allMessages is on', () => {
-    expect(shouldNotify(ev({ kind: 'message' }), on, false)).toBe(false);
-    expect(shouldNotify(ev({ kind: 'message' }), { ...on, allMessages: true }, false)).toBe(true);
+    expect(shouldNotify(ev({ kind: 'message' }), on, behind)).toBe(false);
+    expect(shouldNotify(ev({ kind: 'message' }), { ...on, allMessages: true }, behind)).toBe(true);
   });
   it('respects per-type + master toggles', () => {
-    expect(shouldNotify(ev({ kind: 'mention' }), { ...on, mentions: false }, false)).toBe(false);
-    expect(shouldNotify(ev({ kind: 'dm' }), { ...on, directMessages: false }, false)).toBe(false);
-    expect(shouldNotify(ev(), { ...on, enabled: false }, false)).toBe(false);
+    expect(shouldNotify(ev({ kind: 'mention' }), { ...on, mentions: false }, behind)).toBe(false);
+    expect(shouldNotify(ev({ kind: 'dm' }), { ...on, directMessages: false }, behind)).toBe(false);
+    expect(shouldNotify(ev(), { ...on, enabled: false }, behind)).toBe(false);
   });
 });
 
@@ -80,5 +98,86 @@ describe('Notifier.notify', () => {
     n.setFocusedForTest(false);
     n.notify(ev());
     expect(ctor).not.toHaveBeenCalled();
+  });
+
+  it('raises one banner for the same line arriving over two connections', () => {
+    const n = new Notifier();
+    n.setFocusedForTest(false);
+    n.notify(ev({ serverId: 's1' }));
+    n.notify(ev({ serverId: 's2', from: 'Alice' }));
+    expect(ctor).toHaveBeenCalledOnce();
+    n.notify(ev({ serverId: 's2', text: 'something else' }));
+    expect(ctor).toHaveBeenCalledTimes(2);
+  });
+
+  it('follows the native window state over DOM focus when the shell has one', () => {
+    const n = new Notifier();
+    n.setAttentionForTest({ focused: true, visible: true });
+    n.notify(ev());
+    expect(ctor).not.toHaveBeenCalled();
+    n.setAttentionForTest({ focused: false, visible: true });
+    n.notify(ev({ open: true }));
+    expect(ctor).not.toHaveBeenCalled();
+    n.setAttentionForTest({ focused: false, visible: false });
+    n.notify(ev({ open: true }));
+    expect(ctor).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Notifier window tracking', () => {
+  afterEach(() => { delete (window as { bosonWindow?: unknown }).bosonWindow; vi.restoreAllMocks(); });
+
+  it('starts from document.hasFocus() and follows window focus/blur', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    const n = new Notifier();
+    n.start();
+    expect(n.isFocused()).toBe(false);
+    window.dispatchEvent(new Event('focus'));
+    expect(n.isFocused()).toBe(true);
+    window.dispatchEvent(new Event('blur'));
+    expect(n.isFocused()).toBe(false);
+  });
+
+  it('treats a hidden page as unfocused and not visible', () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    const vis = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+    const n = new Notifier();
+    n.start();
+    expect(n.attention()).toEqual({ focused: true, visible: true });
+    vis.mockReturnValue('hidden');
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(n.attention()).toEqual({ focused: false, visible: false });
+  });
+
+  it('uses the shell window events when present (WKWebView focus is unreliable)', async () => {
+    // The webview claims no focus and never fires `focus`; the native window is key.
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    let state = { focused: true, visible: true };
+    let changed: (() => void) | null = null;
+    (window as { bosonWindow?: unknown }).bosonWindow = {
+      attention: () => Promise.resolve(state),
+      onAttentionChange: (fn: () => void) => { changed = fn; return () => {}; },
+    };
+    const n = new Notifier();
+    n.start();
+    await vi.waitFor(() => expect(n.isFocused()).toBe(true));
+    state = { focused: false, visible: false };
+    changed!();
+    await vi.waitFor(() => expect(n.attention()).toEqual({ focused: false, visible: false }));
+  });
+
+  it('falls back to DOM focus when the shell calls fail', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(false);
+    (window as { bosonWindow?: unknown }).bosonWindow = {
+      attention: () => Promise.reject(new Error('unsupported')),
+      onAttentionChange: () => () => {},
+    };
+    const n = new Notifier();
+    n.start();
+    await Promise.resolve();
+    expect(n.isFocused()).toBe(false);
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+    expect(n.isFocused()).toBe(true);
   });
 });

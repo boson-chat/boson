@@ -478,11 +478,17 @@ export class DirectoryBloc {
 
   // A notification banner was clicked: surface the window and jump to the
   // server + channel the message came from.
+  // A banner click: bring the window up and show that conversation. Only on
+  // the server it came from — if that connection is gone, the channel name
+  // means nothing on whichever server is active now. The server browser
+  // overlay would hide the conversation, so it closes.
   private activateFromNotification(serverId: string, channel: string): void {
     void getWindowBridge()?.show?.();
-    if (serverId && this.connections.has(serverId)) this.setActiveServer(serverId);
-    const conn = this.connections.get(serverId) ?? (this.activeServerId ? this.connections.get(this.activeServerId) : undefined);
-    if (channel) conn?.chat.setActive(channel);
+    const conn = this.connections.get(serverId);
+    if (!conn) return;
+    if (this.serverBrowserOpen) { this.serverBrowserOpen = false; this.emit(); }
+    this.setActiveServer(serverId);
+    if (channel) conn.chat.setActive(channel);
   }
 
   // ---- Observation ----

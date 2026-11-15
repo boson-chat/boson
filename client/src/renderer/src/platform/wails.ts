@@ -7,6 +7,7 @@ import { Call, Events, System, Window } from '@wailsio/runtime';
 import type { WebSocketLike } from '../modules/engine/engine.client';
 import type { ApiRequest, ApiResponse } from '../shared/http/transport';
 import { applyPhoneScale } from '../shared/phone-scale';
+import type { BosonWindowBridge } from '../shared/window-controls';
 
 const ENGINE = 'main.EngineService';
 const STORE = 'main.SecureStore';
@@ -115,6 +116,35 @@ const windowBridge = {
   },
 };
 
+// The OS window's focus + visibility for the notifier (modules/ui/notifier.ts),
+// from Wails' window events (NSWindow key / miniaturize / hide on macOS), so
+// it's the OS window's state and not only what the webview's DOM focus/blur
+// say (those do follow app activation in WKWebView today, but the page can
+// start before the window is shown — hasFocus() false, visibility hidden).
+// Installed only with a real native window (not server mode).
+function windowAttentionBridge(): Pick<Required<BosonWindowBridge>, 'attention' | 'onAttentionChange'> {
+  let hidden = false;
+  return {
+    attention: async () => {
+      const [focused, minimised] = await Promise.all([Window.IsFocused(), Window.IsMinimised()]);
+      return { focused: focused && !minimised && !hidden, visible: !minimised && !hidden };
+    },
+    onAttentionChange(fn: () => void): () => void {
+      const T = Events.Types.Common;
+      const offs = [
+        Events.On(T.WindowFocus, () => fn()),
+        Events.On(T.WindowLostFocus, () => fn()),
+        Events.On(T.WindowMinimise, () => fn()),
+        Events.On(T.WindowUnMinimise, () => fn()),
+        Events.On(T.WindowRestore, () => fn()),
+        Events.On(T.WindowHide, () => { hidden = true; fn(); }),
+        Events.On(T.WindowShow, () => { hidden = false; fn(); }),
+      ];
+      return () => offs.forEach((off) => off());
+    },
+  };
+}
+
 // Node's platform names, which the renderer already uses (window-controls.ts).
 function platformName(os: string): string {
   return os === 'windows' ? 'win32' : os;
@@ -197,7 +227,8 @@ export async function installWailsBridges(): Promise<void> {
   const w = window as unknown as Record<string, unknown>;
   guardNavigation();
   // A server-mode (e2e) build runs in a browser, which has notifications.
-  if (await Call.ByName(`${NOTIFY}.Native`).catch(() => false)) await installNotifications();
+  const native = !!(await Call.ByName(`${NOTIFY}.Native`).catch(() => false));
+  if (native) await installNotifications();
   // boson:// links (desktop/deeplink.go): buffered until the renderer drains
   // it on start, and pushed live after that.
   w.bosonDeepLink = {
@@ -220,7 +251,7 @@ export async function installWailsBridges(): Promise<void> {
   }
   w.bosonPlatform = platformName((await System.Environment()).OS);
   applyPhoneScale(String(w.bosonPlatform));
-  w.bosonWindow = windowBridge;
+  w.bosonWindow = native ? { ...windowBridge, ...windowAttentionBridge() } : windowBridge;
   w.bosonApi = {
     fetch: apiFetch,
     // The user's network directories the proxy may read from (apiproxy.go).
