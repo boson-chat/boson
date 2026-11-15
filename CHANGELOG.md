@@ -1,3 +1,9 @@
+## [0.57.2](https://github.com/boson-chat/boson/compare/v0.57.1...v0.57.2) (2026-11-15)
+
+### Performance
+
+* image cache and virtualized message list (1/2: on-disk image cache) ([#58](https://github.com/boson-chat/boson/issues/58)) ([72d8a63](https://github.com/boson-chat/boson/commit/72d8a6347203b89572bf09f974b457b246637b41))
+
 ## [0.57.1](https://github.com/boson-chat/boson/compare/v0.57.0...v0.57.1) (2026-11-15)
 
 ### Bug Fixes
