@@ -102,7 +102,7 @@
 /* Phones (and narrow windows): a dialog is a full-screen sheet, not a
    floating card, and keeps clear of the status bar and home indicator
    (the app draws edge to edge; the insets are 0 elsewhere). */
-@media (max-width: 700px) {
+@media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
   .bds-modal-backdrop { padding: 0; align-items: stretch; }
   .bds-modal,
   .bds-modal-wide {

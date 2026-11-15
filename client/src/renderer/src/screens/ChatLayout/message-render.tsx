@@ -412,6 +412,10 @@ export const MessageList = memo(function MessageList({
   // Where the viewport was last placed (or seen), on which layout.
   const placedTop = useRef<number | null>(null);
   const placedLayout = useRef<Layout | null>(null);
+  // The viewport's size then: a scroll that comes with a new size (a phone
+  // rotated, the keyboard opening) is the browser re-clamping, not the user.
+  const placedSize = useRef<string | null>(null);
+  const sizeOf = (el: HTMLElement): string => `${el.clientWidth}x${el.clientHeight}`;
   const layoutRef = useRef<Layout | null>(null);
   const shownChannel = useRef<string | null | undefined>(undefined);
   const onViewportRef = useRef(onViewport);
@@ -462,7 +466,8 @@ export const MessageList = memo(function MessageList({
     if (el.clientHeight === 0 && el.scrollHeight === 0) { setNoLayout(true); return; }
     // Scrolled since we last placed it, and the scroll event not handled
     // yet: that's the user's place now (on the layout they scrolled).
-    if (placedTop.current !== null && Math.abs(el.scrollTop - placedTop.current) > 1 && placedLayout.current) {
+    const resized = placedSize.current !== null && placedSize.current !== sizeOf(el);
+    if (!resized && placedTop.current !== null && Math.abs(el.scrollTop - placedTop.current) > 1 && placedLayout.current) {
       anchorRef.current = captureAnchor(placedLayout.current, el.scrollTop);
       atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
       placedTop.current = el.scrollTop;
@@ -497,6 +502,7 @@ export const MessageList = memo(function MessageList({
     if (toBottom || !anchorRef.current || target === null) anchorRef.current = captureAnchor(now, el.scrollTop);
     placedTop.current = el.scrollTop;
     placedLayout.current = now;
+    placedSize.current = sizeOf(el);
     if (!view || Math.abs(view.top - el.scrollTop) > 1 || view.height !== el.clientHeight) {
       setView({ top: el.scrollTop, height: el.clientHeight });
     }
@@ -537,6 +543,12 @@ export const MessageList = memo(function MessageList({
   }, []);
   const onScroll = (e: Event): void => {
     const el = e.currentTarget as HTMLDivElement;
+    // The viewport changed size and the browser moved scrollTop to fit:
+    // the next layout pass re-places it (the bottom, or the anchor).
+    if (placedSize.current !== null && placedSize.current !== sizeOf(el)) {
+      setHeightsVersion((n) => n + 1);
+      return;
+    }
     // Track bottom-stickiness on every scroll (including our own programmatic
     // scroll-to-bottom) — this drives live-append autoscroll.
     reportBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);

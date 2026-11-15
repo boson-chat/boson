@@ -48,6 +48,11 @@ export interface KeyDownPayload {
   shiftKey: boolean;
   preventDefault: () => void;
   selectionStart: number | null;
+  /** Ctrl / Cmd held: Enter sends even where Return makes a newline. */
+  modKey?: boolean;
+  /** A phone's keyboard: plain Return inserts a newline (the textarea's own
+   *  behaviour) and the Send button sends. */
+  enterInsertsNewline?: boolean;
 }
 
 // Nick-completion cycle. Kept in the bloc rather than the view so the view
@@ -281,7 +286,8 @@ export class ChatInputBloc {
    *   2. mention popup open: same
    *   3. channel popup open: same
    *   4. no popup, Tab: advance armed cycle or do bare-nick complete
-   *   5. Enter (no shift): send
+   *   5. Enter (no shift): send — on a phone's keyboard a newline instead
+   *      (enterInsertsNewline), unless Ctrl/Cmd is held
    */
   handleKeyDown(e: KeyDownPayload): void {
     const slashMatches = this.computeSlashMatches(this.input);
@@ -323,6 +329,7 @@ export class ChatInputBloc {
       if (this.tryNickComplete(e.selectionStart)) { e.preventDefault(); return; }
     }
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.enterInsertsNewline && !e.modKey) return;
       e.preventDefault();
       this.send();
     }

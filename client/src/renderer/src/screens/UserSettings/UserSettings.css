@@ -465,7 +465,7 @@
 
 /* Phones: the section menu becomes a scrolling strip above the section, so
    the section gets the full width (the modal is a full-screen sheet). */
-@media (max-width: 700px) {
+@media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
   .user-settings { flex-direction: column; height: 100%; min-height: 0; }
   .user-settings-menu {
     width: auto;

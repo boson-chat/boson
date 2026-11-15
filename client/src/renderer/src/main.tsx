@@ -4,6 +4,7 @@ import type { WebSocketCtor } from './modules/engine';
 import { isWailsPage } from './platform/is-wails';
 import { initDeepLinkBridge } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
+import { trackVisualViewport } from './shared/visual-viewport';
 import { NetworkThemes, getThemeStore, setNetworkThemes } from './modules/ui/theme';
 import { VoiceController, getVoiceController, setVoiceController, voiceBridge } from './modules/voice';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
@@ -32,6 +33,10 @@ withBridges(() => { void getThemeStore().init(); });
 // the module-level buffer in deep-link.ts captures any `boson://` URL
 // the OS hands us, even before the directory screen mounts.
 withBridges(initDeepLinkBridge);
+
+// Phones: keep the app above the on-screen keyboard (after the bridges, which
+// say whether this is the iOS / Android app).
+withBridges(() => { trackVisualViewport(); });
 
 // Keep files/links dropped onto the window from navigating it away from the
 // app (see shared/drop-guard.ts; main also guards will-navigate).

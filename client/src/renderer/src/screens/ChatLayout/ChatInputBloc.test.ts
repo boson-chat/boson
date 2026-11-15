@@ -405,6 +405,25 @@ describe('ChatInputBloc', () => {
       expect(bloc.getState().input).toBe('hi');
     });
 
+    it("on a phone's keyboard, Return is a newline: no send, default not prevented", () => {
+      const { bloc, sent } = makeBloc();
+      bloc.setInput('first line');
+      const key = { ...makeKey('Enter'), enterInsertsNewline: true };
+      let prevented = 0;
+      key.preventDefault = () => { prevented++; };
+      bloc.handleKeyDown(key);
+      expect(sent).toEqual([]);
+      expect(prevented).toBe(0);
+      expect(bloc.getState().input).toBe('first line');
+    });
+
+    it('on a phone, Ctrl/Cmd+Enter still sends (a hardware keyboard)', () => {
+      const { bloc, sent } = makeBloc();
+      bloc.setInput('one\ntwo');
+      bloc.handleKeyDown({ ...makeKey('Enter'), enterInsertsNewline: true, modKey: true });
+      expect(sent).toEqual([['one', 'two']]);
+    });
+
     it('strips known-member @nick before sending', () => {
       const { bloc, sent } = makeBloc({ members: [{ nick: 'alice' }] });
       bloc.setInput('hey @alice ping');

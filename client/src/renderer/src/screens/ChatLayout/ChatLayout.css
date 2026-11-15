@@ -129,3 +129,18 @@
 /* The header buttons that open the drawers sit at the start of headers. */
 .chat-pane-back { margin-left: calc(-1 * var(--space-2)); flex-shrink: 0; }
 .user-panel-header .chat-pane-back { margin-right: var(--space-1); }
+
+/* Phone layout: everything you tap is at least 44px tall (Apple's and
+   Material's minimum), without changing what it looks like. */
+.app-shell.is-narrow .chat-icon-btn { width: 44px; height: 44px; }
+.app-shell.is-narrow .channel-item { min-height: 44px; }
+.app-shell.is-narrow .user-panel-item { min-height: 44px; }
+.app-shell.is-narrow .channel-add { width: 44px; height: 44px; margin: -11px -11px -11px 0; }
+.app-shell.is-narrow .voice-bar-btn { min-width: 44px; min-height: 44px; }
+
+/* Dialogs are full-screen sheets on a phone: their content fits its width. */
+@media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
+  .kick-modal { min-width: 0; }
+  .kick-modal-actions button { min-height: 44px; }
+  .help-modal-row { grid-template-columns: 1fr; gap: var(--space-1); }
+}

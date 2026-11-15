@@ -82,7 +82,12 @@ export async function say(page: Page, text: string): Promise<void> {
   await box.click();
   await box.fill(text);
   await dismissPopups(page);
-  await box.press('Enter');
+  // On a touch phone Return inserts a newline; the Send button sends.
+  const phone = await page.evaluate(() =>
+    window.matchMedia('(max-width: 700px), (max-height: 500px) and (pointer: coarse)').matches
+    && window.matchMedia('(pointer: coarse)').matches);
+  if (phone) await page.locator('.chat-input-bar .chat-send-btn').click();
+  else await box.press('Enter');
 }
 
 // Close an open slash / @mention / #channel autocomplete (Escape) so the next

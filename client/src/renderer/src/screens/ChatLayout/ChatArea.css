@@ -1600,7 +1600,7 @@
 
 /* Phones: a long press opens the message sheet (Copy text, Reply, …)
    instead of selecting text or raising iOS's callout. */
-@media (max-width: 700px) {
+@media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
   .message-row,
   .message-action {
     -webkit-user-select: none;
@@ -1608,3 +1608,42 @@
     -webkit-touch-callout: none;
   }
 }
+
+/* ---- Phone layout (.is-narrow, shared/narrow.ts) ---- */
+
+/* Denser: a phone's width goes to the text, not the margins. */
+.app-shell.is-narrow .messages-inner { padding: var(--space-3) var(--space-4); }
+/* A run of messages from one author reads as one block (the grouped
+   rhythm above; the base .message-row padding otherwise wins it back). */
+.app-shell.is-narrow .message-row.message-row-grouped { padding-top: 2px; padding-bottom: 2px; }
+.app-shell.is-narrow .message-row:has(+ .message-row-grouped) { padding-bottom: 2px; }
+/* Long URLs and words wrap anywhere rather than widen the row. */
+.app-shell.is-narrow .message-row-text-body { overflow-wrap: anywhere; }
+
+/* Header: 44px buttons in the same height as before. */
+.app-shell.is-narrow .chat-header { padding: var(--space-1) var(--space-3); }
+
+/* Composer: buttons sit on the bottom line as the text grows (instead of
+   stretching or centring), and every one is a 44px target. */
+.app-shell.is-narrow .chat-input-bar { padding: var(--space-2) var(--space-3); }
+.app-shell.is-narrow .chat-input-wrap { align-items: flex-end; gap: 0; padding: 0 var(--space-1); }
+.app-shell.is-narrow .input-actions { gap: 0; align-self: flex-end; height: 44px; }
+.app-shell.is-narrow .chat-nick-chip { margin: 0 var(--space-1); }
+.app-shell.is-narrow .input-action { width: 44px; height: 44px; }
+.app-shell.is-narrow .chat-textarea-wrap { align-self: stretch; padding: 10px var(--space-1); }
+/* The highlight overlay covers exactly the textarea, inside that padding. */
+.app-shell.is-narrow .chat-textarea-overlay { inset: 10px var(--space-1); width: auto; }
+.app-shell.is-narrow .chat-textarea,
+.app-shell.is-narrow .chat-textarea-overlay {
+  /* Up to ~6 lines, less with the keyboard up; then it scrolls inside. */
+  max-height: min(160px, calc(var(--app-height, 100vh) * 0.3));
+}
+.app-shell.is-narrow .chat-send-btn {
+  position: relative;
+  align-self: flex-end;
+  height: 36px;
+  min-width: 56px;
+  margin: 4px 0 4px var(--space-1);
+}
+/* The button reads 36px; its touch area is 44px. */
+.app-shell.is-narrow .chat-send-btn::after { content: ''; position: absolute; inset: -4px; }

@@ -7,6 +7,7 @@ import {
   SlashAutocomplete,
 } from './chat-autocomplete';
 import { EMOJI_LIST } from './emoji-data';
+import { isTouchPhone, useNarrow } from '../../shared/narrow';
 
 interface ChatInputBarProps {
   state: ChatInputState;
@@ -46,6 +47,10 @@ export function ChatInputBar({
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [emojiQuery, setEmojiQuery] = useState('');
+  // A phone: the keyboard's Return makes a newline (Send sends), and the
+  // keyboard autocapitalizes and corrects as in other chat apps.
+  const narrow = useNarrow();
+  const phone = narrow && isTouchPhone();
 
   // Insert an emoji char at the textarea's current selection, then refocus.
   const insertEmoji = (char: string): void => {
@@ -246,6 +251,10 @@ export function ChatInputBar({
             placeholder={placeholder}
             disabled={disabled}
             rows={1}
+            autocapitalize="sentences"
+            autocorrect="on"
+            spellcheck={phone}
+            enterkeyhint={phone ? 'enter' : 'send'}
             value={state.input}
             onInput={(e) => bloc.setInput((e.target as HTMLTextAreaElement).value)}
             onPaste={(e) => {
@@ -267,6 +276,8 @@ export function ChatInputBar({
                 preventDefault: () => e.preventDefault(),
                 selectionStart:
                   (e.currentTarget as HTMLTextAreaElement).selectionStart,
+                modKey: e.ctrlKey || e.metaKey,
+                enterInsertsNewline: isTouchPhone(),
               });
             }}
           />
@@ -274,6 +285,10 @@ export function ChatInputBar({
         <button
           class="chat-send-btn"
           type="button"
+          // Keep the focus (and a phone's keyboard) in the composer: a tap
+          // here would otherwise blur it and drop the keyboard after every
+          // message.
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => bloc.send()}
           disabled={disabled || !state.input.trim()}
         >
@@ -295,6 +310,8 @@ export function autoResize(el: HTMLTextAreaElement | null) {
     return;
   }
   el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+  // Grows up to the CSS max-height (smaller on a phone), then scrolls inside.
+  const max = parseFloat(getComputedStyle(el).maxHeight) || 160;
+  el.style.height = Math.min(el.scrollHeight, max) + 'px';
 }
 
