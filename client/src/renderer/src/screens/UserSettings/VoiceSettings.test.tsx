@@ -26,7 +26,7 @@ describe('Settings → Voice', () => {
       expect(screen.getByText(/Your phone cancels echo/)).toBeTruthy();
       fireEvent.click(screen.getByRole('tab', { name: 'Push to talk' }));
       expect(getVoiceSettings().mode).toBe('ptt');
-      expect(await screen.findByText(/hold the talk button/)).toBeTruthy();
+      expect(await screen.findByText(/Hold the talk button while you speak/)).toBeTruthy();
       expect(screen.queryByText('Choose a key')).toBeNull();
       expect(screen.getByRole('tab', { name: 'Open mic' })).toBeTruthy();
     } finally {

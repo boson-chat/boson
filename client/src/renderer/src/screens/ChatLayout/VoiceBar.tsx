@@ -1,6 +1,8 @@
 import { Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Settings, Signal, SignalLow, SignalMedium, X } from 'lucide-preact';
 import { useVoice, type VoiceQuality } from '../../modules/voice';
 import { openUserSettings } from '../../modules/ui/open-settings';
+import { isMobile } from '../../shared/window-controls';
+import { HoldToTalk } from './MobileVoice';
 import './VoiceSection.css';
 
 const QUALITY_LABEL: Record<VoiceQuality, string> = {
@@ -127,6 +129,8 @@ export function VoiceBar() {
           <Settings size={16} aria-hidden="true" />
         </button>
       </div>
+      {/* A tablet in the wide layout has no key to hold: the button. */}
+      {isMobile() && call.pushToTalk && !listener && !connecting && <HoldToTalk voice={voice} call={call} compact />}
     </div>
   );
 }

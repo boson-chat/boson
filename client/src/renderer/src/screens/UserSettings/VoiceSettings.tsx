@@ -107,7 +107,7 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
               />
             </Field>
             {s.mode === 'ptt' && phone ? (
-              <p class="voice-settings-note">On the call screen (tap the voice bar over the chat), hold the talk button while you speak.</p>
+              <p class="voice-settings-note">Hold the talk button while you speak: on the call screen (tap the voice bar over the chat), or under the voice bar on a tablet.</p>
             ) : s.mode === 'ptt' ? (
               <Field
                 label="Push-to-talk key"

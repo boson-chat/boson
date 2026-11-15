@@ -141,4 +141,20 @@ describe('VoiceSection', () => {
     expect(container.querySelector('.voice-section')).toBeNull();
     expect(vi.isMockFunction(bridge.discover)).toBe(false);
   });
+  it('a tablet in push to talk gets a hold-to-talk button in the voice bar', async () => {
+    window.bosonPlatform = 'ios';
+    try {
+      mount('irc.boson.chat');
+      fireEvent.click(await screen.findByLabelText('Join voice channel General'));
+      await screen.findByText('Voice connected');
+      expect(screen.queryByRole('button', { name: 'Hold to talk' })).toBeNull();
+      await act(async () => { controller.setInputMode('ptt'); });
+      const hold = await screen.findByRole('button', { name: 'Hold to talk' });
+      fireEvent.pointerDown(hold, { pointerId: 1 });
+      fireEvent.pointerUp(hold, { pointerId: 1 });
+      expect(bridge.calls.filter((c) => c.method === 'ptt').map((c) => c.args[0])).toEqual([true, false]);
+    } finally {
+      delete window.bosonPlatform;
+    }
+  });
 });

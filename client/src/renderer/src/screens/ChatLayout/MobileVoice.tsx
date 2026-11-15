@@ -237,8 +237,9 @@ function Person({ p, url, open, onToggle, voice }: {
 
 // Push to talk on a touch screen: hold the button. The pointer is captured
 // so a finger drifting off it keeps talking until it lifts; the sheet's
-// swipe-to-close never sees the press.
-function HoldToTalk({ voice, call }: { voice: VoiceController; call: VoiceState }) {
+// swipe-to-close never sees the press. Also in the sidebar's voice bar on
+// a tablet's wide layout (VoiceBar).
+export function HoldToTalk({ voice, call, compact }: { voice: VoiceController; call: VoiceState; compact?: boolean }) {
   const [held, setHeld] = useState(false);
   const up = (): void => {
     setHeld(false);
@@ -249,7 +250,7 @@ function HoldToTalk({ voice, call }: { voice: VoiceController; call: VoiceState 
   return (
     <button
       type="button"
-      class="mvoice-ptt"
+      class={`mvoice-ptt${compact ? ' mvoice-ptt-compact' : ''}`}
       data-held={held || undefined}
       data-on={on || undefined}
       aria-pressed={held}
