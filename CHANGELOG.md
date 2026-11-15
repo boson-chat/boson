@@ -1,3 +1,9 @@
+## [0.58.1](https://github.com/boson-chat/boson/compare/v0.58.0...v0.58.1) (2026-11-15)
+
+### Bug Fixes
+
+* drop elkjs (EPL-2.0) from the bundle ([#61](https://github.com/boson-chat/boson/issues/61)) ([5b62ea4](https://github.com/boson-chat/boson/commit/5b62ea4df4554dbf1a60765829b6a8feb67f40bd))
+
 ## [0.58.0](https://github.com/boson-chat/boson/compare/v0.57.3...v0.58.0) (2026-11-15)
 
 ### Features
