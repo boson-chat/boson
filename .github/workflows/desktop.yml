@@ -36,10 +36,11 @@
 # Dependabot) the build is ad-hoc signed and not notarized, and a release
 # fails rather than publish it.
 #
-# Voice (desktop only) links libopus statically, built from source per
-# platform/architecture by desktop/scripts/build-opus.sh (cached), and needs
-# cgo everywhere: Windows builds with MSYS2's MinGW-w64 gcc. The quicvoice
-# SDK (github.com/boson-chat/quicvoice) is a public Go module.
+# Voice links libopus statically, built from source per platform/
+# architecture by desktop/scripts/build-opus.sh (cached; for Android with
+# the NDK), and needs cgo everywhere: Windows builds with MSYS2's MinGW-w64
+# gcc. The quicvoice SDK (github.com/boson-chat/quicvoice) is a public Go
+# module.
 #
 # Android signing secrets: ANDROID_KEYSTORE (base64 of the release keystore),
 # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD. Without
@@ -307,6 +308,16 @@ jobs:
 
       - name: install
         run: npm ci
+
+      # Static libopus for voice, cross-compiled with the NDK
+      # (desktop/scripts/build-opus.sh android-arm64); cmake is on the image.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: desktop/build/.opus
+          key: opus-android-${{ hashFiles('desktop/scripts/build-opus.sh') }}
+
+      - name: Android voice build tools
+        run: command -v pkg-config >/dev/null || (sudo apt-get update && sudo apt-get install -y pkg-config)
 
       - name: Android signing key
         if: env.ANDROID_SIGNING == 'true'

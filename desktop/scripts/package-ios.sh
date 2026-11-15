@@ -29,6 +29,8 @@
 #                   APPLE_API_ISSUER; needs an Admin or App Manager key).
 #   PROVISIONING_PROFILE / CODESIGN_IDENTITY  use these instead
 #   DEVICE_ID       the iPhone's UDID (default: the first connected one)
+#   OPUS_PREFIX     where the static libopus for voice is built and cached
+#                   (default desktop/build/.opus; scripts/build-opus.sh)
 #
 # Usage: desktop/scripts/package-ios.sh
 set -euo pipefail
@@ -73,8 +75,11 @@ rm -rf "$desktop/frontend/dist"
 cp -R "$client/out/renderer" "$desktop/frontend/dist"
 touch "$desktop/frontend/dist/.gitkeep"
 
-# 2. The Go app as a C archive.
-tags=ios
+# 2. The Go app as a C archive, with voice: a static libopus for this SDK
+#    (nolibopusfile: only libopus is used), linked into the app in step 3.
+opus="${OPUS_PREFIX:-$desktop/build/.opus}/ios-$PLATFORM"
+"$here/build-opus.sh" "$opus" "ios-$PLATFORM"
+tags=ios,nolibopusfile
 ldflags="-X main.appVersion=$VERSION"
 if [[ "${DEV:-}" == "1" ]]; then
   ldflags="$ldflags -X main.devBuild=true -X main.apiBase=http://localhost:3000"
@@ -86,9 +91,12 @@ fi
 # simulator shares with the Mac, to drive the page from scripts.
 [[ -n "${EXTRA_TAGS:-}" ]] && tags="$tags,$EXTRA_TAGS"
 echo "building the Go archive ($tags)"
+# The prefix in CGO_CFLAGS too: Go's build cache doesn't key on
+# PKG_CONFIG_PATH, and would reuse a build against another libopus.
 (cd "$desktop" && GOOS=ios GOARCH=arm64 CGO_ENABLED=1 \
   CC="$(xcrun --sdk "$SDK" --find clang)" \
-  CGO_CFLAGS="-isysroot $SDK_PATH -target $TARGET $VERSION_MIN" \
+  PKG_CONFIG_PATH="$opus/lib/pkgconfig" \
+  CGO_CFLAGS="-isysroot $SDK_PATH -target $TARGET $VERSION_MIN -I$opus/include" \
   CGO_LDFLAGS="-isysroot $SDK_PATH -target $TARGET" \
   go build -buildmode=c-archive -tags "$tags" -trimpath -buildvcs=false -ldflags "$ldflags" -o "$out/$APP_NAME.a" .)
 
@@ -110,7 +118,8 @@ xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
   -framework LocalAuthentication -framework UserNotifications \
   -framework AVFoundation -framework SafariServices \
   -framework CoreLocation -framework CoreMotion -framework SystemConfiguration -framework Network \
-  -lresolv \
+  -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
+  -lresolv "$opus/lib/libopus.a" \
   ${sim_entitlements[@]+"${sim_entitlements[@]}"} \
   -o "$app/$APP_NAME" \
   "$desktop/build/ios/main.m" -Wl,-force_load,"$out/$APP_NAME.a"

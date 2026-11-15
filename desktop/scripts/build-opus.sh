@@ -4,7 +4,11 @@
 # pkg-config). Static, so users don't need libopus installed: the release
 # binaries link it in.
 #
-#   desktop/scripts/build-opus.sh <prefix> [macOS arch: arm64 | x86_64]
+#   desktop/scripts/build-opus.sh <prefix> [target]
+#
+# target: a macOS arch (arm64 | x86_64) on a Mac; or, cross-compiling for
+# the phone apps, ios-device | ios-simulator (arm64, iOS 16, needs Xcode)
+# or android-arm64 | android-amd64 (API 26, needs ANDROID_NDK_HOME).
 #
 # Then build with PKG_CONFIG_PATH=<prefix>/lib/pkgconfig and the
 # nolibopusfile build tag (only libopus is used, not libopusfile).
@@ -48,17 +52,34 @@ args=(
   -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   -DCMAKE_INSTALL_LIBDIR=lib
 )
-case "$(uname -s)" in
-  Darwin)
-    args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0)
-    [[ -n "$arch" ]] && args+=(-DCMAKE_OSX_ARCHITECTURES="$arch")
+case "$arch" in
+  ios-device|ios-simulator)
+    sdk=iphoneos
+    [[ "$arch" == ios-simulator ]] && sdk=iphonesimulator
+    args+=(-DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT="$(xcrun --sdk "$sdk" --show-sdk-path)"
+      -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0)
     ;;
-  MINGW*|MSYS*|CYGWIN*)
-    # gcc and pkg-config are native Windows programs: give them C:/… paths.
-    install_prefix="$(cygpath -m "$prefix")"
-    args+=(-G Ninja)
-    # _FORTIFY_SOURCE/stack protector would need libssp at link time.
-    args+=(-DOPUS_HARDENING=OFF)
+  android-arm64|android-amd64)
+    [[ -d "${ANDROID_NDK_HOME:-}" ]] || { echo "build-opus.sh $arch: set ANDROID_NDK_HOME" >&2; exit 1; }
+    abi=arm64-v8a
+    [[ "$arch" == android-amd64 ]] && abi=x86_64
+    args+=(-DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+      -DANDROID_ABI="$abi" -DANDROID_PLATFORM=26)
+    ;;
+  *)
+    case "$(uname -s)" in
+      Darwin)
+        args+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0)
+        [[ -n "$arch" ]] && args+=(-DCMAKE_OSX_ARCHITECTURES="$arch")
+        ;;
+      MINGW*|MSYS*|CYGWIN*)
+        # gcc and pkg-config are native Windows programs: give them C:/… paths.
+        install_prefix="$(cygpath -m "$prefix")"
+        args+=(-G Ninja)
+        # _FORTIFY_SOURCE/stack protector would need libssp at link time.
+        args+=(-DOPUS_HARDENING=OFF)
+        ;;
+    esac
     ;;
 esac
 args+=(-DCMAKE_INSTALL_PREFIX="$install_prefix")

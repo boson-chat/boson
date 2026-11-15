@@ -19,6 +19,7 @@ import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { useNarrow } from '../../shared/narrow';
+import { MobileCallBar } from './MobileVoice';
 import { useSwipeDrawers } from './useSwipeDrawers';
 import './ChatLayout.css';
 import './NetworkPanes.css';
@@ -329,6 +330,8 @@ export function ChatLayout({
             class="mobile-main"
             style={swipe.dragX !== null ? { transform: `translateX(${swipe.dragX}px)`, transition: 'none' } : undefined}
           >
+            {/* In a voice call: on top of whatever chat is open. */}
+            <MobileCallBar avatarFor={avatarFor} />
             {chatArea}
             {shownDrawer !== 'none' && active && (
               <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />

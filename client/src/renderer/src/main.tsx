@@ -115,7 +115,8 @@ void (async () => {
       homeToken: () => props.auth.getToken(),
     }));
   }
-  // Voice channels (desktop app only: the bridge is absent elsewhere).
+  // Voice channels (the app on desktop, iOS and Android: the bridge is
+  // absent in a browser).
   const bridge = voiceBridge();
   if (bridge) {
     setVoiceController(new VoiceController(bridge, {

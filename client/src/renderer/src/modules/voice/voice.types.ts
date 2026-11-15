@@ -1,5 +1,5 @@
-// Voice channels: the shapes the desktop app's VoiceService (desktop/voice.go)
-// sends over the bridge.
+// Voice channels: the shapes the app's VoiceService (desktop/voice.go, on
+// desktop, iOS and Android) sends over the bridge.
 
 export interface VoiceServerInfo {
   host: string;
@@ -128,7 +128,15 @@ export interface VoiceState {
   lossPercent: number;
   quality: VoiceQuality;
   audioError?: string;
+  // Phones: the loudspeaker is chosen over the earpiece (a headset wins
+  // over both); where the sound goes now; and whether a phone call (or
+  // Siri) has the audio, pausing the call until it ends.
+  speaker: boolean;
+  route?: VoiceRoute;
+  interrupted?: boolean;
 }
+
+export type VoiceRoute = 'speaker' | 'earpiece' | 'headphones' | 'bluetooth' | 'other';
 
 export interface VoiceDevice {
   id: string;
@@ -152,5 +160,5 @@ export interface VoiceJoinRequest {
 export const IDLE_VOICE_STATE: VoiceState = {
   status: 'idle', host: '', room: '', roomName: '', participants: [],
   muted: false, deafened: false, pushToTalk: false, micTest: false,
-  micLevel: 0, transmitting: false, rttMs: 0, lossPercent: 0, quality: 'unknown',
+  micLevel: 0, transmitting: false, rttMs: 0, lossPercent: 0, quality: 'unknown', speaker: true,
 };

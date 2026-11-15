@@ -1,4 +1,4 @@
-//go:build (!cgo || novoiceaudio) && !ios && !android
+//go:build !cgo || novoiceaudio
 
 package main
 

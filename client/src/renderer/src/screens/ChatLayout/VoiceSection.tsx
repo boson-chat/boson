@@ -27,7 +27,7 @@ interface VoiceSectionProps {
 // across servers); right-click one you manage to edit, move or delete it;
 // right-click someone for their volume. It also owns discovery, the room
 // list poll and the create/edit dialog for the whole server. Nothing at all
-// for a server without voice, for guests, and outside the desktop app.
+// for a server without voice, for guests, and outside the app (a browser).
 export function VoiceSection({ host, serverName, engineState, avatarFor, channels = [] }: VoiceSectionProps) {
   const { voice, snap, key, server } = useVoiceServer(host);
   const { session } = useAuthState();

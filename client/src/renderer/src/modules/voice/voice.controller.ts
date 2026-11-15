@@ -2,7 +2,8 @@
 // lists (polled while a server's panel shows them), the one voice
 // connection, push to talk and the settings. Audio and the connection live
 // in the desktop app (desktop/voice.go); this drives it over the bridge and
-// keeps a snapshot the UI renders.
+// keeps a snapshot the UI renders. The same on desktop and phones; phones
+// add the loudspeaker switch and a hold-to-talk button for push to talk.
 //
 // Voice is per IRC server and only offered when the server's voice uses an
 // auth service the app has an account realm for — the boson.chat one, or
@@ -126,10 +127,17 @@ export class VoiceController {
         target.removeEventListener('blur', blur);
       });
     }
+    // A phone going to the background (or the screen locking) mid-hold
+    // never sends the button's release.
+    if (typeof document !== 'undefined') {
+      const hidden = (): void => { if (document.hidden) this.releasePTT(); };
+      document.addEventListener('visibilitychange', hidden);
+      this.offs.push(() => document.removeEventListener('visibilitychange', hidden));
+    }
   }
 
-  // Whether this app can do voice at all (the desktop app; not a browser,
-  // not iOS/Android).
+  // Whether this app can do voice at all (the app on desktop, iOS and
+  // Android; not a browser).
   get supported(): boolean {
     return this.bridge !== null;
   }
@@ -309,7 +317,7 @@ export class VoiceController {
     refresh = true,
   ): Promise<VoiceRoomChange> {
     const host = rawHost.trim().toLowerCase();
-    if (!this.bridge) throw new VoiceRoomError('unavailable_voice', 'Voice needs the desktop app.');
+    if (!this.bridge) throw new VoiceRoomError('unavailable_voice', 'Voice needs the Boson app.');
     let token: string;
     try {
       token = await this.listVoiceToken(host);
@@ -409,10 +417,41 @@ export class VoiceController {
     this.setCall(await this.bridge.setDeafened(deafened).catch(() => this.call));
   }
 
+  // Phones: the loudspeaker (true) or the earpiece. A headset, when
+  // there's one, takes over from either.
+  async setSpeaker(on: boolean): Promise<void> {
+    const b = this.bridge;
+    if (!b?.setSpeaker) return;
+    this.setCall({ ...this.call, speaker: on });
+    this.setCall(await b.setSpeaker(on).catch(() => this.call));
+  }
+
+  // Voice activity or push to talk (a setting, kept across runs).
+  setInputMode(mode: 'vad' | 'ptt'): void {
+    if (this.settings.mode !== mode) setVoiceSettings({ mode });
+  }
+
+  // The on-screen push-to-talk button (phones): held down, then let go.
+  // Only in push-to-talk mode, and only while it can matter.
+  holdToTalk(down: boolean): void {
+    if (!down) {
+      this.releasePTT();
+      return;
+    }
+    const live = this.call.status === 'connected' || this.call.status === 'connecting' || this.call.micTest;
+    if (this.settings.mode !== 'ptt' || !live || this.pttDown) return;
+    this.pttDown = true;
+    void this.bridge?.ptt(true).catch(() => {});
+  }
+
+  get talking(): boolean {
+    return this.pttDown;
+  }
+
   // ---- settings ----
 
   async devices(): Promise<VoiceDevices> {
-    if (!this.bridge) return { inputs: [], outputs: [], error: 'Voice needs the desktop app.' };
+    if (!this.bridge) return { inputs: [], outputs: [], error: 'Voice needs the Boson app.' };
     try {
       return await this.bridge.devices();
     } catch (err) {

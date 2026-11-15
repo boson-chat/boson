@@ -313,8 +313,8 @@ export async function installWailsBridges(): Promise<void> {
     set: (key: string, value: string) => Call.ByName(`${STORE}.Set`, key, value) as Promise<void>,
     remove: (key: string) => Call.ByName(`${STORE}.Remove`, key) as Promise<void>,
   };
-  // Voice channels (desktop/voice.go): desktop only — iOS/Android have no
-  // VoiceService, so the probe fails and there's no bridge (no voice UI).
+  // Voice channels (desktop/voice.go): desktop, iOS and Android. A shell
+  // without a VoiceService fails the probe and gets no bridge (no voice UI).
   if (await Call.ByName(`${VOICE}.State`).then(() => true, () => false)) {
     const v = (method: string, ...args: unknown[]): Promise<unknown> => Call.ByName(`${VOICE}.${method}`, ...args);
     w.bosonVoice = {
@@ -335,6 +335,7 @@ export async function installWailsBridges(): Promise<void> {
       devices: () => v('Devices'),
       setDevices: (inputId: string, outputId: string) => v('SetDevices', inputId, outputId),
       micTest: (on: boolean) => v('MicTest', on),
+      setSpeaker: (on: boolean) => v('SetSpeaker', on),
       state: () => v('State'),
       onState: (fn: (s: unknown) => void) => Events.On('voice:state', (ev) => fn(ev.data)),
     };
@@ -350,7 +351,7 @@ export async function installWailsBridges(): Promise<void> {
     };
   }
   // "Sign in to <network>": which auth service a network uses, from its
-  // boson.json (desktop/netauth.go). Desktop only, like voice.
+  // boson.json (desktop/netauth.go). Desktop and phones, like voice.
   if (await Call.ByName('main.NetAuthService.Discover', '', false).then(() => true, () => false)) {
     w.bosonNetAuth = {
       discover: (host: string, refresh: boolean) => Call.ByName('main.NetAuthService.Discover', host, refresh),
@@ -359,7 +360,7 @@ export async function installWailsBridges(): Promise<void> {
   }
   // File uploads (desktop/files.go): each network's files host, its small
   // JSON calls, and uploads streamed by the shell (the file is POSTed in
-  // chunks to the app's own origin). Desktop only, like network sign-in.
+  // chunks to the app's own origin). Desktop and phones, like voice.
   if (await Call.ByName('main.FilesService.CancelUpload', '').then(() => true, () => false)) {
     const f = (method: string, ...args: unknown[]): Promise<unknown> => Call.ByName(`main.FilesService.${method}`, ...args);
     w.bosonFiles = {
