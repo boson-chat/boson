@@ -11,6 +11,9 @@ import { baseTheme } from './themes.builtin';
 //   - panes.<servers|channels|messages|members>: bg (#rrggbb), image (URL),
 //     dim 0–1, blur 0–24 (px), position center | top | bottom | left | right;
 //   - logo, logo_wide, login_background: image URLs;
+//   - variants.<dark|light>: a version for the other base (colours, nick,
+//     panes, by the same rules); one for `base` itself is dropped. radius,
+//     font and the images above stay shared.
 //   - image URLs are https (http to loopback in dev builds);
 //   - unknown keys are dropped; the whole document is at most 16 KB.
 //
@@ -38,11 +41,28 @@ export interface PaneStyle {
   position?: PanePosition;
 }
 
+export interface NickTuning {
+  saturation?: number;
+  lightness?: number;
+}
+
+// The theme for the base that isn't the document's `base`: its colours and
+// nick tuning (in place of the primary's), and pane overrides laid over the
+// primary's panes field by field (a pane's image stays the primary's unless
+// the variant names one).
+export interface NetworkThemeVariant {
+  colors: Partial<ThemeColors>;
+  nick?: NickTuning;
+  panes: Partial<Record<PaneName, PaneStyle>>;
+}
+
 export interface NetworkTheme {
   version: 1;
   base: ThemeBase;
   colors: Partial<ThemeColors>;
-  nick?: { saturation?: number; lightness?: number };
+  nick?: NickTuning;
+  // At most the one for the other base.
+  variants?: Partial<Record<ThemeBase, NetworkThemeVariant>>;
   radius?: number;
   font?: ThemeFont;
   panes: Partial<Record<PaneName, PaneStyle>>;
@@ -51,9 +71,10 @@ export interface NetworkTheme {
   login_background?: string;
 }
 
-// The document's images, by slot: logo, logo_wide, login_background and
-// panes.<name>.image.
-export type ImageSlot = 'logo' | 'logo_wide' | 'login_background' | `panes.${PaneName}.image`;
+// The document's images, by slot: logo, logo_wide, login_background,
+// panes.<name>.image and variants.<base>.panes.<name>.image.
+export type ImageSlot =
+  | 'logo' | 'logo_wide' | 'login_background' | `panes.${PaneName}.image` | `variants.${ThemeBase}.panes.${PaneName}.image`;
 
 export interface NetworkThemeParseOptions {
   // Dev / e2e builds: http:// image URLs on a loopback host.
@@ -120,43 +141,63 @@ export function parseNetworkTheme(input: unknown, opts: NetworkThemeParseOptions
   const out: NetworkTheme = {
     version: 1,
     base: raw['base'] === 'light' ? 'light' : 'dark',
-    colors: {},
-    panes: {},
+    colors: parseColors(raw['colors']),
+    panes: parsePanes(raw['panes'], opts),
   };
-
-  if (isObj(raw['colors'])) {
-    for (const [k, v] of Object.entries(raw['colors'])) {
-      if (TOKEN_KEYS.has(k) && typeof v === 'string' && HEX6.test(v)) out.colors[k as ThemeToken] = v.toLowerCase();
-    }
-  }
-
-  if (isObj(raw['nick'])) {
-    const n: { saturation?: number; lightness?: number } = {};
-    if (inRange(raw['nick']['saturation'], 0, 100)) n.saturation = Math.round(raw['nick']['saturation']);
-    if (inRange(raw['nick']['lightness'], 0, 100)) n.lightness = Math.round(raw['nick']['lightness']);
-    if (n.saturation !== undefined || n.lightness !== undefined) out.nick = n;
-  }
+  const nick = parseNick(raw['nick']);
+  if (nick) out.nick = nick;
   if (inRange(raw['radius'], 0, MAX_RADIUS)) out.radius = Math.round(raw['radius']);
   if (raw['font'] === 'boson' || raw['font'] === 'system') out.font = raw['font'];
 
-  if (isObj(raw['panes'])) {
-    for (const name of PANE_NAMES) {
-      const p = raw['panes'][name];
-      if (!isObj(p)) continue;
-      const pane: PaneStyle = {};
-      if (typeof p['bg'] === 'string' && HEX6.test(p['bg'])) pane.bg = p['bg'].toLowerCase();
-      if (isBrandingUrl(p['image'], opts)) pane.image = p['image'];
-      if (inRange(p['dim'], 0, 1)) pane.dim = p['dim'];
-      if (inRange(p['blur'], 0, MAX_PANE_BLUR)) pane.blur = p['blur'];
-      if (typeof p['position'] === 'string' && (PANE_POSITIONS as readonly string[]).includes(p['position'])) {
-        pane.position = p['position'] as PanePosition;
-      }
-      if (Object.keys(pane).length > 0) out.panes[name] = pane;
+  if (isObj(raw['variants'])) {
+    const other: ThemeBase = out.base === 'dark' ? 'light' : 'dark';
+    const v = raw['variants'][other];
+    if (isObj(v)) {
+      const variant: NetworkThemeVariant = { colors: parseColors(v['colors']), panes: parsePanes(v['panes'], opts) };
+      const vnick = parseNick(v['nick']);
+      if (vnick) variant.nick = vnick;
+      out.variants = { [other]: variant };
     }
   }
 
   for (const slot of ['logo', 'logo_wide', 'login_background'] as const) {
     if (isBrandingUrl(raw[slot], opts)) out[slot] = raw[slot];
+  }
+  return out;
+}
+
+function parseColors(raw: unknown): Partial<ThemeColors> {
+  const out: Partial<ThemeColors> = {};
+  if (!isObj(raw)) return out;
+  for (const [k, v] of Object.entries(raw)) {
+    if (TOKEN_KEYS.has(k) && typeof v === 'string' && HEX6.test(v)) out[k as ThemeToken] = v.toLowerCase();
+  }
+  return out;
+}
+
+function parseNick(raw: unknown): NickTuning | undefined {
+  if (!isObj(raw)) return undefined;
+  const n: NickTuning = {};
+  if (inRange(raw['saturation'], 0, 100)) n.saturation = Math.round(raw['saturation']);
+  if (inRange(raw['lightness'], 0, 100)) n.lightness = Math.round(raw['lightness']);
+  return n.saturation !== undefined || n.lightness !== undefined ? n : undefined;
+}
+
+function parsePanes(raw: unknown, opts: NetworkThemeParseOptions): Partial<Record<PaneName, PaneStyle>> {
+  const out: Partial<Record<PaneName, PaneStyle>> = {};
+  if (!isObj(raw)) return out;
+  for (const name of PANE_NAMES) {
+    const p = raw[name];
+    if (!isObj(p)) continue;
+    const pane: PaneStyle = {};
+    if (typeof p['bg'] === 'string' && HEX6.test(p['bg'])) pane.bg = p['bg'].toLowerCase();
+    if (isBrandingUrl(p['image'], opts)) pane.image = p['image'];
+    if (inRange(p['dim'], 0, 1)) pane.dim = p['dim'];
+    if (inRange(p['blur'], 0, MAX_PANE_BLUR)) pane.blur = p['blur'];
+    if (typeof p['position'] === 'string' && (PANE_POSITIONS as readonly string[]).includes(p['position'])) {
+      pane.position = p['position'] as PanePosition;
+    }
+    if (Object.keys(pane).length > 0) out[name] = pane;
   }
   return out;
 }
@@ -171,14 +212,54 @@ export function themeImages(theme: NetworkTheme): Partial<Record<ImageSlot, stri
     const img = theme.panes[name]?.image;
     if (img) out[`panes.${name}.image`] = img;
   }
+  for (const [vbase, v] of Object.entries(theme.variants ?? {}) as Array<[ThemeBase, NetworkThemeVariant]>) {
+    for (const name of PANE_NAMES) {
+      const img = v.panes[name]?.image;
+      if (img) out[`variants.${vbase}.panes.${name}.image`] = img;
+    }
+  }
   return out;
+}
+
+// What a network's theme looks like for a user on `userBase`: its variant
+// for that base when it has one (base = userBase, the variant's colours and
+// nick, the primary's panes overlaid by the variant's), else the primary.
+// `imageSlots` says which image slot each pane's picture comes from.
+export interface ChosenVariant {
+  base: ThemeBase;
+  // The variant for userBase was picked (not the primary).
+  variant: boolean;
+  colors: Partial<ThemeColors>;
+  nick?: NickTuning;
+  panes: Partial<Record<PaneName, PaneStyle>>;
+  imageSlots: Partial<Record<PaneName, ImageSlot>>;
+}
+
+export function chooseVariant(net: NetworkTheme, userBase: ThemeBase): ChosenVariant {
+  const v = userBase !== net.base ? net.variants?.[userBase] : undefined;
+  const imageSlots: Partial<Record<PaneName, ImageSlot>> = {};
+  if (!v) {
+    for (const name of PANE_NAMES) if (net.panes[name]?.image) imageSlots[name] = `panes.${name}.image`;
+    return { base: net.base, variant: false, colors: net.colors, ...(net.nick ? { nick: net.nick } : {}), panes: net.panes, imageSlots };
+  }
+  const panes: Partial<Record<PaneName, PaneStyle>> = {};
+  for (const name of PANE_NAMES) {
+    const p = net.panes[name];
+    const o = v.panes[name];
+    if (!p && !o) continue;
+    panes[name] = { ...p, ...o };
+    if (o?.image) imageSlots[name] = `variants.${userBase}.panes.${name}.image`;
+    else if (p?.image) imageSlots[name] = `panes.${name}.image`;
+  }
+  return { base: userBase, variant: true, colors: v.colors, ...(v.nick ? { nick: v.nick } : {}), panes, imageSlots };
 }
 
 // Whether the document changes anything in the app itself (colours, shape,
 // panes) — as opposed to only branding the sign-in screen.
 export function themeHasLook(theme: NetworkTheme): boolean {
   return Object.keys(theme.colors).length > 0 || theme.nick !== undefined || theme.radius !== undefined ||
-    theme.font !== undefined || Object.keys(theme.panes).length > 0;
+    theme.font !== undefined || Object.keys(theme.panes).length > 0 ||
+    Object.values(theme.variants ?? {}).some((v) => Object.keys(v.colors).length > 0 || v.nick !== undefined || Object.keys(v.panes).length > 0);
 }
 
 // ---- contrast ----
@@ -233,6 +314,10 @@ export interface MergeResult {
   // Pane backgrounds dropped because text on them would be unreadable.
   droppedPanes: PaneName[];
   panes: Partial<Record<PaneName, PaneStyle>>;
+  // Which image slot each pane's picture comes from (for paneVars).
+  imageSlots: Partial<Record<PaneName, ImageSlot>>;
+  // The network's variant for the user's base was used (not its primary).
+  variant: boolean;
 }
 
 // The user's theme with a network's merged over it. A network on the same
@@ -244,7 +329,11 @@ export interface MergeResult {
 // 4.5:1, the network's text colours are dropped for the user's (or the
 // base's); if it's still unreadable, its surfaces go too. A pane
 // background text would be unreadable on is dropped.
-export function mergeNetworkTheme(user: Theme, net: NetworkTheme): MergeResult {
+//
+// A network with a variant for the user's base uses that (chooseVariant),
+// so a light user gets its light version; the guard judges the variant.
+export function mergeNetworkTheme(user: Theme, doc: NetworkTheme): MergeResult {
+  const net = chooseVariant(doc, user.base);
   const start = net.base === user.base ? user : baseTheme(net.base);
   const colors: ThemeColors = { ...start.colors, ...net.colors };
   let droppedText = false;
@@ -276,10 +365,10 @@ export function mergeNetworkTheme(user: Theme, net: NetworkTheme): MergeResult {
       saturation: net.nick?.saturation ?? start.nick.saturation,
       lightness: net.nick?.lightness ?? start.nick.lightness,
     },
-    radius: net.radius ?? start.radius,
-    font: net.font ?? start.font,
+    radius: doc.radius ?? start.radius,
+    font: doc.font ?? start.font,
   };
-  return { theme, droppedText, droppedSurfaces, droppedPanes, panes };
+  return { theme, droppedText, droppedSurfaces, droppedPanes, panes, imageSlots: net.imageSlots, variant: net.variant };
 }
 
 // ---- pane CSS variables ----
@@ -287,10 +376,13 @@ export function mergeNetworkTheme(user: Theme, net: NetworkTheme): MergeResult {
 // The pane custom properties set on <html>: --pane-<name>-bg / -image /
 // -dim / -blur / -position. `images` maps an image slot to the URL to use
 // (a blob: URL from the shell); a pane image that hasn't loaded yet is left
-// out, so the pane just shows its colour until it has.
+// out, so the pane just shows its colour until it has. `slots` says which
+// slot a pane's image is under (default panes.<name>.image; a variant's own
+// picture is under variants.<base>.panes.<name>.image).
 export function paneVars(
   panes: Partial<Record<PaneName, PaneStyle>>,
   images: Partial<Record<ImageSlot, string>>,
+  slots: Partial<Record<PaneName, ImageSlot>> = {},
 ): { vars: Record<string, string>; withImage: PaneName[] } {
   const vars: Record<string, string> = {};
   const withImage: PaneName[] = [];
@@ -298,7 +390,7 @@ export function paneVars(
     const p = panes[name];
     if (!p) continue;
     if (p.bg) vars[`--pane-${name}-bg`] = p.bg;
-    const src = p.image ? images[`panes.${name}.image`] : undefined;
+    const src = p.image ? images[slots[name] ?? `panes.${name}.image`] : undefined;
     if (src) {
       withImage.push(name);
       vars[`--pane-${name}-image`] = `url("${cssUrl(src)}")`;

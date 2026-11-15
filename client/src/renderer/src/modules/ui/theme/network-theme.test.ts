@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  MAX_NETWORK_THEME_BYTES, contrastRatio, cssUrl, isBrandingUrl, mergeNetworkTheme, paneVars, parseNetworkTheme,
+  MAX_NETWORK_THEME_BYTES, chooseVariant, contrastRatio, cssUrl, isBrandingUrl, mergeNetworkTheme, paneVars, parseNetworkTheme,
   themeHasLook, themeImages, type NetworkTheme,
 } from './network-theme';
 import { ThemeStore } from './theme.store';
@@ -191,6 +191,152 @@ describe('mergeNetworkTheme', () => {
   });
 });
 
+describe('network theme variants', () => {
+  const doc = {
+    version: 1,
+    base: 'dark',
+    colors: { accent: '#7c3aed', bg: '#0b0b14' },
+    nick: { lightness: 64 },
+    radius: 4,
+    panes: {
+      servers: { bg: '#160f2a' },
+      messages: { image: 'https://ex.org/m.png', dim: 0.7, blur: 8 },
+      channels: { image: 'https://ex.org/c.png' },
+    },
+    variants: {
+      light: {
+        colors: { accent: '#6d28d9', bg: '#fafafa', nope: '#000000', fg: 'red' },
+        nick: { lightness: 40, saturation: 400 },
+        panes: {
+          servers: { bg: '#ede9fe' },
+          messages: { dim: 0.3 },
+          channels: { image: 'https://ex.org/c-light.png', position: 'diagonal' },
+          bogus: { bg: '#000000' },
+        },
+        extra: true,
+      },
+      dark: { colors: { accent: '#ff0000' } },
+      sepia: { colors: { accent: '#00ff00' } },
+    },
+  };
+
+  it('parses the variant for the other base by the same rules', () => {
+    const t = parseNetworkTheme(doc)!;
+    expect(t.variants).toEqual({
+      light: {
+        colors: { accent: '#6d28d9', bg: '#fafafa' },
+        nick: { lightness: 40 },
+        panes: {
+          servers: { bg: '#ede9fe' },
+          messages: { dim: 0.3 },
+          channels: { image: 'https://ex.org/c-light.png' },
+        },
+      },
+    });
+    expect(themeImages(t)['variants.light.panes.channels.image']).toBe('https://ex.org/c-light.png');
+  });
+
+  it("drops a variant for the document's own base, and non-object variants", () => {
+    expect(parseNetworkTheme({ base: 'dark', variants: { dark: { colors: { accent: '#ff0000' } } } })!.variants).toBeUndefined();
+    expect(parseNetworkTheme({ base: 'light', variants: { light: {}, dark: 'x' } })!.variants).toBeUndefined();
+    expect(parseNetworkTheme({ base: 'light', variants: [{ colors: {} }] })!.variants).toBeUndefined();
+    // An empty one still counts: "Boson's dark, with the shared bits".
+    expect(parseNetworkTheme({ base: 'light', variants: { dark: {} } })!.variants).toEqual({ dark: { colors: {}, panes: {} } });
+  });
+
+  it('allows variant pane images by the same URL rules', () => {
+    const t = parseNetworkTheme({ variants: { light: { panes: { messages: { image: 'http://127.0.0.1:9/m.png' } } } } })!;
+    expect(t.variants?.light?.panes).toEqual({});
+    const dev = parseNetworkTheme({ variants: { light: { panes: { messages: { image: 'http://127.0.0.1:9/m.png' } } } } }, { allowLoopbackHttp: true })!;
+    expect(dev.variants?.light?.panes.messages?.image).toBe('http://127.0.0.1:9/m.png');
+  });
+
+  it('a variant alone changes the look', () => {
+    expect(themeHasLook(parseNetworkTheme({ variants: { light: { colors: { accent: '#123456' } } } })!)).toBe(true);
+    expect(themeHasLook(parseNetworkTheme({ variants: { light: {} } })!)).toBe(false);
+  });
+
+  it("picks the variant for the user's base, else the primary", () => {
+    const t = parseNetworkTheme(doc)!;
+    const dark = chooseVariant(t, 'dark');
+    expect(dark.variant).toBe(false);
+    expect(dark.base).toBe('dark');
+    expect(dark.colors.accent).toBe('#7c3aed');
+    expect(dark.imageSlots).toEqual({ messages: 'panes.messages.image', channels: 'panes.channels.image' });
+
+    const light = chooseVariant(t, 'light');
+    expect(light.variant).toBe(true);
+    expect(light.base).toBe('light');
+    expect(light.colors).toEqual({ accent: '#6d28d9', bg: '#fafafa' });
+    expect(light.nick).toEqual({ lightness: 40 });
+    // Primary panes overlaid by the variant's, field by field.
+    expect(light.panes).toEqual({
+      servers: { bg: '#ede9fe' },
+      messages: { image: 'https://ex.org/m.png', dim: 0.3, blur: 8 },
+      channels: { image: 'https://ex.org/c-light.png' },
+    });
+    expect(light.imageSlots).toEqual({ messages: 'panes.messages.image', channels: 'variants.light.panes.channels.image' });
+
+    // No variant: a light user gets the dark primary, as before.
+    const plain = parseNetworkTheme({ ...doc, variants: undefined })!;
+    expect(chooseVariant(plain, 'light')).toMatchObject({ variant: false, base: 'dark' });
+  });
+
+  it('merges the chosen variant over a light user and the primary over a dark one', () => {
+    const t = parseNetworkTheme(doc)!;
+    const light = mergeNetworkTheme(daylight, t);
+    expect(light.variant).toBe(true);
+    expect(light.theme.base).toBe('light');
+    expect(light.theme.colors.accent).toBe('#6d28d9');
+    expect(light.theme.colors.bg).toBe('#fafafa');
+    // Not in the variant: the user's own (same base), not the dark primary's.
+    expect(light.theme.colors.surface).toBe(daylight.colors.surface);
+    expect(light.theme.nick).toEqual({ saturation: daylight.nick.saturation, lightness: 40 });
+    // Shared top-level bits.
+    expect(light.theme.radius).toBe(4);
+    expect(light.panes.servers).toEqual({ bg: '#ede9fe' });
+
+    const dark = mergeNetworkTheme(nord, t);
+    expect(dark.variant).toBe(false);
+    expect(dark.theme.base).toBe('dark');
+    expect(dark.theme.colors.accent).toBe('#7c3aed');
+    expect(dark.theme.colors.bg).toBe('#0b0b14');
+    expect(dark.theme.nick.lightness).toBe(64);
+  });
+
+  it('runs the readability guard on the chosen variant', () => {
+    const t = parseNetworkTheme({
+      base: 'dark',
+      colors: { fg: '#ffffff', bg: '#000000' },
+      panes: { members: { bg: '#101010' } },
+      // Light grey text on white: unreadable.
+      variants: { light: { colors: { fg: '#dddddd', accent: '#6d28d9' } } },
+    })!;
+    const light = mergeNetworkTheme(daylight, t);
+    expect(light.droppedText).toBe(true);
+    expect(light.theme.colors.fg).toBe(daylight.colors.fg);
+    expect(light.theme.colors.accent).toBe('#6d28d9');
+    // The primary's dark pane background is unreadable under light text.
+    expect(light.droppedPanes).toEqual(['members']);
+    const dark = mergeNetworkTheme(terminal, t);
+    expect(dark.droppedText).toBe(false);
+    expect(dark.droppedPanes).toEqual([]);
+  });
+
+  it("paneVars reads a variant's own picture from its slot", () => {
+    const t = parseNetworkTheme(doc)!;
+    const r = mergeNetworkTheme(daylight, t);
+    const { vars } = paneVars(r.panes, {
+      'panes.messages.image': 'blob:app/m',
+      'panes.channels.image': 'blob:app/c-dark',
+      'variants.light.panes.channels.image': 'blob:app/c-light',
+    }, r.imageSlots);
+    expect(vars['--pane-channels-image']).toBe('url("blob:app/c-light")');
+    expect(vars['--pane-messages-image']).toBe('url("blob:app/m")');
+    expect(vars['--pane-messages-dim']).toBe('0.3');
+  });
+});
+
 describe('paneVars', () => {
   it('sets the pane variables, images only once loaded', () => {
     const panes = {
@@ -257,5 +403,39 @@ describe('ThemeStore network overlay', () => {
     expect(prop(root, '--pane-servers-bg')).toBe('');
     expect(root.dataset['paneMessagesImage']).toBeUndefined();
     expect(root.dataset['networkTheme']).toBeUndefined();
+  });
+
+  it("re-picks the network's variant when you switch between dark and light", async () => {
+    const root = document.createElement('div');
+    const store = new ThemeStore(null, root);
+    await store.init();
+    store.setActive('terminal');
+    store.setNetworkOverlay({
+      host: 'irc.ex.org',
+      theme: parseNetworkTheme({
+        base: 'dark',
+        colors: { accent: '#7c3aed', bg: '#0b0b14' },
+        panes: { servers: { bg: '#160f2a' } },
+        variants: { light: { colors: { accent: '#6d28d9', bg: '#fafafa' }, panes: { servers: { bg: '#ede9fe' } } } },
+      })!,
+      images: {},
+    });
+    expect(prop(root, '--accent')).toBe('#7c3aed');
+    expect(prop(root, '--bg')).toBe('#0b0b14');
+    expect(prop(root, '--pane-servers-bg')).toBe('#160f2a');
+    expect(root.dataset['themeBase']).toBe('dark');
+
+    store.setActive('daylight');
+    expect(prop(root, '--accent')).toBe('#6d28d9');
+    expect(prop(root, '--bg')).toBe('#fafafa');
+    expect(prop(root, '--surface')).toBe(daylight.colors.surface);
+    expect(prop(root, '--pane-servers-bg')).toBe('#ede9fe');
+    expect(root.dataset['themeBase']).toBe('light');
+    expect(store.effectiveTheme().colors.accent).toBe('#6d28d9');
+
+    store.setActive('nord');
+    expect(prop(root, '--accent')).toBe('#7c3aed');
+    expect(prop(root, '--surface')).toBe(nord.colors.surface);
+    expect(root.dataset['themeBase']).toBe('dark');
   });
 });

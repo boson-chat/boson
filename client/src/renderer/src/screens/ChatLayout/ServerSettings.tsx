@@ -3073,7 +3073,7 @@ function NetworkThemeSection({ setting, serverName }: { setting: NetworkThemeSet
   return (
     <SectionFrame
       title="Appearance"
-      description={`${serverName} has its own theme: colours, backgrounds and a logo. It shows while this server is the one you're on, over your own theme.`}
+      description={`${serverName} has its own theme: colours, backgrounds and a logo. It shows while this server is the one you're on, over your own theme (in its light or dark version, to match yours, when it has both).`}
     >
       <Card>
         <div class="server-settings-card-body">
