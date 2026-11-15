@@ -1,3 +1,9 @@
+## [0.57.3](https://github.com/boson-chat/boson/compare/v0.57.2...v0.57.3) (2026-11-15)
+
+### Performance
+
+* image cache and virtualized message list (2/2: windowed list, memory windows) ([#59](https://github.com/boson-chat/boson/issues/59)) ([a6497f0](https://github.com/boson-chat/boson/commit/a6497f04143eccc34e13e62a0f43c1d5f6d42dc8))
+
 ## [0.57.2](https://github.com/boson-chat/boson/compare/v0.57.1...v0.57.2) (2026-11-15)
 
 ### Performance
