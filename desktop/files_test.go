@@ -111,6 +111,44 @@ func TestFilesDiscoverWellKnownThenAuth(t *testing.T) {
 	}
 }
 
+// Home: the app's own auth service's files_url, allowed like a network's.
+func TestFilesHomeFromAppAuth(t *testing.T) {
+	host := &fakeFilesHost{}
+	files := httptest.NewServer(host.handler(t))
+	defer files.Close()
+	filesURL := files.URL
+	auth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/config" {
+			_, _ = io.WriteString(w, `{"files_url":"`+filesURL+`"}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer auth.Close()
+	s, _ := newTestFiles(t, nil)
+	s.api.TrustAuth(auth.URL)
+	if _, _, ok := s.trustedBase(files.URL); ok {
+		t.Fatal("trusted before Home")
+	}
+	got := s.Home(false)
+	if got.FilesURL != files.URL || got.Source != "home" || got.Host != auth.URL {
+		t.Fatalf("home: %+v", got)
+	}
+	if _, _, ok := s.trustedBase(files.URL + "/f/abc/x.png"); !ok {
+		t.Fatal("home files host not allowed")
+	}
+	// No files host on the app's auth service: none.
+	filesURL = ""
+	if got := s.Home(true); got.FilesURL != "" || got.Source != "" {
+		t.Fatalf("no home files host: %+v", got)
+	}
+	// The files host can't be the auth service itself.
+	filesURL = auth.URL
+	if got := s.Home(true); got.FilesURL != "" || got.Error == "" {
+		t.Fatalf("auth as files host: %+v", got)
+	}
+}
+
 func TestFilesTrustRefusesAppOrigins(t *testing.T) {
 	s, _ := newTestFiles(t, nil)
 	s.dev = false

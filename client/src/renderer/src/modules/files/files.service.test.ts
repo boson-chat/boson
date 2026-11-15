@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { FilesController, sendChunks, uploadMessage } from './files.service';
+import { FilesController, ircTextBudget, sendChunks, uploadMessage } from './files.service';
 import type { FilesBridge, FilesCall } from './files-bridge';
 
 const FILES = 'https://files.example.org';
@@ -168,5 +168,174 @@ describe('sendChunks', () => {
     c.upload({ host: 'irc.example.org', channel: '#a', file: new Blob(['abcde']), name: 'a.bin', post });
     await vi.waitFor(() => expect(post).toHaveBeenCalledWith(url));
     expect(fetchFn.mock.calls.map((x) => x[0])).toEqual(['/_boson/files/upload/t1?offset=0', '/_boson/files/upload/t1?offset=2', '/_boson/files/upload/t1?offset=4']);
+  });
+});
+
+describe('uploadBatch', () => {
+  // A fetch whose answers the test hands out: each upload's (single) chunk
+  // waits until finish(name) or failWith(name).
+  function controlled() {
+    const waiting = new Map<string, (r: Response) => void>();
+    const started: string[] = [];
+    let tickets = 0;
+    const names = new Map<string, string>();
+    const b = bridge({
+      beginUpload: vi.fn(async (req: { name: string }) => {
+        const id = `t${++tickets}`;
+        names.set(id, req.name);
+        return { id, path: `/_boson/files/upload/${id}` };
+      }),
+    }).b;
+    const fetchFn = vi.fn((url: string, init: RequestInit) => new Promise<Response>((res, rej) => {
+      const name = names.get(url.split('/').pop()!.split('?')[0]!)!;
+      started.push(name);
+      waiting.set(name, res);
+      init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')));
+    }));
+    const finish = (name: string) => waiting.get(name)!(answer(201, { url: `${FILES}/f/AbCdEfGhIjKlMnOpQrStUv/${name}` }));
+    const failWith = (name: string) => waiting.get(name)!(answer(507, { code: 'storage_full' }));
+    return { b, fetchFn, started, finish, failWith };
+  }
+  const url = (n: string) => `${FILES}/f/AbCdEfGhIjKlMnOpQrStUv/${n}`;
+  const items = (...names: string[]) => names.map((name) => ({ file: new Blob([name]), name }));
+
+  async function setupBatch(names: string[], opts: { caption?: string; maxTextBytes?: number } = {}) {
+    const k = controlled();
+    const c = new FilesController({ bridge: k.b, signedIn: () => false, fetch: k.fetchFn as unknown as typeof fetch, doneLingerMs: 0 });
+    await c.ensure('irc.example.org');
+    const post = vi.fn();
+    const ids = c.uploadBatch({ host: 'irc.example.org', channel: '#a', items: items(...names), post, ...opts });
+    return { ...k, c, post, ids };
+  }
+
+  it('runs at most 2 at once, the rest queued; posts in the listed order, not finish order', async () => {
+    const { c, started, finish, post } = await setupBatch(['a', 'b', 'c', 'd'], { maxTextBytes: 10 });
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b']));
+    expect(c.uploads.value.map((u) => u.status)).toEqual(['uploading', 'uploading', 'queued', 'queued']);
+    finish('b');
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b', 'c']));
+    expect(post).not.toHaveBeenCalled(); // b waits for a
+    finish('a');
+    await vi.waitFor(() => expect(post.mock.calls.map((x) => x[0])).toEqual([url('a'), url('b')]));
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b', 'c', 'd']));
+    finish('d');
+    finish('c');
+    await vi.waitFor(() => expect(post.mock.calls.map((x) => x[0])).toEqual([url('a'), url('b'), url('c'), url('d')]));
+  });
+
+  it('a failed upload is skipped and shows its error; the rest still post', async () => {
+    const { c, started, finish, failWith, post } = await setupBatch(['a', 'b', 'c'], { maxTextBytes: 10 });
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b']));
+    failWith('a');
+    finish('b');
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b', 'c']));
+    finish('c');
+    await vi.waitFor(() => expect(post.mock.calls.map((x) => x[0])).toEqual([url('b'), url('c')]));
+    expect(c.uploads.value.find((u) => u.name === 'a')).toMatchObject({ status: 'error', errorCode: 'storage_full' });
+  });
+
+  it('the caption goes first; URLs that fit one line go together, space-separated', async () => {
+    const { started, finish, post } = await setupBatch(['a', 'b', 'c'], { caption: '  holiday  pics ' });
+    await vi.waitFor(() => expect(started.length).toBe(2));
+    finish('a');
+    finish('b');
+    await vi.waitFor(() => expect(started.length).toBe(3));
+    expect(post).not.toHaveBeenCalled();
+    finish('c');
+    await vi.waitFor(() => expect(post.mock.calls.map((x) => x[0])).toEqual(['holiday pics', `${url('a')} ${url('b')} ${url('c')}`]));
+  });
+
+  it("URLs that don't fit one line: the caption, then one URL per message", async () => {
+    const { started, finish, post } = await setupBatch(['a', 'b'], { caption: 'pics', maxTextBytes: 80 });
+    await vi.waitFor(() => expect(started.length).toBe(2));
+    finish('a');
+    await vi.waitFor(() => expect(post.mock.calls.map((x) => x[0])).toEqual(['pics', url('a')]));
+    finish('b');
+    await vi.waitFor(() => expect(post.mock.calls.map((x) => x[0])).toEqual(['pics', url('a'), url('b')]));
+  });
+
+  it('nothing posted, not even the caption, when every upload fails', async () => {
+    const { started, failWith, post, c } = await setupBatch(['a', 'b'], { caption: 'pics' });
+    await vi.waitFor(() => expect(started.length).toBe(2));
+    failWith('a');
+    failWith('b');
+    await vi.waitFor(() => expect(c.uploads.value.every((u) => u.status === 'error')).toBe(true));
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it('cancel one (queued or running) skips it; Cancel all stops the rest', async () => {
+    const { c, started, finish, post, ids, b } = await setupBatch(['a', 'b', 'c', 'd', 'e'], { maxTextBytes: 10 });
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b']));
+    c.cancel(ids[2]!); // c, queued
+    c.cancel(ids[0]!); // a, running
+    expect(b.cancelUpload).toHaveBeenCalledWith('t1');
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b', 'd']));
+    finish('b');
+    await vi.waitFor(() => expect(post.mock.calls.map((x) => x[0])).toEqual([url('b')]));
+    await vi.waitFor(() => expect(started).toEqual(['a', 'b', 'd', 'e']));
+    c.cancelAll('irc.example.org', '#a');
+    expect(c.uploadsFor('irc.example.org', '#a').filter((u) => u.status !== 'done')).toHaveLength(0);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it('caps a batch at MAX_BATCH_FILES', async () => {
+    const { ids } = await setupBatch(Array.from({ length: 25 }, (_, i) => `f${i}`));
+    expect(ids).toHaveLength(20);
+  });
+
+  it('ircTextBudget leaves room for the prefix in a 512-byte line', () => {
+    expect(ircTextBudget('nick', '#chan')).toBe(512 - (1 + 4 + 1 + 10 + 1 + 63) - 9 - 5 - 2 - 2);
+  });
+});
+
+describe('the home files host', () => {
+  const HOME = 'https://files.boson.chat';
+  function homeBridge(network: string | null = null) {
+    const { b, calls } = bridge({
+      discover: vi.fn(async (host: string) => ({ host, ...(network ? { filesUrl: network } : {}) })),
+      home: vi.fn(async () => ({ host: 'https://auth.boson.chat', filesUrl: HOME, source: 'home' as const })),
+    });
+    return { b, calls };
+  }
+
+  it('a network without a files host: uploads go home, as the app account, when signed in there', async () => {
+    const { b } = homeBridge();
+    const fetchFn = vi.fn(async () => answer(201, { url: `${HOME}/f/AbCdEfGhIjKlMnOpQrStUv/a.txt` }));
+    let signedIn = true;
+    const c = new FilesController({
+      bridge: b, signedIn: () => false, homeSignedIn: () => signedIn, homeToken: async () => 'home-tok',
+      fetch: fetchFn as unknown as typeof fetch, doneLingerMs: 0,
+    });
+    await c.ensure('irc.plain.org');
+    await c.ensureHome();
+    expect(c.availability('irc.plain.org')).toMatchObject({ available: true, filesUrl: HOME, guest: false, home: true, label: 'boson.chat', limits: { max_file_bytes: 100e6 } });
+    // Its links render inline on any network.
+    expect(c.isFilesOrigin(HOME)).toBe(true);
+    const post = vi.fn();
+    c.upload({ host: 'irc.plain.org', channel: '#a', file: new Blob(['x']), name: 'a.txt', post });
+    await vi.waitFor(() => expect(post).toHaveBeenCalled());
+    expect(b.beginUpload).toHaveBeenCalledWith(expect.objectContaining({ filesUrl: HOME, auth: 'Bearer home-tok' }));
+    // Signed out (or a guest): no attach button.
+    signedIn = false;
+    expect(c.availability('irc.plain.org').available).toBe(false);
+  });
+
+  it("the network's own files host wins", async () => {
+    const { b } = homeBridge(FILES);
+    const c = new FilesController({ bridge: b, signedIn: () => false, homeSignedIn: () => true, homeToken: async () => 'home-tok' });
+    await c.ensure('irc.example.org');
+    await c.ensureHome();
+    const a = c.availability('irc.example.org');
+    expect(a).toMatchObject({ available: true, filesUrl: FILES, guest: true });
+    expect(a.home).toBeUndefined();
+  });
+
+  it('usage is read from the home files host with the account token', async () => {
+    const { b, calls } = homeBridge();
+    const c = new FilesController({ bridge: b, signedIn: () => false, homeSignedIn: () => true, homeToken: async () => 'home-tok' });
+    await c.ensure('irc.plain.org');
+    await c.ensureHome();
+    await c.usage('irc.plain.org');
+    expect(calls.find((x) => x.path === '/v1/me/usage')).toMatchObject({ filesUrl: HOME, auth: 'Bearer home-tok' });
   });
 });

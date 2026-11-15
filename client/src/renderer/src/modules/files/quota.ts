@@ -58,11 +58,43 @@ export function toMillis(at: string | number | undefined | null): number | null 
 // The meter: "1.2 GB of 5 GB used · 1 GB frees in 20 h".
 export function usageSummary(u: FilesUsage, now = Date.now()): string {
   const base = `${formatBytes(u.used)} of ${formatBytes(u.quota)} used`;
-  const next = (u.frees ?? [])
+  const next = nextFree(u, now);
+  return next ? `${base} · ${formatBytes(next.bytes)} frees in ${formatDuration(next.at - now)}` : base;
+}
+
+// The next time space comes back: bytes freed then.
+export function nextFree(u: FilesUsage, now = Date.now()): { bytes: number; at: number } | null {
+  return (u.frees ?? [])
     .map((f) => ({ bytes: f.bytes, at: toMillis(f.at) }))
     .filter((f): f is { bytes: number; at: number } => f.at !== null && f.at > now && f.bytes > 0)
-    .sort((a, b) => a.at - b.at)[0];
-  return next ? `${base} · ${formatBytes(next.bytes)} frees in ${formatDuration(next.at - now)}` : base;
+    .sort((a, b) => a.at - b.at)[0] ?? null;
+}
+
+// Files (sizes, in the order listed) against what's left of the quota:
+// null when they all fit (or the quota isn't known), else how many fit —
+// counted from the top of the list — and the message saying so and when
+// space frees up: "Only 2 of 3 files fit in the 1.2 GB left · 1 GB frees
+// up in 20 h".
+export function batchQuotaCheck(sizes: readonly number[], u: FilesUsage | null | undefined, now = Date.now()): { fit: number; message: string } | null {
+  if (!u || !(u.quota > 0)) return null;
+  const left = Math.max(0, u.quota - u.used);
+  const total = sizes.reduce((a, b) => a + b, 0);
+  if (total <= left) return null;
+  let fit = 0;
+  let sum = 0;
+  for (const n of sizes) {
+    if (sum + n > left) break;
+    sum += n;
+    fit++;
+  }
+  let message = sizes.length === 1
+    ? `This file doesn't fit in the ${formatBytes(left)} left`
+    : fit === 0
+      ? `None of these files fit in the ${formatBytes(left)} left`
+      : `Only ${fit} of ${sizes.length} files fit in the ${formatBytes(left)} left`;
+  const next = nextFree(u, now);
+  if (next) message += ` · ${formatBytes(next.bytes)} frees up in ${formatDuration(next.at - now)}`;
+  return { fit, message };
 }
 
 // How much comes back by `at` (from the usage schedule; a minute's slack,

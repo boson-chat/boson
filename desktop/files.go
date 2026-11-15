@@ -178,7 +178,8 @@ func (s *FilesService) send(name string, data any) {
 // ---- discovery ----
 
 // FilesInfo is Discover's answer: the network's files host (FilesURL ""
-// when it has none) and where that came from ("well-known" or "auth").
+// when it has none) and where that came from ("well-known" or "auth"), or
+// Home's ("home"; Host is the app's auth service).
 type FilesInfo struct {
 	Host     string `json:"host"`
 	FilesURL string `json:"filesUrl,omitempty"`
@@ -213,6 +214,35 @@ func (s *FilesService) Discover(host string, refresh bool) FilesInfo {
 		return out
 	}
 	out.FilesURL = base
+	return out
+}
+
+// Home finds the files host of the app's own auth service (boson.chat's,
+// or the configured default server's: its /v1/config files_url) and allows
+// it. Uploads fall back to it, as the app's account, on a network without
+// a files host of its own; its links render inline on any network.
+func (s *FilesService) Home(refresh bool) FilesInfo {
+	var out FilesInfo
+	if s.api == nil {
+		return out
+	}
+	auth := s.api.mainAuthOrigin()
+	if auth == "" {
+		return out
+	}
+	out.Host = auth
+	ctx, cancel := context.WithTimeout(context.Background(), filesShortTimeout)
+	defer cancel()
+	raw := s.authFilesURL(ctx, auth, refresh)
+	if raw == "" {
+		return out
+	}
+	base, err := s.trust(raw)
+	if err != nil {
+		out.Error = err.Error()
+		return out
+	}
+	out.FilesURL, out.Source = base, "home"
 	return out
 }
 

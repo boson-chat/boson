@@ -342,12 +342,13 @@ export async function installWailsBridges(): Promise<void> {
     };
   }
   // File uploads (desktop/files.go): each network's files host, its small
-  // JSON calls, and uploads streamed by the shell (the File is POSTed to
-  // the app's own origin). Desktop only, like network sign-in.
+  // JSON calls, and uploads streamed by the shell (the file is POSTed in
+  // chunks to the app's own origin). Desktop only, like network sign-in.
   if (await Call.ByName('main.FilesService.CancelUpload', '').then(() => true, () => false)) {
     const f = (method: string, ...args: unknown[]): Promise<unknown> => Call.ByName(`main.FilesService.${method}`, ...args);
     w.bosonFiles = {
       discover: (host: string, refresh: boolean) => f('Discover', host, refresh),
+      home: (refresh: boolean) => f('Home', refresh),
       request: (call: unknown) => f('Request', call),
       beginUpload: (req: unknown) => f('BeginUpload', req),
       cancelUpload: (id: string) => f('CancelUpload', id),

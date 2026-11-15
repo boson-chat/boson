@@ -12,7 +12,7 @@
 export interface FilesDiscovery {
   host: string;
   filesUrl?: string;
-  source?: 'well-known' | 'auth';
+  source?: 'well-known' | 'auth' | 'home';
   error?: string;
 }
 
@@ -43,6 +43,8 @@ export interface FilesProgress {
 
 export interface FilesBridge {
   discover(host: string, refresh: boolean): Promise<FilesDiscovery>;
+  // The files host of the app's own auth service (source "home").
+  home?(refresh: boolean): Promise<FilesDiscovery>;
   request(call: FilesCall): Promise<FilesCallResult>;
   beginUpload(req: { filesUrl: string; auth?: string; name: string; type?: string; size: number }): Promise<FilesUploadTicket>;
   cancelUpload(id: string): Promise<void>;

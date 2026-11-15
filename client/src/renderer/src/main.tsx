@@ -99,7 +99,8 @@ void (async () => {
     apply: (overlay) => getThemeStore().setNetworkOverlay(overlay),
   }));
   // File uploads to each network's files host (desktop app only). The
-  // network account's token when signed in there, else a guest token.
+  // network account's token when signed in there, else a guest token. On a
+  // network without one: the app account's files host, as that account.
   if (filesBridge() && netAccounts) {
     const linkOf = (host: string) => netAccounts.linkFor(host);
     setFiles(new FilesController({
@@ -108,6 +109,8 @@ void (async () => {
         const l = linkOf(host) ?? await netAccounts.discover(host).catch(() => null);
         return l ? netAccounts.ircToken(l) : null;
       },
+      homeSignedIn: () => loadGuestSession() === null && !!props.auth.getState().session,
+      homeToken: () => props.auth.getToken(),
     }));
   }
   // Voice channels (desktop app only: the bridge is absent elsewhere).
