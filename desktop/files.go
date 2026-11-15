@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,12 +37,13 @@ import (
 // network's files host, and a Wails binding carries JSON, so a file sent
 // through one would be base64 in renderer memory (a 100 MB video → 133 MB
 // of string). Instead the renderer registers an upload (BeginUpload: the
-// host, credentials, name, type and size) and POSTs the File itself to the
-// app's own origin (/_boson/files/upload/<id>, served by the asset handler).
-// The webview streams a disk-backed File as the request body; this handler
-// streams it on to the files host with the declared Content-Length, emitting
-// files:progress events, and hands the files host's answer back as the
-// response. CancelUpload (or the renderer aborting its fetch) stops it.
+// host, credentials, name, type and size) and POSTs the file in ArrayBuffer
+// chunks to the app's own origin (/_boson/files/upload/<id>?offset=<n>,
+// served by the asset handler; see serveUpload for why not the File
+// itself). This handler pipes the chunks on to the files host as one
+// request with the declared Content-Length, emitting files:progress events,
+// and hands the files host's answer back as the last chunk's response.
+// CancelUpload stops it.
 //
 // Previews: /_boson/files/view?u=<file URL> proxies GET/HEAD (Range too) of
 // /f/<id>/<name> on an allowed files host, so images are fetched into blob:
@@ -61,7 +63,7 @@ type FilesService struct {
 	docs    map[string]filesDocCache
 	authCfg map[string]filesAuthCache
 	pending map[string]*filesUpload
-	active  map[string]context.CancelFunc
+	active  map[string]*filesStream
 }
 
 type filesDocCache struct {
@@ -106,7 +108,7 @@ func NewFilesService(disc *voiceDiscoverer, api *ApiService, dev bool) *FilesSer
 	s := &FilesService{
 		disc: disc, api: api, dev: dev, now: time.Now,
 		hosts: map[string]string{}, docs: map[string]filesDocCache{}, authCfg: map[string]filesAuthCache{},
-		pending: map[string]*filesUpload{}, active: map[string]context.CancelFunc{},
+		pending: map[string]*filesUpload{}, active: map[string]*filesStream{},
 	}
 	transport := s.transport()
 	noRedirect := func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
@@ -484,10 +486,21 @@ func (s *FilesService) BeginUpload(r FilesUploadRequest) FilesUploadTicket {
 func (s *FilesService) CancelUpload(id string) {
 	s.mu.Lock()
 	delete(s.pending, id)
-	cancel := s.active[id]
+	st := s.active[id]
 	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
+	if st != nil {
+		// Unblocks a chunk mid-copy; that chunk's handler (or the next
+		// one) answers "cancelled".
+		st.cancel()
+		_ = st.pw.CloseWithError(context.Canceled)
+		go func() {
+			st.chunk.Lock()
+			defer st.chunk.Unlock()
+			if !st.ended {
+				<-st.done
+				s.endStream(st)
+			}
+		}()
 	}
 }
 
@@ -545,71 +558,242 @@ func filesJSONError(w http.ResponseWriter, status int, code, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": code, "message": msg})
 }
 
+// The upload protocol (renderer: modules/files/files.service.ts): the File
+// goes in chunks, each POSTed as an ArrayBuffer body to the ticket's path
+// with ?offset=<bytes before it>, in order and one at a time. The webviews
+// don't all pass a Blob/File request body on to a custom-scheme handler:
+// WKWebView (Wails' macOS asset server) hands over none at all — no
+// HTTPBody, no HTTPBodyStream, no Content-Length — so a File POSTed whole
+// arrived as an empty body. An ArrayBuffer body arrives, on every webview;
+// none of them says how long it is, so the shell counts.
+//
+// The first chunk starts the request to the files host (Content-Length:
+// the declared size); every chunk is piped into it as it arrives, so
+// neither side holds more than a chunk. A chunk that isn't the last is
+// answered 202 with X-Boson-Upload: more; the last one (or any chunk the
+// files host answered early, refusing the upload) gets the files host's
+// answer. Bytes past the declared size, a chunk out of order or an empty
+// one fail the upload (400/409), as does no chunk for filesChunkIdle.
+const (
+	filesUploadMoreHeader = "X-Boson-Upload"
+	filesChunkIdle        = 2 * time.Minute
+)
+
+// filesStream is an upload in flight: the request to the files host,
+// reading from pw's pipe.
+type filesStream struct {
+	id     string
+	up     *filesUpload
+	chunk  sync.Mutex // one chunk at a time
+	pw     *io.PipeWriter
+	cancel context.CancelFunc
+	idle   *time.Timer
+	done   chan struct{} // the files host answered (or the request failed)
+
+	received int64 // guarded by chunk
+	ended    bool  // guarded by chunk: answered or failed; no more chunks
+
+	// Set before done closes.
+	status     int
+	answer     []byte
+	retryAfter string
+	err        error
+}
+
 func (s *FilesService) serveUpload(w http.ResponseWriter, r *http.Request, id string) {
 	if r.Method != http.MethodPost {
 		filesJSONError(w, http.StatusMethodNotAllowed, "method_not_allowed", "POST only")
 		return
 	}
-	s.mu.Lock()
-	up := s.pending[id]
-	delete(s.pending, id)
-	s.mu.Unlock()
-	if up == nil || s.now().Sub(up.at) > filesPendingTTL {
-		filesJSONError(w, http.StatusNotFound, "no_upload", "unknown or expired upload")
+	offset := int64(0)
+	if v := r.URL.Query().Get("offset"); v != "" {
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err != nil || n < 0 {
+			filesJSONError(w, http.StatusBadRequest, "bad_offset", "bad offset")
+			return
+		}
+		offset = n
+	}
+	st, status, code, msg := s.uploadStream(id, offset)
+	if st == nil {
+		filesJSONError(w, status, code, msg)
 		return
 	}
-	if r.ContentLength >= 0 && r.ContentLength != up.size {
-		filesJSONError(w, http.StatusBadRequest, "size_mismatch", "the body is not the declared size")
+	st.chunk.Lock()
+	defer st.chunk.Unlock()
+	if st.ended {
+		filesJSONError(w, http.StatusConflict, "upload_ended", "this upload has ended")
 		return
 	}
-	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	s.mu.Lock()
-	s.active[id] = cancel
-	s.mu.Unlock()
-	defer func() {
-		s.mu.Lock()
-		delete(s.active, id)
-		s.mu.Unlock()
-	}()
+	st.idle.Stop()
+	if offset != st.received {
+		s.failStream(st)
+		filesJSONError(w, http.StatusConflict, "out_of_order", "chunk out of order")
+		return
+	}
+	// The file's last byte goes to the files host only once this chunk is
+	// known to end there: with all size bytes the files host may store the
+	// file and answer before the chunk's extra bytes are seen.
+	left := st.up.size - st.received
+	n, err := io.Copy(st.pw, io.LimitReader(r.Body, left-1))
+	st.received += n
+	var tail [2]byte
+	m := 0
+	if err == nil && n == left-1 {
+		m, _ = io.ReadFull(r.Body, tail[:])
+		if m == 2 {
+			s.failStream(st)
+			filesJSONError(w, http.StatusBadRequest, "size_mismatch", "the body is not the declared size")
+			return
+		}
+		if m == 1 {
+			_, err = st.pw.Write(tail[:1])
+			if err == nil {
+				st.received++
+			}
+		}
+	}
+	if err != nil {
+		if errors.Is(err, io.ErrClosedPipe) {
+			// The files host has answered already (refused the upload
+			// part-way, say): pass that on.
+			s.finishStream(w, st)
+			return
+		}
+		s.failStream(st)
+		filesJSONError(w, http.StatusBadRequest, "read_failed", "couldn't read the upload: "+err.Error())
+		return
+	}
+	if n == 0 && m == 0 {
+		s.failStream(st)
+		filesJSONError(w, http.StatusBadRequest, "empty_chunk", "the webview sent an empty chunk")
+		return
+	}
+	if st.received < st.up.size {
+		st.idle.Reset(filesChunkIdle)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set(filesUploadMoreHeader, "more")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(map[string]int64{"received": st.received})
+		return
+	}
+	_ = st.pw.Close()
+	s.finishStream(w, st)
+}
 
-	body := &progressReader{r: r.Body, total: up.size, report: func(sent int64) {
+// uploadStream is id's upload in flight, started by its first chunk (the
+// ticket used up then).
+func (s *FilesService) uploadStream(id string, offset int64) (*filesStream, int, string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st := s.active[id]; st != nil {
+		return st, 0, "", ""
+	}
+	up := s.pending[id]
+	if up == nil || s.now().Sub(up.at) > filesPendingTTL {
+		delete(s.pending, id)
+		return nil, http.StatusNotFound, "no_upload", "unknown or expired upload"
+	}
+	if offset != 0 {
+		return nil, http.StatusConflict, "out_of_order", "an upload starts at offset 0"
+	}
+	delete(s.pending, id)
+	st := s.startStream(id, up)
+	s.active[id] = st
+	return st, 0, "", ""
+}
+
+// startStream opens the request to the files host (s.mu held).
+func (s *FilesService) startStream(id string, up *filesUpload) *filesStream {
+	ctx, cancel := context.WithCancel(context.Background())
+	pr, pw := io.Pipe()
+	st := &filesStream{id: id, up: up, pw: pw, cancel: cancel, done: make(chan struct{})}
+	st.idle = time.AfterFunc(filesChunkIdle, func() {
+		st.chunk.Lock()
+		defer st.chunk.Unlock()
+		if !st.ended {
+			s.failStream(st)
+		}
+	})
+	st.idle.Stop()
+	body := &progressReader{r: pr, total: up.size, report: func(sent int64) {
 		s.send(FilesProgressEvent, FilesProgress{ID: id, Sent: sent, Total: up.size})
 	}}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, up.base+"/v1/files", exactReader(body, up.size))
-	if err != nil {
-		filesJSONError(w, http.StatusBadGateway, "upload_failed", err.Error())
-		return
+	go func() {
+		defer close(st.done)
+		// The files host may answer before reading everything: later
+		// chunks then see a closed pipe and fetch this answer.
+		defer pr.CloseWithError(io.ErrClosedPipe)
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, up.base+"/v1/files", exactReader(body, up.size))
+		if err != nil {
+			st.err = err
+			return
+		}
+		req.ContentLength = up.size
+		req.Header.Set("Content-Type", up.ctype)
+		req.Header.Set("X-Filename", url.PathEscape(up.name))
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", "Boson")
+		if up.auth != "" {
+			req.Header.Set("Authorization", up.auth)
+		}
+		s.send(FilesProgressEvent, FilesProgress{ID: id, Sent: 0, Total: up.size})
+		res, err := s.stream.Do(req)
+		if err != nil {
+			st.err = err
+			return
+		}
+		defer res.Body.Close()
+		st.answer, _ = io.ReadAll(io.LimitReader(res.Body, filesMaxAnswerBytes))
+		st.status = res.StatusCode
+		st.retryAfter = res.Header.Get("Retry-After")
+		if res.StatusCode >= 200 && res.StatusCode < 300 {
+			s.send(FilesProgressEvent, FilesProgress{ID: id, Sent: up.size, Total: up.size})
+		}
+	}()
+	return st
+}
+
+// endStream forgets st (st.chunk held).
+func (s *FilesService) endStream(st *filesStream) {
+	st.ended = true
+	st.idle.Stop()
+	s.mu.Lock()
+	if s.active[st.id] == st {
+		delete(s.active, st.id)
 	}
-	req.ContentLength = up.size
-	req.Header.Set("Content-Type", up.ctype)
-	req.Header.Set("X-Filename", url.PathEscape(up.name))
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "Boson")
-	if up.auth != "" {
-		req.Header.Set("Authorization", up.auth)
-	}
-	s.send(FilesProgressEvent, FilesProgress{ID: id, Sent: 0, Total: up.size})
-	res, err := s.stream.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
+	s.mu.Unlock()
+}
+
+// failStream aborts st: the files host sees the request cut off, never a
+// short file (st.chunk held).
+func (s *FilesService) failStream(st *filesStream) {
+	s.endStream(st)
+	st.cancel()
+	_ = st.pw.CloseWithError(errors.New("upload aborted"))
+	<-st.done
+}
+
+// finishStream waits for the files host's answer and passes it on
+// (st.chunk held).
+func (s *FilesService) finishStream(w http.ResponseWriter, st *filesStream) {
+	<-st.done
+	s.endStream(st)
+	st.cancel()
+	if st.err != nil {
+		if errors.Is(st.err, context.Canceled) {
 			filesJSONError(w, 499, "cancelled", "upload cancelled")
 			return
 		}
-		filesJSONError(w, http.StatusBadGateway, "upload_failed", err.Error())
+		filesJSONError(w, http.StatusBadGateway, "upload_failed", st.err.Error())
 		return
 	}
-	defer res.Body.Close()
-	answer, _ := io.ReadAll(io.LimitReader(res.Body, filesMaxAnswerBytes))
-	if res.StatusCode >= 200 && res.StatusCode < 300 {
-		s.send(FilesProgressEvent, FilesProgress{ID: id, Sent: up.size, Total: up.size})
-	}
 	w.Header().Set("Content-Type", "application/json")
-	if v := res.Header.Get("Retry-After"); v != "" {
-		w.Header().Set("Retry-After", v)
+	if st.retryAfter != "" {
+		w.Header().Set("Retry-After", st.retryAfter)
 	}
-	w.WriteHeader(res.StatusCode)
-	_, _ = w.Write(answer)
+	w.WriteHeader(st.status)
+	_, _ = w.Write(st.answer)
 }
 
 // progressReader reports how much has been read, at most every

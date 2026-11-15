@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -33,7 +34,10 @@ func (f *fakeFilesHost) handler(t *testing.T) http.Handler {
 		case r.URL.Path == "/v1/guest-token" && r.Method == http.MethodPost:
 			_, _ = io.WriteString(w, `{"token":"g1"}`)
 		case r.URL.Path == "/v1/files" && r.Method == http.MethodPost:
-			body, _ := io.ReadAll(r.Body)
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				return // cut off: not a file
+			}
 			name, _ := url.PathUnescape(r.Header.Get("X-Filename"))
 			f.mu.Lock()
 			f.uploads = append(f.uploads, struct {
@@ -204,11 +208,11 @@ func TestFilesUploadStreamsWithProgress(t *testing.T) {
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("reused ticket: %d", res.StatusCode)
 	}
-	// A body that isn't the declared size is refused.
-	tk = s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "b.bin", Size: 10})
-	res, _ = http.Post(app.URL+tk.Path, "application/octet-stream", strings.NewReader("short"))
+	// A body longer than declared is refused.
+	tk = s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "b.bin", Size: 3})
+	res, _ = http.Post(app.URL+tk.Path, "application/octet-stream", strings.NewReader("toolong"))
 	if res.StatusCode != http.StatusBadRequest {
-		t.Fatalf("short body: %d", res.StatusCode)
+		t.Fatalf("long body: %d", res.StatusCode)
 	}
 	// Cancelled before use: gone.
 	tk = s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "c.bin", Size: 1})
@@ -282,4 +286,158 @@ func TestCleanUploadName(t *testing.T) {
 			t.Errorf("cleanUploadName(%q) = %q, want %q", in, got, want)
 		}
 	}
+}
+
+// postChunk POSTs one chunk of an upload (?offset=off).
+func postChunk(t *testing.T, app, path string, off int64, chunk string) (int, string, http.Header) {
+	t.Helper()
+	res, err := http.Post(app+path+"?offset="+strconv.FormatInt(off, 10), "application/octet-stream", strings.NewReader(chunk))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	b, _ := io.ReadAll(res.Body)
+	return res.StatusCode, string(b), res.Header
+}
+
+func TestFilesUploadChunksAssemble(t *testing.T) {
+	host := &fakeFilesHost{}
+	files := httptest.NewServer(host.handler(t))
+	defer files.Close()
+	s, _ := newTestFiles(t, nil)
+	if _, err := s.trust(files.URL); err != nil {
+		t.Fatal(err)
+	}
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	defer app.Close()
+
+	var whole strings.Builder
+	for i := 0; i < 250_000; i++ {
+		whole.WriteByte(byte('a' + i%26))
+	}
+	body := whole.String()
+	tk := s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "big.bin", Size: int64(len(body))})
+	// Uneven chunks, the last one short.
+	cuts := []int{0, 65_536, 65_537, 200_000, len(body)}
+	for i := 0; i+1 < len(cuts); i++ {
+		status, answer, hdr := postChunk(t, app.URL, tk.Path, int64(cuts[i]), body[cuts[i]:cuts[i+1]])
+		last := i+2 == len(cuts)
+		if !last && (status != http.StatusAccepted || hdr.Get(filesUploadMoreHeader) != "more" || !strings.Contains(answer, strconv.Itoa(cuts[i+1]))) {
+			t.Fatalf("chunk %d: %d %v %s", i, status, hdr, answer)
+		}
+		if last && (status != http.StatusCreated || hdr.Get(filesUploadMoreHeader) != "" || !strings.Contains(answer, "/f/abc/big.bin")) {
+			t.Fatalf("last chunk: %d %s", status, answer)
+		}
+	}
+	host.mu.Lock()
+	if len(host.uploads) != 1 || string(host.uploads[0].body) != body || host.uploads[0].length != int64(len(body)) {
+		t.Fatalf("files host saw %d uploads", len(host.uploads))
+	}
+	host.mu.Unlock()
+
+	// Out of order: refused, and the upload is over.
+	tk = s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "c.bin", Size: 6})
+	if status, _, _ := postChunk(t, app.URL, tk.Path, 3, "def"); status != http.StatusConflict {
+		t.Fatalf("first chunk not at 0: %d", status)
+	}
+	if status, _, _ := postChunk(t, app.URL, tk.Path, 0, "abc"); status != http.StatusAccepted {
+		t.Fatalf("chunk 0: %d", status)
+	}
+	if status, _, _ := postChunk(t, app.URL, tk.Path, 0, "abc"); status != http.StatusConflict {
+		t.Fatalf("repeated chunk: %d", status)
+	}
+	if status, _, _ := postChunk(t, app.URL, tk.Path, 3, "def"); status != http.StatusNotFound {
+		t.Fatalf("chunk after a failure: %d", status)
+	}
+
+	// Past the declared size, and an empty chunk (what WKWebView makes of
+	// a Blob body): refused.
+	tk = s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "d.bin", Size: 4})
+	postChunk(t, app.URL, tk.Path, 0, "ab")
+	if status, answer, _ := postChunk(t, app.URL, tk.Path, 2, "cde"); status != http.StatusBadRequest || !strings.Contains(answer, "size_mismatch") {
+		t.Fatalf("overlong: %d %s", status, answer)
+	}
+	tk = s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "e.bin", Size: 4})
+	if status, answer, _ := postChunk(t, app.URL, tk.Path, 0, ""); status != http.StatusBadRequest || !strings.Contains(answer, "empty_chunk") {
+		t.Fatalf("empty: %d %s", status, answer)
+	}
+	host.mu.Lock()
+	n := len(host.uploads)
+	host.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("a failed upload reached the files host whole (%d uploads)", n)
+	}
+
+	// Cancelled part-way: the next chunk finds no upload.
+	tk = s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "f.bin", Size: 6})
+	postChunk(t, app.URL, tk.Path, 0, "abc")
+	s.CancelUpload(tk.ID)
+	waitFor(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return len(s.active) == 0 })
+	if status, _, _ := postChunk(t, app.URL, tk.Path, 3, "def"); status != http.StatusNotFound {
+		t.Fatalf("chunk after cancel: %d", status)
+	}
+}
+
+// A files host that refuses an upload before reading it all: the chunk
+// that's sent when it answers gets its answer.
+func TestFilesUploadEarlyRefusal(t *testing.T) {
+	files := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = io.WriteString(w, `{"error":"quota_exceeded"}`)
+	}))
+	defer files.Close()
+	s, _ := newTestFiles(t, nil)
+	if _, err := s.trust(files.URL); err != nil {
+		t.Fatal(err)
+	}
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	defer app.Close()
+	chunk := strings.Repeat("x", 1<<20)
+	tk := s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "q.bin", Size: 8 << 20})
+	for off := int64(0); off < 8<<20; off += 1 << 20 {
+		status, answer, hdr := postChunk(t, app.URL, tk.Path, off, chunk)
+		if status == http.StatusAccepted {
+			continue
+		}
+		if status != http.StatusRequestEntityTooLarge || !strings.Contains(answer, "quota_exceeded") || hdr.Get("Retry-After") != "60" {
+			t.Fatalf("refusal: %d %s %v", status, answer, hdr)
+		}
+		return
+	}
+	t.Fatal("the refusal never reached the renderer")
+}
+
+// A renderer that stops sending: the upload lapses.
+func TestFilesUploadIdleLapses(t *testing.T) {
+	host := &fakeFilesHost{}
+	files := httptest.NewServer(host.handler(t))
+	defer files.Close()
+	s, _ := newTestFiles(t, nil)
+	if _, err := s.trust(files.URL); err != nil {
+		t.Fatal(err)
+	}
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	defer app.Close()
+	tk := s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "g.bin", Size: 6})
+	postChunk(t, app.URL, tk.Path, 0, "abc")
+	s.mu.Lock()
+	st := s.active[tk.ID]
+	s.mu.Unlock()
+	st.idle.Reset(time.Millisecond)
+	waitFor(t, func() bool { s.mu.Lock(); defer s.mu.Unlock(); return len(s.active) == 0 })
+	if status, _, _ := postChunk(t, app.URL, tk.Path, 3, "def"); status != http.StatusNotFound {
+		t.Fatalf("chunk after lapse: %d", status)
+	}
+}
+
+func waitFor(t *testing.T, ok func() bool) {
+	t.Helper()
+	for i := 0; i < 200; i++ {
+		if ok() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("timed out")
 }

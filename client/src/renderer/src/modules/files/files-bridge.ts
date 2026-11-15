@@ -4,8 +4,9 @@
 //
 // An upload: beginUpload registers it (host, credentials, name, type,
 // size) and returns a path on the app's own origin; the renderer POSTs the
-// File there and the shell streams it on to the files host, emitting
-// progress. Previews are served from filesViewUrl() (same origin, so the
+// File there in ArrayBuffer chunks (?offset=<n>; files.service.ts
+// sendChunks) and the shell streams them on to the files host as one
+// request, emitting progress. Previews are served from filesViewUrl() (same origin, so the
 // page's CSP needn't name any files host).
 
 export interface FilesDiscovery {
