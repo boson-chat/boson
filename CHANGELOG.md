@@ -1,3 +1,9 @@
+## [0.56.1](https://github.com/boson-chat/boson/compare/v0.56.0...v0.56.1) (2026-11-15)
+
+### Bug Fixes
+
+* uploads in the native desktop app ([#55](https://github.com/boson-chat/boson/issues/55)) ([94a4599](https://github.com/boson-chat/boson/commit/94a459967fffad240a67154fcbdab37153893adf))
+
 ## [0.56.0](https://github.com/boson-chat/boson/compare/v0.55.2...v0.56.0) (2026-11-15)
 
 ### Features
