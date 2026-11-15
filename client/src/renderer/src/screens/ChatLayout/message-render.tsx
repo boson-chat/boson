@@ -1,6 +1,6 @@
 import type preact from 'preact';
 import type { Ref } from 'preact';
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal, memo } from 'preact/compat';
 import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
@@ -22,7 +22,8 @@ import type { SheetAction } from './BottomSheet';
 import { useLongPress } from './long-press';
 import { isNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
-import { resolveScrollTop, AT_BOTTOM_SLACK } from './scroll-resolve';
+import { AT_BOTTOM_SLACK } from './scroll-resolve';
+import { bottomOf, captureAnchor, HeightCache, Layout, restoreAnchor, type Anchor } from './virtual-list';
 
 // Map IRC channel-status prefix to a short display label + a class name.
 // Used both for the role pill rendered next to a nick in chat (MOD/OPS/V)
@@ -61,7 +62,9 @@ interface MessageRowProps {
 // and dwelling on one in the right rail feel identically responsive.
 const HOVER_OPEN_DELAY_MS = 150;
 
-export function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false }: MessageRowProps) {
+// Memoised: the windowed list re-renders as it scrolls; rows whose props
+// didn't change don't.
+export const MessageRow = memo(function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
   // A click on a nick (the author, or one mentioned in the text) opens their
@@ -255,7 +258,7 @@ export function MessageRow({ msg, myNick, members, grouped = false, nickActions,
       )}
     </div>
   );
-}
+});
 
 // Compact hover card for a nick that appears inside a message. Differs
 // from the UserPanel's card in that we may not have full WHOIS state
@@ -322,6 +325,8 @@ interface MessageListProps {
    *  Triggered on scroll-to-top + a manual button. Absent / unsupported →
    *  no affordance. */
   onLoadOlder?: () => void;
+  // Whether the user reads at the bottom (on change).
+  onViewport?: (channel: string, atBottom: boolean) => void;
   historySupported?: boolean;
   historyLoading?: boolean;
   historyExhausted?: boolean;
@@ -333,62 +338,180 @@ interface MessageListProps {
 // Scroll container + message rows. Owns the grouped-rendering decision so
 // the view doesn't need to know how messages stitch together visually.
 //
+// Windowed: only the rows on screen, plus OVERSCAN px each side, are in the
+// DOM (virtual-list.ts does the math). Rows off screen are spacers of their
+// measured height (HeightCache, by message id; an estimate until a row has
+// been seen), so the scrollbar is right and a row's images, embeds and
+// players are released once it's far enough away. The reader's place is
+// kept across changes: at the bottom it stays at the bottom (live lines,
+// images loading); scrolled up, the row at the top of the viewport stays
+// where it is when older pages are prepended, rows above change height or
+// rows are trimmed.
+//
 // New-message entrance animation is gated by `freshnessBaseline`: messages
 // whose timestamp postdates the most recent channel switch animate as
-// they mount; everything older (history hydration, existing scrollback
-// on channel switch, the initial batch on first render) is treated as
-// already-present and renders without the slide-fade. This means the
-// 500-message hydration of a long channel doesn't strobe — only genuine
-// real-time arrivals do.
+// they mount (once: not again when scrolled back into view).
+const OVERSCAN = 800;
+// Rows rendered before the viewport has been measured (the first frame).
+const INITIAL_ROWS = 40;
+const rowHeights = new HeightCache();
+
+interface ListRow {
+  key: string;
+  item: RenderItem;
+  grouped: boolean;
+}
+
+function listRows(items: readonly RenderItem[]): ListRow[] {
+  const rows: ListRow[] = [];
+  // Track the previous *rendered chat message* for the grouping decision.
+  // Reset across a collapsed activity block so a message that follows a
+  // join/quit burst always starts a fresh group (the block is a visual
+  // separator).
+  let prevMsg: ChatMessage | null = null;
+  for (const item of items) {
+    if (item.type === 'activity' || item.type === 'preblock') {
+      prevMsg = null;
+      rows.push({ key: item.id, item, grouped: false });
+      continue;
+    }
+    const grouped = shouldGroup(prevMsg, item.msg);
+    prevMsg = item.msg;
+    rows.push({ key: item.msg.id, item, grouped });
+  }
+  return rows;
+}
+
 export const MessageList = memo(function MessageList({
   messages, members, myNick, scrollRef, nickActions, channelName, avatarFor,
-  onLoadOlder, historySupported, historyLoading, historyExhausted, historyError,
+  onLoadOlder, onViewport, historySupported, historyLoading, historyExhausted, historyError,
 }: MessageListProps) {
   // Reading `.value` subscribes THIS component to the channel's message signal.
   // A metadata emit that re-renders the parent passes the same signal ref, so
   // memo() bails — the list only re-renders when its messages actually change
   // (or a non-signal prop like members/history flags does).
   const msgs = messages.value;
+  const rows = useMemo(() => listRows(buildRenderItems(msgs)), [msgs]);
   const freshnessBaseline = useRef<number>(Date.now());
-  useEffect(() => {
-    freshnessBaseline.current = Date.now();
-  }, [channelName]);
-  // Scroll management lives here (we own the scroll container) and re-runs
-  // exactly when the message list changes — sticking to bottom on live appends,
-  // preserving the viewport when older history is prepended, jumping to bottom
-  // on channel switch. Unrelated re-renders (members/typing/history flags)
-  // don't change `msgs`, so this effect doesn't run and won't yank the view.
-  const scrollTrack = useRef({ name: channelName ?? undefined, count: 0, firstId: '', scrollHeight: 0 });
+  const animated = useRef(new Set<string>());
+  const elRef = scrollRef as { current: HTMLDivElement | null };
+  const topSpacer = useRef<HTMLDivElement | null>(null);
+  // The viewport: scrollTop and height, from scroll / resize (null until
+  // measured; `noLayout` when there's no layout at all — jsdom).
+  const [view, setView] = useState<{ top: number; height: number } | null>(null);
+  const [noLayout, setNoLayout] = useState(false);
+  const [heightsVersion, setHeightsVersion] = useState(0);
   // Live "is the viewport parked at the bottom?" flag, updated from real scroll
-  // events (see onScroll). Defaults true so the first messages in a channel
-  // stick before the user has scrolled at all. This is the source of truth for
-  // sticking on live appends — measured from where the user actually is, so it
-  // survives height drift between renders (embeds loading, cap trimming) that a
-  // captured scrollHeight baseline could not.
+  // events. Defaults true so the first messages in a channel stick before the
+  // user has scrolled at all.
   const atBottomRef = useRef(true);
-  useEffect(() => {
-    const el = (scrollRef as { current: HTMLDivElement | null }).current;
+  const anchorRef = useRef<Anchor | null>(null);
+  // The scrollTop the list itself last set (its scroll event isn't the
+  // user's).
+  const setByUs = useRef<number | null>(null);
+  // Where the viewport was last placed (or seen), on which layout.
+  const placedTop = useRef<number | null>(null);
+  const placedLayout = useRef<Layout | null>(null);
+  const layoutRef = useRef<Layout | null>(null);
+  const shownChannel = useRef<string | null | undefined>(undefined);
+  const onViewportRef = useRef(onViewport);
+  onViewportRef.current = onViewport;
+  const reportedBottom = useRef<boolean | null>(null);
+  const reportBottom = (v: boolean): void => {
+    atBottomRef.current = v;
+    if (reportedBottom.current === v || !channelName) return;
+    reportedBottom.current = v;
+    onViewportRef.current?.(channelName, v);
+  };
+
+  const layout = new Layout(rows.map((r) => r.key), rowHeights, topSpacer.current?.offsetTop ?? 0);
+  layoutRef.current = layout;
+  let start = 0;
+  let end = rows.length;
+  if (!noLayout) {
+    if (view) ({ start, end } = layout.range(view.top, view.height, OVERSCAN));
+    else start = Math.max(0, rows.length - INITIAL_ROWS);
+  }
+  const topPad = noLayout ? 0 : layout.offsetOf(start) - layout.top;
+  const bottomPad = noLayout ? 0 : layout.total - layout.offsetOf(end);
+
+  // Rows change height after they're laid out (an image or embed loads, the
+  // window is resized): one observer over the rows in the DOM.
+  const observed = useRef(new Set<Element>());
+  const ro = useMemo(() => (typeof ResizeObserver === 'undefined'
+    ? null
+    : new ResizeObserver(() => setHeightsVersion((n) => n + 1))), []);
+  useEffect(() => () => ro?.disconnect(), [ro]);
+  const pendingSwitch = useRef(false);
+
+  // After every render: measure the rows in the DOM; when a height changed,
+  // render again (the spacers follow) before placing the viewport; else put
+  // it where it belongs: the bottom, or the anchor row where it was.
+  useLayoutEffect(() => {
+    const el = elRef.current;
     if (!el) return;
-    const firstId = msgs[0]?.id ?? '';
-    const prev = scrollTrack.current;
-    const target = resolveScrollTop(
-      prev,
-      { name: channelName ?? undefined, count: msgs.length, firstId },
-      { scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight },
-      { atBottom: atBottomRef.current },
-    );
-    if (target !== null) {
-      el.scrollTop = target;
-      // Recompute stickiness from where we actually landed rather than
-      // assuming the bottom. The stick-to-bottom and channel-switch paths
-      // land at the bottom (→ true), but the prepended-history path restores
-      // an interior position; claiming "at bottom" there would let the next
-      // live PRIVMSG yank the viewport away from the older messages the user
-      // just loaded — the same stale-stickiness bug this tracker fixes.
-      atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
+    if (shownChannel.current !== channelName) {
+      shownChannel.current = channelName;
+      pendingSwitch.current = true;
+      freshnessBaseline.current = Date.now();
+      animated.current = new Set(rows.map((r) => r.key));
+      reportedBottom.current = null;
+      reportBottom(true);
     }
-    scrollTrack.current = { name: channelName ?? undefined, count: msgs.length, firstId, scrollHeight: el.scrollHeight };
-  }, [msgs, channelName, scrollRef]);
+    if (noLayout) return;
+    if (el.clientHeight === 0 && el.scrollHeight === 0) { setNoLayout(true); return; }
+    // Scrolled since we last placed it, and the scroll event not handled
+    // yet: that's the user's place now (on the layout they scrolled).
+    if (placedTop.current !== null && Math.abs(el.scrollTop - placedTop.current) > 1 && placedLayout.current) {
+      anchorRef.current = captureAnchor(placedLayout.current, el.scrollTop);
+      atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
+      placedTop.current = el.scrollTop;
+    }
+    const present = new Set<Element>();
+    let changed = false;
+    for (const child of Array.from(el.querySelectorAll<HTMLElement>('.vrow'))) {
+      present.add(child);
+      if (ro && !observed.current.has(child)) { ro.observe(child); observed.current.add(child); }
+      const key = child.dataset['vkey'];
+      if (key && rowHeights.set(key, child.getBoundingClientRect().height)) changed = true;
+    }
+    for (const gone of Array.from(observed.current)) {
+      if (!present.has(gone)) { ro?.unobserve(gone); observed.current.delete(gone); }
+    }
+    if (changed) { setHeightsVersion((n) => n + 1); return; }
+    // What's above the rows (the load-older ribbon) may have changed size
+    // in this very render: lay out from where they start now.
+    const top = topSpacer.current?.offsetTop ?? layout.top;
+    const now = top === layout.top ? layout : new Layout(layout.keys, rowHeights, top);
+    layoutRef.current = now;
+    const toBottom = pendingSwitch.current || atBottomRef.current;
+    const target = toBottom ? bottomOf(el.scrollHeight, el.clientHeight) : restoreAnchor(now, anchorRef.current);
+    pendingSwitch.current = false;
+    if (target !== null && Math.abs(target - el.scrollTop) > 0.5) {
+      el.scrollTop = target;
+      setByUs.current = el.scrollTop;
+    }
+    // The anchor stays the row the user was reading (re-taken only when
+    // they scroll): re-taking it here, from rows above that are still
+    // estimates, would drift by the estimate's error once they're measured.
+    if (toBottom || !anchorRef.current || target === null) anchorRef.current = captureAnchor(now, el.scrollTop);
+    placedTop.current = el.scrollTop;
+    placedLayout.current = now;
+    if (!view || Math.abs(view.top - el.scrollTop) > 1 || view.height !== el.clientHeight) {
+      setView({ top: el.scrollTop, height: el.clientHeight });
+    }
+  });
+
+  // The viewport's own size (window resize, a strip above appearing).
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const vro = new ResizeObserver(() => setHeightsVersion((n) => n + 1));
+    vro.observe(el);
+    return () => vro.disconnect();
+  }, [elRef]);
+  void heightsVersion;
+
   // Briefly confirm a completed load: flash "Loaded older messages" when a
   // request resolves (loading true→false with no error).
   const [justLoaded, setJustLoaded] = useState(false);
@@ -405,33 +528,40 @@ export const MessageList = memo(function MessageList({
   }, [historyLoading, historyError]);
   // Fire load-older only when the user has actually reached the top, and
   // debounce it: scroll events fire in bursts, so we wait for scrolling to
-  // settle (and re-confirm we're still at the top) before pulling. This stops
-  // a fling-to-top from queuing several pulls and keeps each scroll-to-top to
-  // a single request. The in-flight / exhausted / error guards prevent repeats.
+  // settle (and re-confirm we're still at the top) before pulling.
   const scrollDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (scrollDebounce.current) clearTimeout(scrollDebounce.current); }, []);
+  const frame = useRef<number | null>(null);
+  useEffect(() => () => {
+    if (scrollDebounce.current) clearTimeout(scrollDebounce.current);
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+  }, []);
   const onScroll = (e: Event): void => {
     const el = e.currentTarget as HTMLDivElement;
     // Track bottom-stickiness on every scroll (including our own programmatic
-    // scroll-to-bottom) — this must run regardless of the load-older guards
-    // below, since it drives live-append autoscroll.
-    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
+    // scroll-to-bottom) — this drives live-append autoscroll.
+    reportBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);
+    // Our own scrollTop adjustments don't move the anchor; the user's do.
+    const ours = setByUs.current !== null && Math.abs(setByUs.current - el.scrollTop) < 1;
+    setByUs.current = null;
+    if (!ours && Math.abs(el.scrollTop - (placedTop.current ?? -1)) > 1 && placedLayout.current) {
+      anchorRef.current = captureAnchor(placedLayout.current, el.scrollTop);
+    }
+    placedTop.current = el.scrollTop;
+    if (!noLayout && frame.current === null) {
+      frame.current = requestAnimationFrame(() => {
+        frame.current = null;
+        setView({ top: el.scrollTop, height: el.clientHeight });
+      });
+    }
     if (!onLoadOlder || !historySupported || historyLoading || historyExhausted || historyError) return;
     if (scrollDebounce.current) clearTimeout(scrollDebounce.current);
     scrollDebounce.current = setTimeout(() => {
       scrollDebounce.current = null;
-      // Re-check at fire time — state may have changed during the debounce, and
-      // we only pull when genuinely parked at the very top (≤ 4px).
       if (historyLoading || historyExhausted || historyError) return;
       if (el.scrollTop <= 4) onLoadOlder();
     }, 250);
   };
-  const items = buildRenderItems(msgs);
-  // Track the previous *rendered chat message* for the grouping decision.
-  // Reset across a collapsed activity block so a message that follows a
-  // join/quit burst always starts a fresh group (the block is a visual
-  // separator).
-  let prevMsg: ChatMessage | null = null;
+
   return (
     <div class="chat-messages" ref={scrollRef} onScroll={onScroll}>
       <div class="messages-inner">
@@ -461,38 +591,42 @@ export const MessageList = memo(function MessageList({
             )}
           </div>
         )}
-        {items.map((item) => {
-          if (item.type === 'activity') {
-            prevMsg = null;
-            return <ActivityGroup key={item.id} items={item.items} />;
+        <div class="vspacer" ref={topSpacer} style={{ height: `${topPad}px` }} aria-hidden="true" />
+        {rows.slice(start, end).map(({ key, item, grouped }) => {
+          let fresh = false;
+          if (item.type === 'msg' || item.type === 'doc') {
+            fresh = item.msg.timestamp > freshnessBaseline.current && !animated.current.has(key);
           }
-          if (item.type === 'preblock') {
-            prevMsg = null;
-            return <PreBlock key={item.id} items={item.items} avatarFor={avatarFor} />;
-          }
-          const m = item.msg;
-          const doc = item.type === 'doc';
-          const grouped = shouldGroup(prevMsg, m);
-          const isFresh = m.timestamp > freshnessBaseline.current;
-          prevMsg = m;
+          animated.current.add(key);
           return (
-            <MessageRow
-              key={m.id}
-              msg={m}
-              myNick={myNick}
-              members={members}
-              grouped={grouped}
-              nickActions={nickActions}
-              fresh={isFresh}
-              avatarFor={avatarFor}
-              doc={doc}
-            />
+            <VRow key={key} vkey={key}>
+              {item.type === 'activity' ? <ActivityGroup items={item.items} />
+                : item.type === 'preblock' ? <PreBlock items={item.items} avatarFor={avatarFor} />
+                : (
+                  <MessageRow
+                    msg={item.msg}
+                    myNick={myNick}
+                    members={members}
+                    grouped={grouped}
+                    nickActions={nickActions}
+                    fresh={fresh}
+                    avatarFor={avatarFor}
+                    doc={item.type === 'doc'}
+                  />
+                )}
+            </VRow>
           );
         })}
+        <div class="vspacer" style={{ height: `${bottomPad}px` }} aria-hidden="true" />
       </div>
     </div>
   );
 });
+
+// One windowed row (measured by the list, by key).
+function VRow({ vkey, children }: { vkey: string; children: preact.ComponentChildren }) {
+  return <div class="vrow" data-vkey={vkey}>{children}</div>;
+}
 
 // Membership churn (join/part/quit) and repeated self-join system lines are
 // noise that drowns real conversation — especially after reconnects or app

@@ -282,6 +282,7 @@ export function ChatLayout({
           nickActions={nickActions}
           avatarFor={avatarFor}
           onLoadOlder={(name) => chat.loadOlderHistory(name)}
+          onViewport={(name, atBottom) => chat.setViewport?.(name, atBottom)}
           // Live per-channel message signal for fine-grained re-renders. Guard
           // with typeof so hand-rolled test fakes (no messagesSignal) fall back
           // to rendering channel.messages from the snapshot.

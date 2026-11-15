@@ -10,6 +10,7 @@ import {
 import { getUnfurl } from '../../shared/unfurl';
 import { getSpotify, type SpotifyInfo } from '../../shared/spotify';
 import { CachedImg } from '../../shared/CachedImg';
+import { useOffscreen, usePauseOffscreen } from '../../shared/use-offscreen';
 import { INLINE_BOX, type ImageKind } from '../../shared/image-cache';
 
 type SpotifyFn = (url: string) => Promise<SpotifyInfo | null>;
@@ -131,12 +132,14 @@ function ImageEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
 // Direct video file: click-to-load → inline HTML5 player.
 function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; dismissBtn: preact.ComponentChildren }) {
   const [loaded, setLoaded] = useState(auto);
+  const video = useRef<HTMLVideoElement>(null);
+  usePauseOffscreen(video);
   return (
     <div class="embed embed-video">
       {dismissBtn}
       {loaded ? (
         // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video class="embed-video-el" src={c.url} controls preload="metadata" autoPlay={!auto} />
+        <video ref={video} class="embed-video-el" src={c.url} controls preload="metadata" autoPlay={!auto} />
       ) : (
         <button type="button" class="embed-chip" onClick={() => setLoaded(true)}>
           <span class="embed-chip-icon">🎬</span> Video · {c.domain} — click to play
@@ -186,6 +189,8 @@ function YouTubeEmbed({
   const [failed, setFailed] = useState(false);
   const src = wrapperOrigin ? `${wrapperOrigin}/youtube-embed.html?v=${encodeURIComponent(id)}` : direct;
   const frame = useRef<HTMLIFrameElement>(null);
+  // Scrolled away while playing: the player goes (back to the thumbnail).
+  useOffscreen(frame, () => setStage((st) => (st === 'play' ? 'facade' : st)), stage === 'play');
 
   // Playing through the wrapper: wait for its ready message, else the card.
   // A player error → the card.
@@ -288,6 +293,8 @@ function SpotifyEmbed({
   const [loading, setLoading] = useState(!!spotify);
   const [playing, setPlaying] = useState<string | null>(null); // currently-playing preview URL
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useOffscreen(cardRef, () => { if (audioRef.current && !audioRef.current.paused) { audioRef.current.pause(); setPlaying(null); } }, playing !== null);
 
   useEffect(() => {
     if (!spotify) { setLoading(false); return; }
@@ -317,7 +324,7 @@ function SpotifyEmbed({
   const tracks = info?.tracks ?? [];
 
   return (
-    <div class="embed embed-spotify">
+    <div class="embed embed-spotify" ref={cardRef}>
       {dismissBtn}
       <div class="embed-spotify-card">
         {info?.cover

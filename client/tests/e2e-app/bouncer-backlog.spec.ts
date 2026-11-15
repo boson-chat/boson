@@ -147,7 +147,7 @@ test.describe('bouncer backlog', () => {
 
   // A plain ZNC has no history command, but with its buffers kept it
   // replays them whole on attach (up to ChanBufferSize lines). The app holds
-  // 1500 per conversation in view and keeps the rest for scroll-up, so
+  // a window of each conversation in memory and keeps the rest for scroll-up, so
   // "Load older messages" walks back to the start of ZNC's buffer.
   test('scroll-up reaches the start of a long ZNC buffer', async ({ launchApp, zncUser }) => {
     test.setTimeout(300_000);
@@ -189,7 +189,24 @@ test.describe('bouncer backlog', () => {
       }
       await expect(start).toBeVisible();
       await expect(line(0)).toHaveCount(1);
-      const bodies = await messages(page).locator('.message-row-text-body').allTextContents();
+      // The list is windowed (only what's on screen is in the DOM): read it
+      // top to bottom by scrolling.
+      const bodies = await page.evaluate(async () => {
+        const l = document.querySelector('main .chat-messages') as HTMLElement;
+        const seen: string[] = [];
+        const have = new Set<string>();
+        l.scrollTop = 0;
+        for (let i = 0; i < 2000; i++) {
+          await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+          for (const b of Array.from(l.querySelectorAll('.message-row-text-body'))) {
+            const t = b.textContent ?? '';
+            if (!have.has(t)) { have.add(t); seen.push(t); }
+          }
+          if (l.scrollTop + l.clientHeight >= l.scrollHeight - 2) break;
+          l.scrollTop += l.clientHeight / 2;
+        }
+        return seen;
+      });
       const bulk = bodies.filter((t) => t.startsWith(`bulk ${tag} `));
       expect(bulk).toHaveLength(N);
       expect(bulk.map((t) => Number(t.split(' ')[2]))).toEqual([...Array(N).keys()]);

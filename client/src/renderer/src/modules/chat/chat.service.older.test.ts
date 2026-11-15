@@ -118,10 +118,18 @@ describe('scroll-back from lines held aside (plain ZNC)', () => {
     expect(texts.filter((x) => x.startsWith('line '))[0]).toBe('line 52');
   });
 
-  it('a server with real history still uses it', () => {
+  it('a server with real history: lines held aside first, then its history', () => {
     const t = setup('batch server-time chathistory');
     t.replay('a', 1600);
     t.chat.loadOlderHistory('#big');
+    // The 101 lines past the cap come back from where they were held…
+    expect(t.raws.some((r) => r.startsWith('CHATHISTORY BEFORE #big'))).toBe(false);
+    expect(t.lines()[0]).toBe('line 51');
+    while (t.raws.every((r) => !r.startsWith('CHATHISTORY BEFORE')) && t.lines()[0] !== 'line 0') t.chat.loadOlderHistory('#big');
+    expect(t.lines()[0]).toBe('line 0');
+    t.chat.loadOlderHistory('#big');
+    // …then the server is asked for what's before them.
+    expect(t.lines()[0]).toBe('line 0');
     expect(t.raws.some((r) => r.startsWith('CHATHISTORY BEFORE #big'))).toBe(true);
   });
 });
