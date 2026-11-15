@@ -1,3 +1,9 @@
+## [0.61.0](https://github.com/boson-chat/boson/compare/v0.60.0...v0.61.0) (2026-11-15)
+
+### Features
+
+* mobile composer, keyboard and density fixes ([#65](https://github.com/boson-chat/boson/issues/65)) ([c81bb6a](https://github.com/boson-chat/boson/commit/c81bb6a33ed5467c2ccd7b1aa05846bc3e6fb07f))
+
 ## [0.60.0](https://github.com/boson-chat/boson/compare/v0.59.0...v0.60.0) (2026-11-15)
 
 ### Features
