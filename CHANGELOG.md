@@ -1,3 +1,9 @@
+## [0.58.0](https://github.com/boson-chat/boson/compare/v0.57.3...v0.58.0) (2026-11-15)
+
+### Features
+
+* in-app updates ([#60](https://github.com/boson-chat/boson/issues/60)) ([0da0bfd](https://github.com/boson-chat/boson/commit/0da0bfd1bde011ba7e2e1e25ec4674b7c73c9f1d))
+
 ## [0.57.3](https://github.com/boson-chat/boson/compare/v0.57.2...v0.57.3) (2026-11-15)
 
 ### Performance
