@@ -143,15 +143,27 @@ test.describe('channel events from others', () => {
     const mentionRow = messages(page).locator('.message-row-mention').filter({ hasText: 'are you there?' });
     await expect(mentionRow.locator('.mention-self')).toHaveText(nick);
 
+    // With the window visible but unfocused, a mention in the channel that's
+    // open stays quiet (it's on screen); one elsewhere still notifies.
+    peer.privmsg(other, `${nick}: right in front of you`);
+    await expect(messages(page).getByText('right in front of you')).toBeVisible();
+    peer.privmsg(home, `${nick}: over here`);
+    await expect.poll(notes).toHaveLength(2);
+    expect((await notes())[1]!.title).toMatch(titled(`${peer.nick} · ${home}`));
+    expect((await notes())[1]!.body).toBe(`${nick}: over here`);
+
+    // A CTCP request (answered by the engine) is not a DM: no tab, no banner.
+    peer.send(`PRIVMSG ${nick} :\x01VERSION\x01`);
+
     // An incoming DM opens a Direct Messages entry that counts as a mention,
     // and raises a DM notification.
     peer.privmsg(nick, 'private word');
     await expect(sidebar(page).getByText('Direct Messages')).toBeVisible();
     const dm = conversation(page, peer.nick);
     await expect(dm.getByLabel(`1 mention in ${peer.nick}`)).toBeVisible();
-    await expect.poll(notes).toHaveLength(2);
-    expect((await notes())[1]!.title).toMatch(titled(peer.nick));
-    expect((await notes())[1]!.body).toBe('private word');
+    await expect.poll(notes).toHaveLength(3);
+    expect((await notes())[2]!.title).toMatch(titled(peer.nick));
+    expect((await notes())[2]!.body).toBe('private word');
 
     // Clicking the notification brings the user to that conversation.
     await page.evaluate(() => {
@@ -160,6 +172,7 @@ test.describe('channel events from others', () => {
     });
     await expect(page.getByPlaceholder(`Message @${peer.nick}`)).toBeVisible();
     await expect(messages(page).getByText('private word')).toBeVisible();
+    await expect(messages(page).getByText('VERSION')).toHaveCount(0);
 
     // Reply from the DM; the peer gets it.
     await say(page, 'private reply');
