@@ -1,3 +1,9 @@
+## [0.56.0](https://github.com/boson-chat/boson/compare/v0.55.2...v0.56.0) (2026-11-15)
+
+### Features
+
+* file and image uploads ([#54](https://github.com/boson-chat/boson/issues/54)) ([cefc330](https://github.com/boson-chat/boson/commit/cefc33071232acbf0d6e7a886e771da9cc86f091))
+
 ## [0.55.2](https://github.com/boson-chat/boson/compare/v0.55.1...v0.55.2) (2026-11-15)
 
 ### Bug Fixes
