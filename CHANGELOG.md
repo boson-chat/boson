@@ -1,3 +1,13 @@
+## [0.59.0](https://github.com/boson-chat/boson/compare/v0.58.1...v0.59.0) (2026-11-15)
+
+### Features
+
+* voice on iOS and Android ([#63](https://github.com/boson-chat/boson/issues/63)) ([c4fc765](https://github.com/boson-chat/boson/commit/c4fc7655bf7be47f4e7aa768c9b9f94326d450f1))
+
+### Documentation
+
+* license under AGPL-3.0-only ([#62](https://github.com/boson-chat/boson/issues/62)) ([f9bb08e](https://github.com/boson-chat/boson/commit/f9bb08effda167acdcaae338a4b2856e1623a9fc))
+
 ## [0.58.1](https://github.com/boson-chat/boson/compare/v0.58.0...v0.58.1) (2026-11-15)
 
 ### Bug Fixes
