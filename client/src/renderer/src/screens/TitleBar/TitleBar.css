@@ -196,10 +196,42 @@
   pointer-events: none;
 }
 
+/* "Update ready": quiet until there's something to restart into — a small
+   accent dot and a mono label, sized like its neighbours. */
+.title-bar-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 var(--space-2);
+  background: transparent;
+  border: none;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+  transition: background var(--motion-fast) var(--ease-standard),
+              color var(--motion-fast) var(--ease-standard);
+}
+.title-bar-update:hover {
+  background: var(--surface-hover);
+  color: var(--fg);
+}
+.title-bar-update-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
 /* Phones: the bar must fit the screen — a long account name (an email)
    otherwise widens the page, which WebKit then lets scroll sideways. */
 @media (max-width: 700px) {
   .title-bar { overflow: hidden; }
   .title-bar-drag { min-width: 0; }
   .title-bar-user-name { max-width: 30vw; }
+  .title-bar-update-label { display: none; }
 }

@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/preact';
 import { TitleBar } from './TitleBar';
 
 const w = window as unknown as { bosonPlatform?: string };
@@ -30,4 +30,18 @@ describe('TitleBar window controls', () => {
       expect(container.querySelector('.title-bar-mobile')).not.toBeNull();
     });
   }
+});
+
+describe('TitleBar update indicator', () => {
+  it('is absent until an update is ready', () => {
+    render(<TitleBar onOpenSettings={() => {}} onOpenUpdate={() => {}} updateReady={null} />);
+    expect(screen.queryByRole('button', { name: /restart to update/ })).toBeNull();
+  });
+
+  it('opens the update when one is ready', () => {
+    const onOpenUpdate = vi.fn();
+    render(<TitleBar onOpenSettings={() => {}} onOpenUpdate={onOpenUpdate} updateReady="9.0.0" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Boson v9.0.0 is ready — restart to update' }));
+    expect(onOpenUpdate).toHaveBeenCalledOnce();
+  });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { UserSettings, UpdateActions } from './UserSettings';
@@ -325,16 +325,144 @@ describe('UserSettings — Bouncer panel', () => {
 });
 
 describe('UpdateActions', () => {
-  it('offers a download when the build can\'t install the update itself (Wails shell)', () => {
+  const noop = () => {};
+
+  it('offers a check when idle, and says when up to date', () => {
+    const onCheck = vi.fn();
+    const { rerender } = render(<UpdateActions state={{ kind: 'idle' }} onCheck={onCheck} onApply={noop} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Check for updates' }));
+    expect(onCheck).toHaveBeenCalledOnce();
+    rerender(<UpdateActions state={{ kind: 'up-to-date', checkedAt: 1 }} onCheck={onCheck} onApply={noop} />);
+    expect(screen.getByText('Up to date.')).toBeTruthy();
+  });
+
+  it('shows checking with no buttons', () => {
+    render(<UpdateActions state={{ kind: 'checking' }} onCheck={noop} onApply={noop} />);
+    expect(screen.getByText('Checking…')).toBeTruthy();
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('offers the release page when this copy can\'t install it itself', () => {
     const onApply = vi.fn();
-    render(<UpdateActions state={{ kind: 'available', version: '0.37.0', manual: true }} onCheck={vi.fn()} onApply={onApply} />);
+    const onDownload = vi.fn();
+    render(<UpdateActions state={{ kind: 'available', version: '0.37.0', manual: true }} onCheck={noop} onDownload={onDownload} onApply={onApply} />);
     fireEvent.click(screen.getByRole('button', { name: 'Download v0.37.0' }));
+    expect(onApply).toHaveBeenCalledOnce();
+    expect(onDownload).not.toHaveBeenCalled();
+  });
+
+  it('downloads an available update only when clicked', () => {
+    const onDownload = vi.fn();
+    const onApply = vi.fn();
+    render(<UpdateActions state={{ kind: 'available', version: '0.37.0' }} onCheck={noop} onDownload={onDownload} onApply={onApply} />);
+    expect(screen.getByText('v0.37.0 is available.')).toBeTruthy();
+    expect(onDownload).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Update to v0.37.0' }));
+    expect(onDownload).toHaveBeenCalledOnce();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('shows download progress as a whole percentage', () => {
+    render(<UpdateActions state={{ kind: 'downloading', version: '0.37.0', percent: 42.7, bytesPerSecond: 1 }} onCheck={noop} onApply={noop} />);
+    expect(screen.getByRole('status').textContent).toBe('Downloading v0.37.0 · 42%');
+    expect(screen.queryByRole('button')).toBeNull();
+  });
+
+  it('offers Restart to update when ready', () => {
+    const onApply = vi.fn();
+    render(<UpdateActions state={{ kind: 'ready', version: '0.37.0' }} platform="darwin" onCheck={noop} onApply={onApply} />);
+    expect(screen.getByText('v0.37.0 is ready.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Restart to update' }));
     expect(onApply).toHaveBeenCalledOnce();
   });
 
-  it('says it is downloading when the updater fetches it (self-updating build)', () => {
-    render(<UpdateActions state={{ kind: 'available', version: '0.37.0' }} onCheck={vi.fn()} onApply={vi.fn()} />);
-    expect(screen.getByText('v0.37.0 available — downloading.')).toBeTruthy();
-    expect(screen.queryByRole('button')).toBeNull();
+  it('offers Install on Android (the system installer takes over)', () => {
+    render(<UpdateActions state={{ kind: 'ready', version: '0.37.0' }} platform="android" onCheck={noop} onApply={noop} />);
+    expect(screen.getByRole('button', { name: 'Install v0.37.0' })).toBeTruthy();
+  });
+
+  it('shows errors, summarised, with a way to check again', () => {
+    render(<UpdateActions state={{ kind: 'error', message: 'v0.37.0 failed signature verification, so it won\'t be installed.' }} onCheck={noop} onApply={noop} />);
+    expect(screen.getByRole('alert').textContent).toBe('v0.37.0 failed signature verification, so it won\'t be installed.');
+    expect(screen.getByRole('button', { name: 'Check for updates' })).toBeTruthy();
+  });
+});
+
+describe('UserSettings — About: in-app updates', () => {
+  type Push = (s: Record<string, unknown>) => void;
+  function stubUpdater(extra: Record<string, unknown> = {}) {
+    let push!: Push;
+    const bridge = {
+      getState: vi.fn(() => Promise.resolve({ kind: 'idle' })),
+      onState: (fn: Push) => { push = fn; return () => {}; },
+      checkNow: vi.fn(() => Promise.resolve()),
+      download: vi.fn(() => Promise.resolve()),
+      applyDownloadedUpdate: vi.fn(() => Promise.resolve()),
+      getAutoInstall: vi.fn(() => Promise.resolve(false)),
+      setAutoInstall: vi.fn(() => Promise.resolve()),
+      ...extra,
+    };
+    (window as unknown as { bosonUpdater?: unknown }).bosonUpdater = bridge;
+    return { bridge, push: (s: Record<string, unknown>) => push(s) };
+  }
+  afterEach(() => {
+    delete (window as unknown as { bosonUpdater?: unknown }).bosonUpdater;
+    delete (window as unknown as { bosonPlatform?: string }).bosonPlatform;
+  });
+
+  async function openAbout() {
+    renderSettings();
+    await userEvent.setup().click(screen.getByRole('tab', { name: /About/ }));
+  }
+
+  it('walks available → downloading → ready, with the release notes', async () => {
+    const { bridge, push } = stubUpdater();
+    await openAbout();
+    await waitFor(() => expect(bridge.getState).toHaveBeenCalled());
+    const notes = 'Features\n• desktop: in-app updates';
+    push({ kind: 'available', version: '9.0.0', notes });
+    fireEvent.click(await screen.findByRole('button', { name: 'Update to v9.0.0' }));
+    expect(bridge.download).toHaveBeenCalledOnce();
+    expect(screen.getByText("What's new in v9.0.0")).toBeTruthy();
+    expect(document.querySelector('.user-settings-update-notes')?.textContent).toBe(notes);
+    push({ kind: 'downloading', version: '9.0.0', percent: 30, bytesPerSecond: 5, notes });
+    await screen.findByText('Downloading v9.0.0 · 30%');
+    push({ kind: 'ready', version: '9.0.0', notes });
+    fireEvent.click(await screen.findByRole('button', { name: 'Restart to update' }));
+    expect(bridge.applyDownloadedUpdate).toHaveBeenCalledOnce();
+  });
+
+  it('explains why an update must be installed by hand', async () => {
+    const { bridge, push } = stubUpdater();
+    await openAbout();
+    await waitFor(() => expect(bridge.getState).toHaveBeenCalled());
+    const message = 'macOS is running Boson from a temporary read-only copy, so it can\'t update itself. Quit Boson, move it to your Applications folder, and open it from there.';
+    push({ kind: 'available', version: '9.0.0', manual: true, message });
+    expect((await screen.findByRole('note')).textContent).toBe(message);
+    expect(screen.getByRole('button', { name: 'Download v9.0.0' })).toBeTruthy();
+  });
+
+  it('has an opt-in, off by default, for automatic installs', async () => {
+    const { bridge } = stubUpdater();
+    await openAbout();
+    const toggle = await screen.findByLabelText('Install updates automatically');
+    await waitFor(() => expect(bridge.getAutoInstall).toHaveBeenCalled());
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(bridge.setAutoInstall).toHaveBeenCalledWith(true);
+  });
+
+  it('has no automatic installs on Android', async () => {
+    (window as unknown as { bosonPlatform?: string }).bosonPlatform = 'android';
+    stubUpdater();
+    await openAbout();
+    await screen.findByRole('button', { name: 'Check for updates' });
+    expect(screen.queryByLabelText('Install updates automatically')).toBeNull();
+  });
+
+  it('shows no updater at all without the bridge (a browser, iOS)', async () => {
+    await openAbout();
+    expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
+    expect(screen.queryByLabelText('Install updates automatically')).toBeNull();
   });
 });

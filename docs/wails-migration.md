@@ -13,12 +13,12 @@ Starting point: main at 0.36.4 on Electron 44.7, electron-vite and electron-buil
   - Every Electron main-process service has a Go port in `desktop/`.
   - The real-app e2e suite runs against the app's server-mode build, in CI with coverage (`.github/workflows/e2e.yml`). What needs the native window (window controls, notification click → restore, webview permissions) is a manual check on the native build.
   - Packaging and signing: `.github/workflows/desktop.yml` builds macOS (a DMG each for Apple Silicon and Intel, Developer ID signed, notarized, stapled), Windows (zip) and Linux (tar.gz) on every PR, and attaches them to the GitHub Release on every tag.
+  - Phase 5, in-app updates: the app checks the latest GitHub release at startup, every 6 hours and on "Check for updates", and installs it in place when the release carries an ed25519-signed `update-manifest.json` (see "Phase 5: updater").
   - Electron is gone: `client/src/main`, the preload, electron-vite, electron-builder and the Electron release workflow. The renderer builds with plain Vite.
 - **Phase 0 findings:**
   - YouTube refuses `wails://` (error 153), and in WebKit some videos refuse a loopback wrapper page too. The app frames the wrapper from `https://boson.chat` (boson-chat/website's `public/youtube-embed.*`).
   - Notifications need the bundled `.app`.
 - **Not done:**
-  - Phase 5: the signed update feed. The app checks GitHub for a newer release and opens the release page; it doesn't install in place.
   - Phase 6: migrating users' Electron data. Electron users don't auto-update to the Wails app (electron-updater only reads Electron feeds); they download it once and sign in again.
   - Windows code signing (Authenticode) and installers (NSIS/MSIX); a Linux AppImage / .deb; arm64 Linux.
   - Adapting the Wails Taskfile (the packaging scripts in `desktop/scripts/` are what's used).
@@ -259,20 +259,64 @@ Port in this order, each with Go unit tests ported from `client/src/main/*.test.
   `release-client.yml`, on the same tags. It uploads the artifacts plus the
   signed update manifest. Both pipelines run until rollout ends.
 
-### Phase 5: updater (inside Phase 4)
+### Phase 5: updater (inside Phase 4) — done
+Our own updater (`desktop/internal/selfupdate`, wired up in
+`desktop/updater.go`) rather than Wails' or go-selfupdate: the trust rules
+are ours and short.
 - **Feed and keys**
-  - GitHub provider with a SHA256SUMS asset and an ed25519-signed manifest.
-  - The key is generated once and kept with the other signing material, and
-    gets a backup (still an open item for `~/.config/boson-signing`).
-- **Enforcement:** refuse any update without a valid signature (our wrapper
-  around wails#6186).
-- **UI:** keep the Settings → About states and copy (`checking`, `downloading N%`,
-  `restart to apply`). Use `updater.WindowNone`, so there's no Wails update
-  window.
+  - The feed is GitHub's latest-release API. CI (`desktop.yml`,
+    `release-assets`) writes `update-manifest.json` (per platform: payload
+    name, size, sha256; the version; the oldest version that may update in
+    place, `UPDATE_MIN_VERSION`) and signs it into `update-manifest.json.sig`
+    (`desktop/scripts/update-manifest.py`, `sign-update-manifest.sh`).
+    `SHA256SUMS.txt` lists every asset.
+  - The key: one ed25519 pair. The private half is the `UPDATE_SIGNING_KEY`
+    Actions secret, backed up at `~/.config/boson-signing/update-ed25519.pem`.
+    The public half is a constant in `selfupdate/keys.go`, with room for a
+    second key while rotating. CI refuses to sign with a key the app
+    doesn't embed. Without the secret (forks) there's no manifest, and the
+    app offers the release page.
+  - Payloads: macOS `Boson-mac-<arch>.app.zip` (the signed, notarized,
+    stapled `.app`, via `ditto`), Windows the zip, Linux the tar.gz, Android
+    the APK.
+- **Enforcement:** no valid signature from an embedded key, no install. The
+  download must match the manifest's size, then sha256. The manifest must be
+  for the release's own version and newer than the running one (no
+  downgrades or replays). On macOS the unpacked `.app` must also pass
+  `codesign --verify --strict --deep`, name the same bundle id and version,
+  and satisfy the running app's designated requirement (same Developer ID
+  team). Only then is its quarantine flag cleared.
+- **Install:** nothing installs without a click ("Update to vX", then
+  "Restart to update"), unless the user opts in to "Install updates
+  automatically" (off by default: downloads by itself, installs on quit).
+  - macOS swaps the `.app` bundle: the old one is renamed aside and the new
+    one renamed in, in the same folder. Running translocated or from a
+    read-only volume or folder, it says to move Boson to Applications and
+    offers the release page.
+  - Windows writes the new exe beside the old one and swaps them by rename
+    on restart. Linux does the same when the folder is writable, and
+    otherwise explains.
+  - Then the new copy starts (macOS through LaunchServices) with
+    `--boson-relaunch-wait=<pid>`, waits for the old one to exit (the
+    single-instance lock), and cleans up the replaced copy. The session is on
+    disk, so the user stays signed in.
+  - Android hands the verified APK to the system installer (FileProvider,
+    `REQUEST_INSTALL_PACKAGES`). iOS has no self-update; the About row is
+    hidden.
+- **UI:** Settings → About shows `checking`, `available` (with the shortened
+  release notes), `downloading N%`, `ready — Restart to update` and errors.
+  The title bar shows a small "Update" pill while an update is ready.
 - **Tests**
-  - Unsigned, wrong-key and truncated artifacts are rejected.
-  - On macOS, an update while running from a translocated or read-only
-    location fails with a clear message.
+  - `selfupdate`: unsigned, wrong-key, tampered, truncated (manifest,
+    signature, download) and downgrades are rejected. A fake bundle and exe
+    are swapped in a temp dir. Translocated and read-only locations, including
+    a real read-only disk image on macOS, fail with the message.
+  - `updater_test.go` runs the service end to end against a fake feed.
+  - The renderer's states are tested in `UserSettings.test.tsx` and
+    `TitleBar.test.tsx`.
+  - `desktop/scripts/e2e-update-macos.sh` builds two real versions, serves a
+    local feed (dev builds only: `BOSON_UPDATE_FEED`, `BOSON_UPDATE_TEST_KEY`),
+    and checks the old one updates, relaunches and keeps its profile.
 
 ### Phase 6: migrating existing users (about 1 week)
 - **Final Electron release (0.x, "bridge")**
@@ -312,7 +356,6 @@ are about 2k lines of TypeScript becoming Go.
 
 ## Open questions for review
 - Accept GTK4-only Linux (Ubuntu 24.04+ / Debian 13+)?
-- Wails built-in updater with our signature enforcement, or go-selfupdate?
 - Is a manual macOS checklist per release acceptable until WKWebView can be
   automated?
 - If YouTube can't play from the new origin, is "open in browser" acceptable?

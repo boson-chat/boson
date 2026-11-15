@@ -439,6 +439,29 @@
   text-align: right;
 }
 .user-settings-update-error { color: var(--danger, #ef4444); }
+/* Why an update must be installed by hand (macOS translocation, a
+   read-only folder, a copy too old to update in place): full width, under
+   the version row. */
+.user-settings-update-notice {
+  margin: 0;
+  padding: var(--space-2) 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--warn, #f59e0b);
+}
+/* The release's notes, shortened by the shell to plain-text lines. */
+.user-settings-update-notes {
+  white-space: pre-line;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--fg-2);
+  text-align: left;
+}
+.user-settings-update-auto {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
 
 /* Phones: the section menu becomes a scrolling strip above the section, so
    the section gets the full width (the modal is a full-screen sheet). */

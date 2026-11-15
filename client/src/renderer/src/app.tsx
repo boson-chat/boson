@@ -24,6 +24,7 @@ import { loadGuestSession, onGuestChange, type GuestSession } from './modules/gu
 import { getMemoStore, type Memo } from './modules/memos';
 import { publishOpenConversation, publishReadMemo } from './modules/inbox-nav/inbox-nav';
 import { onOpenUserSettings } from './modules/ui/open-settings';
+import { useUpdateState } from './modules/updater/updater';
 
 interface AppProps {
   auth: AuthService;
@@ -52,6 +53,9 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
     setSettingsOpen(true);
   }), []);
   const [inboxOpen, setInboxOpen] = useState(false);
+  // An update downloaded and ready: the title bar's "Update" pill opens
+  // Settings → About, where "Restart to update" is.
+  const update = useUpdateState();
   const { session } = useAuthState();
   const guest = useGuestSession();
   // Re-scope the memo store as the auth identity resolves. Guests
@@ -116,6 +120,8 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
           setInboxOpen(true);
         }}
         inboxUnreadCount={unreadCount}
+        updateReady={update.kind === 'ready' ? update.version : null}
+        onOpenUpdate={() => { setSettingsSection('about'); setSettingsOpen(true); }}
       />
       <div class="app-frame-body">
         <Router directory={directory} engine={engine} identity={identity} history={history} networks={networks} />

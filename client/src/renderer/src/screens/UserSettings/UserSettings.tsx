@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
+import { getUpdater, useUpdateState, type UpdateState } from '../../modules/updater/updater';
 import { Badge, Button, Card, Divider, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
 import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
@@ -862,28 +863,6 @@ function RecoveryCodeSettings({ directory, identity, open }: {
   );
 }
 
-// Renderer-side shape of the update state pushed by the shell
-// (desktop/updater.go via bosonUpdater). Kept inline here so the
-// About panel stays self-contained — Go types don't reach the
-// renderer, and tests stub the bridge directly.
-type UpdateState =
-  | { kind: 'idle' }
-  | { kind: 'checking' }
-  | { kind: 'up-to-date'; checkedAt: number }
-  // manual: this build can't install it itself (the Wails shell, until its
-  // signed update feed); Apply opens the release page instead.
-  | { kind: 'available'; version: string; manual?: boolean }
-  | { kind: 'downloading'; version: string; percent: number; bytesPerSecond: number }
-  | { kind: 'ready'; version: string }
-  | { kind: 'error'; message: string };
-
-interface UpdaterBridge {
-  getState(): Promise<UpdateState>;
-  checkNow(): Promise<void>;
-  applyDownloadedUpdate(): Promise<void>;
-  onState(fn: (s: UpdateState) => void): () => void;
-}
-
 function AboutSection() {
   // Platform string is set by the shell's bridges (platform/wails.ts,
   // at startup). In a browser preview / e2e harness `bosonPlatform` may not
@@ -893,22 +872,23 @@ function AboutSection() {
     (window as unknown as { bosonPlatform?: string }).bosonPlatform
     ?? (typeof navigator !== 'undefined' ? navigator.platform : 'unknown');
 
-  // Auto-update integration. Pull the initial state from the shell on
-  // mount, subscribe to live pushes, and offer a manual "Check now"
-  // button next to the version row. The whole block degrades to "no
-  // updater available" when the bridge isn't there (dev / e2e).
-  const updater = (window as unknown as { bosonUpdater?: UpdaterBridge }).bosonUpdater;
-  const [updateState, setUpdateState] = useState<UpdateState>({ kind: 'idle' });
+  // In-app updates (modules/updater): the shell's state, live, next to the
+  // version, with "Check for updates" / "Update" / "Restart to update".
+  // Nothing when there's no updater (a browser, iOS).
+  const updater = getUpdater();
+  const updateState = useUpdateState(updater);
+  const notes = 'notes' in updateState ? updateState.notes : undefined;
+  const notesVersion = 'version' in updateState ? updateState.version : undefined;
+  // "Install updates automatically": not on Android, where the system
+  // installer always asks.
+  const offerAuto = !!updater?.setAutoInstall && platform !== 'android';
+  const [autoInstall, setAutoInstall] = useState(false);
   useEffect(() => {
-    if (!updater) return;
-    // A push is newer than the initial read, whichever lands first (under
-    // Wails the read and the pushes arrive by separate routes).
-    let unsubscribed = false;
-    let pushed = false;
-    void updater.getState().then((s) => { if (!unsubscribed && !pushed) setUpdateState(s); });
-    const off = updater.onState((s) => { pushed = true; setUpdateState(s); });
-    return () => { unsubscribed = true; off(); };
-  }, [updater]);
+    if (!offerAuto || !updater?.getAutoInstall) return;
+    let live = true;
+    void updater.getAutoInstall().then((v) => { if (live) setAutoInstall(!!v); }).catch(() => {});
+    return () => { live = false; };
+  }, [updater, offerAuto]);
 
   return (
     <SectionFrame
@@ -927,13 +907,43 @@ function AboutSection() {
                 {updater && (
                   <UpdateActions
                     state={updateState}
+                    platform={platform}
                     onCheck={() => void updater.checkNow()}
+                    onDownload={() => void (updater.download ?? updater.applyDownloadedUpdate)()}
                     onApply={() => void updater.applyDownloadedUpdate()}
                   />
                 )}
               </span>
             }
           />
+          {updater && updateState.kind === 'available' && updateState.manual && updateState.message && (
+            <p class="user-settings-update-notice" role="note">{updateState.message}</p>
+          )}
+          {updater && notes && notesVersion && (
+            <>
+              <Divider />
+              <DetailRow
+                label={`What's new in v${notesVersion}`}
+                customValue={<div class="user-settings-update-notes">{notes}</div>}
+              />
+            </>
+          )}
+          {offerAuto && (
+            <>
+              <Divider />
+              <div class="user-settings-update-auto">
+                <Toggle
+                  checked={autoInstall}
+                  label="Install updates automatically"
+                  onChange={(v) => {
+                    setAutoInstall(v);
+                    void updater?.setAutoInstall?.(v).catch(() => setAutoInstall(!v));
+                  }}
+                />
+                <p class="user-settings-hint">Downloads new versions in the background and installs them when you quit Boson.</p>
+              </div>
+            </>
+          )}
           <Divider />
           <DetailRow label="Platform" value={platform} />
           <Divider />
@@ -1007,15 +1017,20 @@ function summariseUpdateError(raw: string): string {
 
 // Inline update affordance rendered next to the version number. Stays
 // compact in the common case (just a "Check for updates" button) and
-// expands into a progress / restart prompt when the lifecycle is
-// actually doing something.
+// expands into an Update / progress / Restart prompt as an update moves
+// along. Nothing installs without a click here (or the opt-in automatic
+// installs).
 export function UpdateActions({
   state,
+  platform,
   onCheck,
+  onDownload,
   onApply,
 }: {
   state: UpdateState;
+  platform?: string;
   onCheck: () => void;
+  onDownload?: () => void;
   onApply: () => void;
 }) {
   switch (state.kind) {
@@ -1029,7 +1044,7 @@ export function UpdateActions({
             <span class="user-settings-update-hint">Up to date.</span>
           )}
           {state.kind === 'error' && (
-            <span class="user-settings-update-hint user-settings-update-error">
+            <span class="user-settings-update-hint user-settings-update-error" role="alert">
               {summariseUpdateError(state.message)}
             </span>
           )}
@@ -1046,22 +1061,24 @@ export function UpdateActions({
         );
       }
       return (
-        <span class="user-settings-update-hint">
-          v{state.version} available — downloading.
+        <span class="user-settings-update-actions">
+          <Button variant="primary" onClick={onDownload ?? onApply}>Update to v{state.version}</Button>
+          <span class="user-settings-update-hint">v{state.version} is available.</span>
         </span>
       );
     case 'downloading':
       return (
-        <span class="user-settings-update-hint">
-          Downloading v{state.version} · {state.percent}%
+        <span class="user-settings-update-hint" role="status">
+          Downloading v{state.version} · {Math.floor(state.percent || 0)}%
         </span>
       );
     case 'ready':
       return (
         <span class="user-settings-update-actions">
           <Button variant="primary" onClick={onApply}>
-            Restart to apply v{state.version}
+            {platform === 'android' ? `Install v${state.version}` : 'Restart to update'}
           </Button>
+          <span class="user-settings-update-hint">v{state.version} is ready.</span>
         </span>
       );
   }

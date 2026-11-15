@@ -221,7 +221,9 @@ Every release tag (cut by semantic-release on `main`) builds the desktop app
 on macOS, Windows and Linux (`.github/workflows/desktop.yml`) and attaches it
 to the GitHub Release: `Boson-mac-arm64.dmg` and `Boson-mac-x64.dmg`
 (Apple Silicon and Intel; Developer ID signed, notarized), `Boson-windows-x64.zip`, `Boson-linux-x86_64.tar.gz` and
-`SHA256SUMS.txt`. The website's ([boson-chat/website](https://github.com/boson-chat/website)) download links point at those names. The backend image is released from [boson-chat/backend](https://github.com/boson-chat/backend).
+`SHA256SUMS.txt`. It also attaches what the in-app updater reads: `Boson-mac-arm64.app.zip` and `Boson-mac-x64.app.zip`, plus
+`update-manifest.json` and its ed25519 signature `update-manifest.json.sig`, signed with the `UPDATE_SIGNING_KEY` secret
+([docs/wails-migration.md](docs/wails-migration.md), "Phase 5: updater"). The website's ([boson-chat/website](https://github.com/boson-chat/website)) download links point at those names. The backend image is released from [boson-chat/backend](https://github.com/boson-chat/backend).
 
 ## Useful one-shots
 

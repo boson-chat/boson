@@ -2,13 +2,17 @@ package main
 
 import (
 	"embed"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/boson-chat/boson/desktop/internal/selfupdate"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
@@ -41,6 +45,9 @@ var (
 
 func main() {
 	platformEnv()
+	// Started by an update (selfupdate.Relaunch): wait for the old copy to
+	// exit, so the single-instance lock is ours.
+	os.Args = append(os.Args[:1:1], selfupdate.WaitForRelaunch(os.Args[1:], 15*time.Second)...)
 	dist, err := fs.Sub(assets, "frontend/dist")
 	if err != nil {
 		log.Fatal(err)
@@ -81,7 +88,35 @@ func main() {
 	}
 	engine := &EngineService{}
 	spotify := NewSpotifyService()
-	updater := NewUpdaterService(appVersion, !dev, links)
+	// iOS has no self-update (the renderer hides it); dev builds check only
+	// a feed they're pointed at.
+	updater := NewUpdaterService(appVersion, !dev && runtime.GOOS != "ios", links, dataDir)
+	if feed := os.Getenv("BOSON_UPDATE_FEED"); dev && feed != "" {
+		var keys []string
+		if k := os.Getenv("BOSON_UPDATE_TEST_KEY"); k != "" {
+			keys = append(keys, k)
+		}
+		if err := updater.useTestFeed(feed, keys...); err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("updater: test feed %s", feed)
+		// A relaunch keeps the test profile (BOSON_DATA_DIR, …) and the feed.
+		for _, e := range os.Environ() {
+			if strings.HasPrefix(e, "BOSON_") {
+				updater.relaunchEnv = append(updater.relaunchEnv, e)
+			}
+		}
+		updater.autoApply = os.Getenv("BOSON_UPDATE_AUTOAPPLY") == "1"
+	}
+	// Dev builds: note each start (version, pid, data dir) for scripts that
+	// check which copy is running (scripts/e2e-update-macos.sh).
+	if path := os.Getenv("BOSON_START_LOG"); dev && path != "" {
+		if f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			exe, _ := os.Executable()
+			fmt.Fprintf(f, "started %s pid=%d data=%s exe=%s\n", appVersion, os.Getpid(), dataDir, exe)
+			f.Close()
+		}
+	}
 	native := notifications.New()
 	notify := NewNotifyService(native)
 	// One running app: a second launch (a boson:// click on Windows/Linux)
@@ -90,8 +125,14 @@ func main() {
 	// where parallel tests each run their own app.
 	var single *application.SingleInstanceOptions
 	if !e2e && !mobileOS {
+		// Dev builds lock on their own id: they never hand over to (or block
+		// on) an installed release.
+		uniqueID := "chat.boson.app"
+		if dev {
+			uniqueID = "chat.boson.app.dev"
+		}
 		single = &application.SingleInstanceOptions{
-			UniqueID:               "chat.boson.app",
+			UniqueID:               uniqueID,
 			OnSecondInstanceLaunch: func(d application.SecondInstanceData) { deepLinks.onSecondInstance(d.Args) },
 		}
 	}
