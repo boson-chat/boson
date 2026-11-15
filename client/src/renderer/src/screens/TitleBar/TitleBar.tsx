@@ -21,6 +21,10 @@ interface TitleBarProps {
   // fires the parent's open-inbox handler.
   onOpenInbox?: () => void;
   inboxUnreadCount?: number;
+  // An update is downloaded and ready (its version): a small "Update" pill
+  // before the inbox, which fires onOpenUpdate (Settings → About).
+  updateReady?: string | null;
+  onOpenUpdate?: () => void;
 }
 
 // Custom window title bar. The OS chrome is suppressed in main (`frame: false`
@@ -36,6 +40,7 @@ interface TitleBarProps {
 
 export function TitleBar({
   onOpenSettings, userLabel, userMode, avatarUrl, onOpenInbox, inboxUnreadCount = 0,
+  updateReady, onOpenUpdate,
 }: TitleBarProps = {}) {
   const darwin = isDarwin();
   const mobile = isMobile();
@@ -58,8 +63,20 @@ export function TitleBar({
         <BosonGlyph size={16} class="title-bar-mark" />
         <span class="title-bar-title">Boson</span>
       </div>
-      {(onOpenSettings || onOpenInbox) && (
+      {(onOpenSettings || onOpenInbox || (updateReady && onOpenUpdate)) && (
         <div class="title-bar-controls">
+          {updateReady && onOpenUpdate && (
+            <button
+              type="button"
+              class="title-bar-update"
+              aria-label={`Boson v${updateReady} is ready — restart to update`}
+              title={`Boson v${updateReady} is ready — restart to update`}
+              onClick={onOpenUpdate}
+            >
+              <span class="title-bar-update-dot" aria-hidden="true" />
+              <span class="title-bar-update-label">Update</span>
+            </button>
+          )}
           {onOpenInbox && (
             <button
               type="button"

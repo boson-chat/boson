@@ -293,13 +293,19 @@ export async function installWailsBridges(): Promise<void> {
   // Where the YouTube wrapper is served (desktop/youtube.go): YouTube won't
   // play inside a wails:// page. Read once — Embed.tsx needs it synchronously.
   w.bosonYouTube = { wrapperOrigin: ((await Call.ByName('main.YouTubeService.WrapperOrigin').catch(() => '')) as string) || null };
-  // Update checks (desktop/updater.go).
-  w.bosonUpdater = {
-    getState: () => Call.ByName(`${UPDATER}.GetState`),
-    checkNow: () => Call.ByName(`${UPDATER}.CheckNow`),
-    applyDownloadedUpdate: () => Call.ByName(`${UPDATER}.ApplyDownloadedUpdate`),
-    onState: (fn: (s: unknown) => void) => Events.On('updater:state', (ev) => fn(ev.data)),
-  };
+  // In-app updates (desktop/updater.go). None on iOS: the App Store /
+  // TestFlight updates it, so Settings → About shows no update row there.
+  if (w.bosonPlatform !== 'ios') {
+    w.bosonUpdater = {
+      getState: () => Call.ByName(`${UPDATER}.GetState`),
+      checkNow: () => Call.ByName(`${UPDATER}.CheckNow`),
+      download: () => Call.ByName(`${UPDATER}.Download`),
+      applyDownloadedUpdate: () => Call.ByName(`${UPDATER}.ApplyDownloadedUpdate`),
+      onState: (fn: (s: unknown) => void) => Events.On('updater:state', (ev) => fn(ev.data)),
+      getAutoInstall: () => Call.ByName(`${UPDATER}.GetAutoInstall`),
+      setAutoInstall: (on: boolean) => Call.ByName(`${UPDATER}.SetAutoInstall`, on),
+    };
+  }
   // Secrets: desktop/securestore.go (keychain-held key, same file format).
   w.bosonSecure = {
     isAvailable: () => Call.ByName(`${STORE}.IsAvailable`) as Promise<boolean>,

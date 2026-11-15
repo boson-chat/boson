@@ -86,16 +86,21 @@ test.describe('app shell', () => {
     await push({ kind: 'checking' });
     await expect(row).toContainText('Checking…');
     await expect(row.getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
-    await push({ kind: 'available', version: '99.0.0' });
-    await expect(row).toContainText('v99.0.0 available — downloading.');
+    await push({ kind: 'available', version: '99.0.0', notes: 'Features\n• a pushed note' });
+    await expect(row).toContainText('v99.0.0 is available.');
+    await expect(dialog.locator('.user-settings-update-notes')).toHaveText('Features\n• a pushed note');
+    // "Update": nothing real to download here (a pushed state), so it stays put.
+    await row.getByRole('button', { name: 'Update to v99.0.0' }).click();
+    await expect(row.getByRole('button', { name: 'Update to v99.0.0' })).toBeVisible();
     await push({ kind: 'downloading', version: '99.0.0', percent: 42, bytesPerSecond: 1000 });
     await expect(row).toContainText('Downloading v99.0.0 · 42%');
     await push({ kind: 'ready', version: '99.0.0' });
-    // "Restart to apply": the app can't install in place yet
-    // (docs/wails-migration.md, Phase 5), so it opens the release page and
-    // stays up.
-    await row.getByRole('button', { name: 'Restart to apply v99.0.0' }).click();
-    await expect(row.getByRole('button', { name: 'Restart to apply v99.0.0' })).toBeVisible();
+    // Ready: the title bar shows the "Update" pill too.
+    await expect(page.locator('.title-bar-update')).toBeVisible();
+    // "Restart to update" with nothing actually staged (a pushed state):
+    // the release page instead, and the app stays up.
+    await row.getByRole('button', { name: 'Restart to update' }).click();
+    await expect(row.getByRole('button', { name: 'Restart to update' })).toBeVisible();
     await expect.poll(() => openedExternally()).toContain('https://github.com/boson-chat/boson/releases/latest');
 
     // Error verdicts are summarised for humans; the raw text never shows.

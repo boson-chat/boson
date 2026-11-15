@@ -19,6 +19,16 @@
 # website's download links point at (…/releases/latest/download/<name>):
 #   Boson-mac-arm64.dmg, Boson-mac-x64.dmg, Boson-windows-x64.zip,
 #   Boson-linux-x86_64.tar.gz, Boson-android.apk
+# plus what the in-app updater (desktop/internal/selfupdate) reads:
+#   Boson-mac-arm64.app.zip, Boson-mac-x64.app.zip (the stapled .app),
+#   update-manifest.json (per platform: payload name, size, sha256; the
+#   version and the oldest version that may update in place) and
+#   update-manifest.json.sig (its ed25519 signature), and SHA256SUMS.txt.
+#
+# Update signing secret: UPDATE_SIGNING_KEY (PKCS#8 PEM ed25519 private key;
+# its public half is in desktop/internal/selfupdate/keys.go). Without it
+# (forks) there's no manifest, and installed copies offer the release page
+# instead of updating in place.
 #
 # macOS signing secrets: CSC_LINK (base64 of the "Developer ID Application"
 # .p12), CSC_KEY_PASSWORD, APPLE_API_KEY (the App Store Connect .p8's
@@ -241,6 +251,16 @@ jobs:
           echo "::error::Release builds need the macOS signing/notarization secrets"
           exit 1
 
+      # The updater's verification, swap and relaunch code on this OS (it's
+      # pure Go; the Linux run is in e2e.yml with the rest of the shell).
+      - name: updater tests
+        if: runner.os != 'Linux'
+        shell: bash
+        working-directory: desktop
+        env:
+          CGO_ENABLED: '0'
+        run: go test -count=1 ./internal/selfupdate/
+
       - name: upload
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -329,18 +349,23 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  # Attach the builds to the GitHub Release semantic-release opened for this
-  # tag, under the version-free names the website links to. The APK joins
-  # when the Android job built a release-signed one; its failing doesn't
-  # hold back the desktop builds.
-  publish:
-    name: attach to the release
+  # The release's files under the version-free names the website links to,
+  # the signed update manifest and SHA256SUMS.txt — on every run, so a PR
+  # exercises the manifest and its signing too. The APK joins when the
+  # Android job built a release-signed one; its failing doesn't hold back
+  # the desktop builds.
+  release-assets:
+    name: release assets + update manifest
     needs: [build, android]
-    if: github.ref_type == 'tag' && !cancelled() && needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    env:
+      # The oldest version that may update to this release in place; older
+      # copies are sent to the release page. Raise it when a release can't
+      # be installed over older ones (a changed bundle id, data format, …).
+      UPDATE_MIN_VERSION: '0.57.0'
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: boson-desktop-*
@@ -353,6 +378,8 @@ jobs:
           mkdir release
           cp dist/*-mac-arm64.dmg release/Boson-mac-arm64.dmg
           cp dist/*-mac-x64.dmg release/Boson-mac-x64.dmg
+          cp dist/*-mac-arm64.app.zip release/Boson-mac-arm64.app.zip
+          cp dist/*-mac-x64.app.zip release/Boson-mac-x64.app.zip
           cp dist/*-windows-amd64.zip release/Boson-windows-x64.zip
           cp dist/*-linux-amd64.tar.gz release/Boson-linux-x86_64.tar.gz
           if ls dist/*-android.apk >/dev/null 2>&1; then
@@ -360,10 +387,63 @@ jobs:
           else
             echo "::warning::No release-signed APK: the release goes out without Android"
           fi
-          (cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - name: update manifest
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::warning::No UPDATE_SIGNING_KEY: no update manifest; installed copies will offer the release page"
+            exit 0
+          fi
+          version="$(node -p "require('./client/package.json').version")"
+          desktop/scripts/update-manifest.py release "$version" "$UPDATE_MIN_VERSION" > release/update-manifest.json
+          cat release/update-manifest.json
+          key="$RUNNER_TEMP/update-signing.pem"
+          ( umask 077; printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key" )
+          trap 'rm -f "$key"' EXIT
+          REQUIRE_EMBEDDED_KEY=1 desktop/scripts/sign-update-manifest.sh "$key" release/update-manifest.json
+      - name: checksums
+        run: (cd release && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: boson-release
+          path: release/*
+          retention-days: 14
+          if-no-files-found: error
+
+  # Attach the release assets to the GitHub Release semantic-release opened
+  # for this tag.
+  publish:
+    name: attach to the release
+    needs: [release-assets]
+    if: ${{ github.ref_type == 'tag' && !cancelled() && needs.release-assets.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: boson-release
+          path: release
+      # The manifest goes up last: a copy that sees it can then download
+      # everything it lists.
+      - name: hold back the manifest
+        run: |
+          mkdir manifest
+          mv release/update-manifest.json* manifest/ 2>/dev/null || echo "::warning::No update manifest in this release"
       - name: upload to the release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.ref_name }}
           files: release/*
+          fail_on_unmatched_files: true
+      - name: upload the update manifest
+        if: ${{ hashFiles('manifest/update-manifest.json') != '' }}
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            manifest/update-manifest.json
+            manifest/update-manifest.json.sig
           fail_on_unmatched_files: true

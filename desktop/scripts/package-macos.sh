@@ -7,6 +7,8 @@
 #     → bin/mac-<arch>/<APP_NAME>.app → codesign (hardened runtime)
 #     → notarytool + stapler (with notary credentials, below)
 #     → bin/<APP_NAME>-<version>-mac-<arch>.dmg (signed, notarized)
+#     → bin/<APP_NAME>-<version>-mac-<arch>.app.zip (the same stapled app:
+#       the in-app updater's payload, desktop/internal/selfupdate)
 #
 # <arch> is arm64 (Apple Silicon) or x64 (Intel).
 #
@@ -24,6 +26,9 @@
 #   SKIP_RENDERER=1 reuse client/out/renderer as it is
 #   OPUS_PREFIX     where the static libopus per arch is built/cached
 #                   (default desktop/build/.opus; scripts/build-opus.sh)
+#   BOSON_VERSION   the version to build as (default client/package.json's;
+#                   scripts/e2e-update-macos.sh builds two)
+#   EXTRA_LDFLAGS   more go -ldflags (e.g. -X main.devBuild=true)
 #
 # Usage: desktop/scripts/package-macos.sh
 set -euo pipefail
@@ -35,7 +40,7 @@ client="$repo/client"
 
 APP_NAME="${APP_NAME:-Boson}"
 BUNDLE_ID="${BUNDLE_ID:-chat.boson.app}"
-VERSION="$(node -p "require('$client/package.json').version")"
+VERSION="${BOSON_VERSION:-$(node -p "require('$client/package.json').version")}"
 if [[ -z "${SIGN_IDENTITY:-}" ]]; then
   SIGN_IDENTITY="$(security find-identity -v -p codesigning | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
   [[ -n "$SIGN_IDENTITY" ]] || { echo "no Developer ID Application identity in the keychain (set SIGN_IDENTITY=- for ad hoc)" >&2; exit 1; }
@@ -63,7 +68,7 @@ rm -rf "$desktop/frontend/dist"
 cp -R "$client/out/renderer" "$desktop/frontend/dist"
 touch "$desktop/frontend/dist/.gitkeep"
 
-ldflags="-s -w -X main.appVersion=$VERSION"
+ldflags="-s -w -X main.appVersion=$VERSION${EXTRA_LDFLAGS:+ $EXTRA_LDFLAGS}"
 # Another YouTube wrapper origin (default https://boson.chat; a PR's website
 # preview to try changes to it). Unset: the build's default.
 [[ -n "${YOUTUBE_WRAPPER:-}" ]] && ldflags="$ldflags -X main.youtubeWrapperOrigin=$YOUTUBE_WRAPPER"
@@ -115,6 +120,7 @@ package() {
   esac
   local app="$out/mac-$arch/$APP_NAME.app"
   local dmg="$out/$APP_NAME-$VERSION-mac-$arch.dmg"
+  local appzip="$out/$APP_NAME-$VERSION-mac-$arch.app.zip"
 
   # 2. Binary: production build (no devtools), with voice: libopus for
   #    this architecture (static; nolibopusfile: only libopus is used).
@@ -190,7 +196,12 @@ PLIST
     spctl --assess --type execute --verbose=4 "$app"
   fi
 
-  # 6. DMG: the app plus an Applications link to drag it onto.
+  # 6. The in-app update payload: the signed, stapled bundle as it is
+  #    (ditto keeps its signature, symlinks and modes).
+  rm -f "$appzip"
+  ditto -c -k --sequesterRsrc --keepParent "$app" "$appzip"
+
+  # 7. DMG: the app plus an Applications link to drag it onto.
   local stage="$work/stage-$arch"
   rm -rf "$stage" && mkdir -p "$stage"
   cp -R "$app" "$stage/"
@@ -206,6 +217,7 @@ PLIST
 
   echo "app: $app"
   echo "dmg: $dmg"
+  echo "update payload: $appzip"
 }
 
 # Architectures build, sign and notarize in parallel (each in its own

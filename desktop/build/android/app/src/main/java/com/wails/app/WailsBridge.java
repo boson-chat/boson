@@ -451,9 +451,16 @@ public class WailsBridge {
     }
 
     /**
-     * Open a URL in the system browser.
+     * Open a URL in the system browser — or, for a file:// URL of an APK in
+     * the app's updates folder (desktop/updater_android.go: a release the Go
+     * updater downloaded and checked against the signed update manifest),
+     * hand it to the system package installer.
      */
     public void openURL(final String url) {
+        if (url != null && url.startsWith("file://")) {
+            installUpdate(url.substring("file://".length()));
+            return;
+        }
         mainHandler.post(() -> {
             try {
                 Intent view = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
@@ -461,6 +468,42 @@ public class WailsBridge {
                 activity.startActivity(view);
             } catch (Exception e) {
                 Log.e(TAG, "openURL failed", e);
+            }
+        });
+    }
+
+    /**
+     * Installs an update APK from <files>/updates/ through the FileProvider.
+     * Anything else is refused. Android asks the user to confirm, and only
+     * installs an APK signed with this app's key. Without the "install
+     * unknown apps" permission the user is sent to grant it first, then taps
+     * Install again.
+     */
+    private void installUpdate(final String path) {
+        mainHandler.post(() -> {
+            try {
+                java.io.File updates = new java.io.File(activity.getFilesDir(), "updates").getCanonicalFile();
+                java.io.File apk = new java.io.File(path).getCanonicalFile();
+                if (!apk.getName().endsWith(".apk") || !updates.equals(apk.getParentFile()) || !apk.isFile()) {
+                    Log.w(TAG, "installUpdate: refused " + path);
+                    return;
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                        && !activity.getPackageManager().canRequestPackageInstalls()) {
+                    Intent grant = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:" + activity.getPackageName()));
+                    grant.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    activity.startActivity(grant);
+                    return;
+                }
+                Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                        activity, activity.getPackageName() + ".fileprovider", apk);
+                Intent install = new Intent(Intent.ACTION_VIEW);
+                install.setDataAndType(uri, "application/vnd.android.package-archive");
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                activity.startActivity(install);
+            } catch (Exception e) {
+                Log.e(TAG, "installUpdate failed", e);
             }
         });
     }
