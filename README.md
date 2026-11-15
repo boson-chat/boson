@@ -247,3 +247,11 @@ make hooks-install      # install the pre-commit hook (go vet + tests + typechec
 
 The `screens/` and `design-systems/` folders at the repo root hold the original visual mockups (HTML + tokens.css). They're the source of truth for the look — the client implementation should match them, not the other way around.
 
+
+## License
+
+Copyright (C) 2026 bludot / the boson authors
+
+Licensed under the [GNU Affero General Public License v3.0](LICENSE) only (`AGPL-3.0-only`). Third-party code keeps its own license; see [NOTICE](NOTICE). mermaid's ELK diagram layout (elkjs, EPL-2.0) is left out of the app for license reasons: diagrams use the default dagre layout.
+
+In plain English: if you run a modified version of this software as a network service, you must offer its source code to the people who use that service.

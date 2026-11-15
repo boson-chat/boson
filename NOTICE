@@ -1,0 +1,21 @@
+Boson
+Copyright (C) 2026 bludot / the boson authors
+Licensed under the GNU Affero General Public License v3.0 only (see LICENSE).
+
+Third-party software in or linked into Boson keeps its own license:
+
+- The desktop and mobile apps are built with Wails v3 (MIT) and link
+  libopus (BSD-3-Clause, Copyright Xiph.Org Foundation and contributors)
+  statically for voice, through gopkg.in/hraban/opus.v2 (MIT) and the
+  quicvoice SDK.
+- The renderer's npm dependencies (client/, packages/) and the Go module
+  dependencies keep their own licenses (MIT, BSD, ISC, Apache-2.0,
+  MPL-2.0 OR Apache-2.0 for DOMPurify, and similar); see package-lock.json
+  and go.mod. Android builds use AndroidX and Material Components
+  (Apache-2.0).
+
+Excluded for license reasons: mermaid depends on elkjs (Eclipse ELK,
+EPL-2.0), which can't be combined with AGPL code. It is never bundled:
+client/src/build/no-elk.ts aliases it to a stub and drops mermaid's ELK
+layouts, so diagrams that ask for `layout: elk` are drawn with the default
+dagre layout.
