@@ -50,6 +50,7 @@ func (f *fakeFilesHost) handler(t *testing.T) http.Handler {
 			w.Header().Set("Content-Type", "image/png")
 			w.Header().Set("Cache-Control", "public, max-age=3600")
 			w.Header().Set("Content-Disposition", "inline")
+			w.Header().Set("X-File-Expires-At", "2026-11-17T12:00:00Z")
 			http.ServeContent(w, r, "x.png", time.Time{}, strings.NewReader("0123456789"))
 		default:
 			http.NotFound(w, r)
@@ -249,6 +250,9 @@ func TestFilesViewProxy(t *testing.T) {
 	}
 	if res.Header.Get("X-Content-Type-Options") != "nosniff" || !strings.HasPrefix(res.Header.Get("Content-Security-Policy"), "sandbox") {
 		t.Fatalf("headers: %v", res.Header)
+	}
+	if res.Header.Get("X-File-Expires-At") != "2026-11-17T12:00:00Z" {
+		t.Fatalf("X-File-Expires-At not passed on: %v", res.Header)
 	}
 	if res.Header.Get("Cache-Control") != "public, max-age=3600" {
 		t.Fatalf("cache-control not passed on: %v", res.Header)

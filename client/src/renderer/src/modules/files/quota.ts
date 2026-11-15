@@ -109,7 +109,7 @@ type Json = Record<string, unknown>;
 export function describeUploadError(
   status: number,
   body: string,
-  opts: { now?: number; frees?: FilesUsage['frees']; file?: { name: string; size: number } } = {},
+  opts: { now?: number; frees?: FilesUsage['frees']; file?: { name: string; size: number }; retryAfter?: string | null } = {},
 ): FilesError {
   let j: Json = {};
   try { j = (JSON.parse(body) as Json) ?? {}; } catch { /* not JSON */ }
@@ -118,6 +118,11 @@ export function describeUploadError(
   const num = (k: string): number | undefined => (typeof details[k] === 'number' ? details[k] as number : undefined);
   switch (code) {
     case 'quota_exceeded':
+      // frees_at null: waiting won't help — the file is bigger than the
+      // whole quota.
+      if ('frees_at' in details && details['frees_at'] === null) {
+        return { code, message: `This file is bigger than your whole upload allowance (${formatBytes(num('quota') ?? 0)} per ${formatWindow(num('window_seconds') ?? 0)})` };
+      }
       return {
         code,
         message: quotaExceededMessage({
@@ -133,6 +138,22 @@ export function describeUploadError(
       return { code, message: STORAGE_FULL_MESSAGE };
     case 'cancelled':
       return { code, message: 'Upload cancelled' };
+    case 'uploads_disabled':
+      return { code, message: 'File uploads are turned off on this server right now' };
+    case 'guest_disabled':
+      return { code, message: 'This server only takes uploads from signed-in users' };
+    case 'invalid_guest_token':
+      return { code, message: "The files server didn't accept your guest pass — try again" };
+    case 'rate_limited': {
+      const secs = Number(opts.retryAfter ?? '');
+      const wait = Number.isFinite(secs) && secs > 0 ? ` in ${formatDuration(secs * 1000)}` : ' in a moment';
+      return { code, message: `Too many uploads — try again${wait}` };
+    }
+    case 'empty_file':
+      return { code, message: 'That file is empty' };
+    case 'incomplete_body':
+    case 'length_required':
+      return { code, message: "The file didn't arrive in full — try again" };
   }
   if (status === 401) return { code: code || 'unauthenticated', message: 'The files server didn\'t accept your sign-in — try again' };
   if (status === 403) return { code: code || 'forbidden', message: "You can't upload files on this server" };

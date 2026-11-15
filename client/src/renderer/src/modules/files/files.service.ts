@@ -272,11 +272,11 @@ export class FilesController {
     const bridge = this.bridge();
     const filesUrl = this.hosts.value[host]?.filesUrl;
     const file = { name: req.name, size: req.file.size };
-    const fail = async (status: number, body: string): Promise<void> => {
+    const fail = async (status: number, body: string, retryAfter?: string | null): Promise<void> => {
       if (run.abort.signal.aborted) return;
       let frees: FilesUsage['frees'];
       if (/quota_exceeded/.test(body)) frees = (await this.usage(host))?.frees;
-      const e = describeUploadError(status, body, { now: this.now(), frees, file });
+      const e = describeUploadError(status, body, { now: this.now(), frees, file, retryAfter });
       this.patch(id, { status: 'error', error: e.message, errorCode: e.code });
     };
     if (!bridge || !filesUrl) return fail(0, '');
@@ -294,6 +294,7 @@ export class FilesController {
       if (run.abort.signal.aborted) { void bridge.cancelUpload(ticket.id); return; }
       let status = 0;
       let body = '';
+      let retryAfter: string | null = null;
       try {
         const res = await doFetch(ticket.path, {
           method: 'POST',
@@ -302,12 +303,14 @@ export class FilesController {
           signal: run.abort.signal,
         });
         status = res.status;
+        retryAfter = res.headers.get('Retry-After');
         body = await res.text();
       } catch {
         if (run.abort.signal.aborted) return;
         return fail(0, '');
       }
-      // A guest token that lapsed: one more go with a fresh one.
+      // A guest token that lapsed or was refused (invalid_guest_token): one
+      // more go with a fresh one.
       if (status === 401 && attempt === 0 && auth.startsWith('Guest ')) continue;
       if (status >= 200 && status < 300) {
         const j = parseJson<{ url?: string }>(body);
@@ -318,7 +321,7 @@ export class FilesController {
         setTimeout(() => this.remove(id), this.deps.doneLingerMs ?? 1500);
         return;
       }
-      return fail(status, body);
+      return fail(status, body, retryAfter);
     }
   }
 

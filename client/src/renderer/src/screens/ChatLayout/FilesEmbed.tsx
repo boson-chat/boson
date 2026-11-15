@@ -17,10 +17,14 @@ function metaOf(res: Response): Meta {
   const len = Number(res.headers.get('Content-Length') ?? '');
   const range = /\/(\d+)$/.exec(res.headers.get('Content-Range') ?? '');
   const age = /max-age=(\d+)/.exec(res.headers.get('Cache-Control') ?? '');
+  // X-File-Expires-At when the files host sends it, else max-age (the
+  // seconds left).
+  const at = Date.parse(res.headers.get('X-File-Expires-At') ?? '');
+  const type = res.headers.get('X-File-Content-Type') || res.headers.get('Content-Type');
   return {
     ...(range ? { size: Number(range[1]) } : Number.isFinite(len) && len > 0 ? { size: len } : {}),
-    ...(age ? { expiresAt: Date.now() + Number(age[1]) * 1000 } : {}),
-    ...(res.headers.get('Content-Type') ? { type: res.headers.get('Content-Type')! } : {}),
+    ...(!Number.isNaN(at) ? { expiresAt: at } : age ? { expiresAt: Date.now() + Number(age[1]) * 1000 } : {}),
+    ...(type ? { type } : {}),
   };
 }
 

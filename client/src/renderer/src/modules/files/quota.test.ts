@@ -80,6 +80,19 @@ describe('describeUploadError', () => {
     expect(e.message).not.toMatch(/You've used/);
     expect(describeUploadError(507, 'not json').code).toBe('storage_full');
   });
+  it('quota_exceeded with frees_at null: bigger than the whole quota', () => {
+    expect(describeUploadError(413, JSON.stringify({ error: 'quota_exceeded', used: 0, quota: 5 * GB, window_seconds: 259_200, frees_at: null })).message)
+      .toBe('This file is bigger than your whole upload allowance (5 GB per 3 days)');
+  });
+  it('the service\'s other codes', () => {
+    expect(describeUploadError(503, '{"error":"uploads_disabled"}').message).toBe('File uploads are turned off on this server right now');
+    expect(describeUploadError(403, '{"error":"guest_disabled"}').message).toBe('This server only takes uploads from signed-in users');
+    expect(describeUploadError(429, '{"error":"rate_limited"}', { retryAfter: '120' }).message).toBe('Too many uploads — try again in 2 min');
+    expect(describeUploadError(429, '{"error":"rate_limited"}').message).toBe('Too many uploads — try again in a moment');
+    expect(describeUploadError(400, '{"error":"empty_file"}').message).toBe('That file is empty');
+    expect(describeUploadError(400, '{"error":"incomplete_body"}').message).toBe("The file didn't arrive in full — try again");
+    expect(describeUploadError(411, '{"error":"length_required"}').code).toBe('length_required');
+  });
   it('anything else says what happened', () => {
     expect(describeUploadError(0, '').message).toBe("Couldn't reach the files server");
     expect(describeUploadError(403, '{"error":"forbidden"}').message).toBe("You can't upload files on this server");

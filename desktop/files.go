@@ -605,6 +605,9 @@ func (s *FilesService) serveUpload(w http.ResponseWriter, r *http.Request, id st
 		s.send(FilesProgressEvent, FilesProgress{ID: id, Sent: up.size, Total: up.size})
 	}
 	w.Header().Set("Content-Type", "application/json")
+	if v := res.Header.Get("Retry-After"); v != "" {
+		w.Header().Set("Retry-After", v)
+	}
 	w.WriteHeader(res.StatusCode)
 	_, _ = w.Write(answer)
 }
@@ -654,7 +657,7 @@ func (e *exact) Read(b []byte) (int, error) {
 // filesViewHeaders are copied from the files host's answer.
 var filesViewHeaders = []string{
 	"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Cache-Control",
-	"Last-Modified", "ETag", "Content-Disposition",
+	"Last-Modified", "ETag", "Content-Disposition", "X-File-Expires-At", "X-File-Content-Type",
 }
 
 // serveView proxies GET/HEAD of a file (/f/<id>/<name>) on an allowed

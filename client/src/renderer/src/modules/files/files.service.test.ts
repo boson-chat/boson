@@ -106,6 +106,21 @@ describe('FilesController', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it('a refused guest token (invalid_guest_token) is refetched once and the upload retried', async () => {
+    const { b, calls } = bridge();
+    const url = `${FILES}/f/AbCdEfGhIjKlMnOpQrStUv/a.txt`;
+    const fetchFn = vi.fn()
+      .mockResolvedValueOnce(answer(401, { error: 'invalid_guest_token' }))
+      .mockResolvedValueOnce(answer(201, { url }));
+    const c = new FilesController({ bridge: b, signedIn: () => false, fetch: fetchFn as unknown as typeof fetch, doneLingerMs: 0 });
+    await c.ensure('irc.example.org');
+    const post = vi.fn();
+    c.upload({ host: 'irc.example.org', channel: '#a', file: new Blob(['x']), name: 'a.txt', post });
+    await vi.waitFor(() => expect(post).toHaveBeenCalledWith(url));
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(calls.filter((x) => x.path === '/v1/guest-token')).toHaveLength(2);
+  });
+
   it('uploadMessage', () => {
     expect(uploadMessage('https://x/f/a/b', '')).toBe('https://x/f/a/b');
     expect(uploadMessage('https://x/f/a/b', '  look\nhere ')).toBe('look here https://x/f/a/b');

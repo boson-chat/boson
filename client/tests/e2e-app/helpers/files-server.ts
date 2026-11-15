@@ -98,7 +98,7 @@ export async function startFakeFiles(o: FakeFilesOptions = {}): Promise<FakeFile
       return;
     }
     if (req.method === 'POST' && path === '/v1/guest-token') {
-      if (!opts.guestEnabled) { json(res, 403, { error: 'guests_disabled', message: 'no guest uploads' }); return; }
+      if (!opts.guestEnabled) { json(res, 403, { error: 'guest_disabled' }); return; }
       state.guestTokens++;
       json(res, 200, { token: `guest-${state.guestTokens}-${randomBytes(6).toString('hex')}`, expires_at: new Date(Date.now() + 86_400_000).toISOString() });
       return;
@@ -109,26 +109,27 @@ export async function startFakeFiles(o: FakeFilesOptions = {}): Promise<FakeFile
       return;
     }
     if (req.method === 'POST' && path === '/v1/files') {
-      if (!/^(Bearer|Guest) \S+$/.test(auth)) { json(res, 401, { error: 'unauthenticated', message: 'missing credentials' }); return; }
+      if (!/^(Bearer|Guest) \S+$/.test(auth)) { json(res, 401, { error: 'unauthenticated' }); return; }
       const length = Number(req.headers['content-length'] ?? NaN);
       if (!Number.isFinite(length)) { json(res, 411, { error: 'length_required' }); return; }
       const chunks: Buffer[] = [];
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
         const body = Buffer.concat(chunks);
-        if (body.length !== length) { json(res, 400, { error: 'invalid_request', message: 'short body' }); return; }
+        if (body.length !== length) { json(res, 400, { error: 'incomplete_body' }); return; }
         if (opts.refuse === 'quota_exceeded' || usage().used + length > opts.quota) {
           const u = usage();
-          json(res, 413, { error: 'quota_exceeded', message: 'quota exceeded', used: u.used, quota: u.quota, window_seconds: u.window_seconds, frees_at: freesAt() });
+          json(res, 413, { error: 'quota_exceeded', used: u.used, quota: u.quota, window_seconds: u.window_seconds, frees_at: freesAt() });
           return;
         }
-        if (opts.refuse === 'file_too_large' || length > opts.maxFile) { json(res, 413, { error: 'file_too_large', message: 'too large', max: opts.maxFile }); return; }
-        if (opts.refuse === 'storage_full') { json(res, 507, { code: 'storage_full', error: 'storage_full' }); return; }
+        if (opts.refuse === 'file_too_large' || length > opts.maxFile) { json(res, 413, { error: 'file_too_large', max: opts.maxFile }); return; }
+        if (opts.refuse === 'storage_full') { json(res, 507, { error: 'storage_full' }); return; }
         const name = decodeURIComponent(String(req.headers['x-filename'] ?? 'file'));
         const id = fileId();
         const type = String(req.headers['content-type'] ?? 'application/octet-stream');
         state.files.push({ id, name, type, body, auth, createdAt: Date.now(), expired: false });
         json(res, 201, {
+          created_at: new Date().toISOString(),
           id, url: `${state.url}/f/${id}/${encodeURIComponent(name)}`, name, size: body.length, content_type: type,
           expires_at: new Date(Date.now() + opts.retentionSeconds * 1000).toISOString(),
         });
@@ -142,8 +143,15 @@ export async function startFakeFiles(o: FakeFilesOptions = {}): Promise<FakeFile
       if (f.expired) { res.writeHead(410, { 'Content-Type': 'text/html' }); res.end('<p>This file expired.</p>'); return; }
       const ext = f.name.split('.').pop()!.toLowerCase();
       const left = Math.max(0, Math.round(opts.retentionSeconds - (Date.now() - f.createdAt) / 1000));
+      const expiresAt = new Date(f.createdAt + opts.retentionSeconds * 1000).toISOString();
       const headers: Record<string, string | number> = {
+        // Non-inline types (svg, html, …) go out as an octet-stream attachment.
         'Content-Type': TYPES[ext] ?? 'application/octet-stream',
+        'X-File-Content-Type': f.type,
+        'X-File-Expires-At': expiresAt,
+        'Access-Control-Allow-Origin': '*',
+        'Cross-Origin-Resource-Policy': 'cross-origin',
+        ETag: `"${f.id}"`,
         'X-Content-Type-Options': 'nosniff',
         'Content-Security-Policy': "sandbox; default-src 'none'; img-src 'self'; media-src 'self'; style-src 'unsafe-inline'",
         'Cache-Control': `public, max-age=${left}`,
