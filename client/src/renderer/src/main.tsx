@@ -37,10 +37,12 @@ withBridges(initDeepLinkBridge);
 // app (see shared/drop-guard.ts; main also guards will-navigate).
 installDropGuard();
 
-// The boson auth service (accounts, sign-in, tokens). Production default;
-// client/.env points dev builds at a local one.
+// The boson auth service (accounts, sign-in, tokens) and API. Production
+// defaults, so a build made without CI's env (package-ios.sh, a local
+// package.sh) talks to them, not to localhost (which the shell's API proxy
+// blocks: "Blocked host"); client/.env points dev builds at local ones.
 const authUrl = import.meta.env.VITE_AUTH_URL ?? 'https://auth.boson.chat';
-const bosonUrl = import.meta.env.VITE_BOSON_API_URL ?? 'http://localhost:3000';
+const bosonUrl = import.meta.env.VITE_BOSON_API_URL ?? 'https://api.boson.chat';
 
 const root = document.getElementById('app')!;
 

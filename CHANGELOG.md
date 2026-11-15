@@ -1,3 +1,13 @@
+## [0.57.1](https://github.com/boson-chat/boson/compare/v0.57.0...v0.57.1) (2026-11-15)
+
+### Bug Fixes
+
+* network sign-in and uploads on iOS ([#57](https://github.com/boson-chat/boson/issues/57)) ([1b4036e](https://github.com/boson-chat/boson/commit/1b4036eccbe12bfbadf2a919c77022954aa4e4e5)), closes [#55](https://github.com/boson-chat/boson/issues/55)
+
+### Documentation
+
+* plan for the web client — the engine as WebAssembly at boson.chat/chat ([#27](https://github.com/boson-chat/boson/issues/27)) ([5563db5](https://github.com/boson-chat/boson/commit/5563db55e3267f46395cec0a3c72dfab3495dc34))
+
 ## [0.57.0](https://github.com/boson-chat/boson/compare/v0.56.1...v0.57.0) (2026-11-15)
 
 ### Features
