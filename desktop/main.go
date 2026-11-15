@@ -95,12 +95,18 @@ func main() {
 			OnSecondInstanceLaunch: func(d application.SecondInstanceData) { deepLinks.onSecondInstance(d.Args) },
 		}
 	}
+	// One on-disk image cache for embeds, avatars, theme images and file
+	// previews (imagecache.go), served at /_boson/img.
+	branding := NewBrandingService(dev)
+	images := NewImageCacheService(imageCacheDir(dataDir), filepath.Join(dataDir, "image-cache.json"), dev)
+	images.useBranding(branding)
 	services := []application.Service{
 		application.NewService(engine),
 		application.NewService(api),
 		application.NewService(secure),
 		application.NewService(NewUnfurlService(dev)),
-		application.NewService(NewBrandingService(dev)),
+		application.NewService(branding),
+		application.NewService(images),
 		application.NewService(spotify),
 		application.NewService(NewThemesService(dataDir)),
 		application.NewService(links),
@@ -112,7 +118,7 @@ func main() {
 	}
 	// Voice channels (desktop only; voice.go) and "Sign in to <network>"
 	// discovery (netauth.go).
-	desktopServices, filesRoutes := voiceServices(dataDir, authBase, dev, api)
+	desktopServices, filesRoutes := voiceServices(dataDir, authBase, dev, api, images)
 	services = append(services, desktopServices...)
 	// "Sign in with …": the loopback redirect listener (sso.go). Desktop
 	// only; phones would need a boson:// redirect instead.
@@ -124,7 +130,7 @@ func main() {
 		Description: "Boson chat",
 		Services:    services,
 		Assets: application.AssetOptions{
-			Handler: assetHandler(dist, filesRoutes),
+			Handler: assetHandler(dist, filesRoutes, images),
 		},
 		SingleInstance: single,
 		// iOS/Android own the process's signals; Wails' handlers crash there.

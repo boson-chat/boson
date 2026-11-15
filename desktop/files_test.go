@@ -212,7 +212,7 @@ func TestFilesUploadStreamsWithProgress(t *testing.T) {
 	if _, err := s.trust(files.URL); err != nil {
 		t.Fatal(err)
 	}
-	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s, nil))
 	defer app.Close()
 	body := strings.Repeat("x", 100_000)
 	tk := s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Auth: "Guest g1", Name: "../My photo?.png", Type: "image/png", Size: int64(len(body))})
@@ -271,7 +271,7 @@ func TestFilesViewProxy(t *testing.T) {
 	if _, err := s.trust(files.URL); err != nil {
 		t.Fatal(err)
 	}
-	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s, nil))
 	defer app.Close()
 	get := func(raw string, hdr map[string]string) *http.Response {
 		req, _ := http.NewRequest(http.MethodGet, app.URL+filesViewPath(raw), nil)
@@ -346,7 +346,7 @@ func TestFilesUploadChunksAssemble(t *testing.T) {
 	if _, err := s.trust(files.URL); err != nil {
 		t.Fatal(err)
 	}
-	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s, nil))
 	defer app.Close()
 
 	var whole strings.Builder
@@ -429,7 +429,7 @@ func TestFilesUploadEarlyRefusal(t *testing.T) {
 	if _, err := s.trust(files.URL); err != nil {
 		t.Fatal(err)
 	}
-	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s, nil))
 	defer app.Close()
 	chunk := strings.Repeat("x", 1<<20)
 	tk := s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "q.bin", Size: 8 << 20})
@@ -455,7 +455,7 @@ func TestFilesUploadIdleLapses(t *testing.T) {
 	if _, err := s.trust(files.URL); err != nil {
 		t.Fatal(err)
 	}
-	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s))
+	app := httptest.NewServer(assetHandler(fstest.MapFS{}, s, nil))
 	defer app.Close()
 	tk := s.BeginUpload(FilesUploadRequest{FilesURL: files.URL, Name: "g.bin", Size: 6})
 	postChunk(t, app.URL, tk.Path, 0, "abc")

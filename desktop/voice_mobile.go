@@ -10,6 +10,6 @@ import (
 
 // No voice (or file uploads) on iOS/Android yet: no VoiceService or
 // FilesService, so the renderer shows none.
-func voiceServices(string, string, bool, *ApiService) ([]application.Service, http.Handler) {
+func voiceServices(string, string, bool, *ApiService, *ImageCacheService) ([]application.Service, http.Handler) {
 	return nil, nil
 }
