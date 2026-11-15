@@ -1,4 +1,4 @@
-//go:build cgo && !novoiceaudio && !ios && !android
+//go:build cgo && !novoiceaudio
 
 package main
 
@@ -7,20 +7,39 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/boson-chat/boson/desktop/internal/micperm"
 	"github.com/boson-chat/quicvoice/client/voice"
 	"github.com/boson-chat/quicvoice/wire"
 )
 
 // Voice audio: the quicvoice engine (capture, VAD/push-to-talk, Opus,
-// jitter buffers, mixer) on a miniaudio duplex device. cgo: libopus (built
-// with -tags nolibopusfile; only libopus is linked) and miniaudio.
+// jitter buffers, mixer) on the platform's audio device (openAudioDevice):
+// a miniaudio duplex device on desktop and Android, the voice-processing
+// audio unit on iOS. cgo: libopus (built with -tags nolibopusfile; only
+// libopus is linked) and miniaudio.
 const voiceAudioCompiled = true
 
 var errVoiceAudioUnavailable = errors.New("voice audio is unavailable")
 
+// audioDevice is the hardware half: it feeds an engine's Capture and
+// Playback from its callbacks. *voice.Audio on desktop.
+type audioDevice interface {
+	Start(e *voice.Engine, inputID, outputID string) error
+	Stop()
+	Close()
+	Inputs() ([]voice.DeviceInfo, error)
+	Outputs() ([]voice.DeviceInfo, error)
+}
+
+// phoneDevice is a phone's device: speaker or earpiece, where the sound
+// goes and whether a phone call has interrupted it.
+type phoneDevice interface {
+	SetSpeaker(on bool)
+	Route() string
+	Interrupted() bool
+}
+
 func newAudioBackend() (audioBackend, error) {
-	dev, err := voice.NewAudio()
+	dev, err := openAudioDevice()
 	if err != nil {
 		return nil, err
 	}
@@ -34,27 +53,11 @@ func newAudioBackend() (audioBackend, error) {
 	return q, nil
 }
 
-func micPermission(request bool) micAccess {
-	switch micperm.Status() {
-	case micperm.Granted:
-		return micGranted
-	case micperm.Denied:
-		return micDenied
-	default:
-		if request && micperm.Request() {
-			return micGranted
-		} else if request {
-			return micDenied
-		}
-		return micUndetermined
-	}
-}
-
-// quicvoiceAudio adapts voice.Audio + voice.Engine. The engine takes its
+// quicvoiceAudio adapts an audioDevice + voice.Engine. The engine takes its
 // VAD threshold only when it's made, so changing it makes a new engine with
 // every setting carried over.
 type quicvoiceAudio struct {
-	dev *voice.Audio
+	dev audioDevice
 	eng atomic.Pointer[voice.Engine]
 
 	mu                            sync.Mutex
@@ -68,7 +71,7 @@ type quicvoiceAudio struct {
 }
 
 func (q *quicvoiceAudio) newEngine() (*voice.Engine, error) {
-	return voice.NewEngine(voice.Options{VADThreshold: max(q.threshold, 0.001)})
+	return voice.NewEngine(voice.Options{Bitrate: voiceBitrate, VADThreshold: max(q.threshold, 0.001)})
 }
 
 func (q *quicvoiceAudio) Start(in, out string) error {
@@ -213,7 +216,17 @@ func (q *quicvoiceAudio) Stats() audioStats {
 	if total := played + concealed; total > 0 {
 		st.LossPercent = 100 * float32(concealed) / float32(total)
 	}
+	if p, ok := q.dev.(phoneDevice); ok {
+		st.Route, st.Interrupted = p.Route(), p.Interrupted()
+	}
 	return st
+}
+
+// SetSpeaker: see audioRouter (phones; nothing on desktop).
+func (q *quicvoiceAudio) SetSpeaker(on bool) {
+	if p, ok := q.dev.(phoneDevice); ok {
+		p.SetSpeaker(on)
+	}
 }
 
 func (q *quicvoiceAudio) Close() {

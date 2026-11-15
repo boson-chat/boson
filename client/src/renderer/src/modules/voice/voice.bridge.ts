@@ -2,8 +2,8 @@ import type {
   VoiceDevices, VoiceJoinRequest, VoiceRoomChange, VoiceRoomInput, VoiceRoomsResult, VoiceServerInfo, VoiceState,
 } from './voice.types';
 
-// window.bosonVoice: the desktop app's VoiceService (desktop/voice.go),
-// installed by platform/wails.ts. Absent in a browser and on iOS/Android,
+// window.bosonVoice: the app's VoiceService (desktop/voice.go) on desktop,
+// iOS and Android, installed by platform/wails.ts. Absent in a browser,
 // where there's no voice.
 export interface VoiceBridge {
   discover(host: string, refresh: boolean): Promise<VoiceServerInfo>;
@@ -24,6 +24,8 @@ export interface VoiceBridge {
   devices(): Promise<VoiceDevices>;
   setDevices(inputId: string, outputId: string): Promise<string>;
   micTest(on: boolean): Promise<VoiceState>;
+  // Phones: loudspeaker (true) or earpiece. Absent on older shells.
+  setSpeaker?(on: boolean): Promise<VoiceState>;
   state(): Promise<VoiceState>;
   onState(fn: (s: VoiceState) => void): () => void;
 }

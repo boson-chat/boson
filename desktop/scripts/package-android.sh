@@ -23,6 +23,8 @@
 #   SKIP_RENDERER=1 reuse client/out/renderer as it is
 #   ANDROID_HOME    the SDK (default ~/Library/Android/sdk, ~/Android/Sdk)
 #   ANDROID_NDK_HOME the NDK (default the newest under $ANDROID_HOME/ndk)
+#   OPUS_PREFIX     where the static libopus for voice is built and cached
+#                   (default desktop/build/.opus; scripts/build-opus.sh)
 #
 # Needs a JDK 17+ (JAVA_HOME). Gradle comes from the wrapper.
 #
@@ -75,8 +77,9 @@ rm -rf "$desktop/frontend/dist"
 cp -R "$client/out/renderer" "$desktop/frontend/dist"
 touch "$desktop/frontend/dist/.gitkeep"
 
-# 2. The Go app as a shared library per ABI.
-tags=android
+# 2. The Go app as a shared library per ABI, with voice: a static libopus
+#    per ABI (nolibopusfile: only libopus is used).
+tags=android,nolibopusfile
 ldflags="-X main.appVersion=$VERSION"
 if [[ "${DEV:-}" == "1" ]]; then
   ldflags="$ldflags -X main.devBuild=true -X main.apiBase=http://10.0.2.2:3000"
@@ -92,10 +95,15 @@ for arch in ${ARCHS:-arm64}; do
     amd64) abi=x86_64;    triple=x86_64-linux-android ;;
     *)     echo "unsupported arch $arch" >&2; exit 1 ;;
   esac
+  opus="${OPUS_PREFIX:-$desktop/build/.opus}/android-$arch"
+  ANDROID_NDK_HOME="$ndk" "$here/build-opus.sh" "$opus" "android-$arch"
   echo "building the Go library ($tags, $abi)"
   mkdir -p "$jni/$abi"
+  # The prefix in CGO_CFLAGS too: Go's build cache doesn't key on
+  # PKG_CONFIG_PATH, and would reuse a build against another libopus.
   (cd "$desktop" && GOOS=android GOARCH="$arch" CGO_ENABLED=1 \
     CC="$toolchain/$triple$MIN_SDK-clang" CXX="$toolchain/$triple$MIN_SDK-clang++" \
+    PKG_CONFIG_PATH="$opus/lib/pkgconfig" CGO_CFLAGS="-O2 -g -I$opus/include" \
     go build -buildmode=c-shared -tags "$tags" -trimpath -buildvcs=false -ldflags "$ldflags" \
       -o "$jni/$abi/libwails.so" .)
   rm -f "$jni/$abi/libwails.h"

@@ -18,6 +18,22 @@ describe('Settings → Voice', () => {
   });
   afterEach(() => setVoiceController(null));
 
+  it('on a phone: no device pickers, and push to talk is the call screen button', async () => {
+    window.bosonPlatform = 'ios';
+    try {
+      render(<VoiceSettingsSection open />);
+      expect(screen.queryByLabelText('Input device')).toBeNull();
+      expect(screen.getByText(/Your phone cancels echo/)).toBeTruthy();
+      fireEvent.click(screen.getByRole('tab', { name: 'Push to talk' }));
+      expect(getVoiceSettings().mode).toBe('ptt');
+      expect(await screen.findByText(/Hold the talk button while you speak/)).toBeTruthy();
+      expect(screen.queryByText('Choose a key')).toBeNull();
+      expect(screen.getByRole('tab', { name: 'Open mic' })).toBeTruthy();
+    } finally {
+      delete window.bosonPlatform;
+    }
+  });
+
   it('lists devices and saves the choice', async () => {
     render(<VoiceSettingsSection open />);
     await screen.findByText('Shure MV7');

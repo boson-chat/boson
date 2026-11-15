@@ -1,5 +1,3 @@
-//go:build !ios && !android
-
 package main
 
 import (
@@ -8,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -42,6 +41,9 @@ type VoiceService struct {
 	dial     func(ctx context.Context, cfg client.Config) (voiceConn, error)
 	micAuth  func(request bool) micAccess
 	emit     func(name string, data any)
+	// calls: what the OS hears about a call (Android: the foreground
+	// service and its "In voice" notification); nil on desktop and iOS.
+	calls callNotifier
 
 	mu       sync.Mutex
 	audio    audioBackend
@@ -65,7 +67,13 @@ type VoiceService struct {
 	// micTestErr: why the mic test couldn't start.
 	micTestErr string
 	volumes    map[string]int // per user id, percent
-	dirty      bool
+	// speaker: a phone plays through its loudspeaker rather than the
+	// earpiece (a headset takes over either way).
+	speaker bool
+	// inCall: calls has been told a call is on (CallStarted, not yet
+	// CallEnded).
+	inCall bool
+	dirty  bool
 
 	stop chan struct{}
 	once sync.Once
@@ -125,6 +133,24 @@ type audioStats struct {
 	Transmitting bool
 	Speaking     map[uint16]bool
 	LossPercent  float32 // across senders
+	// Phones: where the sound goes (see VoiceState.Route), and whether the
+	// OS has the audio (a phone call, Siri).
+	Route       string
+	Interrupted bool
+}
+
+// audioRouter is a phone backend's output switch: the loudspeaker, or the
+// earpiece. Headsets (wired, Bluetooth) win over both.
+type audioRouter interface {
+	SetSpeaker(on bool)
+}
+
+// callNotifier tells the OS a call started or ended: Android keeps the app
+// alive with a foreground service and an ongoing notification (with a
+// Leave action) while there's one.
+type callNotifier interface {
+	CallStarted(room, server string)
+	CallEnded()
 }
 
 // VoiceDevice is an input or output device; an empty ID is the system default.
@@ -208,6 +234,14 @@ type VoiceState struct {
 	// Quality: good | ok | poor | unknown.
 	Quality    string `json:"quality"`
 	AudioError string `json:"audioError,omitempty"`
+	// Phones only. Speaker: the loudspeaker is chosen over the earpiece.
+	// Route: where the sound goes now — speaker | earpiece | bluetooth |
+	// headphones | other ("" on desktop, or with the device closed).
+	// Interrupted: a phone call (or Siri) has the audio; the call resumes
+	// after it.
+	Speaker     bool   `json:"speaker"`
+	Route       string `json:"route,omitempty"`
+	Interrupted bool   `json:"interrupted,omitempty"`
 }
 
 const (
@@ -231,9 +265,11 @@ func NewVoiceService(dataDir, authBase string, dev bool) *VoiceService {
 			return client.Dial(ctx, cfg)
 		},
 		micAuth: micPermission,
+		calls:   newCallNotifier(),
 		status:  "idle",
 		vadDB:   defaultVADDB,
 		volumes: map[string]int{},
+		speaker: true,
 		stop:    make(chan struct{}),
 	}
 }
@@ -393,6 +429,9 @@ func (s *VoiceService) ensureAudio() (audioBackend, error) {
 	a.SetPushToTalk(s.ptt)
 	a.SetMuted(s.muted || s.deafened)
 	a.SetDeafened(s.deafened)
+	if r, ok := a.(audioRouter); ok {
+		r.SetSpeaker(s.speaker)
+	}
 	s.audio = a
 	return a, nil
 }
@@ -407,7 +446,7 @@ func (s *VoiceService) startAudio() (kind, msg string) {
 	if s.micAuth != nil {
 		switch s.micAuth(true) {
 		case micDenied:
-			return "mic", "Boson can't use your microphone. Allow it in your system's privacy settings, then try again."
+			return "mic", micDeniedMessage(runtime.GOOS)
 		}
 	}
 	s.mu.Lock()
@@ -420,7 +459,7 @@ func (s *VoiceService) startAudio() (kind, msg string) {
 	if err := a.Start(in, out); err != nil {
 		low := strings.ToLower(err.Error())
 		if strings.Contains(low, "denied") || strings.Contains(low, "permission") || strings.Contains(low, "access") {
-			return "mic", "Boson can't use your microphone. Allow it in your system's privacy settings, then try again."
+			return "mic", micDeniedMessage(runtime.GOOS)
 		}
 		return "device", "Couldn't open your audio device: " + err.Error()
 	}
@@ -428,6 +467,18 @@ func (s *VoiceService) startAudio() (kind, msg string) {
 	s.running = true
 	s.mu.Unlock()
 	return "", ""
+}
+
+// micDeniedMessage says where to allow the microphone on goos.
+func micDeniedMessage(goos string) string {
+	switch goos {
+	case "ios":
+		return "Boson can't use your microphone. Turn on Microphone for Boson in Settings, then try again."
+	case "android":
+		return "Boson can't use your microphone. Allow it in Settings → Apps → Boson → Permissions, then try again."
+	default:
+		return "Boson can't use your microphone. Allow it in your system's privacy settings, then try again."
+	}
 }
 
 // stopAudioIfIdle closes the device when nothing needs it, so the mic
@@ -547,6 +598,9 @@ func (s *VoiceService) Join(req VoiceJoinRequest) VoiceState {
 		s.fail(seq, kind, msg)
 		return s.State()
 	}
+	// With the mic allowed and open (Android starts a microphone
+	// foreground service only then), while the app is still in front.
+	s.syncCall()
 	a, _ := s.ensureAudio()
 
 	sess := &voiceSession{members: map[uint16]*voiceMember{}}
@@ -601,6 +655,7 @@ func (s *VoiceService) Join(req VoiceJoinRequest) VoiceState {
 		_ = conn.SetMute(muted || deafened, deafened)
 	}
 	go s.watch(sess)
+	s.syncCall()
 	return s.State()
 }
 
@@ -630,6 +685,28 @@ func (s *VoiceService) Leave() {
 		_ = sess.conn.Close()
 	}
 	s.stopAudioIfIdle()
+	s.syncCall()
+}
+
+// syncCall tells calls (the OS) whether a call is on: in a room, or
+// connecting to one with the audio device open. The state loop calls it
+// too, so every way a call ends (dropped, kicked, a failed join) reaches it.
+func (s *VoiceService) syncCall() {
+	s.mu.Lock()
+	on := s.sess != nil || (s.status == "connecting" && s.running)
+	changed := on != s.inCall
+	s.inCall = on
+	room, host := s.roomName, s.host
+	n := s.calls
+	s.mu.Unlock()
+	if !changed || n == nil {
+		return
+	}
+	if on {
+		n.CallStarted(room, host)
+	} else {
+		n.CallEnded()
+	}
 }
 
 // kicked ends sess after the server put us out of its room.
@@ -677,6 +754,7 @@ func (s *VoiceService) fail(seq int, kind, msg string) {
 	s.dirty = true
 	s.mu.Unlock()
 	s.stopAudioIfIdle()
+	s.syncCall()
 }
 
 // classifyVoiceError turns a dial/join error into a kind and a sentence.
@@ -836,6 +914,20 @@ func (s *VoiceService) SetInputMode(mode string) {
 	}
 }
 
+// SetSpeaker picks a phone's loudspeaker (on) or earpiece (off); a
+// headset takes over from either. Nothing on desktop.
+func (s *VoiceService) SetSpeaker(on bool) VoiceState {
+	s.mu.Lock()
+	s.speaker = on
+	a := s.audio
+	s.dirty = true
+	s.mu.Unlock()
+	if r, ok := a.(audioRouter); ok {
+		r.SetSpeaker(on)
+	}
+	return s.State()
+}
+
 // PTT is the push-to-talk key going down or up.
 func (s *VoiceService) PTT(down bool) {
 	s.mu.Lock()
@@ -906,10 +998,11 @@ func (s *VoiceService) State() VoiceState {
 		Error: s.errMsg, ErrorKind: s.errKind,
 		Participants: []VoiceParticipant{},
 		Muted:        s.muted, Deafened: s.deafened, PushToTalk: s.ptt, MicTest: s.micTest, MicTestError: s.micTestErr,
-		Quality: "unknown", AudioError: s.audioErr,
+		Quality: "unknown", AudioError: s.audioErr, Speaker: s.speaker,
 	}
 	if s.running {
 		st.MicLevel, st.Transmitting = es.MicLevel, es.Transmitting
+		st.Route, st.Interrupted = es.Route, es.Interrupted
 	}
 	if s.sess == nil {
 		return st
@@ -972,6 +1065,7 @@ func (s *VoiceService) stateLoop() {
 			if push {
 				s.send(VoiceStateEvent, s.State())
 			}
+			s.syncCall()
 		}
 	}
 }

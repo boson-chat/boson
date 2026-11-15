@@ -4,10 +4,14 @@ import {
   VAD_MAX_DB, VAD_MIN_DB, getVoiceSettings, keyLabel, onVoiceSettingsChange, setVoiceSettings, useVoice,
   type VoiceDevices, type VoiceSettings,
 } from '../../modules/voice';
+import { isMobile } from '../../shared/window-controls';
 import './VoiceSettings.css';
 
 // Settings → Voice: devices, voice activity or push to talk (with its key
-// and sensitivity), and a mic test that plays you back to yourself.
+// and sensitivity), and a mic test that plays you back to yourself. On a
+// phone there are no devices to pick (the system routes to the speaker,
+// earpiece or a headset; the call screen switches speaker and earpiece)
+// and push to talk is the call screen's hold-to-talk button.
 export function VoiceSettingsSection({ open }: { open: boolean }) {
   const { voice, snap } = useVoice();
   const [s, setS] = useState<VoiceSettings>(() => getVoiceSettings());
@@ -46,6 +50,7 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
   }, [capturing]);
 
   if (!voice) return null;
+  const phone = isMobile();
   const call = snap.call;
   const vad = vadDraft ?? s.vadDb;
   // Mic level on the same -60…0 dB scale as the threshold.
@@ -58,8 +63,9 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
       <div class="user-settings-section-head">
         <h2 class="user-settings-section-title">Voice</h2>
         <p class="user-settings-section-desc">
-          Voice channels on servers that have them. Use headphones: Boson doesn't cancel echo yet, so speakers feed your
-          own room back to everyone.
+          {phone
+            ? "Voice channels on servers that have them. Your phone cancels echo, so the loudspeaker is fine; headphones keep the call to yourself."
+            : "Voice channels on servers that have them. Use headphones: Boson doesn't cancel echo yet, so speakers feed your own room back to everyone."}
         </p>
       </div>
       <div class="user-settings-section-body">
@@ -74,7 +80,7 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
         )}
         <Card>
           <div class="user-settings-card-body user-settings-form">
-            <div class="voice-settings-devices">
+            {!phone && <div class="voice-settings-devices">
               <Field label="Input device">
                 <DeviceSelect
                   label="Input device"
@@ -91,16 +97,18 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
                   onChange={(id) => setVoiceSettings({ outputId: id })}
                 />
               </Field>
-            </div>
-            <Divider />
+            </div>}
+            {!phone && <Divider />}
             <Field label="Input mode">
               <Tabs
-                tabs={[{ id: 'vad', label: 'Voice activity' }, { id: 'ptt', label: 'Push to talk' }]}
+                tabs={[{ id: 'vad', label: phone ? 'Open mic' : 'Voice activity' }, { id: 'ptt', label: 'Push to talk' }]}
                 active={s.mode}
                 onChange={(id) => setVoiceSettings({ mode: id === 'ptt' ? 'ptt' : 'vad' })}
               />
             </Field>
-            {s.mode === 'ptt' ? (
+            {s.mode === 'ptt' && phone ? (
+              <p class="voice-settings-note">Hold the talk button while you speak: on the call screen (tap the voice bar over the chat), or under the voice bar on a tablet.</p>
+            ) : s.mode === 'ptt' ? (
               <Field
                 label="Push-to-talk key"
                 hint="Hold it to talk while Boson's window is focused. (A system-wide key isn't supported yet.)"
@@ -163,7 +171,9 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
           </div>
         </Card>
         <p class="voice-settings-note">
-          Right-click someone in a voice channel to change how loud they are for you.
+          {phone
+            ? 'Tap someone on the call screen to change how loud they are for you.'
+            : 'Right-click someone in a voice channel to change how loud they are for you.'}
         </p>
       </div>
     </section>

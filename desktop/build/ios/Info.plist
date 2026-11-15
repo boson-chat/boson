@@ -79,6 +79,15 @@
         <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
+    <!-- Voice channels: the mic prompt on the first join, and a call that
+         keeps going with the app in the background or the screen locked
+         (voice_device_ios.m's voice-chat audio session). -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Boson uses the microphone when you join a voice channel, so the others in it can hear you.</string>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
     <key>NSHumanReadableCopyright</key>
     <string>Copyright © 2026 Boson</string>
 </dict>

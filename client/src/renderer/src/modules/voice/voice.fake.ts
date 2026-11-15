@@ -122,6 +122,7 @@ export function createFakeVoiceBridge(opts: FakeVoiceOptions = {}): FakeVoiceBri
       };
     },
     async setDevices(inputId, outputId) { log('setDevices', inputId, outputId); return ''; },
+    async setSpeaker(on) { log('setSpeaker', on); return set({ speaker: on, route: on ? 'speaker' : 'earpiece' }); },
     async micTest(on) { log('micTest', on); return set({ micTest: on, micTestError: undefined, micLevel: on ? 0.62 : 0, transmitting: on }); },
     async state() { return fake.current; },
     onState(fn) {

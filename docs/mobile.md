@@ -93,7 +93,7 @@ plugin. More native glue, same renderer.
 | YouTube wrapper | from boson.chat | same (WKWebView, as macOS) | check in Phase 0 (Android WebView) |
 | Network sign-in discovery (boson.json `auth.url`) | Go (`NetAuthService`) | same | same |
 | File uploads | Go (`FilesService`), 4 MiB ArrayBuffer chunks to `/_boson/files/` | same (WKWebView passes ArrayBuffer bodies whole) | same; untested on the Android WebView |
-| Voice | QUIC + Opus (cgo audio) | not yet | not yet |
+| Voice | QUIC + Opus (cgo audio: miniaudio) | same engine on the voice-processing audio unit (echo cancelled), see [Voice](#voice-on-ios-and-android) | same engine on miniaudio/AAudio as a voice call, see [Voice](#voice-on-ios-and-android) |
 | "Sign in with …" (SSO) | loopback redirect listener | not yet (needs a `boson://` redirect) | same |
 
 The renderer already reads the platform (`bosonPlatform`); it gains `ios`
@@ -128,8 +128,8 @@ future web version get it too.
 IRC is a persistent TCP connection; phones don't keep apps running:
 
 - **iOS** suspends an app shortly after it leaves the screen; the IRC
-  connection then times out. Background modes for VoIP/audio aren't
-  allowed for chat.
+  connection then times out. The audio background mode is only for audio
+  the user hears: the app has it for voice calls (below), not for chat.
 - **Android** allows a **foreground service** (with a persistent
   notification) to keep the connection, at a battery cost.
 
@@ -148,6 +148,55 @@ So for v1:
   e.g. the IRCv3 `draft/webpush` extension (soju and Ergo support it) via a
   small push relay. That's a server; **out of scope for v1**, listed as a
   follow-up.
+
+## Voice on iOS and Android
+
+Voice channels work on phones as on desktop: the same `VoiceService`
+(`desktop/voice.go`) and quicvoice engine (Opus at 24 kbit/s on phones,
+VAD/push to talk, jitter buffers, mixer) over QUIC to quicvoiced. Only the
+audio device and the OS glue differ.
+
+| | iOS | Android |
+|---|---|---|
+| Audio device | one `VoiceProcessingIO` audio unit, 48 kHz mono S16 (`voice_device_ios.m`): Apple's echo canceller, noise suppression and AGC | miniaudio on AAudio (OpenSL ES on 8.0), usage and input preset *voice communication*, so the platform's AEC/NS run where the device has them (`voice_device_android.go`) |
+| Session / mode | `playAndRecord` + `voiceChat`, Bluetooth (HFP) allowed | `MODE_IN_COMMUNICATION` and audio focus while the device is open (`BosonVoice.java`) |
+| Mic permission | `NSMicrophoneUsageDescription`; asked on the first join (or mic test) | `RECORD_AUDIO` at runtime, asked on the first join; denied → a message pointing at Settings |
+| Speaker / earpiece | loudspeaker by default (`DefaultToSpeaker`); the call screen switches to the earpiece; headsets take over | the same, via `setCommunicationDevice` (API 31+; `setSpeakerphoneOn` before); Bluetooth SCO / wired headsets first |
+| Interruptions | a phone call or Siri stops the unit; it restarts when they end (whether or not iOS suggests resuming); a media-services reset rebuilds it. The UI says "Paused while another call has the audio" | losing audio focus (a phone call) shows the same; AAudio streams are reopened by miniaudio after a route change |
+| Background | `UIBackgroundModes: audio`: with the audio unit running the app keeps running (screen locked or another app open), and so do the IRC connections | a foreground service of type `microphone` (`BosonVoiceService`) with an ongoing "In voice: <room>" notification and a Leave action, while connecting or in a room |
+
+The interface (`MobileVoice.tsx`): a call bar over the chat whatever
+channel or server is open, with mute and leave as 44 px buttons; a tap
+opens the call screen (a bottom sheet) with who's in and talking, mute,
+deafen, speaker/earpiece (shows the headset when one has the sound), leave,
+open mic or push to talk, and a hold-to-talk button in push-to-talk mode.
+Tapping someone shows their volume slider. Open mic (voice activity) is the
+default; Settings → Voice has the sensitivity and the mic test, no device
+pickers.
+
+What still drops or isn't there:
+
+- The capture side keeps running while muted (the mic indicator stays on):
+  stopping the voice-processing unit's input, or AAudio's input stream,
+  would glitch the playback that shares it, and on iOS the running unit is
+  what keeps the app alive in the background.
+- Leaving the call in the background ends the reason to run there: iOS
+  suspends the app a few seconds later (the scene delegate's ~30 s grace)
+  and the IRC connections drop as without voice; Android stops the
+  foreground service with the call (unless "Stay connected" runs its own).
+- Swiping the app away (Android) or iOS killing it ends the call.
+- A network change (Wi-Fi ↔ cellular) drops the QUIC connection: the call
+  ends with "Lost the connection" and a Try again button; there's no
+  automatic rejoin yet.
+- The webview can be suspended in the background: the call goes on in Go,
+  and the screen catches up on return.
+- No push-to-talk from the lock screen or a headset button; push to talk is
+  the on-screen button while the app is open.
+
+Builds: `desktop/scripts/build-opus.sh` cross-compiles a static libopus per
+target (`ios-device`, `ios-simulator`, `android-arm64`, `android-amd64`),
+cached under `desktop/build/.opus`; `package-ios.sh` and
+`package-android.sh` build it and link it in (`-tags nolibopusfile`).
 
 ## Store requirements that affect the app
 
