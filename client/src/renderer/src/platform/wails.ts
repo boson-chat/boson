@@ -341,6 +341,19 @@ export async function installWailsBridges(): Promise<void> {
       resolve: (address: string) => Call.ByName('main.NetAuthService.Resolve', address),
     };
   }
+  // File uploads (desktop/files.go): each network's files host, its small
+  // JSON calls, and uploads streamed by the shell (the File is POSTed to
+  // the app's own origin). Desktop only, like network sign-in.
+  if (await Call.ByName('main.FilesService.CancelUpload', '').then(() => true, () => false)) {
+    const f = (method: string, ...args: unknown[]): Promise<unknown> => Call.ByName(`main.FilesService.${method}`, ...args);
+    w.bosonFiles = {
+      discover: (host: string, refresh: boolean) => f('Discover', host, refresh),
+      request: (call: unknown) => f('Request', call),
+      beginUpload: (req: unknown) => f('BeginUpload', req),
+      cancelUpload: (id: string) => f('CancelUpload', id),
+      onProgress: (fn: (p: unknown) => void) => Events.On('files:progress', (ev) => fn(ev.data)),
+    };
+  }
   w.bosonEngine = {
     discovery: async () => ({ url: 'wails:engine', token: 'in-process', socket: WailsEngineSocket }),
   };

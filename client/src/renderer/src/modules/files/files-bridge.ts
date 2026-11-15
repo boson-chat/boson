@@ -1,0 +1,58 @@
+// window.bosonFiles (platform/wails.ts → desktop/files.go): the desktop
+// shell finds each network's files host, holds the allowlist, makes the
+// files host's small JSON calls and streams uploads and previews.
+//
+// An upload: beginUpload registers it (host, credentials, name, type,
+// size) and returns a path on the app's own origin; the renderer POSTs the
+// File there and the shell streams it on to the files host, emitting
+// progress. Previews are served from filesViewUrl() (same origin, so the
+// page's CSP needn't name any files host).
+
+export interface FilesDiscovery {
+  host: string;
+  filesUrl?: string;
+  source?: 'well-known' | 'auth';
+  error?: string;
+}
+
+export interface FilesCall {
+  filesUrl: string;
+  method: 'GET' | 'POST';
+  path: '/v1/config' | '/v1/me/usage' | '/v1/guest-token';
+  auth?: string;
+}
+
+export interface FilesCallResult {
+  status: number;
+  body?: string;
+  error?: string;
+}
+
+export interface FilesUploadTicket {
+  id?: string;
+  path?: string;
+  error?: string;
+}
+
+export interface FilesProgress {
+  id: string;
+  sent: number;
+  total: number;
+}
+
+export interface FilesBridge {
+  discover(host: string, refresh: boolean): Promise<FilesDiscovery>;
+  request(call: FilesCall): Promise<FilesCallResult>;
+  beginUpload(req: { filesUrl: string; auth?: string; name: string; type?: string; size: number }): Promise<FilesUploadTicket>;
+  cancelUpload(id: string): Promise<void>;
+  onProgress(fn: (p: FilesProgress) => void): () => void;
+}
+
+export function filesBridge(): FilesBridge | null {
+  return (globalThis as { bosonFiles?: FilesBridge }).bosonFiles ?? null;
+}
+
+// Where the shell previews a file (desktop/files.go serveView).
+export function filesViewUrl(url: string): string {
+  return `/_boson/files/view?u=${encodeURIComponent(url)}`;
+}

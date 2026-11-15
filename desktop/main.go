@@ -112,7 +112,8 @@ func main() {
 	}
 	// Voice channels (desktop only; voice.go) and "Sign in to <network>"
 	// discovery (netauth.go).
-	services = append(services, voiceServices(dataDir, authBase, dev, api)...)
+	desktopServices, filesRoutes := voiceServices(dataDir, authBase, dev, api)
+	services = append(services, desktopServices...)
 	// "Sign in with …": the loopback redirect listener (sso.go). Desktop
 	// only; phones would need a boson:// redirect instead.
 	if !mobileOS {
@@ -123,7 +124,7 @@ func main() {
 		Description: "Boson chat",
 		Services:    services,
 		Assets: application.AssetOptions{
-			Handler: assetHandler(dist),
+			Handler: assetHandler(dist, filesRoutes),
 		},
 		SingleInstance: single,
 		// iOS/Android own the process's signals; Wails' handlers crash there.

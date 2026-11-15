@@ -70,6 +70,9 @@ type VoiceDiscovery struct {
 	IRC *NetworkIRC `json:"irc,omitempty"`
 	// Branding is the network's theme document URL (boson.json branding).
 	Branding string `json:"branding,omitempty"`
+	// Files is the network's files host (boson.json files.url); set for dev
+	// overrides only — FilesService reads live documents itself.
+	Files string `json:"-"`
 }
 
 // NetworkIRC is a boson.json's irc block.
@@ -304,7 +307,7 @@ func (d *voiceDiscoverer) loadNetworkOverrides(paths string) {
 			d.overrideNets = map[string]*VoiceDiscovery{}
 		}
 		irc := &NetworkIRC{Host: host, Port: doc.IRC.Port, TLS: doc.IRC.TLS}
-		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Branding: parseWellKnownBranding(body, true), Definitive: true}
+		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Branding: parseWellKnownBranding(body, true), Files: parseWellKnownFiles(body, true), Definitive: true}
 	}
 }
 

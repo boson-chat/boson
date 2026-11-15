@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 // shellMarker tells the renderer it's running in the Wails shell. The page's
@@ -11,14 +12,23 @@ import (
 // but not in a server-mode build, which is served from http://localhost:<port>.
 const shellMarker = `<meta name="boson-shell" content="wails">`
 
-// assetHandler serves the renderer build, with shellMarker added to index.html.
-func assetHandler(dist fs.FS) http.Handler {
+// filesRoutePrefix is where FilesService answers on the app's own origin.
+const filesRoutePrefix = "/_boson/files/"
+
+// assetHandler serves the renderer build, with shellMarker added to index.html,
+// and files (FilesService: uploads and previews, desktop only) under
+// /_boson/files/.
+func assetHandler(dist fs.FS, uploads http.Handler) http.Handler {
 	files := http.FileServerFS(dist)
 	index, err := fs.ReadFile(dist, "index.html")
 	if err == nil {
 		index = bytes.Replace(index, []byte("<head>"), []byte("<head>"+shellMarker), 1)
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if uploads != nil && strings.HasPrefix(r.URL.Path, filesRoutePrefix) {
+			uploads.ServeHTTP(w, r)
+			return
+		}
 		if err == nil && (r.URL.Path == "/" || r.URL.Path == "/index.html") {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			_, _ = w.Write(index)

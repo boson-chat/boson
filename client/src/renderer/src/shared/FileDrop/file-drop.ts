@@ -12,7 +12,8 @@ import { useRef, useState } from 'preact/hooks';
 //     handler further up (chat, the server rail) acts on them as well.
 //   - `dragging` follows a dragenter/dragleave counter, so moving over the
 //     area's children doesn't flicker it.
-//   - More than one file: the first is used. A file that doesn't match
+//   - More than one file: the first is used (`onFile`), or all of them
+//     (`onFiles`, for multi-file targets like the chat). A file that doesn't match
 //     `accept` goes to `onReject` instead. While `disabled` (e.g. an upload is
 //     in flight) the drop is swallowed and ignored.
 
@@ -20,7 +21,9 @@ export interface FileDropOptions {
   // Same syntax as <input accept>: ".json", "image/*", "image/png", comma-separated.
   accept?: string;
   disabled?: boolean;
-  onFile: (file: File) => void;
+  onFile?: (file: File) => void;
+  // Every dropped file that matches `accept` (instead of onFile).
+  onFiles?: (files: File[]) => void;
   onReject?: (file: File) => void;
 }
 
@@ -55,7 +58,7 @@ export function matchesAccept(file: File, accept: string | undefined): boolean {
   });
 }
 
-export function useFileDrop({ accept, disabled = false, onFile, onReject }: FileDropOptions): FileDrop {
+export function useFileDrop({ accept, disabled = false, onFile, onFiles, onReject }: FileDropOptions): FileDrop {
   const depth = useRef(0);
   const [over, setOver] = useState(false);
 
@@ -86,9 +89,16 @@ export function useFileDrop({ accept, disabled = false, onFile, onReject }: File
     depth.current = 0;
     setOver(false);
     if (disabled) return;
+    if (onFiles) {
+      const all = Array.from(e.dataTransfer?.files ?? []);
+      const ok = all.filter((f) => matchesAccept(f, accept));
+      all.filter((f) => !ok.includes(f)).forEach((f) => onReject?.(f));
+      if (ok.length > 0) onFiles(ok);
+      return;
+    }
     const file = e.dataTransfer?.files?.[0];
     if (!file) return;
-    if (matchesAccept(file, accept)) onFile(file);
+    if (matchesAccept(file, accept)) onFile?.(file);
     else onReject?.(file);
   };
 
