@@ -93,6 +93,11 @@ async function startImageSite(): Promise<Site> {
   };
 }
 
+// Seeding pauses every 100 lines: unpaced, a few thousand lines at once
+// overflow the IRC server's send queue to the app (it then drops the app's
+// connection), with or without these changes.
+const pace = (): Promise<void> => new Promise((r) => setTimeout(r, 40));
+
 function report(name: string, data: Record<string, unknown>): void {
   console.log(`[perf] ${JSON.stringify({ name, ...data })}`);
   test.info().annotations.push({ type: 'perf', description: JSON.stringify({ name, ...data }) });
@@ -262,6 +267,7 @@ test.describe('perf', () => {
       if (i % 13 === 0) line = `line ${i} ${'a longer message that wraps over a couple of lines in the list; '.repeat(3)}`;
       if (i % 50 === 0) line = `line ${i} pic http://127.0.0.1:${s.port}/img/h${i}.png`;
       peer.privmsg(big, line);
+      if (i % 100 === 0) await pace();
     }
     peer.privmsg(other, 'history sent');
     await expect(messages(page).getByText('history sent')).toBeVisible({ timeout: 300_000 });
@@ -314,6 +320,7 @@ test.describe('perf', () => {
         let line = `k${ci} line ${i} — the quick brown fox jumps over the lazy dog`;
         if (i % 25 === 0) line = `k${ci} line ${i} pic http://127.0.0.1:${s.port}/img/${i % 100 === 0 ? 'big' : 's'}${ci}x${i}.png`;
         peer.privmsg(c, line);
+        if (i % 100 === 0) await pace();
       }
     }
     await expect(messages(page).getByText(`k${chans.length - 1} line ${HISTORY} pic`)).toBeVisible({ timeout: 300_000 });
