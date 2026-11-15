@@ -1,3 +1,9 @@
+## [0.57.0](https://github.com/boson-chat/boson/compare/v0.56.1...v0.57.0) (2026-11-15)
+
+### Features
+
+* uploads to your boson account's files host, and several files at once ([#56](https://github.com/boson-chat/boson/issues/56)) ([4b8c528](https://github.com/boson-chat/boson/commit/4b8c528a2f476431e9f3eb9925f347091b6cfc05))
+
 ## [0.56.1](https://github.com/boson-chat/boson/compare/v0.56.0...v0.56.1) (2026-11-15)
 
 ### Bug Fixes
