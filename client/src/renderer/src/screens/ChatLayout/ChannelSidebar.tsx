@@ -1,5 +1,6 @@
 import { Fragment, type ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { createPortal } from 'preact/compat';
 import type { ChatChannel, ServerInfo } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
 import { ArrowLeftRight, Settings } from 'lucide-preact';
@@ -8,7 +9,12 @@ import {
   ChannelSidebarBloc,
   type ChannelSidebarState,
 } from './ChannelSidebarBloc';
+import { useChannelReorder, type ReorderSection } from './channel-reorder';
+import { NickContextMenu, type NickContextAction } from './NickContextMenu';
+import { BottomSheet } from './BottomSheet';
+import { isNarrow } from '../../shared/narrow';
 import './ChannelSidebar.css';
+import './ChannelReorder.css';
 
 interface ChannelSidebarProps {
   serverName: string;
@@ -23,6 +29,14 @@ interface ChannelSidebarProps {
   onSelect: (name: string) => void;
   onJoin: (name: string) => void;
   onPart: (name: string) => void;
+  // The user's own order for this server's list (channel keys; see
+  // modules/session/channel-order.ts), applied within each section.
+  channelOrder?: readonly string[];
+  // A section was reordered (drag, Alt+Up/Down, Move up / down): its names,
+  // top to bottom. Without it the rows don't reorder.
+  onReorderChannels?: (names: string[]) => void;
+  // "Reset order": back to the default order.
+  onResetChannelOrder?: () => void;
   // Server-advertised channel directory (from RPL_LIST). Powers the Join
   // modal's autocomplete. Optional — when absent or empty the modal still
   // works as a plain text input.
@@ -58,6 +72,9 @@ export function ChannelSidebar({
   onSelect,
   onJoin,
   onPart,
+  channelOrder,
+  onReorderChannels,
+  onResetChannelOrder,
   channelDirectory,
   onOpenSettings,
   serverInfo,
@@ -76,11 +93,14 @@ export function ChannelSidebar({
   channelsRef.current = channels;
   const onJoinRef = useRef(onJoin);
   onJoinRef.current = onJoin;
+  const orderRef = useRef(channelOrder);
+  orderRef.current = channelOrder;
 
   const bloc = useMemo(
     () =>
       new ChannelSidebarBloc({
         getChannels: () => channelsRef.current,
+        getOrder: () => orderRef.current,
         onJoin: (name) => onJoinRef.current(name),
       }),
     [],
@@ -90,14 +110,60 @@ export function ChannelSidebar({
   // list), poke the bloc so it re-derives groupings and re-emits to
   // subscribers. The bloc itself doesn't cache the list — this is just the
   // signal that derived state should refresh.
+  // The saved order is re-read from storage on each render, so compare it
+  // by value.
+  const orderSig = channelOrder?.join('\n') ?? '';
   useEffect(() => {
     bloc.notifyChannelsChanged();
-  }, [channels, bloc]);
+  }, [channels, orderSig, bloc]);
 
   const [state, setState] = useState<ChannelSidebarState>(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
 
-  const { joinModalOpen, joinDraft, joinError, realChannels, dms } = state;
+  const { joinModalOpen, joinDraft, joinError, realChannels, dms, customOrder } = state;
+
+  // Reordering (drag, touch hold-and-drag, Alt+Up/Down, the row menu).
+  const sections = {
+    channels: realChannels.map((c) => c.name),
+    dms: dms.map((c) => c.name),
+  };
+  const [rowMenu, setRowMenu] = useState<
+    { name: string; section: ReorderSection; at: { x: number; y: number } | null } | null
+  >(null);
+  const reorder = useChannelReorder({
+    enabled: !!onReorderChannels && state.query.trim() === '',
+    sections,
+    onReorder: (_section, names) => onReorderChannels?.(names),
+    onHold: (name, section) => {
+      if (rowMenuActions(name, section).length > 0) setRowMenu({ name, section, at: null });
+    },
+  });
+  const rowMenuActions = (name: string, section: ReorderSection): NickContextAction[] => {
+    const names = sections[section];
+    const i = names.indexOf(name);
+    const actions: NickContextAction[] = [];
+    if (i > 0) actions.push({ label: 'Move up', onClick: () => reorder.step(name, section, -1) });
+    if (i !== -1 && i < names.length - 1) actions.push({ label: 'Move down', onClick: () => reorder.step(name, section, 1) });
+    if (customOrder && onResetChannelOrder) actions.push({ label: 'Reset order', onClick: onResetChannelOrder });
+    return actions;
+  };
+  const rowReorder = (name: string, section: ReorderSection): RowReorder | undefined => {
+    if (!onReorderChannels) return undefined;
+    const ind = reorder.indicator(name, section);
+    return {
+      attrs: reorder.row(name, section),
+      dragging: reorder.drag?.name === name,
+      drop: ind,
+      onMenu: (e) => {
+        // A touch hold is the drag (and its sheet); Android also raises
+        // contextmenu for it.
+        if ((e as PointerEvent).pointerType === 'touch' || isNarrow()) { e.preventDefault(); return; }
+        if (rowMenuActions(name, section).length === 0) return;
+        e.preventDefault();
+        setRowMenu({ name, section, at: { x: e.clientX, y: e.clientY } });
+      },
+    };
+  };
   // Compact daemon label under the server name (e.g. "ngircd-27"); network +
   // hostname stay in the title tooltip rather than crowding the sidebar.
   const serverMeta = serverInfo?.version ?? serverInfo?.serverName ?? '';
@@ -171,7 +237,12 @@ export function ChannelSidebar({
 
       {account}
 
-      <div class="channel-list">
+      <div
+        class={`channel-list${reorder.drag ? ' channel-list-reordering' : ''}`}
+        ref={reorder.list.ref}
+        onDragOver={reorder.list.onDragOver}
+        onDrop={reorder.list.onDrop}
+      >
         {realChannels.length === 0 && dms.length === 0 && (
           <div class="channel-empty">No channels joined yet.</div>
         )}
@@ -197,6 +268,7 @@ export function ChannelSidebar({
               onPart={onPart}
               prefix="#"
               action={channelAction?.(c.name)}
+              reorder={rowReorder(c.name, 'channels')}
             />
             {channelVoice?.(c.name)}
           </Fragment>
@@ -215,13 +287,44 @@ export function ChannelSidebar({
                 onSelect={onSelect}
                 onPart={onPart}
                 prefix="[DM]"
+                reorder={rowReorder(c.name, 'dms')}
               />
             ))}
           </>
         )}
 
         {voice}
+        <div class="channel-reorder-status" role="status" aria-live="polite">{reorder.announce}</div>
       </div>
+
+      {reorder.ghost && reorder.drag && createPortal(
+        <div
+          class="channel-reorder-ghost"
+          aria-hidden="true"
+          style={`top: ${reorder.ghost.y}px; left: ${reorder.ghost.x}px;`}
+        >
+          {reorder.drag.name}
+        </div>,
+        document.body,
+      )}
+
+      {rowMenu?.at && (
+        <NickContextMenu
+          x={rowMenu.at.x}
+          y={rowMenu.at.y}
+          title={rowMenu.name}
+          actions={rowMenuActions(rowMenu.name, rowMenu.section)}
+          onClose={() => setRowMenu(null)}
+        />
+      )}
+      {rowMenu && !rowMenu.at && (
+        <BottomSheet
+          label={rowMenu.name}
+          header={<div class="channel-reorder-sheet-title">{rowMenu.name}</div>}
+          actions={rowMenuActions(rowMenu.name, rowMenu.section)}
+          onClose={() => setRowMenu(null)}
+        />
+      )}
 
       {footer}
 
@@ -258,6 +361,16 @@ interface ChannelRowProps {
   onSelect: (name: string) => void;
   onPart: (name: string) => void;
   action?: ComponentChildren;
+  reorder?: RowReorder;
+}
+
+// A row's part in reordering: its drag attributes / handlers, whether it's
+// the one being dragged, where the drop line shows on it, and its menu.
+interface RowReorder {
+  attrs: ReturnType<ReturnType<typeof useChannelReorder>['row']>;
+  dragging: boolean;
+  drop: 'before' | 'after' | null;
+  onMenu: (e: MouseEvent) => void;
 }
 
 // How far a channel has got since we asked to be in it: `joining` until the
@@ -281,7 +394,7 @@ const SYNC_TITLE: Record<ChannelSync, string | undefined> = {
   ready: undefined,
 };
 
-function ChannelRow({ channel, active, prefix, onSelect, onPart, action }: ChannelRowProps) {
+function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder }: ChannelRowProps) {
   const display = channel.name.replace(/^[#&]/, '');
   const sync = channelSync(channel);
   // Unread badge: hidden when active (counters get cleared anyway) or when
@@ -289,16 +402,28 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action }: Chann
   // unread, the badge takes the accent (amber) treatment.
   const showBadge = !active && channel.unread > 0;
   const hasMention = channel.mentions > 0;
+  const { onReorderKey, ...reorderAttrs } = (reorder?.attrs ?? {}) as RowReorder['attrs'] & {
+    onReorderKey?: (e: KeyboardEvent) => boolean;
+  };
+  const reorderCls = reorder
+    ? `${reorder.dragging ? ' channel-item-dragging' : ''}${reorder.drop ? ` channel-item-drop-${reorder.drop}` : ''}`
+    : '';
   return (
     <div
-      class={`channel-item ${active ? 'channel-item-active' : ''} ${showBadge ? 'channel-item-unread' : ''} ${hasMention ? 'channel-item-mention' : ''}`}
+      {...reorderAttrs}
+      class={`channel-item ${active ? 'channel-item-active' : ''} ${showBadge ? 'channel-item-unread' : ''} ${hasMention ? 'channel-item-mention' : ''}${reorderCls}`}
       data-sync={sync}
       title={SYNC_TITLE[sync]}
       aria-busy={sync === 'ready' ? undefined : true}
+      aria-keyshortcuts={onReorderKey ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       onClick={() => onSelect(channel.name)}
+      onContextMenu={reorder?.onMenu}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(channel.name); }}
+      onKeyDown={(e) => {
+        if (onReorderKey?.(e)) return;
+        if (e.key === 'Enter' || e.key === ' ') onSelect(channel.name);
+      }}
     >
       <span class="channel-hash">
         {sync === 'ready' ? prefix : <span class="channel-sync-spinner" data-sync={sync} aria-hidden="true" />}

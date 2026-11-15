@@ -1,3 +1,9 @@
+## [0.60.0](https://github.com/boson-chat/boson/compare/v0.59.0...v0.60.0) (2026-11-15)
+
+### Features
+
+* drag to reorder channels in the sidebar, with saved positions ([#64](https://github.com/boson-chat/boson/issues/64)) ([e7bbee6](https://github.com/boson-chat/boson/commit/e7bbee6422b78831d226599e0fc5fe98c4d66a07))
+
 ## [0.59.0](https://github.com/boson-chat/boson/compare/v0.58.1...v0.59.0) (2026-11-15)
 
 ### Features

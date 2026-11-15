@@ -1,0 +1,101 @@
+/* Channel list reordering (channel-reorder.ts): the grip on hover, the row
+   being dragged, the drop line, and the touch drag's floating label. */
+
+.channel-item[data-reorder-key] {
+  position: relative;
+  -webkit-touch-callout: none;
+}
+
+/* Grip: a mouse-draggable row shows one in its left gutter on hover. */
+@media (hover: hover) {
+  .channel-item[draggable='true']::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    width: 6px;
+    height: 10px;
+    transform: translateY(-50%);
+    background-image: radial-gradient(circle, var(--fg-3) 1px, transparent 1.2px);
+    background-size: 3px 3.33px;
+    opacity: 0;
+    transition: opacity var(--motion-fast) var(--ease-standard);
+    pointer-events: none;
+  }
+  .channel-item[draggable='true']:hover::before { opacity: 0.7; }
+  .channel-item[draggable='true']:active { cursor: grabbing; }
+}
+
+/* While dragging: no hover highlights under the moving pointer. */
+.channel-list-reordering .channel-item:hover:not(.channel-item-active) {
+  background: transparent;
+}
+.channel-list-reordering .channel-item::before { opacity: 0 !important; }
+
+/* The row being moved: faded in place, lifted on touch. */
+.channel-item.channel-item-dragging {
+  opacity: 0.45;
+  background: var(--surface-hover);
+  outline: 1px dashed var(--border);
+  outline-offset: -1px;
+}
+
+/* Drop line: where the row will land, with a dot at its start. */
+.channel-item-drop-before::after,
+.channel-item-drop-after::after {
+  content: '';
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 25%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+.channel-item-drop-before::after { top: -1px; }
+.channel-item-drop-after::after { bottom: -1px; }
+
+/* Touch drag: the channel's name follows the finger, just above it so the
+   finger doesn't cover it. */
+.channel-reorder-ghost {
+  position: fixed;
+  z-index: 300;
+  transform: translate(-50%, calc(-100% - 18px));
+  max-width: 70vw;
+  padding: var(--space-1) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg);
+  background: var(--surface-raised);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.channel-reorder-sheet-title {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--fg);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Screen-reader note after a move; not shown. */
+.channel-reorder-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

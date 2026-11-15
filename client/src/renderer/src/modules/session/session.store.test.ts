@@ -252,3 +252,51 @@ describe('SessionStore.reorderServers', () => {
     expect(ids(store)).toEqual(['srv-c', 'srv-b', 'srv-a']);
   });
 });
+
+describe('SessionStore channel order', () => {
+  const order = (st: SessionStore, id = 'srv-a'): string[] | undefined =>
+    st.load()!.servers.find((s) => s.server.id === id)!.channelOrder;
+
+  it('saves a server\'s channel order, syncs it once, and resets it', () => {
+    const storage = makeStorage();
+    const store = new SessionStore(storage);
+    store.save(sampleSession);
+    let changes = 0;
+    store.onChange(() => { changes++; });
+    store.setChannelOrder('srv-a', ['#dev', '#general']);
+    expect(order(new SessionStore(storage))).toEqual(['#dev', '#general']);
+    expect(order(store, 'srv-b')).toBeUndefined();
+    expect(changes).toBe(1);
+    store.setChannelOrder('srv-a', ['#dev', '#general']);
+    expect(changes).toBe(1);
+    store.setChannelOrder('srv-a', null);
+    expect(order(store)).toBeUndefined();
+    expect(changes).toBe(2);
+  });
+
+  it('drops a parted channel from the order', () => {
+    const store = new SessionStore(makeStorage());
+    store.save(sampleSession);
+    store.setChannelOrder('srv-a', ['#dev', '#general']);
+    store.removeChannel('srv-a', '#dev');
+    expect(order(store)).toEqual(['#general']);
+  });
+
+  it('keeps the order across server refreshes (reconnects)', () => {
+    const store = new SessionStore(makeStorage());
+    store.save(sampleSession);
+    store.setChannelOrder('srv-a', ['#dev', '#general']);
+    store.upsertServer({ ...srvA, name: 'Boson HQ (renamed)' });
+    store.addChannel('srv-a', '#new');
+    expect(order(store)).toEqual(['#dev', '#general']);
+  });
+
+  it('accepts sessions without an order and rejects a malformed one', () => {
+    const storage = makeStorage();
+    storage.setItem('boson:session:v2', JSON.stringify(sampleSession));
+    expect(new SessionStore(storage).load()).not.toBeNull();
+    const bad = { ...sampleSession, servers: [{ ...sampleSession.servers[0], channelOrder: [1, 2] }] };
+    storage.setItem('boson:session:v2', JSON.stringify(bad));
+    expect(new SessionStore(storage).load()).toBeNull();
+  });
+});
