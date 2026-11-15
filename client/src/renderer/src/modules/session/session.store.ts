@@ -1,3 +1,5 @@
+import { channelKey, MAX_CHANNEL_ORDER } from './channel-order';
+
 // SessionStore persists the user's chat session (the set of connected
 // servers, their joined channels, and which server/channel is active) to
 // localStorage so it can be restored on the next sign-in. Identity remains
@@ -45,6 +47,9 @@ export interface SavedServerSession {
   server: SavedServer;
   channels: string[];
   activeChannel: string | null;
+  // The user's own sidebar order (drag to reorder), as channel keys
+  // (lowercased names; see channel-order.ts). Absent: the default order.
+  channelOrder?: string[];
 }
 
 export interface SavedSession {
@@ -222,6 +227,26 @@ export class SessionStore {
     if (!target) return;
     if (!target.channels.includes(channel)) return;
     target.channels = target.channels.filter((c) => c !== channel);
+    // A channel the user left drops out of their order too.
+    if (target.channelOrder) {
+      const key = channelKey(channel);
+      target.channelOrder = target.channelOrder.filter((k) => k !== key);
+    }
+    this.save(current);
+  }
+
+  // The user's sidebar order for a server (channel keys, top to bottom);
+  // null resets it to the default order.
+  setChannelOrder(serverId: string, order: readonly string[] | null): void {
+    const current = this.load();
+    if (!current) return;
+    const target = current.servers.find((s) => s.server.id === serverId);
+    if (!target) return;
+    const next = order && order.length > 0 ? order.slice(0, MAX_CHANNEL_ORDER) : undefined;
+    const prev = target.channelOrder;
+    if (prev === next || (prev && next && prev.length === next.length && prev.every((k, i) => k === next[i]))) return;
+    if (next) target.channelOrder = next;
+    else delete target.channelOrder;
     this.save(current);
   }
 
@@ -302,6 +327,8 @@ function isSavedServerSession(v: unknown): v is SavedServerSession {
   if (!Array.isArray(obj.channels)) return false;
   if (!obj.channels.every((c) => typeof c === 'string')) return false;
   if (obj.activeChannel !== null && typeof obj.activeChannel !== 'string') return false;
+  if (obj.channelOrder !== undefined
+    && !(Array.isArray(obj.channelOrder) && obj.channelOrder.every((c) => typeof c === 'string'))) return false;
   return true;
 }
 

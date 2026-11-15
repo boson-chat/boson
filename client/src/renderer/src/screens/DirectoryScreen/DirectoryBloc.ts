@@ -14,7 +14,7 @@ import type { BouncerUpstreamState, EngineClient, EngineState, ServerSession } f
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
-import { SessionStore, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
+import { SessionStore, channelKey, mergeChannelOrder, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
 import {
   addLocalServer,
   loadLocalServers,
@@ -759,6 +759,33 @@ export class DirectoryBloc {
   // Saved with the session, so it holds across relaunches and devices.
   reorderServers(ids: readonly string[]): void {
     this.sessionStore.reorderServers(ids);
+    this.emit();
+  }
+
+  // The user's own channel-list order for a server (channel keys), or
+  // undefined for the default order. Saved with the session, keyed by the
+  // server's saved id (not the connection), so it holds across reconnects,
+  // relaunches and — synced with the session — devices.
+  channelOrder(serverId: string): readonly string[] | undefined {
+    return this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.channelOrder;
+  }
+
+  // The user reordered one section of a server's channel list into
+  // `section` (names, top to bottom). Merged into the saved order so the
+  // other section, and channels still being rejoined, keep their places.
+  reorderChannels(serverId: string, section: readonly string[]): void {
+    const saved = this.sessionStore.load()?.servers.find((s) => s.server.id === serverId);
+    if (!saved) return;
+    const shown = this.connections.get(serverId)?.chat.getState().channels.map((c) => c.name) ?? [];
+    const joined = new Set(saved.channels.map(channelKey));
+    const next = mergeChannelOrder(saved.channelOrder, [...shown, ...section], section, (k) => joined.has(k));
+    this.sessionStore.setChannelOrder(serverId, next);
+    this.emit();
+  }
+
+  // "Reset order": back to the default channel order.
+  resetChannelOrder(serverId: string): void {
+    this.sessionStore.setChannelOrder(serverId, null);
     this.emit();
   }
 

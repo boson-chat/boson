@@ -1,5 +1,6 @@
 import type { ChatChannel } from '../../modules/chat';
 import { SERVICE_CHANNEL } from '../../modules/chat/services';
+import { applyChannelOrder, isCustomOrder } from '../../modules/session/channel-order';
 
 // Public state surface for ChannelSidebarBloc. The view binds directly to this
 // — `query`, `joinModalOpen`, `joinDraft`, `joinError` are the four bits of UI
@@ -20,6 +21,9 @@ export interface ChannelSidebarState {
   // server NOTICEs here so they don't clutter the channel + DM lists.
   // Null when nothing has landed there yet.
   serverChannel: ChatChannel | null;
+  // The user's saved order puts a section somewhere other than the default
+  // (drives the "Reset order" menu item).
+  customOrder: boolean;
 }
 
 export type ChannelSidebarListener = (state: ChannelSidebarState) => void;
@@ -30,6 +34,9 @@ export interface ChannelSidebarBlocDeps {
   // change independently of bloc state and we don't want to plumb a setter
   // for every render.
   getChannels: () => readonly ChatChannel[];
+  // The user's saved channel order (channel keys), applied within each
+  // section; absent or empty keeps the default order.
+  getOrder?: () => readonly string[] | undefined;
   onJoin: (channelName: string) => void;
 }
 
@@ -69,13 +76,20 @@ export class ChannelSidebarBloc {
     // IRC channel names start with '#' or '&'; anything else in the chat
     // service's channel list is either the synthetic ~server pseudo-channel
     // (single, distinguished) or a virtual DM channel (e.g. a bare nick).
-    const realChannels = visibleChannels.filter(
+    const order = this.deps.getOrder?.();
+    const nameOf = (c: ChatChannel): string => c.name;
+    const realChannels = applyChannelOrder(visibleChannels.filter(
       (c) => c.name.startsWith('#') || c.name.startsWith('&'),
-    );
+    ), order, nameOf);
     const serverChannel = visibleChannels.find((c) => c.name === SERVICE_CHANNEL) ?? null;
-    const dms = visibleChannels.filter(
+    const dms = applyChannelOrder(visibleChannels.filter(
       (c) => !c.name.startsWith('#') && !c.name.startsWith('&') && c.name !== SERVICE_CHANNEL,
-    );
+    ), order, nameOf);
+    // Judged on the unfiltered sections, so a search doesn't hide the reset.
+    const isChan = (c: ChatChannel): boolean => /^[#&]/.test(c.name);
+    const customOrder = !!order && order.length > 0 && (
+      isCustomOrder(channels.filter(isChan), order, nameOf)
+      || isCustomOrder(channels.filter((c) => !isChan(c) && c.name !== SERVICE_CHANNEL), order, nameOf));
 
     return {
       query: this.query,
@@ -85,6 +99,7 @@ export class ChannelSidebarBloc {
       realChannels: [...realChannels],
       dms: [...dms],
       serverChannel,
+      customOrder,
     };
   }
 
