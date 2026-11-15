@@ -11,6 +11,10 @@ import type { EngineState } from '../../modules/engine';
 import { ChatInputBloc, type ChatInputState } from './ChatInputBloc';
 import { ChatInputBar } from './ChatInputBar';
 import { MessageList } from './message-render';
+import { UploadSheet, type UploadItem } from './UploadSheet';
+import { UploadProgress } from './UploadProgress';
+import { getFiles, type FilesUsage } from '../../modules/files';
+import { useFileDrop } from '../../shared/FileDrop/file-drop';
 import { stripIrcFormatting } from './markdown';
 import type { NickActions } from './UserPanel';
 import './ChatArea.css';
@@ -106,6 +110,12 @@ interface ChatAreaProps {
   // list drawer (both also open with a swipe). Absent on wide layouts.
   onBack?: () => void;
   onShowMembers?: () => void;
+  // The active server's IRC host: file uploads go to its network's files
+  // host (none → no attach button).
+  serverHost?: string;
+  // Sends a message to a given channel of the active server (a finished
+  // upload's link, which may land after the user switched channels).
+  onSendTo?: (channel: string, message: string) => void;
 }
 
 // The phone layout's channels drawer (servers + channels), at the start of
@@ -149,6 +159,8 @@ export function ChatArea({
   onRejectBouncerCert,
   onBack,
   onShowMembers,
+  serverHost,
+  onSendTo,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A quick reconnect (an app switch, a network hop) shows nothing; the
@@ -210,6 +222,40 @@ export function ChatArea({
       else bloc.insertAtCursor('', input.length, input.length); // already there: just focus
     },
   }, [nickActions, bloc]);
+
+  // ---- file uploads ----
+  const files = getFiles();
+  useEffect(() => { if (serverHost) void files?.ensure(serverHost); }, [files, serverHost]);
+  const filesAvail = files && serverHost ? files.availability(serverHost) : null;
+  const uploadTarget = channel && channel.name !== '~server' && !channel.name.startsWith('~') ? channel.name : null;
+  const canUpload = !!filesAvail?.available && !!uploadTarget && !!onSendTo;
+  const [sheetFiles, setSheetFiles] = useState<File[] | null>(null);
+  const [usage, setUsage] = useState<FilesUsage | null | undefined>(undefined);
+  const openSheet = (picked: File[]): void => {
+    if (!canUpload || !files || !serverHost || picked.length === 0) return;
+    setSheetFiles(picked);
+    setUsage(undefined);
+    void files.usage(serverHost).then((u) => setUsage(u), () => setUsage(null));
+  };
+  const drop = useFileDrop({ disabled: !canUpload, onFiles: openSheet });
+  const onSendToRef = useRef(onSendTo);
+  onSendToRef.current = onSendTo;
+  const sendUploads = (items: UploadItem[]): void => {
+    const target = uploadTarget;
+    setSheetFiles(null);
+    if (!files || !serverHost || !target) return;
+    for (const it of items) {
+      files.upload({
+        host: serverHost,
+        channel: target,
+        file: it.file,
+        name: it.name,
+        caption: it.caption,
+        post: (text) => onSendToRef.current?.(target, text),
+      });
+    }
+  };
+  const channelUploads = files && serverHost && uploadTarget ? files.uploadsFor(serverHost, uploadTarget) : [];
 
   // Connecting + disconnected splash. Three visual modes, all routed
   // through the same panel so a state flip (disconnected → connecting
@@ -330,7 +376,12 @@ export function ChatArea({
   // Topics often carry mIRC colour codes; show the plain text.
   const topic = channel.topic ? stripIrcFormatting(channel.topic).trim() : '';
   return (
-    <main class="chat-area">
+    <main class="chat-area" {...(canUpload ? drop.handlers : {})}>
+      {canUpload && drop.dragging && (
+        <div class="chat-drop-overlay" data-testid="chat-drop-overlay" aria-hidden="true">
+          <span class="chat-drop-overlay-label">Drop files to upload to {prefix}{display}</span>
+        </div>
+      )}
       <div class="chat-header">
         <div class="chat-header-left">
           <PaneBackButton onBack={onBack} />
@@ -423,6 +474,12 @@ export function ChatArea({
         historyError={channel.history?.error}
       />
 
+      <UploadProgress
+        uploads={channelUploads}
+        onCancel={(id) => files?.cancel(id)}
+        onDismiss={(id) => files?.dismiss(id)}
+      />
+
       <TypingIndicator nicks={channel.typing} />
 
       <ChatInputBar
@@ -433,7 +490,19 @@ export function ChatArea({
         bannerError={bannerError}
         onDismissBanner={onDismissBanner}
         myNick={myNick}
+        onFiles={canUpload ? openSheet : undefined}
       />
+      {sheetFiles && (
+        <UploadSheet
+          open
+          files={sheetFiles}
+          target={`${prefix}${display}`}
+          limits={filesAvail?.limits ?? null}
+          usage={usage}
+          onSend={sendUploads}
+          onCancel={() => setSheetFiles(null)}
+        />
+      )}
     </main>
   );
 }

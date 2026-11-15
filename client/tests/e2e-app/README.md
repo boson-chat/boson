@@ -72,6 +72,11 @@ Backend + data (`helpers/backend.ts`, `helpers/auth.ts`):
 | `createConfirmedUser(opts?)`, `deleteAuthUser(id)`, `findAuthUserByEmail(email)`, `setAuthPassword(id, pw)`, `signInWithPassword(login, password)`, `verifyEmail(email)`, `emailToken(email, page)`, `bosonUserId(id)` | The auth service's API, its admin API (as the stack's `e2eadmin`) and the users' Mailpit. `setAuthPassword` runs a real forgot → reset (which signs out every session). |
 | `randomEmail()`, `randomPassword()`, `randomUsername()`, `randomHandle()`, `randomChannel()`, `randomNick()`, `uid()` | Unique names. |
 
+Files (`helpers/files-server.ts`): `startFakeFiles(opts?)` — a fake
+boson-chat/files host on a random loopback port (config, usage, guest
+tokens, uploads, `/f/` with expiry); `filesNetworkJson(irc, authUrl, filesUrl)`
+— a `BOSON_NETWORK_JSON` naming it for one IRC host.
+
 Mail (`helpers/mailpit.ts`): `Mailpit.users()` / `Mailpit.catchall()` /
 `Mailpit.catchallCopy()` with
 `list(query?)`, `read(id)`, `waitFor({ to?, subject?, timeoutMs? })`,

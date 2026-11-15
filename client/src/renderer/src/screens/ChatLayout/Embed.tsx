@@ -1,7 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { Modal } from '@boson/shared';
-import { classifyMessage, type ClassifiedUrl } from './embeds/classify';
+import { classifyMessage, extractUrls, type ClassifiedUrl } from './embeds/classify';
+import { getFiles, type FilesLink } from '../../modules/files';
+import { FilesEmbed } from './FilesEmbed';
 import {
   getEmbedSettings, embedKindEnabled, type EmbedSettings,
 } from '../../modules/ui/embeds.store';
@@ -38,13 +40,31 @@ export function MessageEmbeds({ text, unfurl, spotify }: { text: string; unfurl?
   const fetcher = unfurl ?? getUnfurl();
   const spotifyFetcher = spotify ?? getSpotify();
   const settings = getEmbedSettings();
-  const all = classifyMessage(text).filter((c) => embedKindEnabled(settings, c.kind));
+  // Links to a network's files host render inline (FilesEmbed); reading
+  // origins.value re-renders once a host is discovered.
+  const files = getFiles();
+  const fileLinks: FilesLink[] = [];
+  if (files && files.origins.value.size > 0 && settings.enabled) {
+    const seen = new Set<string>();
+    for (const u of extractUrls(text)) {
+      const l = seen.has(u) ? null : files.parse(u);
+      seen.add(u);
+      if (l) fileLinks.push(l);
+    }
+  }
+  const fileUrls = new Set(fileLinks.map((l) => l.url));
+  const all = classifyMessage(text).filter((c) => !fileUrls.has(c.url) && embedKindEnabled(settings, c.kind));
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() => new Set());
-  if (all.length === 0) return null;
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  if (all.length === 0 && fileLinks.length === 0) return null;
   const visible = all.filter((c) => !dismissed.has(c.url));
-  if (visible.length === 0) return null;
+  if (visible.length === 0 && fileLinks.length === 0) return null;
   return (
     <div class="msg-embeds">
+      {fileLinks.map((l) => (
+        <FilesEmbed key={l.url} link={l} onOpenImage={setLightbox} openExternal={openExternal} />
+      ))}
+      {lightbox && <Lightbox url={lightbox} onClose={() => setLightbox(null)} />}
       {visible.map((c) => (
         <EmbedItem
           key={c.url}

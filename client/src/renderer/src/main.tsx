@@ -8,6 +8,7 @@ import { NetworkThemes, getThemeStore, setNetworkThemes } from './modules/ui/the
 import { VoiceController, getVoiceController, setVoiceController, voiceBridge } from './modules/voice';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
 import { loadGuestSession } from './modules/guest/guest';
+import { FilesController, filesBridge, setFiles } from './modules/files';
 import { windowSecureStorage } from './shared/secure-storage';
 import './styles.css';
 
@@ -97,6 +98,18 @@ void (async () => {
     authConfig: (net) => (netAccounts ? netAccounts.config(net) : props.auth.config()),
     apply: (overlay) => getThemeStore().setNetworkOverlay(overlay),
   }));
+  // File uploads to each network's files host (desktop app only). The
+  // network account's token when signed in there, else a guest token.
+  if (filesBridge() && netAccounts) {
+    const linkOf = (host: string) => netAccounts.linkFor(host);
+    setFiles(new FilesController({
+      signedIn: (host) => { const l = linkOf(host); return !!l && !!netAccounts.sessionFor(l); },
+      accountToken: async (host) => {
+        const l = linkOf(host) ?? await netAccounts.discover(host).catch(() => null);
+        return l ? netAccounts.ircToken(l) : null;
+      },
+    }));
+  }
   // Voice channels (desktop app only: the bridge is absent elsewhere).
   const bridge = voiceBridge();
   if (bridge) {

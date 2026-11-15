@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useLayoutEffect } from 'preact/hooks';
-import { Smile } from 'lucide-preact';
+import { Paperclip, Smile } from 'lucide-preact';
 import type { ChatInputBloc, ChatInputState } from './ChatInputBloc';
 import {
   ChannelAutocomplete,
@@ -21,6 +21,10 @@ interface ChatInputBarProps {
   // the textarea and Send are disabled and the placeholder says why. The
   // draft is kept.
   disabled?: boolean;
+  // File uploads (the network has a files host): the attach button opens
+  // the file picker; pasted files and images go to onFiles too. Absent:
+  // no attach button, and a paste is just text.
+  onFiles?: (files: File[]) => void;
 }
 
 // The composer area below the message list. Renders the slash/mention/channel
@@ -35,7 +39,9 @@ export function ChatInputBar({
   onDismissBanner,
   myNick,
   disabled = false,
+  onFiles,
 }: ChatInputBarProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -123,7 +129,33 @@ export function ChatInputBar({
           {myNick && (
             <span class="chat-nick-chip" title={`You are ${myNick}`}>{myNick}</span>
           )}
-          <button class="input-action" type="button" title="Attach (coming soon)" disabled>[+]</button>
+          {onFiles && (
+            <>
+              <button
+                class="input-action"
+                type="button"
+                title="Attach files"
+                aria-label="Attach files"
+                disabled={disabled}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip size={17} aria-hidden="true" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                hidden
+                data-testid="attach-input"
+                onChange={(e) => {
+                  const el = e.currentTarget as HTMLInputElement;
+                  const files = Array.from(el.files ?? []);
+                  el.value = '';
+                  if (files.length > 0) onFiles(files);
+                }}
+              />
+            </>
+          )}
           <div class="emoji-picker-wrap">
             <button
               class="input-action"
@@ -216,6 +248,13 @@ export function ChatInputBar({
             rows={1}
             value={state.input}
             onInput={(e) => bloc.setInput((e.target as HTMLTextAreaElement).value)}
+            onPaste={(e) => {
+              if (!onFiles) return;
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length === 0) return;
+              e.preventDefault();
+              onFiles(files);
+            }}
             onScroll={(e) => {
               if (overlayRef.current) {
                 overlayRef.current.scrollTop = (e.currentTarget as HTMLTextAreaElement).scrollTop;

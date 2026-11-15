@@ -2,15 +2,22 @@
 
 package main
 
-import "github.com/wailsapp/wails/v3/pkg/application"
+import (
+	"net/http"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
 
 // voiceServices is the voice service on desktop (none on iOS/Android), and
-// the network sign-in discovery that shares its boson.json lookups.
-func voiceServices(dataDir, authBase string, dev bool, api *ApiService) []application.Service {
+// the network sign-in discovery and files uploads that share its boson.json
+// lookups. files serves /_boson/files/ on the app's origin (assetHandler).
+func voiceServices(dataDir, authBase string, dev bool, api *ApiService) (services []application.Service, files http.Handler) {
 	voice := NewVoiceService(dataDir, authBase, dev)
 	voice.nets = api.nets
+	fs := NewFilesService(voice.disc, api, dev)
 	return []application.Service{
 		application.NewService(voice),
 		application.NewService(NewNetAuthService(voice.disc, api)),
-	}
+		application.NewService(fs),
+	}, fs
 }

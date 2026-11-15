@@ -256,6 +256,8 @@ export function ChatLayout({
           bannerError={bannerError}
           onDismissBanner={() => layoutBloc.dismissBanner()}
           onSend={(msg) => chat.input(msg)}
+          serverHost={serverHost}
+          onSendTo={(channel, msg) => chat.send(channel, msg)}
           onTyping={(typing) => {
             if (state.activeChannel) chat.sendTyping(state.activeChannel, typing);
           }}
