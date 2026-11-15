@@ -1,3 +1,9 @@
+## [0.55.2](https://github.com/boson-chat/boson/compare/v0.55.1...v0.55.2) (2026-11-15)
+
+### Bug Fixes
+
+* no notifications for the open channel; quiet CTCP, notices and replays ([#53](https://github.com/boson-chat/boson/issues/53)) ([5935a41](https://github.com/boson-chat/boson/commit/5935a41af56c08c34b914581ce9e02529b065385))
+
 ## [0.55.1](https://github.com/boson-chat/boson/compare/v0.55.0...v0.55.1) (2026-11-15)
 
 ### Build
