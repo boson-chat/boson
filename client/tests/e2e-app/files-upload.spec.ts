@@ -211,6 +211,50 @@ test.describe('file uploads', () => {
     expect(files.guestTokens).toBe(1);
   });
 
+  test('several files: drop 3, remove one, add a caption, send: posted in the listed order', async ({ launchApp }) => {
+    test.setTimeout(120_000);
+    files = await startFakeFiles();
+    const { page, channel } = await guestOnFilesNetwork(launchApp, files);
+    await expect(attach(page)).toBeVisible({ timeout: 15_000 });
+    // The first file is the biggest, so it finishes last: the order posted
+    // is the sheet's, not the finish order.
+    const dropped = [
+      { name: 'first.bin', type: 'application/octet-stream', b64: Buffer.alloc(3_000_000, 7).toString('base64') },
+      { name: 'second.txt', type: 'text/plain', b64: Buffer.from('two').toString('base64') },
+      { name: 'third.txt', type: 'text/plain', b64: Buffer.from('three').toString('base64') },
+    ];
+    await conversationArea(page).dispatchEvent('drop', {
+      dataTransfer: await page.evaluateHandle((list) => {
+        const d = new DataTransfer();
+        for (const f of list) d.items.add(new File([Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0))], f.name, { type: f.type }));
+        return d;
+      }, dropped),
+    });
+    const s = sheet(page);
+    await expect(page.getByRole('dialog', { name: `Upload 3 files to ${channel}` })).toBeVisible();
+    await expect(s.getByTestId('upload-item')).toHaveCount(3);
+    await expect(s.getByTestId('upload-total')).toHaveText('3 files · 3 MB');
+    await s.getByRole('button', { name: 'Remove second.txt' }).click();
+    await expect(page.getByRole('dialog', { name: `Upload 2 files to ${channel}` })).toBeVisible();
+    await expect(s.getByTestId('upload-item')).toHaveCount(2);
+    await s.getByLabel('Caption for these files').fill('two files');
+    await shot(s, 'files-upload-batch-sheet.png');
+    await s.getByRole('button', { name: 'Send 2 files' }).click();
+    await expect(s).toBeHidden();
+
+    await expect.poll(() => files.files.length, { timeout: 20_000 }).toBe(2);
+    expect(files.files.map((f) => f.name).sort()).toEqual(['first.bin', 'third.txt']);
+    const link = (name: string) => `${files.url}/f/${files.files.find((f) => f.name === name)!.id}/${name}`;
+    // The caption, then both links in one message (they fit one line), in
+    // the sheet's order.
+    const rows = page.locator('.message-row-mine .message-row-text-body');
+    await expect(rows.filter({ hasText: link('third.txt') })).toHaveText(`${link('first.bin')} ${link('third.txt')}`, { timeout: 15_000 });
+    const texts = await rows.allTextContents();
+    const at = texts.findIndex((t) => t === 'two files');
+    expect(at).toBeGreaterThanOrEqual(0);
+    expect(texts[at + 1]).toBe(`${link('first.bin')} ${link('third.txt')}`);
+  });
+
   test('no attach button where uploads are off', async ({ launchApp }) => {
     test.setTimeout(120_000);
     // Guest uploads turned off on the network's files host.

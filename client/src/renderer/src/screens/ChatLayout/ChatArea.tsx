@@ -13,7 +13,7 @@ import { ChatInputBar } from './ChatInputBar';
 import { MessageList } from './message-render';
 import { UploadSheet, type UploadItem } from './UploadSheet';
 import { UploadProgress } from './UploadProgress';
-import { getFiles, type FilesUsage } from '../../modules/files';
+import { getFiles, ircTextBudget, MAX_BATCH_FILES, type FilesUsage } from '../../modules/files';
 import { useFileDrop } from '../../shared/FileDrop/file-drop';
 import { stripIrcFormatting } from './markdown';
 import type { NickActions } from './UserPanel';
@@ -230,30 +230,47 @@ export function ChatArea({
   const uploadTarget = channel && channel.name !== '~server' && !channel.name.startsWith('~') ? channel.name : null;
   const canUpload = !!filesAvail?.available && !!uploadTarget && !!onSendTo;
   const [sheetFiles, setSheetFiles] = useState<File[] | null>(null);
+  const [sheetNotice, setSheetNotice] = useState<string | undefined>(undefined);
   const [usage, setUsage] = useState<FilesUsage | null | undefined>(undefined);
+  const sheetFilesRef = useRef<File[] | null>(null);
+  sheetFilesRef.current = sheetFiles;
+  // Picked or dropped files: a new sheet, or added to the open one (at most
+  // MAX_BATCH_FILES in all).
   const openSheet = (picked: File[]): void => {
     if (!canUpload || !files || !serverHost || picked.length === 0) return;
-    setSheetFiles(picked);
-    setUsage(undefined);
-    void files.usage(serverHost).then((u) => setUsage(u), () => setUsage(null));
+    const open = sheetFilesRef.current;
+    const have = open ?? [];
+    const added = picked.slice(0, Math.max(0, MAX_BATCH_FILES - have.length));
+    const left = picked.length - added.length;
+    setSheetNotice(left > 0
+      ? `You can send up to ${MAX_BATCH_FILES} files at once; ${left === 1 ? "1 file wasn't" : `${left} files weren't`} added.`
+      : undefined);
+    if (added.length === 0 && open) return;
+    setSheetFiles([...have, ...added]);
+    if (!open) {
+      setUsage(undefined);
+      void files.usage(serverHost).then((u) => setUsage(u), () => setUsage(null));
+    }
+  };
+  const closeSheet = (): void => {
+    setSheetFiles(null);
+    setSheetNotice(undefined);
   };
   const drop = useFileDrop({ disabled: !canUpload, onFiles: openSheet });
   const onSendToRef = useRef(onSendTo);
   onSendToRef.current = onSendTo;
-  const sendUploads = (items: UploadItem[]): void => {
+  const sendUploads = (items: UploadItem[], caption: string): void => {
     const target = uploadTarget;
-    setSheetFiles(null);
+    closeSheet();
     if (!files || !serverHost || !target) return;
-    for (const it of items) {
-      files.upload({
-        host: serverHost,
-        channel: target,
-        file: it.file,
-        name: it.name,
-        caption: it.caption,
-        post: (text) => onSendToRef.current?.(target, text),
-      });
-    }
+    files.uploadBatch({
+      host: serverHost,
+      channel: target,
+      items,
+      caption,
+      maxTextBytes: ircTextBudget(myNick, target),
+      post: (text) => onSendToRef.current?.(target, text),
+    });
   };
   const channelUploads = files && serverHost && uploadTarget ? files.uploadsFor(serverHost, uploadTarget) : [];
 
@@ -478,6 +495,7 @@ export function ChatArea({
         uploads={channelUploads}
         onCancel={(id) => files?.cancel(id)}
         onDismiss={(id) => files?.dismiss(id)}
+        onCancelAll={serverHost && uploadTarget ? () => files?.cancelAll(serverHost, uploadTarget) : undefined}
       />
 
       <TypingIndicator nicks={channel.typing} />
@@ -499,8 +517,18 @@ export function ChatArea({
           target={`${prefix}${display}`}
           limits={filesAvail?.limits ?? null}
           usage={usage}
+          homeLabel={filesAvail?.home ? filesAvail.label : undefined}
+          notice={sheetNotice}
           onSend={sendUploads}
-          onCancel={() => setSheetFiles(null)}
+          onCancel={closeSheet}
+          onAdd={openSheet}
+          onRemove={(f) => {
+            setSheetNotice(undefined);
+            setSheetFiles((fs) => {
+              const next = (fs ?? []).filter((x) => x !== f);
+              return next.length ? next : null;
+            });
+          }}
         />
       )}
     </main>
