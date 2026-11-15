@@ -1,3 +1,9 @@
+## [0.55.1](https://github.com/boson-chat/boson/compare/v0.55.0...v0.55.1) (2026-11-15)
+
+### Build
+
+* move backend and website to their own repos ([#52](https://github.com/boson-chat/boson/issues/52)) ([8b70399](https://github.com/boson-chat/boson/commit/8b703998561d2e5e80a71e767c9b4bef4b33abee))
+
 ## [0.55.0](https://github.com/boson-chat/boson/compare/v0.54.0...v0.55.0) (2026-11-15)
 
 ### Features
