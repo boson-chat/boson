@@ -17,6 +17,7 @@ func voiceServices(dataDir, authBase string, dev bool, api *ApiService, images *
 	video := NewVideoService()
 	video.dev = dev
 	video.offsets = voice.avOffsets
+	video.audioDelay = voice.setAudioDelay
 	voice.video = video
 	// The "Leave" action on Android's in-call notification.
 	setNotificationLeave(voice.Leave)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -45,6 +46,11 @@ type VideoService struct {
 	// dev: a dev build, which accepts a local quicvideod's self-signed
 	// certificate (loopback only), like voice.
 	dev bool
+	// audioDelay delays one person's audio (VoiceService.setAudioDelay):
+	// when their video arrives later than their audio would play.
+	audioDelay func(userID string, d time.Duration)
+	// now is the clock (tests).
+	now func() time.Time
 
 	hubOnce sync.Once
 	hub     atomic.Pointer[frameHub] // set once, on first use
@@ -55,6 +61,10 @@ type VideoService struct {
 	sess  *videoSession
 	st    videoStatus
 	dirty bool
+	// Lip sync: the offsets last sent to the page, per user, and how late
+	// each person's video arrives against them (adaptive audio delay).
+	userOffsets map[string]int64
+	adapt       map[string]*avAdapt
 
 	stop chan struct{}
 	once sync.Once
@@ -170,9 +180,41 @@ func NewVideoService() *VideoService {
 		dial: func(ctx context.Context, addr string, opts qvclient.Options) (videoConn, error) {
 			return qvclient.Dial(ctx, addr, opts)
 		},
-		st:   videoStatus{status: "idle"},
-		stop: make(chan struct{}),
+		st:    videoStatus{status: "idle"},
+		stop:  make(chan struct{}),
+		now:   time.Now,
+		adapt: map[string]*avAdapt{},
 	}
+}
+
+// Adaptive audio delay (lip sync). A frame is due at capture + offset,
+// the time its sound plays here; video that arrives later than that can't
+// be on time, so that person's audio is delayed a little instead (ITU-R
+// BT.1359: sound may lead the picture by at most 45 ms). Once a second
+// per person, on the 90th percentile of the lateness seen (the worst frame
+// is mostly scheduling noise): late → the delay grows by it + 10 ms; well
+// early (> 50 ms) → it eases off 20 ms; at most 150 ms. A new delay only
+// applies from the person's next talk spurt, so after a change the next
+// decision waits 2 s (deciding on frames from before it overshoots).
+// Their video gone for 2 s (tile hidden, call view closed) → no delay.
+// Measured end to end: desktop/cmd/avmeasure.
+const (
+	videoDecodeBudget = 10 * time.Millisecond
+	adaptEvery        = time.Second
+	adaptMargin       = 10 * time.Millisecond
+	adaptEase         = 20 * time.Millisecond
+	adaptEarly        = 50 * time.Millisecond
+	adaptMax          = 150 * time.Millisecond
+	adaptIdle         = 2 * time.Second
+	adaptSettle       = 2 * time.Second
+)
+
+type avAdapt struct {
+	extra     time.Duration   // the delay now
+	lates     []time.Duration // lateness of frames since the last decision
+	lastFrame time.Time
+	decided   time.Time
+	changed   time.Time
 }
 
 func (v *VideoService) ServiceStartup(context.Context, application.ServiceOptions) error {
@@ -227,6 +269,7 @@ func (v *VideoService) loop() {
 			if sess != nil {
 				v.sendSync(sess)
 			}
+			v.adaptDelays()
 		}
 	}
 }
@@ -266,6 +309,8 @@ func (v *VideoService) voiceLeft() {
 	cam, scr := v.st.camera.share, v.st.screen.share
 	v.st = videoStatus{status: "idle"}
 	v.dirty = true
+	v.adapt = map[string]*avAdapt{} // the voice session (and its delays) is gone
+	v.userOffsets = nil
 	v.mu.Unlock()
 	for _, s := range []videoShare{cam, scr} {
 		if s != nil {
@@ -501,6 +546,7 @@ func (v *VideoService) stopShares() {
 // ---- receiving ----
 
 func (v *VideoService) onFrame(f qvclient.RemoteFrame) {
+	v.noteLateness(f.TrackID, f.CaptureUS)
 	hub, _ := v.frames()
 	if hub == nil {
 		return
@@ -576,6 +622,7 @@ func (v *VideoService) sendSync(sess *videoSession) {
 	byUser := v.offsets()
 	msg := syncMsg{Type: "sync", Offsets: map[uint32]int64{}}
 	v.mu.Lock()
+	v.userOffsets = byUser
 	for id, tr := range sess.tracks {
 		if off, ok := byUser[sess.people[tr.GetSessionId()].userID]; ok {
 			msg.Offsets[id] = off
@@ -583,6 +630,99 @@ func (v *VideoService) sendSync(sess *videoSession) {
 	}
 	v.mu.Unlock()
 	hub.Text(msg)
+}
+
+// noteLateness records how late a frame arrived against its due time
+// (capture + its sender's offset), with time to decode it.
+func (v *VideoService) noteLateness(trackID uint32, captureUS uint64) {
+	now := v.now()
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	sess := v.sess
+	if sess == nil {
+		return
+	}
+	tr := sess.tracks[trackID]
+	if tr == nil {
+		return
+	}
+	user := sess.people[tr.GetSessionId()].userID
+	off, ok := v.userOffsets[user]
+	if user == "" || !ok {
+		return
+	}
+	late := time.Duration(now.UnixMicro()-(int64(captureUS)+off))*time.Microsecond + videoDecodeBudget
+	a := v.adapt[user]
+	if a == nil {
+		a = &avAdapt{decided: now}
+		v.adapt[user] = a
+	}
+	if len(a.lates) < 512 {
+		a.lates = append(a.lates, late)
+	}
+	a.lastFrame = now
+}
+
+// adaptDelays applies the rule (see adaptEvery) to each person.
+func (v *VideoService) adaptDelays() {
+	now := v.now()
+	type change struct {
+		user string
+		d    time.Duration
+	}
+	var changes []change
+	v.mu.Lock()
+	for user, a := range v.adapt {
+		if now.Sub(a.lastFrame) > adaptIdle {
+			if a.extra > 0 {
+				changes = append(changes, change{user, 0})
+			}
+			delete(v.adapt, user)
+			continue
+		}
+		if now.Sub(a.decided) < adaptEvery {
+			continue
+		}
+		if !a.changed.IsZero() && now.Sub(a.changed) < adaptSettle {
+			a.lates, a.decided = a.lates[:0], now // from before the change took effect
+			continue
+		}
+		if len(a.lates) == 0 {
+			continue
+		}
+		slices.Sort(a.lates)
+		p90 := a.lates[(len(a.lates)-1)*9/10]
+		want := a.extra
+		switch {
+		case p90 > 0:
+			want += p90 + adaptMargin
+		case p90 < -adaptEarly:
+			want -= min(adaptEase, -p90-adaptEarly)
+		}
+		want = min(max(want, 0), adaptMax)
+		a.lates, a.decided = a.lates[:0], now
+		if want != a.extra {
+			a.extra, a.changed = want, now
+			changes = append(changes, change{user, want})
+		}
+	}
+	v.mu.Unlock()
+	if v.audioDelay != nil {
+		for _, c := range changes {
+			v.audioDelay(c.user, c.d)
+		}
+	}
+}
+
+// audioDelays is the current delay per person (tests).
+func (v *VideoService) audioDelays() map[string]time.Duration {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	out := map[string]time.Duration{}
+	for u, a := range v.adapt {
+		out[u] = a.extra
+	}
+	return out
 }
 
 // ---- sending ----
