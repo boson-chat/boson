@@ -51,6 +51,9 @@ type testRelease struct {
 	manifest []byte // nil: none published
 	sig      []byte // nil: none published
 	payload  []byte
+	// published: the release's published_at (zero: not in the feed).
+	published time.Time
+	noPayload bool // the platform build isn't attached
 }
 
 func linuxPayload(t *testing.T, exe string) []byte {
@@ -77,7 +80,10 @@ func signedManifest(t *testing.T, priv ed25519.PrivateKey, version, minVersion s
 func (r testRelease) serve(t *testing.T) *httptest.Server {
 	var srv *httptest.Server
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		files := map[string][]byte{"Boson-linux-x86_64.tar.gz": r.payload}
+		files := map[string][]byte{}
+		if !r.noPayload {
+			files["Boson-linux-x86_64.tar.gz"] = r.payload
+		}
 		if r.manifest != nil {
 			files[selfupdate.ManifestAsset] = r.manifest
 		}
@@ -89,8 +95,12 @@ func (r testRelease) serve(t *testing.T) *httptest.Server {
 			for name, b := range files {
 				assets = append(assets, map[string]any{"name": name, "size": len(b), "browser_download_url": srv.URL + "/dl/" + name})
 			}
-			json.NewEncoder(w).Encode(map[string]any{"tag_name": "v" + r.tag, "html_url": srv.URL + "/page",
-				"body": "## " + r.tag + "\n\n### Features\n\n* **desktop:** in-app updates ([#60](https://x/60))\n", "assets": assets})
+			rel := map[string]any{"tag_name": "v" + r.tag, "html_url": srv.URL + "/page",
+				"body": "## " + r.tag + "\n\n### Features\n\n* **desktop:** in-app updates ([#60](https://x/60))\n", "assets": assets}
+			if !r.published.IsZero() {
+				rel["published_at"] = r.published.Format(time.RFC3339)
+			}
+			json.NewEncoder(w).Encode(rel)
 			return
 		}
 		if b, ok := files[strings.TrimPrefix(req.URL.Path, "/dl/")]; ok {
@@ -335,5 +345,57 @@ func TestUpdaterDevBuildDoesNotCheck(t *testing.T) {
 	u.CheckNow(context.Background())
 	if len(got) != 1 || got[0].Kind != "up-to-date" {
 		t.Errorf("states %+v", got)
+	}
+}
+
+// A release whose builds aren't attached yet (CI uploads them minutes after
+// the release is created) isn't offered while it's fresh, and the next check
+// comes soon; an old release without them still offers the release page.
+func TestUpdaterWaitsForAFreshReleasesBuild(t *testing.T) {
+	pub, priv := testKey(t)
+	payload := linuxPayload(t, "new")
+	m, sig := signedManifest(t, priv, "1.1.0", "", payload)
+	now := time.Date(2026, 11, 16, 13, 30, 0, 0, time.UTC)
+	fresh, old := now.Add(-10*time.Minute), now.Add(-5*time.Hour)
+	for _, c := range []struct {
+		name    string
+		rel     testRelease
+		kind    string
+		manual  bool
+		pending bool
+	}{
+		{"fresh, no manifest yet", testRelease{tag: "1.1.0", payload: payload, published: fresh}, "up-to-date", false, true},
+		{"fresh, manifest but no build for this platform yet", testRelease{tag: "1.1.0", manifest: m, sig: sig, noPayload: true, published: fresh}, "up-to-date", false, true},
+		{"old, no manifest: the release page", testRelease{tag: "1.1.0", payload: payload, published: old}, "available", true, false},
+		{"old, build missing: the release page", testRelease{tag: "1.1.0", manifest: m, sig: sig, noPayload: true, published: old}, "available", true, false},
+		{"fresh and complete: offered in place", testRelease{tag: "1.1.0", manifest: m, sig: sig, payload: payload, published: fresh}, "available", false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			srv := c.rel.serve(t)
+			h := newHarness(t, srv.URL+"/latest", pub)
+			h.u.now = func() time.Time { return now }
+			h.u.CheckNow(context.Background())
+			s := h.u.GetState()
+			if s.Kind != c.kind || s.Manual != c.manual {
+				t.Fatalf("state %+v", s)
+			}
+			if c.pending && !strings.Contains(s.Message, "still being built") {
+				t.Fatalf("a manual check should say why: %+v", s)
+			}
+			h.u.mu.Lock()
+			pending := h.u.pending
+			h.u.mu.Unlock()
+			if pending != c.pending {
+				t.Fatalf("pending %v, want %v", pending, c.pending)
+			}
+		})
+	}
+	// An automatic check shows nothing at all while it's being built.
+	srv := testRelease{tag: "1.1.0", payload: payload, published: fresh}.serve(t)
+	h := newHarness(t, srv.URL+"/latest", pub)
+	h.u.now = func() time.Time { return now }
+	h.u.checkOnce(context.Background(), false)
+	if s := h.u.GetState(); s.Kind != "idle" {
+		t.Fatalf("automatic check: %+v", s)
 	}
 }
