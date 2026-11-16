@@ -1,3 +1,9 @@
+## [0.69.5](https://github.com/boson-chat/boson/compare/v0.69.4...v0.69.5) (2026-11-16)
+
+### Bug Fixes
+
+* the call view fits a phone (picture-in-picture, cards, one bar) ([#84](https://github.com/boson-chat/boson/issues/84)) ([20af6f9](https://github.com/boson-chat/boson/commit/20af6f9aaaef9e0fc888b67e32b10dfdf231da0d))
+
 ## [0.69.4](https://github.com/boson-chat/boson/compare/v0.69.3...v0.69.4) (2026-11-16)
 
 ### Bug Fixes
