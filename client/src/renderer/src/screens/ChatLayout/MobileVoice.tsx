@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
-import {
-  Bluetooth, Ear, Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Signal, SignalLow, SignalMedium,
-  Volume2, X,
-} from 'lucide-preact';
+import { Bluetooth, Ear, Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Signal, SignalLow, SignalMedium, Volume2, X, LayoutGrid } from 'lucide-preact';
 import {
   getVoiceSettings, onVoiceSettingsChange, useVoice, type VoiceController, type VoiceParticipant, type VoiceState,
 } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { BottomSheet } from './BottomSheet';
+import { useVideo } from '../../modules/video';
 import './MobileVoice.css';
 
 // Voice on a phone (the narrow layout): the call bar at the top of the chat,
@@ -73,12 +71,25 @@ export function MobileCallBar({ avatarFor }: { avatarFor?: (nick: string) => str
           )}
         </button>
         <MuteButton voice={voice} call={call} listener={listener} small />
+        {!connecting && <MobileVideoToggle />}
         <button type="button" class="mvoice-icon-btn mvoice-leave" aria-label="Leave voice" onClick={() => { void voice.leave(); }}>
           <PhoneOff size={20} aria-hidden="true" />
         </button>
       </div>
       {open && <VoicePanel voice={voice} call={call} serverName={snap.callServerName} avatarFor={avatarFor} onClose={() => setOpen(false)} />}
     </>
+  );
+}
+
+// Show the call's video (or go back to the chat): on servers with video.
+function MobileVideoToggle() {
+  const { video, snap } = useVideo();
+  if (!video || !snap.state.available) return null;
+  return (
+    <button type="button" class="mvoice-icon-btn" aria-pressed={snap.open} data-live={snap.open || undefined}
+      aria-label={snap.open ? 'Back to chat' : 'Show the call'} onClick={() => video.setOpen(!snap.open)}>
+      <LayoutGrid size={20} aria-hidden="true" />
+    </button>
   );
 }
 

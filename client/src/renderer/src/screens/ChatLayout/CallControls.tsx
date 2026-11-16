@@ -55,6 +55,9 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
 
   return (
     <span class="call-video-buttons">
+      {/* Builds that can't send (phones for now, Linux release builds)
+          watch only: no send buttons. */}
+      {st.canCapture && (<>
       <button type="button" class="voice-bar-btn" aria-pressed={cam.on} data-live={cam.on || cam.starting || undefined}
         data-starting={cam.starting || undefined} disabled={!canSend} aria-label={canSend ? camLabel : sendTitle}
         title={canSend ? camLabel : sendTitle} onClick={toggleCamera} onContextMenu={(e) => { e.preventDefault(); void pickCamera(); }}>
@@ -65,6 +68,7 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
         title={canSend ? scrLabel : sendTitle} onClick={() => { void toggleScreen(); }}>
         {scr.on || scr.starting ? <MonitorX size={16} aria-hidden="true" /> : <MonitorUp size={16} aria-hidden="true" />}
       </button>
+      </>)}
       {withCallToggle && (
         <button type="button" class="voice-bar-btn" aria-pressed={snap.open} data-live={snap.open || undefined}
           aria-label={snap.open ? 'Back to chat' : 'Show the call'} title={snap.open ? 'Back to chat' : 'Show the call'}

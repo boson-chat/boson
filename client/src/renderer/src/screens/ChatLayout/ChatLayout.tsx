@@ -355,7 +355,7 @@ export function ChatLayout({
           >
             {/* In a voice call: on top of whatever chat is open. */}
             <MobileCallBar avatarFor={avatarFor} />
-            {chatArea}
+            {callOpen ? <CallView avatarFor={avatarFor} /> : chatArea}
             {shownDrawer !== 'none' && active && (
               <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />
             )}
