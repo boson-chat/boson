@@ -1,3 +1,9 @@
+## [0.61.1](https://github.com/boson-chat/boson/compare/v0.61.0...v0.61.1) (2026-11-16)
+
+### Bug Fixes
+
+* give phone messages and the composer room ([#66](https://github.com/boson-chat/boson/issues/66)) ([bbddbd4](https://github.com/boson-chat/boson/commit/bbddbd4ec28a1611b032c42087d199497aeeab29))
+
 ## [0.61.0](https://github.com/boson-chat/boson/compare/v0.60.0...v0.61.0) (2026-11-15)
 
 ### Features
