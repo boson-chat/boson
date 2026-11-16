@@ -41,7 +41,7 @@ func (nativeMedia) Cameras() ([]VideoCamera, error) {
 	def, _ := media.DefaultCamera(cams)
 	out := make([]VideoCamera, 0, len(cams))
 	for _, c := range cams {
-		out = append(out, VideoCamera{ID: c.ID, Name: c.Name, Kind: string(c.Kind), Default: c.ID == def.ID, Unavailable: c.Unavailable})
+		out = append(out, VideoCamera{ID: c.ID, Name: c.Name, Kind: string(c.Kind), Facing: c.Facing, Default: c.ID == def.ID, Unavailable: c.Unavailable})
 	}
 	return out, nil
 }
@@ -76,17 +76,41 @@ func (nativeMedia) StartCamera(ctx context.Context, c *qvclient.Client, id strin
 	if err := cameraAllowed(); err != nil {
 		return nil, err
 	}
-	name := "camera"
+	name, facing := "camera", ""
 	if cams, err := media.ListCameras(); err == nil {
+		def, _ := media.DefaultCamera(cams)
 		for _, cam := range cams {
-			if cam.ID == id || (id == "" && func() bool { d, _ := media.DefaultCamera(cams); return d.ID == cam.ID }()) {
-				name = cam.Name
+			if cam.ID == id || (id == "" && def.ID == cam.ID) {
+				name, facing = cam.Name, cam.Facing
 			}
 		}
 	}
-	return startNativeShare(ctx, c, controlpb.TrackKind_CAMERA, name, preview, onEnd, func(push func(media.CapturedFrame)) (media.Source, error) {
-		return media.StartCamera(media.CameraOptions{ID: id, Width: 1280, Height: 720, FPS: 30}, push)
-	})
+	// Follow the phone's orientation while this camera runs (Android).
+	cameraTurning(true)
+	release := sync.OnceFunc(func() { cameraTurning(false) })
+	share, err := startNativeShare(ctx, c, controlpb.TrackKind_CAMERA, name, preview, func(err error) { release(); onEnd(err) },
+		func(push func(media.CapturedFrame)) (media.Source, error) {
+			return media.StartCamera(media.CameraOptions{ID: id, Width: 1280, Height: 720, FPS: 30}, push)
+		})
+	if err != nil {
+		release()
+		return nil, err
+	}
+	return &cameraShare{videoShare: share, facing: facing, release: release}, nil
+}
+
+// cameraShare is a camera's share: it knows which way the camera faces,
+// and stops following the phone's orientation when it stops.
+type cameraShare struct {
+	videoShare
+	facing  string
+	release func()
+}
+
+func (s *cameraShare) Facing() string { return s.facing }
+func (s *cameraShare) Stop() {
+	s.release()
+	s.videoShare.Stop()
 }
 
 func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id string, onEnd func(error)) (videoShare, error) {

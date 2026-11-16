@@ -26,6 +26,9 @@ export interface VideoShareState {
   // Mac asleep) and comes back by itself when the app is active again.
   paused?: boolean;
   id?: string; // the camera asked for ('' or absent: the default)
+  // Which way the running camera faces: 'front' (the user), 'back', or
+  // absent (a webcam). Our preview is mirrored unless it's 'back'.
+  facing?: 'front' | 'back' | '';
   name?: string;
   error?: string;
 }
@@ -52,6 +55,7 @@ export interface VideoCamera {
   id: string;
   name: string;
   kind: 'builtin' | 'external' | 'continuity' | 'virtual';
+  facing?: 'front' | 'back' | '';
   default: boolean;
   // Why it can't be used now (a closed laptop's built-in camera).
   unavailable?: string;

@@ -31,11 +31,19 @@ type videoShare interface {
 	Name() string
 }
 
+// facingShare is a camera share that knows which way its camera faces
+// ("front", "back", "" for a webcam): the self-view is mirrored unless
+// it's a back camera.
+type facingShare interface {
+	Facing() string
+}
+
 // VideoCamera is a camera to pick.
 type VideoCamera struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
-	Kind        string `json:"kind"` // builtin | external | continuity | virtual
+	Kind        string `json:"kind"`             // builtin | external | continuity | virtual
+	Facing      string `json:"facing,omitempty"` // front | back | "" (a webcam)
 	Default     bool   `json:"default"`
 	Unavailable string `json:"unavailable,omitempty"`
 }

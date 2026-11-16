@@ -116,6 +116,7 @@ export function CallView({ avatarFor, phone = false }: { avatarFor?: (nick: stri
         <div class="call-stage-content" style={pl && pl.height > size.h ? { height: `${pl.height}px` } : undefined}>
           {tiles.map((t) => (
             <CallTile key={t.key} tile={t} rect={rects.get(t.key) ?? null} big={t.key === big} avatar={avatarFor?.(t.name)}
+              mirror={!!t.self && cam.facing !== 'back'}
               fit={phone && !t.screen ? 'cover' : 'contain'}
               pip={pl?.pip === t.key ? { stage: size, onDrop: setCorner } : undefined}
               onPin={t.track && !phone ? () => video.pin(t.track!.trackId) : undefined}
@@ -134,8 +135,10 @@ interface PipDrag {
   onDrop: (c: Corner) => void;
 }
 
-function CallTile({ tile, rect, big, avatar, fit, pip, onPin, canvasRef }: {
-  tile: Tile; rect: Rect | null; big: boolean; avatar?: string; fit: 'cover' | 'contain'; pip?: PipDrag;
+// mirror: our own preview of a front camera (or a webcam) is mirrored, as
+// in a mirror; a back camera's never is. What's sent is never mirrored.
+function CallTile({ tile, rect, big, avatar, fit, mirror, pip, onPin, canvasRef }: {
+  tile: Tile; rect: Rect | null; big: boolean; avatar?: string; fit: 'cover' | 'contain'; mirror: boolean; pip?: PipDrag;
   onPin?: () => void; canvasRef: (el: HTMLCanvasElement | null) => void;
 }) {
   const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null);
@@ -169,7 +172,7 @@ function CallTile({ tile, rect, big, avatar, fit, pip, onPin, canvasRef }: {
         ...(drag ? { transform: `translate(${drag.dx}px, ${drag.dy}px)`, transition: 'none' } : {}) }}
       aria-label={tile.name} {...pipHandlers}>
       {showVideo ? (
-        <canvas class="call-tile-video" ref={canvasRef} data-fit={fit} data-mirror={tile.self || undefined} />
+        <canvas class="call-tile-video" ref={canvasRef} data-fit={fit} data-mirror={mirror || undefined} />
       ) : (
         <span class="call-tile-avatar" aria-hidden="true">
           {avatar ? <img src={avatar} alt="" /> : <span>{tile.name.slice(0, 1).toUpperCase()}</span>}
