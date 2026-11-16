@@ -20,6 +20,9 @@ import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { useNarrow } from '../../shared/narrow';
 import { MobileCallBar } from './MobileVoice';
+import { CallView } from './CallView';
+import { useVideo } from '../../modules/video';
+import { useVoice } from '../../modules/voice';
 import { useSwipeDrawers } from './useSwipeDrawers';
 import './ChatLayout.css';
 import './NetworkPanes.css';
@@ -195,6 +198,11 @@ export function ChatLayout({
   // Resolves a nick → profile-image URL for Boson members on this server
   // (own avatar + presence matches), shared by the chat stream + member list.
   const avatarFor = useAvatarFor(activeServerId ?? null);
+  // The call view (video in voice channels) takes the chat's place while
+  // it's open, during a call on a server with video.
+  const { snap: videoSnap } = useVideo();
+  const { snap: voiceSnap } = useVoice();
+  const callOpen = videoSnap.open && videoSnap.state.available && voiceSnap.call.status === 'connected';
 
   const rail = (
         <ServerRail
@@ -367,7 +375,7 @@ export function ChatLayout({
             onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
             ariaLabel="Resize channel list"
           />
-          {chatArea}
+          {callOpen ? <CallView avatarFor={avatarFor} /> : chatArea}
           <ResizeHandle
             side="right"
             width={membersW}

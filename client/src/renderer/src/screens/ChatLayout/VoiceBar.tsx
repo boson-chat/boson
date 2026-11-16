@@ -3,6 +3,7 @@ import { useVoice, type VoiceQuality } from '../../modules/voice';
 import { openUserSettings } from '../../modules/ui/open-settings';
 import { isMobile } from '../../shared/window-controls';
 import { HoldToTalk } from './MobileVoice';
+import { CallVideoButtons } from './CallControls';
 import './VoiceSection.css';
 
 const QUALITY_LABEL: Record<VoiceQuality, string> = {
@@ -125,6 +126,7 @@ export function VoiceBar() {
             <span class="voice-bar-tx" data-on={call.transmitting && !call.muted && !call.deafened ? true : undefined} aria-hidden="true" />
           </span>
         )}
+        {!connecting && <CallVideoButtons />}
         <button type="button" class="voice-bar-btn" aria-label="Voice settings" title="Voice settings" onClick={() => openUserSettings('voice')}>
           <Settings size={16} aria-hidden="true" />
         </button>

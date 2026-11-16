@@ -42,6 +42,9 @@ type VideoService struct {
 	emit  func(name string, data any)
 	// offsets: lip-sync offsets per user id (VoiceService.avOffsets).
 	offsets func() map[string]int64
+	// dev: a dev build, which accepts a local quicvideod's self-signed
+	// certificate (loopback only), like voice.
+	dev bool
 
 	hubOnce sync.Once
 	hub     atomic.Pointer[frameHub] // set once, on first use
@@ -323,7 +326,9 @@ func (v *VideoService) start(seq int, t videoTicketer) {
 	conn, err := v.dial(dctx, addr, qvclient.Options{
 		Token:         ticket.GetToken(),
 		ClientVersion: "boson/" + appVersion,
-		TLS:           &tls.Config{ServerName: serverName},
+		TLS: &tls.Config{ServerName: serverName,
+			// A local quicvideod (dev builds) has a self-signed certificate.
+			InsecureSkipVerify: v.dev && isLoopbackHost(serverName)},
 		OnFrame: func(f qvclient.RemoteFrame) {
 			v.mu.Lock()
 			current := v.sess == sess && sess != nil

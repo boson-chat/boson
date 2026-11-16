@@ -221,7 +221,8 @@ func TestVideoJoinsWithTicket(t *testing.T) {
 	if !st.Available || !st.CanPublish || !st.CanCapture || st.FrameURL == "" {
 		t.Fatalf("state %+v", st)
 	}
-	if h.addrs[0] != "video.boson.chat:7710" || h.opts[0].TLS.ServerName != "video.boson.chat" || h.opts[0].Token == "" {
+	if h.addrs[0] != "video.boson.chat:7710" || h.opts[0].TLS.ServerName != "video.boson.chat" || h.opts[0].Token == "" ||
+		h.opts[0].TLS.InsecureSkipVerify {
 		t.Fatalf("dial %s %+v", h.addrs[0], h.opts[0])
 	}
 	if h.conn(0).room != "general" {
