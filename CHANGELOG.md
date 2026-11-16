@@ -1,3 +1,9 @@
+## [0.69.1](https://github.com/boson-chat/boson/compare/v0.69.0...v0.69.1) (2026-11-16)
+
+### Bug Fixes
+
+* the voice bar fits a phone's channel drawer ([#80](https://github.com/boson-chat/boson/issues/80)) ([33dec47](https://github.com/boson-chat/boson/commit/33dec47e83e92a14c450b592a07d77313c82e8bd))
+
 ## [0.69.0](https://github.com/boson-chat/boson/compare/v0.68.0...v0.69.0) (2026-11-16)
 
 ### Features
