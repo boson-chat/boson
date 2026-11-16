@@ -27,7 +27,8 @@ import java.util.concurrent.TimeUnit;
  * Android around the audio, which itself is miniaudio on AAudio in Go.
  *
  * <ul>
- *   <li>the RECORD_AUDIO runtime permission, asked on the first join;</li>
+ *   <li>the RECORD_AUDIO runtime permission, asked on the first join, and
+ *   CAMERA, asked when the camera is first turned on in a call;</li>
  *   <li>the call audio mode (MODE_IN_COMMUNICATION), audio focus, and the
  *       route: Bluetooth or wired headset when there is one, else the
  *       loudspeaker or the earpiece as the user picks;</li>
@@ -41,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 public final class BosonVoice {
     private static final String TAG = "BosonVoice";
     static final int MIC_PERMISSION_REQUEST = 7020;
+    static final int CAMERA_PERMISSION_REQUEST = 7021;
     private static final String PREFS = "boson_voice";
 
     private static volatile Activity activity;
@@ -48,8 +50,10 @@ public final class BosonVoice {
     private static AudioManager audio;
     private static final Handler main = new Handler(Looper.getMainLooper());
 
-    private static volatile CountDownLatch micLatch;
-    private static volatile boolean micGranted;
+    private static final Object permLock = new Object();
+    private static volatile CountDownLatch permLatch;
+    private static volatile boolean permGranted;
+    private static int permCode;
 
     private static final Object lock = new Object();
     private static boolean audioOn;
@@ -82,34 +86,49 @@ public final class BosonVoice {
      * prompt and waits (Go calls this off the main thread) for the answer.
      */
     public static int micPermission(int request) {
+        return permission(Manifest.permission.RECORD_AUDIO, "mic_asked", MIC_PERMISSION_REQUEST, request);
+    }
+
+    /** The CAMERA permission, for video in calls; answers like micPermission. */
+    public static int cameraPermission(int request) {
+        return permission(Manifest.permission.CAMERA, "camera_asked", CAMERA_PERMISSION_REQUEST, request);
+    }
+
+    private static int permission(String perm, String askedKey, int code, int request) {
         Context c = app;
         if (c == null) return 0;
-        if (ContextCompat.checkSelfPermission(c, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(c, perm) == PackageManager.PERMISSION_GRANTED) {
             return 1;
         }
         SharedPreferences p = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        if (request == 0) return p.getBoolean("mic_asked", false) ? 0 : 2;
+        if (request == 0) return p.getBoolean(askedKey, false) ? 0 : 2;
         final Activity a = activity;
         if (a == null || Looper.myLooper() == Looper.getMainLooper()) return 0;
         CountDownLatch latch = new CountDownLatch(1);
-        micGranted = false;
-        micLatch = latch;
-        a.runOnUiThread(() -> a.requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, MIC_PERMISSION_REQUEST));
+        synchronized (permLock) {
+            permGranted = false;
+            permCode = code;
+            permLatch = latch;
+        }
+        a.runOnUiThread(() -> a.requestPermissions(new String[]{perm}, code));
         try {
             latch.await(120, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        p.edit().putBoolean("mic_asked", true).apply();
-        return micGranted ? 1 : 0;
+        p.edit().putBoolean(askedKey, true).apply();
+        return permGranted ? 1 : 0;
     }
 
     /** MainActivity.onRequestPermissionsResult; true when it was ours. */
     public static boolean onPermissionResult(int requestCode, int[] grantResults) {
-        if (requestCode != MIC_PERMISSION_REQUEST) return false;
-        micGranted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
-        CountDownLatch l = micLatch;
-        if (l != null) l.countDown();
+        if (requestCode != MIC_PERMISSION_REQUEST && requestCode != CAMERA_PERMISSION_REQUEST) return false;
+        synchronized (permLock) {
+            if (requestCode != permCode) return true;
+            permGranted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            CountDownLatch l = permLatch;
+            if (l != null) l.countDown();
+        }
         return true;
     }
 
