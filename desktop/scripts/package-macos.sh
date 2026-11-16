@@ -163,6 +163,7 @@ package() {
   <key>LSApplicationCategoryType</key><string>public.app-category.social-networking</string>
   <key>NSHumanReadableCopyright</key><string>Copyright © 2026 Boson</string>
   <key>NSMicrophoneUsageDescription</key><string>Boson uses your microphone when you join a voice channel or test your mic.</string>
+  <key>NSCameraUsageDescription</key><string>Boson uses your camera when you turn it on in a call, so the others in the channel can see you.</string>
   <key>CFBundleURLTypes</key>
   <array>
     <dict>
@@ -174,6 +175,18 @@ package() {
 </plist>
 PLIST
   plutil -lint "$app/Contents/Info.plist" >/dev/null
+  # Every privacy usage string in build/darwin/Info.plist must be in the
+  # packaged plist too: macOS kills the app (SIGABRT) the moment it asks for
+  # the camera or microphone without one (boson 0.65-0.69 crashed turning
+  # the camera on because this heredoc lacked NSCameraUsageDescription).
+  local key missing=0
+  for key in $(grep -o 'NS[A-Za-z]*UsageDescription' "$desktop/build/darwin/Info.plist" | sort -u); do
+    if ! /usr/libexec/PlistBuddy -c "Print :$key" "$app/Contents/Info.plist" >/dev/null 2>&1; then
+      echo "package-macos: $key is in build/darwin/Info.plist but not in the packaged Info.plist" >&2
+      missing=1
+    fi
+  done
+  [[ $missing == 0 ]] || exit 1
 
   # 4. Sign: hardened runtime + secure timestamp (both required to notarize).
   #    Entitlements: the microphone (voice), which the hardened runtime
