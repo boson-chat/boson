@@ -15,6 +15,7 @@ func voiceServices(dataDir, authBase string, dev bool, api *ApiService, images *
 	voice.nets = api.nets
 	// Every voice channel is also a video channel (where the server has it).
 	video := NewVideoService()
+	video.dev = dev
 	video.offsets = voice.avOffsets
 	voice.video = video
 	// The "Leave" action on Android's in-call notification.

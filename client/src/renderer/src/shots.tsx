@@ -22,6 +22,7 @@ import { ServerSettings } from './screens/ChatLayout/ServerSettings';
 import { getThemeStore } from './modules/ui/theme';
 import { VoiceController, setVoiceController, setVoiceSettings, type VoiceRoom } from './modules/voice';
 import { createFakeVoiceBridge } from './modules/voice/voice.fake';
+import { VideoController, setVideoController, EMPTY_VIDEO_STATE, type VideoState } from './modules/video';
 import { NetworkDirectories } from './modules/directory/networks';
 import { configureDirectorySources } from './modules/directory/sources';
 import { fakeDirectory, fakeTransport, type FakeNetwork } from './modules/directory/test-directory-server';
@@ -215,8 +216,94 @@ function installVoice(): void {
   }
 }
 
+// ?video=call: the call view, with tiles drawn from painted test frames
+// through the real controller (a fake socket sends keyframes; a fake
+// decoder paints a labelled pattern per track).
+const videoMode = new URLSearchParams(location.search).get('video');
+function installVideo(): void {
+  if (!videoMode) return;
+  const cam = (id: number, userId: string, name: string) => ({
+    trackId: id, userId, name, kind: 'camera' as const, self: false, layers: [{ id: 0, width: 640, height: 360, fps: 30 }],
+  });
+  const state: VideoState = {
+    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true,
+    camera: { on: true, starting: false },
+    tracks: [
+      cam(10, 'usr_nova', 'nova'),
+      ...(videoMode === 'screen' ? [{ trackId: 11, userId: 'usr_kestrel', name: 'kestrel', kind: 'screen' as const, self: false, layers: [{ id: 0, width: 1920, height: 1080, fps: 15 }] }] : []),
+    ],
+  };
+  const colours: Record<number, string> = { 10: '#3a6ea5', 11: '#2d2f36' };
+  class FakeSocket {
+    binaryType = '';
+    readyState = 1;
+    onmessage: ((ev: { data: unknown }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    private t: number;
+    constructor(public url: string) {
+      this.t = window.setInterval(() => {
+        for (const tr of state.tracks) {
+          const b = new Uint8Array(20 + 4 + 5);
+          const v = new DataView(b.buffer);
+          b[0] = 1; b[1] = 3;
+          v.setUint32(2, tr.trackId);
+          v.setBigUint64(10, BigInt(Date.now() * 1000));
+          v.setUint16(18, 4);
+          b.set([1, 0x42, 0xc0, 0x1e], 20);
+          this.onmessage?.({ data: b.buffer });
+        }
+      }, 100);
+    }
+    send() {}
+    close() { clearInterval(this.t); }
+  }
+  class PaintDecoder {
+    state = 'unconfigured';
+    private track = 0;
+    constructor(private init: { output: (f: VideoFrame) => void }) {}
+    configure() { this.state = 'configured'; }
+    decode(chunk: { timestamp: number }) {
+      const c = new OffscreenCanvas(640, 360);
+      const g = c.getContext('2d')!;
+      const tr = [...state.tracks].find((t) => colours[t.trackId]) ?? state.tracks[0];
+      void tr;
+      g.fillStyle = colours[this.track] ?? '#444';
+      g.fillRect(0, 0, 640, 360);
+      g.fillStyle = 'rgba(255,255,255,0.85)';
+      g.font = 'bold 42px sans-serif';
+      g.fillText(this.track === 11 ? 'screen share' : 'camera', 40, 190);
+      this.init.output(new VideoFrame(c, { timestamp: chunk.timestamp }));
+    }
+    close() { this.state = 'closed'; }
+    setTrack(id: number) { this.track = id; }
+  }
+  // Each track's decoder is made on its first keyframe; tell it which.
+  let next = 0;
+  const ids = state.tracks.map((t) => t.trackId);
+  class TrackedDecoder extends PaintDecoder {
+    constructor(init: { output: (f: VideoFrame) => void }) { super(init); this.setTrack(ids[next++ % ids.length]); }
+  }
+  const bridge = {
+    state: async () => state,
+    onState: () => () => {},
+    subscribe: async () => {},
+    unsubscribe: async () => {},
+    cameras: async () => [],
+    screenSources: async () => [],
+    setCamera: async () => state,
+    setScreen: async () => state,
+  };
+  const c = new VideoController(bridge, {
+    WebSocket: FakeSocket as unknown as typeof WebSocket,
+    VideoDecoder: TrackedDecoder as unknown as typeof VideoDecoder,
+  });
+  setVideoController(c);
+  setTimeout(() => c.setOpen(true), 400);
+}
+
 function chatView(): void {
   installVoice();
+  installVideo();
   const session = makeSession();
   const chat = new ChatService(
     session as never,

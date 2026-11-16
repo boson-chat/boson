@@ -7,6 +7,7 @@ import { installDropGuard } from './shared/drop-guard';
 import { trackVisualViewport } from './shared/visual-viewport';
 import { NetworkThemes, getThemeStore, setNetworkThemes } from './modules/ui/theme';
 import { VoiceController, getVoiceController, setVoiceController, voiceBridge } from './modules/voice';
+import { VideoController, setVideoController, videoBridge } from './modules/video';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
 import { loadGuestSession } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
@@ -131,6 +132,10 @@ void (async () => {
       knowsAuth: (net) => netAccounts?.getSnapshot().known.some((k) => k.authUrl === net) ?? false,
     }));
     netAccounts?.onLinked((link) => { void getVoiceController()?.recheck(link.host); });
+    // Video in voice channels (desktop/video.go): hidden until a call's
+    // server offers it.
+    const vb = videoBridge();
+    if (vb) setVideoController(new VideoController(vb));
   }
   void netAccounts?.init();
   // Fire init async — App renders immediately and shows "Loading…" until ready.
