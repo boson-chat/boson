@@ -1,3 +1,9 @@
+## [0.67.0](https://github.com/boson-chat/boson/compare/v0.66.0...v0.67.0) (2026-11-16)
+
+### Features
+
+* remember people's hosts after they leave ([#75](https://github.com/boson-chat/boson/issues/75)) ([d67c420](https://github.com/boson-chat/boson/commit/d67c42034afb33d2bd245fbf53e266dab56347cf))
+
 ## [0.66.0](https://github.com/boson-chat/boson/compare/v0.65.0...v0.66.0) (2026-11-16)
 
 ### Features
