@@ -1,3 +1,9 @@
+## [0.68.0](https://github.com/boson-chat/boson/compare/v0.67.0...v0.68.0) (2026-11-16)
+
+### Features
+
+* iOS camera in calls (native capture on iPhone/iPad) ([#76](https://github.com/boson-chat/boson/issues/76)) ([f61011a](https://github.com/boson-chat/boson/commit/f61011a73285a25b198f0e7a4b32b44ce0207e97))
+
 ## [0.67.0](https://github.com/boson-chat/boson/compare/v0.66.0...v0.67.0) (2026-11-16)
 
 ### Features
