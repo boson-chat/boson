@@ -56,13 +56,6 @@ function browserEnv(): VideoEnv {
 
 // A due time this far ahead is a bad offset, not a real delay: show now.
 const MAX_AHEAD_MS = 2000;
-// Screen shares have no sound to wait for. Each frame is shown at its
-// capture time plus the smallest delay seen lately plus this margin, so
-// they're paced by when they were captured, not by when they happened to
-// arrive. (On arrival, a frame just missing a vsync waited for the next
-// one: 33 ms frames shown 50 ms apart.)
-const SCREEN_JITTER_MS = 20;
-const SCREEN_LAG_WINDOW = 90; // frames (3 s at 30 fps)
 
 interface Pending {
   frame: VideoFrame;
@@ -77,9 +70,6 @@ class TrackPlayer {
   private waitingForKey = true;
   queue: Pending[] = [];
   canvas: HTMLCanvasElement | null = null;
-  // A screen share: paced by its own small jitter buffer (never the audio).
-  screen = false;
-  private lags: number[] = [];
   stats: TrackStats = { decoded: 0, shown: 0, dropped: 0, lastSkewMs: null, synced: false };
 
   constructor(
@@ -115,12 +105,7 @@ class TrackPlayer {
     const dec = new this.env.VideoDecoder({
       output: (frame) => {
         this.stats.decoded++;
-        const arrivedMs = this.env.now();
-        if (this.screen) {
-          this.lags.push(arrivedMs - frame.timestamp / 1000);
-          if (this.lags.length > SCREEN_LAG_WINDOW) this.lags.shift();
-        }
-        this.queue.push({ frame, captureUS: frame.timestamp, arrivedMs });
+        this.queue.push({ frame, captureUS: frame.timestamp, arrivedMs: this.env.now() });
       },
       error: () => this.reset(),
     });
@@ -151,11 +136,8 @@ class TrackPlayer {
 
   /** Shows the newest frame that is due (dropping older ones). */
   render(nowMs: number, offsetUS: number | undefined): void {
-    if (this.screen) offsetUS = undefined; // never held for the audio
     this.stats.synced = offsetUS !== undefined;
-    const lagMs = this.screen && this.lags.length > 0 ? Math.min(...this.lags) + SCREEN_JITTER_MS : null;
     const due = (p: Pending) => {
-      if (lagMs !== null) return Math.min(p.captureUS / 1000 + lagMs, p.arrivedMs + 100);
       if (offsetUS === undefined) return p.arrivedMs;
       const d = (p.captureUS + offsetUS) / 1000;
       return d - nowMs > MAX_AHEAD_MS ? p.arrivedMs : d;
@@ -326,13 +308,7 @@ export class VideoController {
     for (const s of sizes) {
       const t = tracks.get(s.trackId);
       if (!t || t.self) continue;
-      // A screen share takes its top layer (30 fps) whatever the tile's
-      // size: its small layer moves at half the rate, and a phone's tile is
-      // small. The server's bandwidth controller still steps it down when
-      // the link can't take it.
-      const layer = t.kind === 'screen' && s.visible && t.layers.length > 0
-        ? t.layers.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a)).id
-        : layerForTile(t.layers, s.width, s.height, s.visible);
+      const layer = layerForTile(t.layers, s.width, s.height, s.visible);
       if (layer !== null) want.set(s.trackId, layer);
     }
     for (const [id, layer] of want) {
@@ -370,7 +346,6 @@ export class VideoController {
     let p = this.players.get(trackId);
     if (!p) {
       p = new TrackPlayer(this.env, trackId, (id) => this.askKeyframe(id));
-      p.screen = this.snapshot.state.tracks.find((t) => t.trackId === trackId)?.kind === 'screen';
       this.players.set(trackId, p);
     }
     return p;
