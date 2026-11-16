@@ -1,4 +1,4 @@
-//go:build cgo && !server && !android && (darwin || windows || (linux && videocapture))
+//go:build cgo && !server && (darwin || windows || android || (linux && videocapture))
 
 package main
 
@@ -31,7 +31,7 @@ func newVideoMedia() videoMedia { return nativeMedia{} }
 
 // CanShareScreen: not on iOS yet (it needs a ReplayKit broadcast
 // extension); macOS before 12.3 says so when asked (ErrScreenUnsupported).
-func (nativeMedia) CanShareScreen() bool { return runtime.GOOS != "ios" }
+func (nativeMedia) CanShareScreen() bool { return runtime.GOOS != "ios" && runtime.GOOS != "android" }
 
 func (nativeMedia) Cameras() ([]VideoCamera, error) {
 	cams, err := media.ListCameras()
@@ -73,6 +73,9 @@ func (nativeMedia) Screens() ([]VideoSource, error) {
 }
 
 func (nativeMedia) StartCamera(ctx context.Context, c *qvclient.Client, id string, preview func(int, int, []byte), onEnd func(error)) (videoShare, error) {
+	if err := cameraAllowed(); err != nil {
+		return nil, err
+	}
 	name := "camera"
 	if cams, err := media.ListCameras(); err == nil {
 		for _, cam := range cams {

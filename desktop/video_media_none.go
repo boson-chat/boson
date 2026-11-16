@@ -1,4 +1,4 @@
-//go:build !cgo || server || android || (linux && !videocapture) || !(darwin || windows || linux)
+//go:build !cgo || server || (linux && !android && !videocapture) || !(darwin || windows || linux)
 
 package main
 
