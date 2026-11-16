@@ -211,6 +211,7 @@ func main() {
 		URL:              "/",
 	})
 
+	stopWindowFileDrops(win)
 	deepLinks.attach(app, win, os.Args[1:])
 	notify.win = win
 
