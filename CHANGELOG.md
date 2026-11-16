@@ -1,3 +1,13 @@
+## [0.69.2](https://github.com/boson-chat/boson/compare/v0.69.1...v0.69.2) (2026-11-16)
+
+### Bug Fixes
+
+* Android doesn't require a back camera ([#81](https://github.com/boson-chat/boson/issues/81)) ([fe3c8b6](https://github.com/boson-chat/boson/commit/fe3c8b6ad876cd88ca9bc9d278bdf81af62bcac3))
+
+### Documentation
+
+* video on phones, the screen-share plan, and the App Store vs AGPL caveat ([#78](https://github.com/boson-chat/boson/issues/78)) ([11796ca](https://github.com/boson-chat/boson/commit/11796cabd105cb6629cc70bb4cfcd9e7d54f8c59))
+
 ## [0.69.1](https://github.com/boson-chat/boson/compare/v0.69.0...v0.69.1) (2026-11-16)
 
 ### Bug Fixes
