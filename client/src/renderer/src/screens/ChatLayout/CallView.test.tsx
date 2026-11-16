@@ -6,6 +6,7 @@ import { __resetVoiceSettings } from '../../modules/voice/voice.settings';
 import { VideoController, setVideoController, EMPTY_VIDEO_STATE, type VideoBridge, type VideoState } from '../../modules/video';
 import { CallView } from './CallView';
 import { CallVideoButtons } from './CallControls';
+import { MobileCallBar } from './MobileVoice';
 
 const PEOPLE = [
   { sessionId: 1, userId: 'usr_me', name: 'me', self: true, muted: false, deafened: false, speaking: false, volume: 100, listener: false },
@@ -94,14 +95,15 @@ describe('CallVideoButtons', () => {
     expect(videoBridge.setCamera).toHaveBeenLastCalledWith(false, '');
   });
 
-  it("can't send as a listener or from a build without capture", async () => {
+  it("watch-only builds show no send buttons; listeners can't send", async () => {
     render(<CallVideoButtons />);
     setVideo({ available: true, status: 'connected', canCapture: false, canPublish: true });
-    const btns = await screen.findAllByRole('button', { name: 'This version of the app can’t send video' }) as HTMLButtonElement[];
-    expect(btns).toHaveLength(2); // camera and screen
-    expect(btns.every((b) => b.disabled)).toBe(true);
+    await screen.findByRole('button', { name: 'Show the call' });
+    expect(screen.queryByRole('button', { name: /camera|screen/i })).toBeNull();
     setVideo({ canCapture: true, canPublish: false });
-    expect((screen.getAllByRole('button', { name: 'Sending video in this channel needs the speak role' })[0] as HTMLButtonElement).disabled).toBe(true);
+    const btns = await screen.findAllByRole('button', { name: 'Sending video in this channel needs the speak role' }) as HTMLButtonElement[];
+    expect(btns).toHaveLength(2);
+    expect(btns.every((b) => b.disabled)).toBe(true);
   });
 
   it('asks which screen or window when there is a choice', async () => {
@@ -143,5 +145,17 @@ describe('CallView', () => {
     c.setOpen(true);
     fireEvent.click(await screen.findByRole('button', { name: 'Back to chat' }));
     expect(c.getSnapshot().open).toBe(false);
+  });
+});
+
+describe('MobileCallBar', () => {
+  it('opens the call view on a server with video', async () => {
+    render(<MobileCallBar />);
+    expect(screen.queryByRole('button', { name: 'Show the call' })).toBeNull();
+    setVideo({ available: true, status: 'connected' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Show the call' }));
+    const c = (await import('../../modules/video')).getVideoController()!;
+    expect(c.getSnapshot().open).toBe(true);
+    expect(screen.getByRole('button', { name: 'Back to chat' })).toBeTruthy();
   });
 });

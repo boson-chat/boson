@@ -242,3 +242,4 @@
 .mvoice-ptt[data-held] { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
 .mvoice-ptt[data-on] { border-color: var(--success); background: color-mix(in oklab, var(--success), transparent 85%); color: var(--success); }
 .mvoice-ptt-compact { min-height: 48px; margin-top: var(--space-2); font-size: var(--text-sm); }
+.mvoice-icon-btn[data-live] { color: var(--success, #23a55a); }
