@@ -1,3 +1,9 @@
+## [0.69.9](https://github.com/boson-chat/boson/compare/v0.69.8...v0.69.9) (2026-11-16)
+
+### Bug Fixes
+
+* revert the screen-share pacing ([#86](https://github.com/boson-chat/boson/issues/86)): it left the iPhone's video tiles blank ([#87](https://github.com/boson-chat/boson/issues/87)) ([3f534a3](https://github.com/boson-chat/boson/commit/3f534a3b1ec4783de4be90f9905bf53055d8425d))
+
 ## [0.69.8](https://github.com/boson-chat/boson/compare/v0.69.7...v0.69.8) (2026-11-16)
 
 ### Bug Fixes
