@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useLayoutEffect } from 'preact/hooks';
-import { Paperclip, Smile } from 'lucide-preact';
+import { Paperclip, Plus, SendHorizontal, Smile } from 'lucide-preact';
 import type { ChatInputBloc, ChatInputState } from './ChatInputBloc';
 import {
   ChannelAutocomplete,
@@ -131,7 +131,9 @@ export function ChatInputBar({
       )}
       <div class="chat-input-wrap">
         <div class="input-actions">
-          {myNick && (
+          {/* A phone has no room for the nick (the title bar shows it) or an
+              emoji button (the keyboard has one): the text gets the width. */}
+          {myNick && !phone && (
             <span class="chat-nick-chip" title={`You are ${myNick}`}>{myNick}</span>
           )}
           {onFiles && (
@@ -144,7 +146,7 @@ export function ChatInputBar({
                 disabled={disabled}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Paperclip size={17} aria-hidden="true" />
+                {phone ? <Plus size={22} aria-hidden="true" /> : <Paperclip size={17} aria-hidden="true" />}
               </button>
               <input
                 ref={fileInputRef}
@@ -161,7 +163,7 @@ export function ChatInputBar({
               />
             </>
           )}
-          <div class="emoji-picker-wrap">
+          {!phone && <div class="emoji-picker-wrap">
             <button
               class="input-action"
               type="button"
@@ -201,7 +203,7 @@ export function ChatInputBar({
                 </div>
               </div>
             )}
-          </div>
+          </div>}
         </div>
         <div class="chat-textarea-wrap">
           {state.slashOpen && (
@@ -291,8 +293,9 @@ export function ChatInputBar({
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => bloc.send()}
           disabled={disabled || !state.input.trim()}
+          aria-label="Send"
         >
-          Send
+          {phone ? <SendHorizontal size={20} aria-hidden="true" /> : 'Send'}
         </button>
       </div>
     </div>

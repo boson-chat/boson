@@ -1641,9 +1641,17 @@
 .app-shell.is-narrow .chat-send-btn {
   position: relative;
   align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
   height: 36px;
-  min-width: 56px;
+  min-width: 36px;
+  padding: 0;
+  border-radius: var(--radius-sm);
   margin: 4px 0 4px var(--space-1);
 }
+/* Nothing to send: the icon reads as a hint, not a dimmed orange block. */
+.app-shell.is-narrow .chat-send-btn:disabled { background: transparent; color: var(--fg-3); opacity: 1; }
 /* The button reads 36px; its touch area is 44px. */
 .app-shell.is-narrow .chat-send-btn::after { content: ''; position: absolute; inset: -4px; }
