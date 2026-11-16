@@ -198,6 +198,82 @@ target (`ios-device`, `ios-simulator`, `android-arm64`, `android-amd64`),
 cached under `desktop/build/.opus`; `package-ios.sh` and
 `package-android.sh` build it and link it in (`-tags nolibopusfile`).
 
+## Video on iOS and Android
+
+Every voice channel is also a video channel (quicvideo; see
+`docs/design.md` and `docs/voice-merge.md` in boson-chat/quicvideo). On
+phones, `VideoService` (`desktop/video.go`) runs as on desktop: a video
+ticket from quicvoiced, a QUIC connection to quicvideod, and frames handed
+to the webview over the loopback WebSocket, where WebCodecs decodes them.
+Lip sync is the same too: video waits for its sound, and a person's audio
+is delayed by up to 150 ms when their video arrives late.
+
+| | iOS | Android |
+|---|---|---|
+| Watch | yes: the voice bar's video button opens the call view in place of the chat | yes, the same |
+| Camera | front camera first, upright portrait; AVFoundation + VideoToolbox H.264 (quicvideo `client/media`) | front camera first, upright portrait; Camera2 NDK + `AMediaCodec` H.264 (hardware where the device has it) |
+| Camera permission | `NSCameraUsageDescription`; asked the first time the camera is turned on | `CAMERA` at runtime, asked the first time the camera is turned on; denied → a message pointing at Settings |
+| In the background | the camera stops (iOS interrupts capture), which ends the share; voice goes on | the same: Android takes the camera from a backgrounded app, the camera reports a disconnect and the share ends |
+| Screen sharing | not yet (below) | not yet (below) |
+
+Checked so far:
+- iOS: the app builds, links and launches in the simulator (iPhone 15 Pro
+  Max, iOS 17.2). The simulator has no camera, so capture needs a real
+  iPhone.
+- Android: the encoder round trip passes on the API 35 emulator (60/60
+  frames, keyframes on request, SPS/PPS first); the APK installs and
+  launches with the Camera2/MediaCodec libraries loaded. Capture in a real
+  call is still to be checked on a device.
+
+### Screen sharing on phones: the plan
+
+Neither OS lets an ordinary app capture the screen. Both have a separate,
+system-mediated path.
+
+**iOS: a ReplayKit broadcast upload extension.**
+- A second target in the app (`BosonBroadcast.appex`, a *Broadcast Upload
+  Extension*), started from the call view through
+  `RPSystemBroadcastPickerView` (the system's own sheet; the user picks
+  Boson and taps Start Broadcast). In-app `RPScreenRecorder` capture
+  isn't enough: it only sees our own app.
+- The extension runs in its own process with a hard memory limit (about
+  50 MB) and gets `CMSampleBuffer`s of the whole screen. It encodes them
+  with VideoToolbox itself (no webview, no Wails, just quicvideo's Go
+  client built as a small library) and publishes a `SCREEN` track.
+- It needs its own video ticket: the app writes a short-lived one, plus the
+  quicvideod address, to an App Group (shared container and keychain
+  group) when the call starts and refreshes it; the extension reads it and
+  dials quicvideod directly. The app stays in the call for audio.
+- The broadcast ends when the user stops it from the status bar or Control
+  Centre, or when the call ends (the extension sees the ticket withdrawn
+  and calls `finishBroadcastWithError`).
+- Work: the extension target and its provisioning profile (App Group
+  entitlement on both), a c-archive build of the publisher for it, the
+  picker button in the call view, and keeping memory under the limit
+  (one layer at 720p, small encoder queue).
+
+**Android: MediaProjection.**
+- The call view's screen button starts
+  `MediaProjectionManager.createScreenCaptureIntent()`, so the system's
+  consent dialog appears every time (Android 14 requires consent per
+  session).
+- Before using the projection, a foreground service of type
+  `mediaProjection` must be running (`FOREGROUND_SERVICE_MEDIA_PROJECTION`,
+  API 34). `BosonVoiceService` is already the call's foreground service; it
+  would add that type while sharing.
+- The projection's `VirtualDisplay` renders straight into the input
+  `Surface` of an `AMediaCodec` encoder (`AMediaCodec_createInputSurface`),
+  so frames never pass through Go memory. The encoder's output goes to the
+  same publisher as the camera's.
+- The share ends when the user stops it from the notification or the
+  system's cast tile (`MediaProjection.Callback.onStop`), or when the call
+  ends.
+- Work: the Java side (intent, result, service type), a surface-input
+  encoder in quicvideo `client/media` (`media_android.go`), and the button.
+
+Both are their own PRs when we decide to do them. Until then, the screen
+button is hidden on phones (`VideoState.canShareScreen`).
+
 ## Store requirements that affect the app
 
 - **Apple (App Store Review 1.2, user-generated content):** a chat app must
@@ -210,6 +286,31 @@ cached under `desktop/build/.opus`; `package-ios.sh` and
   (what the backend stores: account, encrypted identity, directory data).
 - **Accounts:** if sign-up is in the app, **account deletion** must be in the
   app too (Apple 5.1.1(v), Google Play policy). Check the backend has it.
+- **Licence: the App Store and the AGPL.** Boson, quicvoice and quicvideo
+  are AGPL-3.0. Apple's App Store terms add restrictions the GPL family
+  forbids passing on (the usage rules, a limit on the number of devices, no
+  redistribution of what you downloaded). This is why the FSF objected to
+  VLC in the App Store in 2011 and it was removed. In short:
+  - **Code we own** we can publish on the App Store as we like: the
+    licence binds people we give the code to, not its copyright holders.
+    The risk is **code we don't own**: AGPL/GPL contributions from others,
+    and any GPL-family dependency in the iOS build. Any of those authors
+    could object, and Apple removes apps on a copyright complaint.
+  - **What to do before the first App Store submission:**
+    1. List the iOS build's dependencies and their licences.
+       `go-licenses report` covers the Go side; libopus is BSD; check
+       the rest.
+    2. Add an **additional permission** under AGPL §7 to the three repos,
+       allowing distribution through app stores whose terms add such
+       restrictions, provided the source stays available.
+    3. Get every outside contributor's agreement to it, or a CLA from
+       here on.
+    4. Offer the source in the app: AGPL §13 requires it for network use
+       anyway. For example, a link in Settings → About to the repos at the running version.
+  - **Google Play** adds no such restriction, so only §13 and the usual
+    source offer apply there.
+  - This isn't legal advice; settle it before submission, not after a
+    takedown.
 - **Encryption export compliance:** standard HTTPS/TLS → the usual
   exemption declaration.
 
