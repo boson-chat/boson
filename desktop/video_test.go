@@ -641,3 +641,38 @@ func TestVideoCameraFacing(t *testing.T) {
 		t.Fatalf("off: facing %q", f)
 	}
 }
+
+// A screen share has no sound of its own: it gets no lip-sync offset (the
+// page paces it by its own jitter buffer), and its late frames never
+// delay its sharer's voice.
+func TestVideoScreenOutOfLipSync(t *testing.T) {
+	h := newVideoHarness(t)
+	h.svc.offsets = func() map[string]int64 { return map[string]int64{"usr_alice": 87_000} }
+	h.join(t, `"video.publish"`)
+	c := h.conn(0)
+	c.events <- &videopb.ControlMessage{Msg: &videopb.ControlMessage_TrackAdded{TrackAdded: &videopb.TrackAdded{
+		Track: &videopb.Track{TrackId: 14, SessionId: 2, Kind: videopb.TrackKind_SCREEN}}}}
+	waitUntil(t, "alice's screen", func() bool { return len(h.svc.State().Tracks) == 2 })
+	ws := dialHub(t, h.svc.hub.Load())
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		typ, b := readMsg(t, ws)
+		if typ != 1 {
+			continue
+		}
+		if string(b) != `{"type":"sync","offsets":{"10":87000}}` { // her camera only
+			t.Fatalf("sync %s", b)
+		}
+		break
+	}
+	h.svc.mu.Lock()
+	h.svc.userOffsets = map[string]int64{"usr_alice": 87_000}
+	h.svc.mu.Unlock()
+	h.svc.noteLateness(14, uint64(time.Now().Add(-time.Second).UnixMicro())) // a second late
+	h.svc.mu.Lock()
+	_, adapting := h.svc.adapt["usr_alice"]
+	h.svc.mu.Unlock()
+	if adapting {
+		t.Fatal("a late screen frame counted toward alice's audio delay")
+	}
+}
