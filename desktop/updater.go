@@ -78,6 +78,9 @@ type UpdaterService struct {
 	target   string // what's replaced: the .app bundle or the executable
 	staged   string // ready: what Apply installs
 	settings updaterSettings
+	// The installed version when the offered notes span several releases
+	// (see UpdateState.NotesSince).
+	notesSince string
 }
 
 type UpdateState struct {
@@ -88,7 +91,12 @@ type UpdateState struct {
 	// installed by hand.
 	Message string `json:"message,omitempty"`
 	// Notes: the release's notes, shortened to a few plain-text lines.
-	Notes          string  `json:"notes,omitempty"`
+	// When the installed copy is more than one release behind, every
+	// release since it, newest first, each under its version.
+	Notes string `json:"notes,omitempty"`
+	// NotesSince: the installed version, when Notes covers every release
+	// after it (more than one).
+	NotesSince     string  `json:"notesSince,omitempty"`
 	Percent        float64 `json:"percent,omitempty"`
 	BytesPerSecond float64 `json:"bytesPerSecond,omitempty"`
 	// Manual: this copy can't install it itself; Apply opens the release page.
@@ -105,6 +113,10 @@ const (
 	updateFirstCheck  = 10 * time.Second
 	updateInterval    = 6 * time.Hour
 	updateNotesItems  = 6
+	// Several releases behind: up to this many entries from each, for up to
+	// this many releases.
+	updateNotesPerRelease = 4
+	updateNotesReleases   = 8
 )
 
 func NewUpdaterService(current string, checkOnline bool, links *LinksService, dataDir string) *UpdaterService {
@@ -153,6 +165,9 @@ func (u *UpdaterService) GetState() UpdateState {
 
 func (u *UpdaterService) set(s UpdateState) {
 	u.mu.Lock()
+	if s.Notes != "" && s.NotesSince == "" {
+		s.NotesSince = u.notesSince
+	}
 	u.state = s
 	u.mu.Unlock()
 	u.emit(s)
@@ -206,6 +221,18 @@ func (u *UpdaterService) checkRelease(ctx context.Context, manual bool) (autoDow
 		return false
 	}
 	notes := selfupdate.ShortNotes(rel.Notes, updateNotesItems)
+	// More than one release behind: what's new in each of them, not just
+	// the latest (a failed list keeps the latest's notes).
+	since := ""
+	if list, err := selfupdate.FetchNotesSince(ctx, u.client, u.feed, u.current, rel.Version); err != nil {
+		log.Printf("updater: release notes: %v", err)
+	} else if len(list) > 1 {
+		notes = selfupdate.CombinedNotes(list, updateNotesPerRelease, updateNotesReleases)
+		since = u.current
+	}
+	u.mu.Lock()
+	u.notesSince = since
+	u.mu.Unlock()
 	offerManual := func(why string) {
 		u.mu.Lock()
 		u.release, u.asset = rel, selfupdate.Asset{}

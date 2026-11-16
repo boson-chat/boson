@@ -452,6 +452,9 @@
 /* The release's notes, shortened by the shell to plain-text lines. */
 .user-settings-update-notes {
   white-space: pre-line;
+  /* Several releases' worth scrolls rather than pushing the panel long. */
+  max-height: 22em;
+  overflow-y: auto;
   font-size: var(--text-xs);
   line-height: 1.5;
   color: var(--fg-2);
