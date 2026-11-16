@@ -1,3 +1,9 @@
+## [0.64.0](https://github.com/boson-chat/boson/compare/v0.63.0...v0.64.0) (2026-11-16)
+
+### Features
+
+* call view for voice channels with video (camera, screen, tiles, lip sync) ([#71](https://github.com/boson-chat/boson/issues/71)) ([95ac97b](https://github.com/boson-chat/boson/commit/95ac97b11b4fae9ce1de5869f97aa19cd5b26488))
+
 ## [0.63.0](https://github.com/boson-chat/boson/compare/v0.62.1...v0.63.0) (2026-11-16)
 
 ### Features
