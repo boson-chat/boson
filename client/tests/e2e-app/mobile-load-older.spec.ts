@@ -20,27 +20,33 @@ const list = (page: Page) => page.locator('main .chat-messages');
 const ribbon = (page: Page) => list(page).locator('.chat-load-older');
 const beginning = (page: Page) => ribbon(page).getByText('Beginning of history');
 
-// A finger flicking the message list down (scrolling back up the history),
-// as touch input with its fling.
+// A finger flicking the message list down (scrolling back up the history):
+// raw touch events, so the browser scrolls (and flings) as on a phone.
 async function flickUp(page: Page, cdp: CDPSession): Promise<void> {
   const box = (await list(page).boundingBox())!;
-  await cdp.send('Input.synthesizeScrollGesture', {
-    x: Math.round(box.x + box.width / 2),
-    y: Math.round(box.y + box.height * 0.3),
-    yDistance: Math.round(box.height * 0.6),
-    speed: 3000,
-    gestureSourceType: 'touch',
-  });
+  const x = Math.round(box.x + box.width / 2);
+  const from = Math.round(box.y + box.height * 0.2);
+  const to = Math.round(box.y + box.height * 0.85);
+  const steps = 6;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: from }] });
+  for (let i = 1; i <= steps; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: Math.round(from + ((to - from) * i) / steps) }] });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 }
 
 // Flick up until the start of the history shows (or give up).
 async function flickToTheStart(page: Page, cdp: CDPSession, maxFlicks = 120): Promise<number> {
   let flicks = 0;
+  const trail: number[] = [];
   while (flicks < maxFlicks && (await beginning(page).count()) === 0) {
     await flickUp(page, cdp);
     flicks++;
     await page.waitForTimeout(150);
+    trail.push(await list(page).evaluate((l) => Math.round(l.scrollTop)));
   }
+  // (Where the list was after each flick, for a failure's report.)
+  test.info().annotations.push({ type: 'scrollTop after each flick', description: trail.join(' ') });
   return flicks;
 }
 
