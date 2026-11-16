@@ -29,6 +29,10 @@ type Release struct {
 	Notes   string
 	PageURL string
 	Assets  map[string]ReleaseAsset
+	// PublishedAt: when the release went out (zero if the feed doesn't say).
+	// Its builds are attached minutes later, so a fresh release without
+	// them is still being built, not a manual-only release.
+	PublishedAt time.Time
 }
 
 // ReleaseAsset is one downloadable file of a release.
@@ -97,10 +101,11 @@ func FetchRelease(ctx context.Context, client *http.Client, feed string) (*Relea
 		return nil, err
 	}
 	var r struct {
-		TagName string `json:"tag_name"`
-		Body    string `json:"body"`
-		HTMLURL string `json:"html_url"`
-		Assets  []struct {
+		TagName     string    `json:"tag_name"`
+		Body        string    `json:"body"`
+		HTMLURL     string    `json:"html_url"`
+		PublishedAt time.Time `json:"published_at"`
+		Assets      []struct {
 			Name string `json:"name"`
 			Size int64  `json:"size"`
 			URL  string `json:"browser_download_url"`
@@ -110,10 +115,11 @@ func FetchRelease(ctx context.Context, client *http.Client, feed string) (*Relea
 		return nil, fmt.Errorf("selfupdate: feed: %w", err)
 	}
 	rel := &Release{
-		Version: strings.TrimPrefix(r.TagName, "v"),
-		Notes:   r.Body,
-		PageURL: r.HTMLURL,
-		Assets:  map[string]ReleaseAsset{},
+		Version:     strings.TrimPrefix(r.TagName, "v"),
+		Notes:       r.Body,
+		PageURL:     r.HTMLURL,
+		Assets:      map[string]ReleaseAsset{},
+		PublishedAt: r.PublishedAt,
 	}
 	for _, a := range r.Assets {
 		rel.Assets[a.Name] = ReleaseAsset{Name: a.Name, URL: a.URL, Size: a.Size}

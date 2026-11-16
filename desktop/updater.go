@@ -73,6 +73,8 @@ type UpdaterService struct {
 	mu       sync.Mutex
 	state    UpdateState
 	busy     bool // a check or download is running
+	pending  bool // the latest release is still being built (recheck soon)
+	now      func() time.Time
 	release  *selfupdate.Release
 	asset    selfupdate.Asset
 	target   string // what's replaced: the .app bundle or the executable
@@ -112,7 +114,13 @@ const (
 	releasesPage      = "https://github.com/boson-chat/boson/releases/latest"
 	updateFirstCheck  = 10 * time.Second
 	updateInterval    = 6 * time.Hour
-	updateNotesItems  = 6
+	// A release younger than this whose build for this platform isn't
+	// attached yet (CI attaches the builds 10-20 minutes after the release
+	// is created) is still being built: nothing is offered, and the next
+	// check comes after updatePendingRecheck instead of updateInterval.
+	updatePendingWindow  = 3 * time.Hour
+	updatePendingRecheck = 3 * time.Minute
+	updateNotesItems     = 6
 	// Several releases behind: up to this many entries from each, for up to
 	// this many releases.
 	updateNotesPerRelease = 4
@@ -121,6 +129,7 @@ const (
 
 func NewUpdaterService(current string, checkOnline bool, links *LinksService, dataDir string) *UpdaterService {
 	u := &UpdaterService{
+		now:     time.Now,
 		current: current,
 		check:   checkOnline,
 		feed:    selfupdate.DefaultFeed,
@@ -199,6 +208,7 @@ func (u *UpdaterService) checkRelease(ctx context.Context, manual bool) (autoDow
 		return false
 	}
 	u.busy = true
+	u.pending = false
 	u.mu.Unlock()
 	defer func() { u.mu.Lock(); u.busy = false; u.mu.Unlock() }()
 
@@ -233,6 +243,24 @@ func (u *UpdaterService) checkRelease(ctx context.Context, manual bool) (autoDow
 	u.mu.Lock()
 	u.notesSince = since
 	u.mu.Unlock()
+	// notBuiltYet: a fresh release whose build isn't up yet isn't offered
+	// (its button could only open the release page); check again soon.
+	notBuiltYet := func() bool {
+		if rel.PublishedAt.IsZero() || u.now().Sub(rel.PublishedAt) > updatePendingWindow {
+			return false
+		}
+		log.Printf("updater: v%s is still being built; checking again in %v", rel.Version, updatePendingRecheck)
+		u.mu.Lock()
+		u.pending = true
+		u.mu.Unlock()
+		if manual {
+			u.set(UpdateState{Kind: "up-to-date", CheckedAt: time.Now().UnixMilli(),
+				Message: fmt.Sprintf("v%s is still being built. It will be offered when it's ready.", rel.Version)})
+		} else {
+			u.set(UpdateState{Kind: "idle"})
+		}
+		return true
+	}
 	offerManual := func(why string) {
 		u.mu.Lock()
 		u.release, u.asset = rel, selfupdate.Asset{}
@@ -246,7 +274,9 @@ func (u *UpdaterService) checkRelease(ctx context.Context, manual bool) (autoDow
 	m, err := rel.Manifest(ctx, u.client, u.keys)
 	switch {
 	case errors.Is(err, selfupdate.ErrNoManifest):
-		offerManual("")
+		if !notBuiltYet() {
+			offerManual("")
+		}
 		return false
 	case errors.Is(err, selfupdate.ErrUnsigned), errors.Is(err, selfupdate.ErrBadSignature), errors.Is(err, selfupdate.ErrBadManifest):
 		log.Printf("updater: v%s refused: %v", rel.Version, err)
@@ -269,15 +299,20 @@ func (u *UpdaterService) checkRelease(ctx context.Context, manual bool) (autoDow
 		offerManual(fmt.Sprintf("v%s can't be installed over v%s in place: download it from the release page.", rel.Version, u.current))
 		return false
 	case errors.Is(err, selfupdate.ErrNoAsset):
-		offerManual("")
+		if !notBuiltYet() {
+			offerManual("")
+		}
 		return false
 	case err != nil:
 		u.set(UpdateState{Kind: "up-to-date", CheckedAt: time.Now().UnixMilli()})
 		return false
 	}
 	if _, ok := rel.Assets[asset.Name]; !ok {
-		// Not uploaded (yet): the release page.
-		offerManual("")
+		// Not uploaded (yet): wait for it while the release is fresh, then
+		// the release page.
+		if !notBuiltYet() {
+			offerManual("")
+		}
 		return false
 	}
 	target, err := u.locate()
@@ -504,7 +539,13 @@ func (u *UpdaterService) ServiceStartup(ctx context.Context, _ application.Servi
 				return
 			case <-t.C:
 				u.checkOnce(ctx, false)
-				t.Reset(updateInterval)
+				u.mu.Lock()
+				next := updateInterval
+				if u.pending {
+					next = updatePendingRecheck
+				}
+				u.mu.Unlock()
+				t.Reset(next)
 			}
 		}
 	}()
