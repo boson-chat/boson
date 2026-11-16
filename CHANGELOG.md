@@ -1,3 +1,9 @@
+## [0.69.0](https://github.com/boson-chat/boson/compare/v0.68.0...v0.69.0) (2026-11-16)
+
+### Features
+
+* Android camera in calls (Camera2 + MediaCodec) ([#77](https://github.com/boson-chat/boson/issues/77)) ([ee9cce3](https://github.com/boson-chat/boson/commit/ee9cce31ca644c6110933bb639cbe5d0955aad44))
+
 ## [0.68.0](https://github.com/boson-chat/boson/compare/v0.67.0...v0.68.0) (2026-11-16)
 
 ### Features
