@@ -644,11 +644,6 @@ func (v *VideoService) sendSync(sess *videoSession) {
 	v.mu.Lock()
 	v.userOffsets = byUser
 	for id, tr := range sess.tracks {
-		// A screen share has no sound of its own: it's paced by its own
-		// small jitter buffer in the page, never held for its sharer's voice.
-		if tr.GetKind() == videopb.TrackKind_SCREEN {
-			continue
-		}
 		if off, ok := byUser[sess.people[tr.GetSessionId()].userID]; ok {
 			msg.Offsets[id] = off
 		}
@@ -668,9 +663,7 @@ func (v *VideoService) noteLateness(trackID uint32, captureUS uint64) {
 		return
 	}
 	tr := sess.tracks[trackID]
-	if tr == nil || tr.GetKind() == videopb.TrackKind_SCREEN {
-		// A late screen frame says nothing about lip sync: it mustn't
-		// delay its sharer's voice.
+	if tr == nil {
 		return
 	}
 	user := sess.people[tr.GetSessionId()].userID

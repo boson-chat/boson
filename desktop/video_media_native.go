@@ -115,7 +115,7 @@ func (s *cameraShare) Stop() {
 
 func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id string, onEnd func(error)) (videoShare, error) {
 	var o media.ScreenOptions
-	o.FPS, o.Cursor = media.ScreenFPS, true // 30: what the top screen layer runs at
+	o.FPS, o.Cursor = 15, true
 	name := "screen"
 	switch kind, n, _ := strings.Cut(id, ":"); kind {
 	case "display":
