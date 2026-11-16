@@ -1,6 +1,6 @@
 {
   "name": "boson-monorepo",
-  "version": "0.69.9",
+  "version": "0.69.10",
   "license": "AGPL-3.0-only",
   "private": true,
   "workspaces": [

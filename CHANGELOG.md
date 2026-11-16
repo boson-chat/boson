@@ -1,3 +1,9 @@
+## [0.69.10](https://github.com/boson-chat/boson/compare/v0.69.9...v0.69.10) (2026-11-16)
+
+### Bug Fixes
+
+* a video error can't freeze every tile, and the page's errors reach the app log ([#88](https://github.com/boson-chat/boson/issues/88)) ([33a1f7e](https://github.com/boson-chat/boson/commit/33a1f7e06d99c646b9b2e990b0ee9b8d03590bd1)), closes [#86](https://github.com/boson-chat/boson/issues/86) [#87](https://github.com/boson-chat/boson/issues/87)
+
 ## [0.69.9](https://github.com/boson-chat/boson/compare/v0.69.8...v0.69.9) (2026-11-16)
 
 ### Bug Fixes
