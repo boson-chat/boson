@@ -1,3 +1,9 @@
+## [0.65.0](https://github.com/boson-chat/boson/compare/v0.64.0...v0.65.0) (2026-11-16)
+
+### Features
+
+* lip sync holds through silences and delays audio when video is late ([#72](https://github.com/boson-chat/boson/issues/72)) ([bdd46a4](https://github.com/boson-chat/boson/commit/bdd46a4ce7c7e4b8ec54382adb5afd6e83ba6438))
+
 ## [0.64.0](https://github.com/boson-chat/boson/compare/v0.63.0...v0.64.0) (2026-11-16)
 
 ### Features
