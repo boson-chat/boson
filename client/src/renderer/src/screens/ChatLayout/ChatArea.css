@@ -1597,6 +1597,10 @@
   padding: 2px var(--space-2);
 }
 .chat-connection-strip-btn:disabled { opacity: 0.5; }
+/* Joining a channel / why it couldn't (ChatService.rejoin): the reason
+   wraps rather than being cut off — it's the useful part. */
+.chat-join-strip { flex-wrap: wrap; }
+.chat-join-strip .chat-connection-strip-reason { white-space: normal; }
 
 /* Phones: a long press opens the message sheet (Copy text, Reply, …)
    instead of selecting text or raising iOS's callout. */

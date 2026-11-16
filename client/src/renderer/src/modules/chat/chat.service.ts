@@ -122,6 +122,8 @@ const SERVER_LOG_CAP = 200;
 // A sent message still unconfirmed after this long (see send()) gets the
 // connection checked: a healthy server answers well within it.
 const ACK_STALL_MS = 4000;
+// How long a rejoin (ChatService.rejoin) waits for the JOIN or a refusal.
+const REJOIN_TIMEOUT_MS = 15_000;
 
 // Stored history never holds the pending flag: it's about this connection.
 function stripPending(m: ChatMessage): ChatMessage {
@@ -729,6 +731,8 @@ export class ChatService {
     this.namesRetryCount.clear();
     for (const t of this.loadOlderTimers.values()) clearTimeout(t);
     this.loadOlderTimers.clear();
+    for (const t of this.rejoinTimers.values()) clearTimeout(t);
+    this.rejoinTimers.clear();
     if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
     // Drop the engine's services-framework subscription so a fresh
     // service-framework event after detach can't fire emit() against
@@ -865,6 +869,34 @@ export class ChatService {
     if (opts.focus !== false || !this.activeChannel) this.activeChannel = key;
     this.emit();
     this.session.join(key);
+  }
+
+  // The user picked a channel we're not in (a JOIN that never landed, or
+  // was refused): ask the server again, and say how it went on the channel
+  // (joinStatus) instead of quietly sitting there. A no-op for DMs, joined
+  // channels, and a request already on its way.
+  rejoin(channel: string): void {
+    const key = this.channelKey(channel);
+    const ch = this.channels.get(key);
+    if (!ch || ch.joined || !/^[#&]/.test(key) || ch.joinStatus?.state === 'joining') return;
+    ch.joinStatus = { state: 'joining' };
+    this.clearRejoinTimer(key);
+    this.rejoinTimers.set(key, setTimeout(() => {
+      this.rejoinTimers.delete(key);
+      const c = this.channels.get(key);
+      if (c && !c.joined && c.joinStatus?.state === 'joining') {
+        c.joinStatus = { state: 'failed', error: 'No answer from the server' };
+        this.emit();
+      }
+    }, REJOIN_TIMEOUT_MS));
+    this.emit();
+    this.session.join(key);
+  }
+
+  private readonly rejoinTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private clearRejoinTimer(key: string): void {
+    const t = this.rejoinTimers.get(key);
+    if (t) { clearTimeout(t); this.rejoinTimers.delete(key); }
   }
 
   part(channel: string): void {
@@ -2542,6 +2574,8 @@ export class ChatService {
           // persistence layer can add this channel to the saved set — even
           // if the channel record already existed locally (idempotent).
           const joinedCh = this.ensureChannel(e.Target, true);
+          delete joinedCh.joinStatus;
+          this.clearRejoinTimer(key);
           joinedCh.namesLoaded = false;
           joinedCh.whoLoaded = false;
           this.emitSelfMembership({ kind: 'join', channel: key });
@@ -2631,7 +2665,11 @@ export class ChatService {
       case '471':   // ERR_CHANNELISFULL  (+l)
       case '473':   // ERR_INVITEONLYCHAN (+i)
       case '474':   // ERR_BANNEDFROMCHAN (+b)
-      case '475': { // ERR_BADCHANNELKEY  (+k)
+      case '475':   // ERR_BADCHANNELKEY  (+k)
+      case '403':   // ERR_NOSUCHCHANNEL
+      case '405':   // ERR_TOOMANYCHANNELS
+      case '477':   // ERR_NEEDREGGEDNICK
+      case '489': { // ERR_SECUREONLYCHAN
         // A /join the server refused. join() already created (and switched
         // to) the channel optimistically; drop that placeholder so it doesn't
         // sit in the sidebar as an empty channel we're not in, and tell the
@@ -2640,6 +2678,16 @@ export class ChatService {
         const chan = e.Args?.[0] ?? e.Target ?? '';
         if (!chan.startsWith('#') && !chan.startsWith('&')) break;
         const ch = this.channels.get(this.channelKey(chan));
+        // A rejoin the user asked for on a listed channel: keep it, with
+        // the reason on it (they can try again from there).
+        if (ch && !ch.joined && ch.joinStatus) {
+          this.clearRejoinTimer(this.channelKey(chan));
+          ch.joinStatus = { state: 'failed', error: e.Message || 'Refused by the server' };
+          this.emit();
+          break;
+        }
+        // Not a join we're waiting on (a 403 for some other command): leave it.
+        if (e.Kind === '403' && (!ch || ch.joined)) break;
         if (ch && !ch.joined) this.removeChannel(chan);
         this.emitFeedback({ kind: 'error', text: `Cannot join ${chan}: ${e.Message || 'refused by the server'}` });
         break;

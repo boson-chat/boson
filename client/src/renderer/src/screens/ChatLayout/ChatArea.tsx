@@ -43,6 +43,8 @@ interface ChatAreaProps {
   // DirectoryBloc.reconnectActive(); the chat area only sees an opaque
   // callback so it remains testable in isolation.
   onReconnect?: () => void;
+  // Ask the server for a channel again (ChatService.rejoin).
+  onRejoin?: (channel: string) => void;
   // Stop the bloc's auto-reconnect cycle. Rendered as a "Cancel" button
   // alongside Reconnect while `reconnectActive` is true.
   onCancelReconnect?: () => void;
@@ -142,6 +144,7 @@ export function ChatArea({
   engineState = 'connected',
   serverName,
   onReconnect,
+  onRejoin,
   onCancelReconnect,
   reconnectActive = false,
   serverLog = [],
@@ -391,6 +394,7 @@ export function ChatArea({
   // still connecting): nothing typed there would reach it, so hold input.
   const joining = prefix === '#' && !channel.joined;
   const offline = engineState !== 'connected';
+  const joinError = !channel.joined && channel.joinStatus?.state === 'failed' ? channel.joinStatus.error : null;
   // Typing is fine while reconnecting: a message waits ("Sending…") and goes
   // out once the channel is rejoined (ChatService.send).
 
@@ -466,6 +470,21 @@ export function ChatArea({
         />
       )}
 
+      {!offline && joining && (
+        <div class="chat-connection-strip chat-join-strip" role="status" data-state={joinError ? 'failed' : 'joining'}>
+          <span class={`chat-engine-dot ${joinError ? 'chat-engine-dot-down' : 'chat-engine-dot-pulse'}`} aria-hidden="true" />
+          <span class="chat-connection-strip-label">
+            {joinError ? `Couldn't join ${prefix}${display}` : `Joining ${prefix}${display}…`}
+          </span>
+          {joinError && <span class="chat-connection-strip-reason">{joinError}</span>}
+          {joinError && onRejoin && (
+            <span class="chat-connection-strip-actions">
+              <button type="button" class="chat-connection-strip-btn" onClick={() => onRejoin(channel.name)}>Try again</button>
+            </span>
+          )}
+        </div>
+      )}
+
       <PendingConfirmationBanner
         serverId={activeServerId ?? null}
         serverName={serverName}
@@ -508,7 +527,9 @@ export function ChatArea({
       <ChatInputBar
         state={state}
         bloc={bloc}
-        placeholder={joining && !offline ? `Joining ${prefix}${display}…` : `Message ${prefix}${display}`}
+        placeholder={joining && !offline
+          ? (joinError ? `Not in ${prefix}${display}` : `Joining ${prefix}${display}…`)
+          : `Message ${prefix}${display}`}
         disabled={joining && !offline}
         bannerError={bannerError}
         onDismissBanner={onDismissBanner}

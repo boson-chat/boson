@@ -455,6 +455,9 @@
 }
 .channel-item[data-sync='joining'] .channel-name { opacity: 0.35; }
 .channel-item[data-sync='loading'] .channel-name { opacity: 0.5; }
+/* A rejoin the server refused (ChatService.rejoin): struck through, not
+   spinning — picking it tries again. */
+.channel-item[data-sync='failed'] .channel-name { opacity: 0.5; text-decoration: line-through; }
 .channel-sync-spinner {
   display: inline-block;
   width: 10px;
