@@ -212,7 +212,22 @@ export class VideoController {
     this.off = bridge.onState((s) => { pushed = true; this.setState(s); });
     // The first answer, unless a newer state was pushed meanwhile.
     void bridge.state().then((s) => { if (!pushed) this.setState(s); }, () => {});
+    // Back in front (the webview shown again): turn a camera the system
+    // stopped in the background back on. Go also hears the OS's own
+    // "active again" (iOS, Android, a Mac's wake); both are no-ops when
+    // there's nothing to resume.
+    if (typeof document !== 'undefined' && bridge.resumeCamera) {
+      const shown = (): void => {
+        if (document.visibilityState === 'visible' && this.snapshot.state.camera.paused) {
+          void bridge.resumeCamera?.().then((s) => this.setState(s), () => {});
+        }
+      };
+      document.addEventListener('visibilitychange', shown);
+      this.offVisible = () => document.removeEventListener('visibilitychange', shown);
+    }
   }
+
+  private offVisible?: () => void;
 
   getSnapshot(): VideoSnapshot {
     return this.snapshot;
@@ -419,6 +434,7 @@ export class VideoController {
   dispose(): void {
     this.disposed = true;
     this.off?.();
+    this.offVisible?.();
     this.closeSocket();
     for (const p of this.players.values()) p.close();
     this.players.clear();

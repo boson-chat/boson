@@ -78,10 +78,18 @@ type videoStatus struct {
 	canPublish bool
 	camera     shareStatus
 	screen     shareStatus
+	// camWant: the user turned the camera on and hasn't turned it off.
+	// It outlives the capture (iOS and Android stop the camera in the
+	// background, a Mac's sleeps), so ResumeCamera can restart it.
+	// Cleared by "Camera off", leaving the call, and a restart that fails.
+	camWant   bool
+	camWantID string
 }
 
 type shareStatus struct {
 	on, starting bool
+	paused       bool   // camera: stopped by the system, restarts on resume
+	id           string // the camera or source asked for ("" = the default)
 	name, err    string
 	gen          int // bumped on every start/stop; a superseded start gives up
 	share        videoShare
@@ -139,7 +147,11 @@ type VideoLayer struct {
 type VideoShareState struct {
 	On       bool   `json:"on"`
 	Starting bool   `json:"starting"`
-	Name     string `json:"name,omitempty"`
+	// Paused: the camera was stopped by the system (the app went to the
+	// background, the Mac slept) and turns back on when the app is active.
+	Paused bool   `json:"paused,omitempty"`
+	ID     string `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 
@@ -220,6 +232,7 @@ type avAdapt struct {
 }
 
 func (v *VideoService) ServiceStartup(context.Context, application.ServiceOptions) error {
+	v.watchResume(application.Get())
 	go v.loop()
 	return nil
 }
@@ -766,6 +779,22 @@ func (v *VideoService) SetScreen(on bool, sourceID string) VideoState {
 	return v.State()
 }
 
+// ResumeCamera turns the camera back on if the user wants it on and the
+// system stopped it: called when the app becomes active again (iOS,
+// Android), the Mac wakes, and the webview becomes visible. A no-op
+// otherwise (camera off, running, starting, or not in a call).
+func (v *VideoService) ResumeCamera() VideoState {
+	v.mu.Lock()
+	cam := v.st.camera
+	want, id := v.st.camWant, v.st.camWantID
+	resume := want && v.sess != nil && v.media != nil && !cam.on && !cam.starting
+	v.mu.Unlock()
+	if resume {
+		v.setShare(true, true, id)
+	}
+	return v.State()
+}
+
 func (v *VideoService) slot(camera bool) *shareStatus {
 	if camera {
 		return &v.st.camera
@@ -780,7 +809,10 @@ func (v *VideoService) setShare(camera, on bool, id string) {
 	gen := sl.gen
 	old := sl.share
 	sess := v.sess
-	*sl = shareStatus{gen: gen}
+	*sl = shareStatus{gen: gen, id: id}
+	if camera {
+		v.st.camWant, v.st.camWantID = on, id
+	}
 	if on {
 		switch {
 		case v.media == nil:
@@ -794,6 +826,9 @@ func (v *VideoService) setShare(camera, on bool, id string) {
 			on = false
 		default:
 			sl.starting = true
+		}
+		if camera && !on {
+			v.st.camWant = false
 		}
 	}
 	v.dirty = true
@@ -836,7 +871,14 @@ func (v *VideoService) runShare(camera bool, gen int, sess *videoSession, id str
 		if sl.gen != gen {
 			return
 		}
-		*sl = shareStatus{gen: gen + 1, err: endMessage(camera, err)}
+		if camera && v.st.camWant {
+			// Stopped by the system (backgrounded, asleep, taken by
+			// another app): wait for ResumeCamera. The reason stays for
+			// the button's title.
+			*sl = shareStatus{gen: gen + 1, paused: true, id: id, err: endMessage(camera, err)}
+		} else {
+			*sl = shareStatus{gen: gen + 1, id: id, err: endMessage(camera, err)}
+		}
 		v.dirty = true
 	}
 	var share videoShare
@@ -856,9 +898,12 @@ func (v *VideoService) runShare(camera bool, gen int, sess *videoSession, id str
 		return
 	}
 	if err != nil {
-		*sl = shareStatus{gen: gen, err: err.Error()}
+		*sl = shareStatus{gen: gen, id: id, err: err.Error()}
+		if camera {
+			v.st.camWant = false // the usual camera-off reason; no retry loop
+		}
 	} else {
-		*sl = shareStatus{gen: gen, on: true, name: share.Name(), share: share}
+		*sl = shareStatus{gen: gen, id: id, on: true, name: share.Name(), share: share}
 	}
 	v.dirty = true
 	v.mu.Unlock()
@@ -904,7 +949,7 @@ func (v *VideoService) State() VideoState {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	share := func(s shareStatus) VideoShareState {
-		return VideoShareState{On: s.on, Starting: s.starting, Name: s.name, Error: s.err}
+		return VideoShareState{On: s.on, Starting: s.starting, Paused: s.paused, ID: s.id, Name: s.name, Error: s.err}
 	}
 	st := VideoState{
 		Available: v.st.available, Status: v.st.status, Error: v.st.err,

@@ -87,6 +87,7 @@ function setup(state: Partial<VideoState> = {}) {
     screenSources: vi.fn(async () => []),
     setCamera: vi.fn(async () => full),
     setScreen: vi.fn(async () => full),
+    resumeCamera: vi.fn(async () => full),
   };
   let now = 1_000_000;
   const env: Partial<VideoEnv> = {
@@ -264,5 +265,37 @@ describe('VideoController', () => {
     c.pin(10);
     push({ ...full, tracks: [screen] });
     expect(c.getSnapshot().pinned).toBe(0);
+  });
+});
+
+describe('camera resume', () => {
+  const setVisibility = (v: 'visible' | 'hidden') => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => v });
+    document.dispatchEvent(new Event('visibilitychange'));
+  };
+
+  it('asks Go to turn a paused camera back on when the page is shown again', async () => {
+    const { c, bridge, push, full } = setup();
+    await flush();
+    push({ ...full, camera: { on: false, starting: false, paused: true, id: 'front' } });
+    setVisibility('hidden');
+    expect(bridge.resumeCamera).not.toHaveBeenCalled();
+    setVisibility('visible');
+    expect(bridge.resumeCamera).toHaveBeenCalledTimes(1);
+    c.dispose();
+  });
+
+  it('does nothing when the camera is off or running, or after dispose', async () => {
+    const { c, bridge, push, full } = setup();
+    await flush();
+    push({ ...full, camera: { on: false, starting: false } });
+    setVisibility('visible');
+    push({ ...full, camera: { on: true, starting: false } });
+    setVisibility('visible');
+    expect(bridge.resumeCamera).not.toHaveBeenCalled();
+    push({ ...full, camera: { on: false, starting: false, paused: true } });
+    c.dispose();
+    setVisibility('visible');
+    expect(bridge.resumeCamera).not.toHaveBeenCalled();
   });
 });

@@ -168,3 +168,17 @@ describe('camera-only builds (iOS)', () => {
     expect(screen.queryByRole('button', { name: 'Share your screen' })).toBeNull();
   });
 });
+
+describe('a camera the system stopped', () => {
+  it('shows as paused, not as an error, and a click turns it off', async () => {
+    render(<CallVideoButtons />);
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true,
+      camera: { on: false, starting: false, paused: true, error: 'The camera stopped: the camera sent no picture for 5s' } });
+    const b = await screen.findByRole('button', { name: /Camera paused/ });
+    expect(b.getAttribute('data-paused')).not.toBeNull();
+    expect(b.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByText(/sent no picture/)).toBeNull();
+    fireEvent.click(b);
+    expect(videoBridge.setCamera).toHaveBeenLastCalledWith(false, '');
+  });
+});
