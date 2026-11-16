@@ -218,8 +218,13 @@ export function ChatLayout({
           logoUrl={logoUrl}
           channels={state.channels}
           activeChannel={state.activeChannel}
-          onSelect={(name) => { chat.setActive(name); setDrawer('none'); }}
-          onJoin={(name) => chat.join(name)}
+          onSelect={(name) => {
+            chat.setActive(name);
+            setDrawer('none');
+            // A channel we're not in: ask for it again (a no-op if joined).
+            if (engineState === 'connected') chat.rejoin(name);
+          }}
+          onJoin={(name) => chat.join(name, { byUser: true })}
           onPart={(name) => chat.part(name)}
           channelOrder={channelOrder}
           onReorderChannels={onReorderChannels}
@@ -255,6 +260,7 @@ export function ChatLayout({
   const chatArea = (
         <ChatArea
           channel={active}
+          onRejoin={(name) => chat.rejoin(name)}
           // Prefer the live per-server IRC nick (collision-adjusted / NickServ /
           // server-forced renames differ from the global account nick). Falls
           // back to the passed-in nick before the server reports one.

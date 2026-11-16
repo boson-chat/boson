@@ -102,6 +102,10 @@ export interface ChatChannel {
   // Both reset on every self-JOIN; absent on DMs.
   namesLoaded?: boolean;
   whoLoaded?: boolean;
+  // A join the user asked for again by picking a channel we're not in
+  // (ChatService.rejoin): on its way, or refused, with the server's reason.
+  // Cleared when the JOIN lands.
+  joinStatus?: { state: 'joining' } | { state: 'failed'; error: string };
   // Nicks currently typing in this channel, per IRCv3 +typing client tag.
   // Populated by TAGMSG `+typing=active`; cleared by `+typing=done`/`paused`,
   // a PRIVMSG from the same nick, or an expiry timer (~6s, per spec).

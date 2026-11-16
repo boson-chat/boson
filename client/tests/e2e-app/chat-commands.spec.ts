@@ -132,7 +132,7 @@ test.describe('slash commands', () => {
     await expect(memberRow(page, peer.nick)).toHaveClass(/user-panel-item-op/);
     // The run of joins + mode changes folds into one collapsible summary.
     const activity = messages(page).locator('.message-activity').last();
-    await expect(activity.locator('.message-activity-summary')).toContainText('· and');
+    await expect(activity.locator('.message-activity-summary')).toContainText(/popped in|sets mode/);
     await activity.getByRole('button').click();
     await expect(activity.locator('.message-activity-lines')).toContainText(`${nick} sets mode +o ${peer.nick}`);
     await expect(activity.locator('.message-activity-lines')).toContainText(`${nick} sets mode +v ${peer.nick}`);

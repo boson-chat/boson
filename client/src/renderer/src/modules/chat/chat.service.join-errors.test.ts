@@ -1,13 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { ChatService, type ChatFeedback } from './chat.service';
 import type { EventListener, IrcEvent, ServerSession } from '../engine';
 
 // Fake engine session: records nothing, just lets the test push events.
-function makeService(): { chat: ChatService; emit: (e: Partial<IrcEvent> & { Kind: string }) => void; feedback: ChatFeedback[] } {
+function makeService(): { chat: ChatService; emit: (e: Partial<IrcEvent> & { Kind: string }) => void; feedback: ChatFeedback[]; joins: string[] } {
   let listener: EventListener | null = null;
+  const joins: string[] = [];
   const session = {
     serverId: 'srv-test',
-    join: () => {}, part: () => {}, privmsg: () => {}, names: () => {}, tagmsg: () => {},
+    join: (c: string) => { joins.push(c); }, part: () => {}, privmsg: () => {}, names: () => {}, tagmsg: () => {},
     list: () => {}, away: () => {}, nick: () => {}, nickservIdentify: () => {}, raw: () => {},
     onEvent: (fn: EventListener) => { listener = fn; return () => { listener = null; }; },
     onChannelDirectory: () => () => {},
@@ -20,7 +21,7 @@ function makeService(): { chat: ChatService; emit: (e: Partial<IrcEvent> & { Kin
   chat.onFeedback((f) => feedback.push(f));
   const emit = (e: Partial<IrcEvent> & { Kind: string }): void =>
     listener?.({ From: '', Target: '', Message: '', Raw: '', ...e } as IrcEvent);
-  return { chat, emit, feedback };
+  return { chat, emit, feedback, joins };
 }
 
 describe('ChatService — a refused /join', () => {
@@ -96,5 +97,54 @@ describe('ChatService — bouncer detection', () => {
     const { chat, emit } = makeService();
     emit({ Kind: 'CAP', Message: 'znc.in/self-message znc.in/playback', Args: ['LS'] });
     expect(chat.getState().serverInfo.bouncer).toBe(true);
+  });
+});
+
+describe('ChatService.rejoin — picking a channel we are not in', () => {
+  afterEach(() => { vi.useRealTimers(); });
+  const status = (chat: ChatService, name: string) => chat.getState().channels.find((c) => c.name === name)?.joinStatus;
+
+  it('asks again, shows joining, and clears it when the JOIN lands', () => {
+    const { chat, emit, joins } = makeService();
+    chat.join('#stuck');
+    joins.length = 0;
+    chat.rejoin('#stuck');
+    chat.rejoin('#stuck'); // already on its way: not sent twice
+    expect(joins).toEqual(['#stuck']);
+    expect(status(chat, '#stuck')).toEqual({ state: 'joining' });
+    emit({ Kind: 'JOIN', From: 'me', Target: '#stuck' });
+    expect(status(chat, '#stuck')).toBeUndefined();
+    chat.rejoin('#stuck'); // joined now: nothing to do
+    expect(joins).toEqual(['#stuck']);
+  });
+
+  it('a refusal keeps the channel listed, with the reason; trying again works', () => {
+    const { chat, emit, joins } = makeService();
+    chat.join('#members');
+    chat.rejoin('#members');
+    emit({ Kind: '477', Target: 'me', Message: 'You need to be logged into an account to join', Args: ['#members', 'x'] });
+    expect(chat.getState().channels.map((c) => c.name)).toContain('#members');
+    expect(status(chat, '#members')).toEqual({ state: 'failed', error: 'You need to be logged into an account to join' });
+    joins.length = 0;
+    chat.rejoin('#members');
+    expect(joins).toEqual(['#members']);
+    expect(status(chat, '#members')).toEqual({ state: 'joining' });
+  });
+
+  it('no answer: says so after a while', () => {
+    vi.useFakeTimers();
+    const { chat } = makeService();
+    chat.join('#quiet');
+    chat.rejoin('#quiet');
+    vi.advanceTimersByTime(15_000);
+    expect(status(chat, '#quiet')).toEqual({ state: 'failed', error: 'No answer from the server' });
+  });
+
+  it('a 403 for something other than a pending join leaves a joined channel alone', () => {
+    const { chat, emit } = makeService();
+    chat.join('#home');
+    emit({ Kind: 'JOIN', From: 'me', Target: '#home' });
+    emit({ Kind: '403', Target: 'me', Message: 'No such channel', Args: ['#home', 'No such channel'] });
+    expect(chat.getState().channels.map((c) => c.name)).toEqual(['#home']);
   });
 });

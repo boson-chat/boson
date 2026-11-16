@@ -379,17 +379,18 @@ interface RowReorder {
 // a WHO that's paced behind every other channel's — up to a minute on a
 // bouncer with many channels — and fill in when they land, so they don't
 // hold the channel up. DMs are always ready.
-export type ChannelSync = 'joining' | 'loading' | 'ready';
+export type ChannelSync = 'joining' | 'failed' | 'loading' | 'ready';
 
 export function channelSync(channel: ChatChannel): ChannelSync {
   if (!/^[#&]/.test(channel.name)) return 'ready';
-  if (!channel.joined) return 'joining';
+  if (!channel.joined) return channel.joinStatus?.state === 'failed' ? 'failed' : 'joining';
   if (channel.namesLoaded === false) return 'loading';
   return 'ready';
 }
 
 const SYNC_TITLE: Record<ChannelSync, string | undefined> = {
   joining: 'Joining…',
+  failed: "Couldn't join — tap to try again",
   loading: 'Loading members…',
   ready: undefined,
 };
@@ -414,7 +415,7 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder
       class={`channel-item ${active ? 'channel-item-active' : ''} ${showBadge ? 'channel-item-unread' : ''} ${hasMention ? 'channel-item-mention' : ''}${reorderCls}`}
       data-sync={sync}
       title={SYNC_TITLE[sync]}
-      aria-busy={sync === 'ready' ? undefined : true}
+      aria-busy={sync === 'ready' || sync === 'failed' ? undefined : true}
       aria-keyshortcuts={onReorderKey ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       onClick={() => onSelect(channel.name)}
       onContextMenu={reorder?.onMenu}
@@ -426,7 +427,7 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder
       }}
     >
       <span class="channel-hash">
-        {sync === 'ready' ? prefix : <span class="channel-sync-spinner" data-sync={sync} aria-hidden="true" />}
+        {sync === 'ready' || sync === 'failed' ? prefix : <span class="channel-sync-spinner" data-sync={sync} aria-hidden="true" />}
       </span>
       <span class="channel-name">{display}</span>
       {hasMention ? (
