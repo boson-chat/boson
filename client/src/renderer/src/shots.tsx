@@ -191,12 +191,7 @@ function installVoice(): void {
       : {
         ...prev, status: 'connected', host: req.host, room: req.room, roomName: req.roomName, rttMs: 34, quality: 'good',
         transmitting: true, micLevel: 0.7,
-        participants: [
-          { sessionId: 1, userId: 'usr_ada', name: NICK, self: true, muted: false, deafened: false, speaking: true, volume: 100 },
-          { sessionId: 3, userId: 'usr_nova', name: 'nova', self: false, muted: false, deafened: false, speaking: true, volume: 100 },
-          { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', self: false, muted: true, deafened: false, speaking: false, volume: 100 },
-          { sessionId: 5, userId: 'usr_pixel', name: 'pixel', self: false, muted: false, deafened: true, speaking: false, volume: 80 },
-        ],
+        participants: callPeople(),
       },
   });
   const voice = new VoiceController(bridge, {
@@ -216,24 +211,52 @@ function installVoice(): void {
   }
 }
 
+// ?people=N (1–9): how many are in the call (default 4, ourselves first).
+const EXTRA = ['orbit', 'mox', 'quill', 'ember', 'sage'];
+function callPeople() {
+  const all = [
+    { sessionId: 1, userId: 'usr_ada', name: NICK, self: true, muted: false, deafened: false, speaking: true, volume: 100 },
+    { sessionId: 3, userId: 'usr_nova', name: 'nova', self: false, muted: false, deafened: false, speaking: true, volume: 100 },
+    { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', self: false, muted: true, deafened: false, speaking: false, volume: 100 },
+    { sessionId: 5, userId: 'usr_pixel', name: 'pixel', self: false, muted: false, deafened: true, speaking: false, volume: 80 },
+    ...EXTRA.map((n, i) => ({ sessionId: 20 + i, userId: `usr_${n}`, name: n, self: false, muted: false, deafened: false, speaking: false, volume: 100 })),
+  ];
+  const n = Number(new URLSearchParams(location.search).get('people') ?? 4);
+  return all.slice(0, Math.max(1, Math.min(all.length, n || 4)));
+}
+
 // ?video=call: the call view, with tiles drawn from painted test frames
 // through the real controller (a fake socket sends keyframes; a fake
-// decoder paints a labelled pattern per track).
+// decoder paints a labelled pattern per track). call: everyone else's
+// camera and ours; screen: that plus a screen share; none: audio only.
+// ?cams=one: only nova's camera.
 const videoMode = new URLSearchParams(location.search).get('video');
 function installVideo(): void {
   if (!videoMode) return;
   const cam = (id: number, userId: string, name: string) => ({
     trackId: id, userId, name, kind: 'camera' as const, self: false, layers: [{ id: 0, width: 640, height: 360, fps: 30 }],
   });
+  const others = callPeople().filter((p) => !p.self);
+  const oneCam = new URLSearchParams(location.search).get('cams') === 'one';
+  const camTracks = videoMode === 'none' ? [] : others.slice(0, oneCam ? 1 : others.length).map((p, i) => cam(10 + i * 2, p.userId, p.name));
   const state: VideoState = {
     ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true, canShareScreen: true,
-    camera: { on: true, starting: false },
+    camera: { on: videoMode !== 'none', starting: false },
     tracks: [
-      cam(10, 'usr_nova', 'nova'),
-      ...(videoMode === 'screen' ? [{ trackId: 11, userId: 'usr_kestrel', name: 'kestrel', kind: 'screen' as const, self: false, layers: [{ id: 0, width: 1920, height: 1080, fps: 15 }] }] : []),
+      ...camTracks,
+      ...(videoMode === 'screen' && others.length > 0
+        ? [{ trackId: 11, userId: others[Math.min(1, others.length - 1)].userId, name: others[Math.min(1, others.length - 1)].name, kind: 'screen' as const, self: false, layers: [{ id: 0, width: 1920, height: 1080, fps: 15 }] }]
+        : []),
     ],
   };
-  const colours: Record<number, string> = { 10: '#3a6ea5', 11: '#2d2f36' };
+  const colours: Record<number, string> = { 10: '#3a6ea5', 11: '#2d2f36', 12: '#7a4fa3', 14: '#2f8a6a', 16: '#a3643a', 18: '#3a8aa3', 20: '#8a3a5e', 22: '#5e7a2f', 24: '#4f5aa3' };
+  // Our camera's self-view: a portrait picture, as a phone sends.
+  const preview = new Uint8Array(5 + 90 * 120 * 4);
+  preview[0] = 2; preview[2] = 90; preview[4] = 120;
+  for (let y = 0; y < 120; y++) for (let x = 0; x < 90; x++) {
+    const o = 5 + (y * 90 + x) * 4;
+    preview[o] = 200 - y; preview[o + 1] = 120 + x; preview[o + 2] = 90; preview[o + 3] = 255;
+  }
   class FakeSocket {
     binaryType = '';
     readyState = 1;
@@ -252,6 +275,7 @@ function installVideo(): void {
           b.set([1, 0x42, 0xc0, 0x1e], 20);
           this.onmessage?.({ data: b.buffer });
         }
+        if (state.camera.on) this.onmessage?.({ data: preview.slice().buffer });
       }, 100);
     }
     send() {}

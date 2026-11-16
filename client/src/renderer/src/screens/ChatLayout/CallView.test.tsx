@@ -182,3 +182,41 @@ describe('a camera the system stopped', () => {
     expect(videoBridge.setCamera).toHaveBeenLastCalledWith(false, '');
   });
 });
+
+describe('the call on a phone', () => {
+  it('has one bar: mute, camera, flip, chat and hang up; no second header', async () => {
+    videoBridge.cameras = vi.fn(async () => [
+      { id: 'front', name: 'Front Camera', kind: 'builtin' as const, default: true },
+      { id: 'back', name: 'Back Camera', kind: 'builtin' as const, default: false },
+    ]);
+    const { container } = render(<><MobileCallBar /><CallView phone /></>);
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: false, tracks: [ALICE_CAM],
+      camera: { on: true, starting: false, id: 'front' } });
+    const c = (await import('../../modules/video')).getVideoController()!;
+    act(() => c.setOpen(true));
+    await screen.findByLabelText('alice');
+    expect(container.querySelector('.call-view-head')).toBeNull();
+    expect(screen.getAllByRole('button', { name: /leave/i })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Turn camera off' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Share your screen' })).toBeNull(); // not on phones yet
+    expect(screen.queryByRole('button', { name: 'Show the call' })).toBeNull();
+    // Two usable cameras: flip goes to the other one.
+    fireEvent.click(await screen.findByRole('button', { name: 'Switch camera' }));
+    expect(videoBridge.setCamera).toHaveBeenLastCalledWith(true, 'back');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
+    expect(c.getSnapshot().open).toBe(false);
+  });
+
+  it('a paused camera (app was in the background) shows as paused, and a tap turns it off', async () => {
+    render(<><MobileCallBar /><CallView phone /></>);
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true,
+      camera: { on: false, starting: false, paused: true, error: 'The camera stopped: interrupted' } });
+    const c = (await import('../../modules/video')).getVideoController()!;
+    act(() => c.setOpen(true));
+    const b = await screen.findByRole('button', { name: /Camera paused/ });
+    expect(b.getAttribute('data-paused')).not.toBeNull();
+    expect(screen.queryByText('The camera stopped: interrupted')).toBeNull(); // not an error while paused
+    fireEvent.click(b);
+    expect(videoBridge.setCamera).toHaveBeenLastCalledWith(false, '');
+  });
+});
