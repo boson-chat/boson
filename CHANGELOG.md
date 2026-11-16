@@ -1,3 +1,9 @@
+## [0.69.4](https://github.com/boson-chat/boson/compare/v0.69.3...v0.69.4) (2026-11-16)
+
+### Bug Fixes
+
+* **macos:** the camera no longer crashes the app (camera usage string in the packaged Info.plist) ([#79](https://github.com/boson-chat/boson/issues/79)) ([09cdcbc](https://github.com/boson-chat/boson/commit/09cdcbca46f34b5ad66ee46f08c68e9a5d738700))
+
 ## [0.69.3](https://github.com/boson-chat/boson/compare/v0.69.2...v0.69.3) (2026-11-16)
 
 ### Bug Fixes
