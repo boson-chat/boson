@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/boson-chat/quicvoice/client/voice"
 	"github.com/boson-chat/quicvoice/wire"
@@ -66,6 +67,7 @@ type quicvoiceAudio struct {
 	ptt, pttDown, muted, deafened bool
 	loopback                      bool
 	gains                         map[uint16]float32
+	delays                        map[uint16]time.Duration // lip-sync audio delays
 	sender                        voiceSender
 	threshold                     float32
 }
@@ -190,6 +192,9 @@ func (q *quicvoiceAudio) SetVADThreshold(unit float32) {
 	for sid, g := range q.gains {
 		eng.SetUserVolume(sid, g)
 	}
+	for sid, d := range q.delays {
+		eng.SetPlayoutDelay(sid, d)
+	}
 	if q.sender != nil {
 		eng.SetSender(q.sender)
 	}
@@ -202,6 +207,18 @@ func (q *quicvoiceAudio) SetVADThreshold(unit float32) {
 		}
 	}
 	old.Close()
+}
+
+// SetPlayoutDelay implements playoutDelayer (lip sync), and is kept for a
+// new engine (a VAD threshold change), like volumes.
+func (q *quicvoiceAudio) SetPlayoutDelay(sid uint16, d time.Duration) {
+	q.mu.Lock()
+	if q.delays == nil {
+		q.delays = map[uint16]time.Duration{}
+	}
+	q.delays[sid] = d
+	q.mu.Unlock()
+	q.eng.Load().SetPlayoutDelay(sid, d)
 }
 
 // Playout implements playoutSource (lip sync for video).

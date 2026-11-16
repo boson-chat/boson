@@ -91,6 +91,10 @@ type voiceSession struct {
 	left    bool // we left on purpose: its end isn't an error
 	// clocks: lip-sync reports per sender (AudioClock), for video.
 	clocks map[uint16]*avsync.Clock
+	// lastOffsets: each person's last lip-sync offset, kept through their
+	// silences: when they start talking again their video (which arrives
+	// before the audio plays) is held to it rather than shown early.
+	lastOffsets map[string]int64
 }
 
 // videoHooks is what VoiceService tells the call's video.
@@ -103,6 +107,12 @@ type videoHooks interface {
 // timestamps reaches the speaker when (lip sync; the quicvoice engine).
 type playoutSource interface {
 	Playout(sessionID uint16) (ts uint32, localUS int64, ok bool)
+}
+
+// playoutDelayer is an audio backend that can delay one sender's audio
+// (lip sync: when their video arrives later than their audio would play).
+type playoutDelayer interface {
+	SetPlayoutDelay(sessionID uint16, d time.Duration)
 }
 
 type voiceMember struct {
@@ -621,7 +631,7 @@ func (s *VoiceService) Join(req VoiceJoinRequest) VoiceState {
 	s.syncCall()
 	a, _ := s.ensureAudio()
 
-	sess := &voiceSession{members: map[uint16]*voiceMember{}, clocks: map[uint16]*avsync.Clock{}}
+	sess := &voiceSession{members: map[uint16]*voiceMember{}, clocks: map[uint16]*avsync.Clock{}, lastOffsets: map[string]int64{}}
 	ctx, cancel := context.WithTimeout(context.Background(), voiceDialTimeout)
 	defer cancel()
 	addrHost, _, _ := net.SplitHostPort(info.Addr)
@@ -926,10 +936,45 @@ func (s *VoiceService) avOffsets() map[string]int64 {
 			continue
 		}
 		if senderUS, ok := clk.WallUS(ts); ok {
-			out[m.userID] = localUS - senderUS
+			sess.lastOffsets[m.userID] = localUS - senderUS
+		}
+	}
+	// Everyone still here with an offset: live, or their last one.
+	here := map[string]bool{}
+	for _, m := range sess.members {
+		here[m.userID] = true
+	}
+	for user, off := range sess.lastOffsets {
+		if here[user] {
+			out[user] = off
+		} else {
+			delete(sess.lastOffsets, user)
 		}
 	}
 	return out
+}
+
+// setAudioDelay delays one person's audio by d (all their sessions in the
+// call): lip sync when their video arrives late. 0 = none.
+func (s *VoiceService) setAudioDelay(userID string, d time.Duration) {
+	s.mu.Lock()
+	sess, a := s.sess, s.audio
+	var sids []uint16
+	if sess != nil {
+		for sid, m := range sess.members {
+			if m.userID == userID {
+				sids = append(sids, sid)
+			}
+		}
+	}
+	s.mu.Unlock()
+	pd, ok := a.(playoutDelayer)
+	if !ok {
+		return
+	}
+	for _, sid := range sids {
+		pd.SetPlayoutDelay(sid, d)
+	}
 }
 
 func memberFrom(p *controlpb.Participant) *voiceMember {

@@ -443,3 +443,80 @@ func TestQuicAddr(t *testing.T) {
 		t.Error("ticketCanPublish")
 	}
 }
+
+// Lip sync: video arriving later than its sound plays delays that
+// person's audio (once a second, on the worst lateness); video well early
+// eases it off; their video gone for 2 s removes it; at most 150 ms.
+func TestVideoAdaptiveAudioDelay(t *testing.T) {
+	h := newVideoHarness(t)
+	var mu sync.Mutex
+	set := map[string]time.Duration{}
+	h.svc.audioDelay = func(u string, d time.Duration) { mu.Lock(); set[u] = d; mu.Unlock() }
+	now := time.Unix(1_800_000_000, 0)
+	h.svc.now = func() time.Time { return now }
+	h.join(t, `"video.publish"`)
+	// alice's audio plays 80 ms after her capture time.
+	h.svc.mu.Lock()
+	h.svc.userOffsets = map[string]int64{"usr_alice": 80_000}
+	h.svc.mu.Unlock()
+	frame := func(lateBy time.Duration) {
+		// arrives at now; captured so that now - (C + 80ms) = lateBy - decode budget
+		c := now.UnixMicro() - 80_000 - (lateBy - videoDecodeBudget).Microseconds()
+		h.svc.noteLateness(10, uint64(c))
+	}
+	step := func() { now = now.Add(adaptEvery); h.svc.adaptDelays() }
+	get := func() time.Duration { mu.Lock(); defer mu.Unlock(); return set["usr_alice"] }
+
+	// The 90th percentile counts, not one stray frame.
+	for range 9 {
+		frame(40 * time.Millisecond)
+	}
+	frame(400 * time.Millisecond)
+	step()
+	if d := get(); d != 50*time.Millisecond {
+		t.Fatalf("after 40 ms late: %v, want 50ms", d)
+	}
+	// While the change settles (it applies from the next talk spurt),
+	// frames are ignored.
+	frame(300 * time.Millisecond)
+	step()
+	if d := get(); d != 50*time.Millisecond {
+		t.Fatalf("decided while settling: %v", d)
+	}
+	frame(0) // settled now (2 s after the change); on time: no change
+	step()
+	// Early enough with the new delay: eases off.
+	frame(-90 * time.Millisecond)
+	step()
+	if d := get(); d != 30*time.Millisecond {
+		t.Fatalf("after 90 ms early: %v, want 30ms", d)
+	}
+	// Very late (once settled): capped.
+	frame(0)
+	step()
+	frame(0)
+	step()
+	frame(500 * time.Millisecond)
+	step()
+	if d := get(); d != adaptMax {
+		t.Fatalf("cap: %v", d)
+	}
+	// Video gone (tile hidden): the delay goes.
+	now = now.Add(adaptIdle + time.Second)
+	h.svc.adaptDelays()
+	if d, ok := set["usr_alice"]; !ok || d != 0 {
+		t.Fatalf("after idle: %v", d)
+	}
+	if len(h.svc.audioDelays()) != 0 {
+		t.Fatal("state kept for an idle person")
+	}
+	// Frames from someone without an offset (no audio yet) don't count.
+	h.svc.mu.Lock()
+	h.svc.userOffsets = map[string]int64{}
+	h.svc.mu.Unlock()
+	frame(100 * time.Millisecond)
+	step()
+	if len(h.svc.audioDelays()) != 0 {
+		t.Fatal("adapted without an offset")
+	}
+}
