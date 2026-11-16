@@ -2,6 +2,7 @@ import type { ChatHistoryStore } from '../history';
 import type { IdentityService } from '../identity';
 import type { SessionStore } from '../session';
 import type { AuthService } from './auth.service';
+import { wipeSeenForUser } from '../seen';
 
 export interface SignOutDeps {
   auth: Pick<AuthService, 'getState' | 'signOut'>;
@@ -21,6 +22,7 @@ export async function signOutAndForget({ auth, identity, sessionStore, history }
   const userId = auth.getState().session?.user?.id;
   if (userId) {
     await identity.clearStorage(userId);
+    void wipeSeenForUser(userId).catch(() => {});
     if (history) {
       try {
         await history.wipeAllForUser(userId);

@@ -19,6 +19,14 @@ export interface ChatMessage {
   // Our own message, not yet confirmed to have reached the server (see
   // ChatService.send). Resent after a reconnect while still set.
   pending?: true;
+  // Who the sender was at that moment, from the nick!user@host prefix (and
+  // extended-join / what we knew of them): kept on join, part, quit and kick
+  // lines so a nick that has since left can still be looked up, as it was
+  // then. Not set while "Remember people's hosts" is off.
+  user?: string;
+  host?: string;
+  account?: string;
+  realname?: string;
 }
 
 // IRC channel-status prefix sigils. Common: `@` op, `+` voice, `%` halfop,

@@ -108,6 +108,7 @@ import type {
 } from './chat.types';
 import { prefixRank, banMask } from './channel-ops';
 import { WHOIS_REPLIES, WHOIS_ONLY_WHILE_LOADING, applyWhoisReply } from './whois';
+import { SeenStore, seenMask, type SeenRecord } from '../seen/seen.store';
 
 // IRC can't carry an empty line, so a blank line inside a multi-line paste
 // goes out as a single space: other clients show an empty line, and Boson
@@ -275,6 +276,7 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   // Raw-passthrough commands — the IRC daemon answers directly. Replies
   // surface on the ~server channel and inline in the Advanced panel.
   { name: 'whois',   usage: '/whois <nick>',       description: "Look up a user's account, channels, idle, server" },
+  { name: 'seen',    usage: '/seen <nick>',        description: "What Boson remembers of a nick: last host, account, when and where (local only)" },
   { name: 'whowas',  usage: '/whowas <nick>',      description: "Look up a recently-quit nick from the server's history" },
   { name: 'who',     usage: '/who <#chan-or-mask>',description: 'List users matching a channel or mask' },
   { name: 'list',    usage: '/list [filter]',      description: "Server channel directory (RPL_LIST). Filter syntax is daemon-specific" },
@@ -400,6 +402,14 @@ export class ChatService {
   // WHOIS results by lower(nick), for profiles. A signal so the profile on
   // screen re-renders as each reply lands, without a whole-chat emit.
   readonly whois = signal<ReadonlyMap<string, WhoisInfo>>(new Map());
+  // What we last knew of each nick (user@host, account, realname, when and
+  // where), kept after they leave. Local only. Shared by this server's
+  // connections when the app passes one in (deps.seen), else this
+  // connection's own, in memory.
+  readonly seen: SeenStore;
+  // Nicks (lower-case) the user /whois'd by hand, until the reply ends: a
+  // 401 for one prints what we remember of them.
+  private readonly typedWhois = new Set<string>();
 
   // IRC server software / network identity, captured from RPL_MYINFO (004)
   // and RPL_ISUPPORT (005). Surfaced in the chat header as a small "via
@@ -503,8 +513,11 @@ export class ChatService {
       olderStore?: OlderStore;
       // Small in-memory windows (see MemoryWindows); off by default.
       windows?: MemoryWindows;
+      // Remembered identities ("seen"), one per server. Default: in memory.
+      seen?: SeenStore;
     },
   ) {
+    this.seen = deps?.seen ?? new SeenStore('memory');
     this.older = deps?.olderStore ?? new MemoryOlderStore(OLDER_CAP);
     this.olderShared = !!deps?.olderStore;
     this.windows = deps?.windows ?? null;
@@ -1817,7 +1830,11 @@ export class ChatService {
       case 'links':   return this.session.raw('LINKS');
       case 'whois':
         if (!args) return this.systemHere('Usage: /whois <nick>');
+        this.typedWhois.add(args.split(/\s+/).pop()!.toLowerCase());
         return this.session.raw(`WHOIS ${args}`);
+      case 'seen':
+        if (!args) return this.systemHere('Usage: /seen <nick>');
+        return this.printRemembered(args.split(/\s+/)[0]!, false);
       case 'whowas':
         if (!args) return this.systemHere('Usage: /whowas <nick>');
         return this.session.raw(`WHOWAS ${args}`);
@@ -2248,10 +2265,78 @@ export class ChatService {
     if (!nick) return;
     const key = nick.toLowerCase();
     const cur = this.whois.peek().get(key);
+    // A /whois typed for someone who has gone: say what we remember.
+    if (e.Kind === '401' && this.typedWhois.delete(key)) this.printRemembered(nick, true);
+    if (e.Kind === '318') this.typedWhois.delete(key);
     if (WHOIS_ONLY_WHILE_LOADING.has(e.Kind) && !cur?.loading) return;
     // A /whois typed by hand fills a profile too.
     const base = cur ?? { nick, loading: true, requestedAt: Date.now() };
-    this.setWhois(key, applyWhoisReply(base, e.Kind, args, e.Message ?? ''));
+    const next = applyWhoisReply(base, e.Kind, args, e.Message ?? '');
+    this.setWhois(key, next);
+    if (e.Kind === '318' && !next.notFound && next.host) {
+      // A finished WHOIS: who they are right now. No 330 means logged out.
+      this.seen.note(next.nick, {
+        user: next.user, host: next.host, realname: next.realname,
+        account: next.account ?? null, actualHost: next.actualHost, whois: true,
+      });
+    }
+  }
+
+  // Lines describing what we remember of nick, for /seen and a /whois on
+  // someone who has gone.
+  private printRemembered(nick: string, gone: boolean): void {
+    const r = this.seen.peek(nick);
+    let text: string;
+    if (!this.seen.recording) {
+      text = gone ? `${nick} isn't on the network. (Remembering hosts is off in Settings → Content.)` : 'Remembering hosts is off (Settings → Content).';
+    } else if (!r) {
+      text = gone ? `${nick} isn't on the network, and Boson doesn't remember them.` : `Boson doesn't remember ${nick}.`;
+    } else {
+      const mask = seenMask(r);
+      const parts = [`Remembered: ${r.nick}${mask ? ` (${mask})` : ''} was last seen ${describeSeen(r)}`];
+      if (r.actualHost) parts.push(`real host ${r.actualHost}`);
+      if (r.account) parts.push(`account ${r.account}`);
+      if (r.realname) parts.push(`real name ${r.realname}`);
+      if (r.prevHosts?.length) parts.push(`earlier ${r.prevHosts.join(', ')}`);
+      text = `${gone ? `${r.nick} isn't on the network. ` : ''}${parts.join(' · ')}`;
+    }
+    this.noteHere(text);
+  }
+
+  // A system line in the open conversation that isn't saved to history
+  // (local answers like /seen).
+  private noteHere(text: string): void {
+    const key = this.activeChannel;
+    const ch = key ? this.channels.get(key) : undefined;
+    if (!ch) { this.emitFeedback({ kind: 'error', text }); return; }
+    ch.messages.value = [...ch.messages.peek(), { id: this.id(), kind: 'system', from: '', text, timestamp: Date.now() }];
+    this.emit();
+  }
+
+  // The sender's identity for an activity line (join/part/quit/kick): the
+  // prefix, topped up by what the member list knew. Empty while
+  // remembering hosts is off.
+  private lineIdentity(e: IrcEvent, member?: ChatMember, extra?: { account?: string; realname?: string }): Pick<ChatMessage, 'user' | 'host' | 'account' | 'realname'> {
+    if (!this.seen.recording) return {};
+    const user = e.User || member?.user;
+    const host = e.Host || member?.hostname;
+    const account = extra?.account || e.Account || member?.account;
+    const realname = extra?.realname || member?.realname;
+    return {
+      ...(user ? { user } : {}),
+      ...(host ? { host } : {}),
+      ...(account ? { account } : {}),
+      ...(realname ? { realname } : {}),
+    };
+  }
+
+  // The member record for nick in any channel (first found).
+  private anyMember(nick: string): ChatMember | undefined {
+    for (const ch of this.channels.values()) {
+      const m = ch.members.find((x) => x.nick === nick);
+      if (m) return m;
+    }
+    return undefined;
   }
 
   // Observation -------------------------------------------------------------
@@ -2522,6 +2607,13 @@ export class ChatService {
         const quiet = !!ctcp && ctcp.command !== 'ACTION';
         // Anyone sending a message is, by definition, active right now.
         this.touchMemberActivity(e.From, Date.now());
+        // Remember who said it (live, or a bouncer replaying its buffer).
+        if (e.Host && !this.isMe(e.From)) {
+          this.seen.note(e.From, {
+            user: e.User, host: e.Host, account: e.Account || undefined,
+            channel: isChannel ? t : undefined, at: this.timestampOf(e),
+          });
+        }
         // account-tag keeps a talker's account fresh (and our own) for
         // presence matching — covers members who were silent at our join.
         if (e.Account) {
@@ -2616,6 +2708,10 @@ export class ChatService {
           // extended-join + the source host populate account/hostname so the
           // member can be matched to a Boson account.
           const ch = this.channels.get(key);
+          this.seen.note(e.From, {
+            user: e.User, host: e.Host, account: e.Account || undefined,
+            realname: e.Message || undefined, channel: e.Target,
+          });
           if (ch && !ch.members.some((m) => m.nick === e.From)) {
             ch.members = [...ch.members, {
               nick: e.From, prefix: '', joinedAt: Date.now(),
@@ -2632,6 +2728,7 @@ export class ChatService {
             from: e.From,
             text: `${e.From} joined`,
             timestamp: Date.now(),
+            ...this.lineIdentity(e, undefined, { realname: e.Message || undefined }),
           });
         }
         break;
@@ -2641,17 +2738,24 @@ export class ChatService {
         // Keep the account live for presence matching.
         if (e.From === this.myNick) { this.updateSelfIdentity(undefined, e.Account ?? ''); break; }
         this.updateMemberField(e.From, { account: e.Account || undefined });
+        this.seen.note(e.From, { account: e.Account || null, ...(e.Host ? { user: e.User, host: e.Host } : {}) });
         break;
       }
       case 'CHGHOST': {
         // Host changed (cloak grant / vhost). Track for self + the member.
         if (e.From === this.myNick) { this.updateSelfIdentity(e.Host, undefined); break; }
-        if (e.Host) this.updateMemberField(e.From, { hostname: e.Host, ...(e.User ? { user: e.User } : {}) });
+        if (e.Host) {
+          this.updateMemberField(e.From, { hostname: e.Host, ...(e.User ? { user: e.User } : {}) });
+          this.seen.note(e.From, { host: e.Host, ...(e.User ? { user: e.User } : {}) });
+        }
         break;
       }
       case 'SETNAME': {
         // setname: a user changed their realname.
-        if (e.From && e.From !== this.myNick) this.updateMemberField(e.From, { realname: e.Message || undefined });
+        if (e.From && e.From !== this.myNick) {
+          this.updateMemberField(e.From, { realname: e.Message || undefined });
+          if (e.Message) this.seen.note(e.From, { realname: e.Message, ...(e.Host ? { user: e.User, host: e.Host } : {}) });
+        }
         break;
       }
       case 'BATCH': {
@@ -2728,13 +2832,16 @@ export class ChatService {
           this.emitSelfMembership({ kind: 'part', channel: key });
         } else {
           const ch = this.channels.get(key);
+          const member = ch?.members.find((m) => m.nick === e.From);
           if (ch) ch.members = ch.members.filter((m) => m.nick !== e.From);
+          this.seen.note(e.From, { user: e.User || member?.user, host: e.Host || member?.hostname, channel: e.Target });
           this.appendMessage(e.Target, {
             id: this.id(),
             kind: 'part',
             from: e.From,
             text: `${e.From} left`,
             timestamp: Date.now(),
+            ...this.lineIdentity(e, member),
           });
         }
         break;
@@ -2750,8 +2857,16 @@ export class ChatService {
           this.emitSelfMembership({ kind: 'kick', channel: key });
         } else {
           const ch = this.channels.get(key);
+          const member = ch?.members.find((m) => m.nick === kicked);
           if (ch) ch.members = ch.members.filter((m) => m.nick !== kicked);
+          if (e.Host) this.seen.note(e.From, { user: e.User, host: e.Host, channel: e.Target });
+          // The kicked nick: what the member list knew of them.
+          this.seen.note(kicked, {
+            user: member?.user, host: member?.hostname, account: member?.account,
+            realname: member?.realname, channel: e.Target,
+          });
           this.appendMessage(e.Target, {
+            ...this.lineIdentity(e, ch?.members.find((m) => m.nick === e.From)),
             id: this.id(),
             kind: 'kick',
             from: e.From,
@@ -2830,16 +2945,21 @@ export class ChatService {
         // message if the quitting nick was in that channel's member
         // list. Always remove them from member lists either way (a
         // stale presence would be worse than a missed system message).
+        {
+          const member = this.anyMember(e.From);
+          this.seen.note(e.From, { user: e.User || member?.user, host: e.Host || member?.hostname });
+        }
         this.channels.forEach((c) => {
-          const wasMember = c.members.some((m) => m.nick === e.From);
+          const member = c.members.find((m) => m.nick === e.From);
           c.members = c.members.filter((m) => m.nick !== e.From);
-          if (!wasMember) return;
+          if (!member) return;
           const quitMsg: ChatMessage = {
             id: this.id(),
             kind: 'quit',
             from: e.From,
             text: `${e.From} quit${e.Message ? ` (${e.Message})` : ''}`,
             timestamp: Date.now(),
+            ...this.lineIdentity(e, member),
           };
           c.messages.value = [...c.messages.peek(), quitMsg];
           // Mirror QUIT into persistence too — historically the only kind of
@@ -2858,6 +2978,10 @@ export class ChatService {
         // :oldnick NICK newnick — rename across every channel's member list.
         const newNick = e.Message;
         if (!newNick) break;
+        if (e.From !== this.myNick) {
+          this.seen.rename(e.From, newNick);
+          if (e.Host) this.seen.note(newNick, { user: e.User, host: e.Host });
+        }
         this.channels.forEach((c) => {
           c.members = c.members.map((m) => (m.nick === e.From ? { ...m, nick: newNick } : m));
         });
@@ -2886,6 +3010,10 @@ export class ChatService {
         if (ch) {
           ch.members = dedupeMembers(pending);
           ch.namesLoaded = true;
+          // userhost-in-names: everyone's mask, at once.
+          for (const m of ch.members) {
+            if (m.hostname && m.nick !== this.myNick) this.seen.note(m.nick, { user: m.user, host: m.hostname, channel: ch.name });
+          }
           const pendingWho = this.pendingWhoReplies.get(key);
           if (pendingWho && pendingWho.size > 0) {
             this.applyWhoReplies(ch, pendingWho);
@@ -3008,6 +3136,9 @@ export class ChatService {
         };
         pending.set(nickLower, reply);
         this.pendingWhoReplies.set(key, pending);
+        if (reply.host && e.From !== this.myNick) {
+          this.seen.note(e.From, { user: reply.user, host: reply.host, realname: reply.realname, channel: e.Target });
+        }
         // Only this line's member: a big channel's WHO is thousands of
         // lines, and a pass over the whole list per line stalls the app
         // long enough for a bouncer to drop us for not reading.
@@ -3647,6 +3778,13 @@ export class ChatService {
     batch: { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] },
     e: IrcEvent,
   ): void {
+    // Replayed lines carry the sender's prefix too: remember it, as of then.
+    if (e.Host && e.From && !this.isMe(e.From) && ['PRIVMSG', 'NOTICE', 'JOIN', 'PART', 'QUIT'].includes(e.Kind)) {
+      this.seen.note(e.From, {
+        user: e.User, host: e.Host, account: e.Account || undefined,
+        channel: /^[#&]/.test(batch.target) ? batch.target : undefined, at: this.timestampOf(e),
+      });
+    }
     if (e.Kind !== 'PRIVMSG' && e.Kind !== 'NOTICE') return;
     let text = e.Message ?? '';
     let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
@@ -4023,6 +4161,16 @@ const WHOIS_RETRY_MS = 10_000;
 // Sigils in priority order — highest-rank first. When a server lists multiple
 // (e.g. multi-prefix CAP gives `~@nick`), we keep the first and skip the rest.
 const PREFIX_SIGILS = new Set(['~', '&', '@', '%', '+']);
+
+// "2h ago in #lobby" for a remembered nick.
+export function describeSeen(r: SeenRecord, now: number = Date.now()): string {
+  const secs = Math.max(0, Math.floor((now - r.lastSeenAt) / 1000));
+  const ago = secs < 60 ? 'just now'
+    : secs < 3600 ? `${Math.floor(secs / 60)}m ago`
+    : secs < 86400 ? `${Math.floor(secs / 3600)}h ago`
+    : `${Math.floor(secs / 86400)}d ago`;
+  return r.channels[0] ? `${ago} in ${r.channels[0]}` : ago;
+}
 
 function parseMemberToken(token: string): ChatMember {
   let prefix: MemberPrefix = '';

@@ -7,6 +7,7 @@ import {
   prefixRank, canOp, canHalfop, canVoice, canKick, canBan,
 } from '../../modules/chat';
 import type { NickContextAction } from './NickContextMenu';
+import type { SeenRecord } from '../../modules/seen/seen.store';
 
 // Channel-operator surface for the menu. Present only inside a channel; the
 // callbacks are bound to the active channel by the host (ChatLayout). kick /
@@ -30,6 +31,8 @@ export interface ChannelOpActions {
 export interface NickProfiles {
   info: (nick: string) => WhoisInfo | undefined;
   request: (nick: string) => void;
+  /** What Boson remembers of the nick after they've left (local only). */
+  seen?: (nick: string) => SeenRecord | undefined;
 }
 
 export interface NickActions {
@@ -48,10 +51,12 @@ export interface NickActions {
 const OWNER_RANK = 5;
 const ADMIN_RANK = 4;
 
-export function buildNickContextActions(nick: string, na?: NickActions): readonly NickContextAction[] {
+export function buildNickContextActions(nick: string, na?: NickActions, host?: string | null): readonly NickContextAction[] {
   const out: NickContextAction[] = [
     { label: 'Copy nickname', onClick: () => { void navigator.clipboard?.writeText(nick); } },
   ];
+  // The user@host of the line clicked (or remembered), when there is one.
+  if (host) out.push({ label: 'Copy host', onClick: () => { void navigator.clipboard?.writeText(host); } });
   if (na?.onSendMessage) out.push({ label: 'Send message', onClick: () => na.onSendMessage!(nick) });
   if (na?.onMention) out.push({ label: 'Mention', onClick: () => na.onMention!(nick) });
 

@@ -191,6 +191,7 @@ export function ChatLayout({
     const profiles: NickProfiles | undefined = typeof chat.requestWhois === 'function' ? {
       info: (n: string) => chat.whois.value.get(n.toLowerCase()),
       request: (n: string) => chat.requestWhois(n),
+      seen: (n: string) => chat.seen?.get(n),
     } : undefined;
     return { onSendMessage: (nick: string) => chat.openDM(nick), ops, profiles };
   }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere]);

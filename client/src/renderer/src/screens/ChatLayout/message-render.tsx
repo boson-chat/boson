@@ -16,7 +16,13 @@ import { MessageEmbeds } from './Embed';
 import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
-import { NickProfileCard, anchorOf, profileRows, useFitInWindow, type ProfileAnchor } from './nick-profile';
+import {
+  NickProfileCard, RememberedDetails, anchorOf, lineIdentityOf, profileRows, useFitInWindow,
+  type LineIdentity, type ProfileAnchor,
+} from './nick-profile';
+import type { SeenRecord } from '../../modules/seen/seen.store';
+import { seenMask } from '../../modules/seen/seen.store';
+import { privacySettings } from '../../modules/ui/privacy.store';
 import { MessageSheet } from './MessageSheet';
 import type { SheetAction } from './BottomSheet';
 import { useLongPress } from './long-press';
@@ -140,7 +146,10 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
     </>
   );
 
-  if (msg.kind === 'system' || msg.kind === 'join' || msg.kind === 'part' || msg.kind === 'quit') {
+  if (msg.kind === 'join' || msg.kind === 'part' || msg.kind === 'quit') {
+    return <ActivityLine msg={msg} members={members} nickActions={nickActions} avatarFor={avatarFor} fresh={fresh} />;
+  }
+  if (msg.kind === 'system') {
     return (
       <div class={`message-system message-system-${msg.kind} ${fresh ? 'message-fresh' : ''}`}>
         <span class="sys-text">{msg.text}</span>
@@ -251,6 +260,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         <MessageNickHoverCard
           nick={hover.nick}
           member={members.find((m) => m.nick === hover.nick) ?? null}
+          seen={nickActions?.profiles?.seen?.(hover.nick)}
           top={hover.top}
           left={hover.left}
         />,
@@ -260,14 +270,133 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   );
 });
 
+interface ActivityLineProps {
+  msg: ChatMessage;
+  members: ChatMember[];
+  nickActions?: NickActions;
+  avatarFor?: (nick: string) => string | undefined;
+  fresh?: boolean;
+  /** Times the same line repeated (folded groups). */
+  count?: number;
+  extraClass?: string;
+}
+
+// A join / part / quit line. The nick opens their profile on click and a
+// hover card on hover, both showing the host recorded on this line (who
+// they were at that moment), plus what Boson remembers once they're gone.
+// With "Show hosts in join/part lines" on, the host follows the nick.
+export function ActivityLine({ msg, members, nickActions, avatarFor, fresh = false, count = 1, extraClass = '' }: ActivityLineProps) {
+  const [profile, setProfile] = useState<{ anchor?: ProfileAnchor } | null>(null);
+  const [hover, setHover] = useState<{ top: number; left: number } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingOpen = (): void => {
+    if (openTimer.current !== null) { clearTimeout(openTimer.current); openTimer.current = null; }
+  };
+  useEffect(() => cancelPendingOpen, []);
+  const prefs = privacySettings.value;
+  const nick = msg.from;
+  const line = prefs.rememberHosts ? lineIdentityOf(msg) : undefined;
+  const mask = line ? seenMask(line) : null;
+  const splitAt = nick && msg.text.startsWith(nick) ? nick.length : -1;
+  const suffix = count > 1 ? ` ×${count}` : '';
+  if (splitAt < 0) {
+    return (
+      <div class={`message-system message-system-${msg.kind} ${extraClass} ${fresh ? 'message-fresh' : ''}`}>
+        <span class="sys-text">{msg.text}{suffix}</span>
+      </div>
+    );
+  }
+  const member = members.find((m) => m.nick === nick) ?? null;
+  return (
+    <div class={`message-system message-system-${msg.kind} ${extraClass} ${fresh ? 'message-fresh' : ''}`}>
+      <span class="sys-text">
+        <span
+          class="sys-nick"
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            cancelPendingOpen();
+            setHover(null);
+            setProfile(isNarrow() ? {} : { anchor: anchorOf(e.currentTarget as Element) });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') setProfile(isNarrow() ? {} : { anchor: anchorOf(e.currentTarget as Element) });
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (isNarrow()) return;
+            setMenu({ x: e.clientX, y: e.clientY });
+          }}
+          onMouseEnter={(e) => {
+            if (isNarrow() || profile) return;
+            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            const snapshot = { top: r.top, left: r.left };
+            cancelPendingOpen();
+            openTimer.current = setTimeout(() => { setHover(snapshot); openTimer.current = null; }, HOVER_OPEN_DELAY_MS);
+          }}
+          onMouseLeave={() => { cancelPendingOpen(); setHover(null); }}
+        >
+          {nick}
+        </span>
+        {prefs.showHostsInActivity && mask && <span class="sys-host"> ({mask})</span>}
+        {msg.text.slice(splitAt)}{suffix}
+      </span>
+      {profile?.anchor && (
+        <NickProfileCard
+          nick={nick}
+          member={member}
+          avatarUrl={avatarFor?.(nick)}
+          anchor={profile.anchor}
+          actions={buildNickContextActions(nick, nickActions, mask)}
+          profiles={nickActions?.profiles}
+          line={line}
+          onClose={() => setProfile(null)}
+        />
+      )}
+      {profile && !profile.anchor && (
+        <NickSheet
+          nick={nick}
+          member={member}
+          avatarUrl={avatarFor?.(nick)}
+          actions={buildNickContextActions(nick, nickActions, mask)}
+          profiles={nickActions?.profiles}
+          line={line}
+          onClose={() => setProfile(null)}
+        />
+      )}
+      {menu && (
+        <NickContextMenu
+          x={menu.x}
+          y={menu.y}
+          title={nick}
+          actions={buildNickContextActions(nick, nickActions, mask)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+      {hover && createPortal(
+        <MessageNickHoverCard
+          nick={nick}
+          member={member}
+          seen={nickActions?.profiles?.seen?.(nick)}
+          line={line}
+          top={hover.top}
+          left={hover.left}
+        />,
+        document.body,
+      )}
+    </div>
+  );
+}
+
 // Compact hover card for a nick that appears inside a message. Differs
 // from the UserPanel's card in that we may not have full WHOIS state
 // for the speaker (the channel's member list may have parted them
 // already, or we joined after their last activity). Falls back to nick-
 // only when the member record is null.
 function MessageNickHoverCard({
-  nick, member, top, left,
-}: { nick: string; member: ChatMember | null; top: number; left: number }) {
+  nick, member, seen, line, top, left,
+}: { nick: string; member: ChatMember | null; seen?: SeenRecord; line?: LineIdentity; top: number; left: number }) {
   // Anchor the card just below the nick by default so it doesn't cover
   // the message text; above it when there's no room below.
   const CARD_WIDTH = 240;
@@ -302,6 +431,7 @@ function MessageNickHoverCard({
           ))}
         </dl>
       )}
+      <RememberedDetails nick={nick} member={member} seen={seen} line={line} copyable={false} />
     </div>
   );
 }
@@ -708,7 +838,7 @@ export const MessageList = memo(function MessageList({
           animated.current.add(key);
           return (
             <VRow key={key} vkey={key}>
-              {item.type === 'activity' ? <ActivityGroup items={item.items} />
+              {item.type === 'activity' ? <ActivityGroup items={item.items} members={members} nickActions={nickActions} avatarFor={avatarFor} />
                 : item.type === 'preblock' ? <PreBlock items={item.items} avatarFor={avatarFor} />
                 : (
                   <MessageRow
@@ -853,11 +983,17 @@ function burstAt(messages: readonly ChatMessage[], i: number): ChatMessage[] {
 // Coalesce identical adjacent activity texts into {text, count} so a wall of
 // "You joined ##frontend" renders as one line ×40 rather than forty rows.
 export function coalesceActivity(items: readonly ChatMessage[]): Array<{ text: string; count: number }> {
-  const out: Array<{ text: string; count: number }> = [];
+  return coalesceActivityLines(items).map(({ msg, count }) => ({ text: msg.text, count }));
+}
+
+// coalesceActivity keeping each line's first message (for its sender's
+// recorded host). Lines with the same text but a different host stay apart.
+export function coalesceActivityLines(items: readonly ChatMessage[]): Array<{ msg: ChatMessage; count: number }> {
+  const out: Array<{ msg: ChatMessage; count: number }> = [];
   for (const m of items) {
     const last = out[out.length - 1];
-    if (last && last.text === m.text) last.count += 1;
-    else out.push({ text: m.text, count: 1 });
+    if (last && last.msg.text === m.text && last.msg.host === m.host) last.count += 1;
+    else out.push({ msg: m, count: 1 });
   }
   return out;
 }
@@ -906,9 +1042,14 @@ export function summarizeActivity(items: readonly ChatMessage[]): string {
 
 // Collapsed summary for an activity run: what it came to (see
 // summarizeActivity); expands on click into the full coalesced list.
-function ActivityGroup({ items }: { items: ChatMessage[] }) {
+function ActivityGroup({ items, members, nickActions, avatarFor }: {
+  items: ChatMessage[];
+  members: ChatMember[];
+  nickActions?: NickActions;
+  avatarFor?: (nick: string) => string | undefined;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const lines = coalesceActivity(items);
+  const lines = expanded ? coalesceActivityLines(items) : [];
   const total = items.length;
   return (
     <div class={`message-activity ${expanded ? 'message-activity-expanded' : ''}`}>
@@ -928,9 +1069,21 @@ function ActivityGroup({ items }: { items: ChatMessage[] }) {
       {expanded && (
         <div class="message-activity-lines">
           {lines.map((l, i) => (
-            <div key={i} class="message-system message-activity-line">
-              <span class="sys-text">{l.text}{l.count > 1 ? ` ×${l.count}` : ''}</span>
-            </div>
+            l.msg.kind === 'join' || l.msg.kind === 'part' || l.msg.kind === 'quit' ? (
+              <ActivityLine
+                key={i}
+                msg={l.msg}
+                count={l.count}
+                members={members}
+                nickActions={nickActions}
+                avatarFor={avatarFor}
+                extraClass="message-activity-line"
+              />
+            ) : (
+              <div key={i} class="message-system message-activity-line">
+                <span class="sys-text">{l.msg.text}{l.count > 1 ? ` ×${l.count}` : ''}</span>
+              </div>
+            )
           ))}
         </div>
       )}

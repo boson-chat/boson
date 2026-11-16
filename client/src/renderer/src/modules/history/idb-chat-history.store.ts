@@ -218,5 +218,9 @@ export function rowToMessage(row: StoredRow): ChatMessage {
     timestamp: row.timestamp,
     ...(row.msgid ? { msgid: row.msgid } : {}),
     ...(row.serverTime !== undefined ? { serverTime: row.serverTime } : {}),
+    ...(row.user ? { user: row.user } : {}),
+    ...(row.host ? { host: row.host } : {}),
+    ...(row.account ? { account: row.account } : {}),
+    ...(row.realname ? { realname: row.realname } : {}),
   };
 }
