@@ -13,12 +13,17 @@ import (
 func voiceServices(dataDir, authBase string, dev bool, api *ApiService, images *ImageCacheService) (services []application.Service, files http.Handler) {
 	voice := NewVoiceService(dataDir, authBase, dev)
 	voice.nets = api.nets
+	// Every voice channel is also a video channel (where the server has it).
+	video := NewVideoService()
+	video.offsets = voice.avOffsets
+	voice.video = video
 	// The "Leave" action on Android's in-call notification.
 	setNotificationLeave(voice.Leave)
 	fs := NewFilesService(voice.disc, api, dev)
 	images.useFiles(fs)
 	return []application.Service{
 		application.NewService(voice),
+		application.NewService(video),
 		application.NewService(NewNetAuthService(voice.disc, api)),
 		application.NewService(fs),
 	}, fs

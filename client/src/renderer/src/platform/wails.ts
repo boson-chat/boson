@@ -14,6 +14,7 @@ const STORE = 'main.SecureStore';
 const THEMES = 'main.ThemesService';
 const UPDATER = 'main.UpdaterService';
 const VOICE = 'main.VoiceService';
+const VIDEO = 'main.VideoService';
 
 // The engine runs in the Wails process. This stands in for the WebSocket the
 // engine client would otherwise open: frames go out through a binding and
@@ -338,6 +339,21 @@ export async function installWailsBridges(): Promise<void> {
       setSpeaker: (on: boolean) => v('SetSpeaker', on),
       state: () => v('State'),
       onState: (fn: (s: unknown) => void) => Events.On('voice:state', (ev) => fn(ev.data)),
+    };
+  }
+  // Video in voice channels (desktop/video.go). A shell without a
+  // VideoService gets no bridge (no video UI).
+  if (await Call.ByName(`${VIDEO}.State`).then(() => true, () => false)) {
+    const vd = (method: string, ...args: unknown[]): Promise<unknown> => Call.ByName(`${VIDEO}.${method}`, ...args);
+    w.bosonVideo = {
+      state: () => vd('State'),
+      onState: (fn: (s: unknown) => void) => Events.On('video:state', (ev) => fn(ev.data)),
+      subscribe: (trackId: number, layer: number) => vd('Subscribe', trackId, layer),
+      unsubscribe: (trackId: number) => vd('Unsubscribe', trackId),
+      cameras: () => vd('Cameras'),
+      screenSources: () => vd('ScreenSources'),
+      setCamera: (on: boolean, cameraId: string) => vd('SetCamera', on, cameraId),
+      setScreen: (on: boolean, sourceId: string) => vd('SetScreen', on, sourceId),
     };
   }
   // "Sign in with …" (desktop/sso.go): the loopback redirect listener.

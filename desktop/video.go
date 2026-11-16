@@ -1,0 +1,776 @@
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"errors"
+	"net"
+	"net/url"
+	"sort"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	qvclient "github.com/boson-chat/quicvideo/client"
+	videopb "github.com/boson-chat/quicvideo/gen/controlpb"
+	voicepb "github.com/boson-chat/quicvoice/gen/controlpb"
+	"github.com/wailsapp/wails/v3/pkg/application"
+)
+
+// VideoService is video in voice channels: every voice channel is also a
+// video channel. On joining a channel the app asks the voice server for a
+// video ticket; servers without video (or older ones) say no, and the
+// whole feature stays hidden (VideoState.Available). With a ticket it
+// connects to the server's quicvideod, joins the channel's video room,
+// and:
+//
+//   - receives the tracks the call view asks for (Subscribe, sized to each
+//     tile) and hands them to the webview over a loopback WebSocket
+//     (frameHub) as AVC for WebCodecs;
+//   - publishes the camera and screen (native capture + hardware encode,
+//     where this build has it: videoMedia);
+//   - sends each sender's lip-sync offset (VoiceService.avOffsets) so the
+//     page shows a video frame when the audio captured with it plays.
+//
+// Leaving voice leaves video; the voice server also removes us from the
+// video room on its own when we leave the channel.
+type VideoService struct {
+	media videoMedia
+	dial  func(ctx context.Context, addr string, opts qvclient.Options) (videoConn, error)
+	emit  func(name string, data any)
+	// offsets: lip-sync offsets per user id (VoiceService.avOffsets).
+	offsets func() map[string]int64
+
+	hubOnce sync.Once
+	hub     atomic.Pointer[frameHub] // set once, on first use
+	hubErr  error
+
+	mu    sync.Mutex
+	seq   int // bumped by every voice join/leave; a superseded start gives up
+	sess  *videoSession
+	st    videoStatus
+	dirty bool
+
+	stop chan struct{}
+	once sync.Once
+}
+
+// videoStatus is what State reports besides the session's tracks.
+type videoStatus struct {
+	available  bool   // the current voice server offers video
+	status     string // idle | connecting | connected | error
+	err        string
+	canPublish bool
+	camera     shareStatus
+	screen     shareStatus
+}
+
+type shareStatus struct {
+	on, starting bool
+	name, err    string
+	gen          int // bumped on every start/stop; a superseded start gives up
+	share        videoShare
+}
+
+// videoConn is what VideoService needs of a quicvideo connection
+// (*qvclient.Client), so tests can fake one.
+type videoConn interface {
+	Join(ctx context.Context, room string) (*videopb.RoomState, error)
+	Subscribe(trackID, maxLayer, priority uint32) error
+	Unsubscribe(trackID uint32) error
+	ReportDecodeStall(trackID uint32)
+	Events() <-chan *videopb.ControlMessage
+	Done() <-chan struct{}
+	Close() error
+}
+
+// videoTicketer is a voice connection that hands out video tickets
+// (quicvoice 1.8+: *client.Client).
+type videoTicketer interface {
+	VideoTicket(ctx context.Context) (*voicepb.VideoTicket, error)
+}
+
+// videoSession is one connection to a video room.
+type videoSession struct {
+	conn   videoConn
+	client *qvclient.Client // the real client (publishing), nil in tests
+	room   string
+	self   uint32 // our video session id
+	people map[uint32]videoPerson
+	tracks map[uint32]*videopb.Track
+	subs   map[uint32]uint32 // track → max layer asked for
+}
+
+type videoPerson struct{ userID, name string }
+
+// VideoTrack is a track in the call.
+type VideoTrack struct {
+	TrackID int          `json:"trackId"`
+	UserID  string       `json:"userId"`
+	Name    string       `json:"name"`
+	Kind    string       `json:"kind"` // camera | screen
+	Self    bool         `json:"self"`
+	Layers  []VideoLayer `json:"layers"`
+}
+
+type VideoLayer struct {
+	ID     int `json:"id"`
+	Width  int `json:"width"`
+	Height int `json:"height"`
+	FPS    int `json:"fps"`
+}
+
+// VideoShareState is the camera or the screen share.
+type VideoShareState struct {
+	On       bool   `json:"on"`
+	Starting bool   `json:"starting"`
+	Name     string `json:"name,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// VideoState is the whole video UI state.
+type VideoState struct {
+	// Available: the voice server offers video for this channel; the UI
+	// shows nothing video until it does.
+	Available bool `json:"available"`
+	// Status: idle | connecting | connected | error.
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	// FrameURL: the WebSocket the page reads frames from.
+	FrameURL string `json:"frameUrl,omitempty"`
+	// CanCapture: this build can send video (native capture); CanPublish:
+	// the ticket allows it (people who can speak in the channel).
+	CanCapture bool            `json:"canCapture"`
+	CanPublish bool            `json:"canPublish"`
+	Camera     VideoShareState `json:"camera"`
+	Screen     VideoShareState `json:"screen"`
+	Tracks     []VideoTrack    `json:"tracks"`
+}
+
+const (
+	VideoStateEvent  = "video:state"
+	videoTicketWait  = 5 * time.Second
+	videoDialTimeout = 8 * time.Second
+	// syncEvery: how often lip-sync offsets go to the page.
+	syncEvery = 200 * time.Millisecond
+)
+
+func init() {
+	application.RegisterEvent[VideoState](VideoStateEvent)
+}
+
+func NewVideoService() *VideoService {
+	return &VideoService{
+		media: newVideoMedia(),
+		dial: func(ctx context.Context, addr string, opts qvclient.Options) (videoConn, error) {
+			return qvclient.Dial(ctx, addr, opts)
+		},
+		st:   videoStatus{status: "idle"},
+		stop: make(chan struct{}),
+	}
+}
+
+func (v *VideoService) ServiceStartup(context.Context, application.ServiceOptions) error {
+	go v.loop()
+	return nil
+}
+
+func (v *VideoService) ServiceShutdown() error {
+	v.once.Do(func() { close(v.stop) })
+	v.voiceLeft()
+	if h := v.hub.Load(); h != nil {
+		h.Close()
+	}
+	return nil
+}
+
+// frames starts the loopback WebSocket on first use.
+func (v *VideoService) frames() (*frameHub, error) {
+	v.hubOnce.Do(func() {
+		h, err := newFrameHub(v.keyframeNeeded)
+		v.hubErr = err
+		if err == nil {
+			v.hub.Store(h)
+		}
+	})
+	return v.hub.Load(), v.hubErr
+}
+
+func (v *VideoService) changed() {
+	v.mu.Lock()
+	v.dirty = true
+	v.mu.Unlock()
+}
+
+// loop pushes the state when it changed and the lip-sync offsets while
+// connected.
+func (v *VideoService) loop() {
+	t := time.NewTicker(syncEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-v.stop:
+			return
+		case <-t.C:
+			v.mu.Lock()
+			dirty, sess := v.dirty, v.sess
+			v.dirty = false
+			v.mu.Unlock()
+			if dirty {
+				v.send(VideoStateEvent, v.State())
+			}
+			if sess != nil {
+				v.sendSync(sess)
+			}
+		}
+	}
+}
+
+func (v *VideoService) send(name string, data any) {
+	if v.emit != nil {
+		v.emit(name, data)
+		return
+	}
+	if app := application.Get(); app != nil {
+		app.Event.Emit(name, data)
+	}
+}
+
+// ---- voice hooks ----
+
+// voiceJoined: a voice join succeeded on conn (VoiceService.Join). Ask for
+// a video ticket and, if the server has video, join the video room.
+func (v *VideoService) voiceJoined(conn voiceConn) {
+	t, ok := conn.(videoTicketer)
+	if !ok {
+		return
+	}
+	v.mu.Lock()
+	v.seq++
+	seq := v.seq
+	v.mu.Unlock()
+	go v.start(seq, t)
+}
+
+// voiceLeft: we left voice (or were dropped or kicked): leave video too.
+func (v *VideoService) voiceLeft() {
+	v.mu.Lock()
+	v.seq++
+	sess := v.sess
+	v.sess = nil
+	cam, scr := v.st.camera.share, v.st.screen.share
+	v.st = videoStatus{status: "idle"}
+	v.dirty = true
+	v.mu.Unlock()
+	for _, s := range []videoShare{cam, scr} {
+		if s != nil {
+			s.Stop()
+		}
+	}
+	if sess != nil {
+		_ = sess.conn.Close()
+	}
+}
+
+func (v *VideoService) current(seq int) bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.seq == seq
+}
+
+func (v *VideoService) fail(seq int, msg string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.seq != seq {
+		return
+	}
+	v.st.status, v.st.err = "error", msg
+	v.dirty = true
+}
+
+func (v *VideoService) start(seq int, t videoTicketer) {
+	ctx, cancel := context.WithTimeout(context.Background(), videoTicketWait)
+	ticket, err := t.VideoTicket(ctx)
+	cancel()
+	if err != nil {
+		// No video here: a server without it answers FORBIDDEN, an older
+		// one doesn't answer at all. Either way the feature stays hidden.
+		return
+	}
+	addr, serverName, err := quicAddr(ticket.GetQuicUrl())
+	if err != nil {
+		return
+	}
+	v.mu.Lock()
+	if v.seq != seq {
+		v.mu.Unlock()
+		return
+	}
+	v.st.available, v.st.status, v.st.err = true, "connecting", ""
+	v.st.canPublish = ticketCanPublish(ticket.GetToken())
+	v.dirty = true
+	v.mu.Unlock()
+
+	if _, err := v.frames(); err != nil {
+		v.fail(seq, "Video couldn't start: "+err.Error())
+		return
+	}
+	dctx, dcancel := context.WithTimeout(context.Background(), videoDialTimeout)
+	defer dcancel()
+	var sess *videoSession
+	conn, err := v.dial(dctx, addr, qvclient.Options{
+		Token:         ticket.GetToken(),
+		ClientVersion: "boson/" + appVersion,
+		TLS:           &tls.Config{ServerName: serverName},
+		OnFrame: func(f qvclient.RemoteFrame) {
+			v.mu.Lock()
+			current := v.sess == sess && sess != nil
+			v.mu.Unlock()
+			if current {
+				v.onFrame(f)
+			}
+		},
+		// Tickets last 5 minutes: get a new one from voice and refresh.
+		TokenSource: func(ctx context.Context) (string, error) {
+			nt, err := t.VideoTicket(ctx)
+			if err != nil {
+				return "", err
+			}
+			return nt.GetToken(), nil
+		},
+	})
+	if err != nil {
+		v.fail(seq, "Couldn't reach the video server.")
+		return
+	}
+	state, err := conn.Join(dctx, ticket.GetRoom())
+	if err != nil {
+		_ = conn.Close()
+		v.fail(seq, "The video server refused: "+err.Error())
+		return
+	}
+	sess = &videoSession{conn: conn, room: ticket.GetRoom(), self: state.GetYourSessionId(),
+		people: map[uint32]videoPerson{}, tracks: map[uint32]*videopb.Track{}, subs: map[uint32]uint32{}}
+	if c, ok := conn.(*qvclient.Client); ok {
+		sess.client = c
+	}
+	for _, p := range state.GetParticipants() {
+		sess.people[p.GetSessionId()] = videoPerson{userID: p.GetUserId(), name: p.GetDisplayName()}
+	}
+	for _, tr := range state.GetTracks() {
+		sess.tracks[tr.GetTrackId()] = tr
+	}
+	v.mu.Lock()
+	if v.seq != seq {
+		v.mu.Unlock()
+		_ = conn.Close()
+		return
+	}
+	v.sess = sess
+	v.st.status = "connected"
+	v.dirty = true
+	v.mu.Unlock()
+	go v.events(seq, sess)
+}
+
+// quicAddr turns a ticket's quic_url (quic://host:port) into a dial
+// address and the TLS server name.
+func quicAddr(raw string) (addr, serverName string, err error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "", "", errors.New("video: bad server address")
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		port = "7710"
+	}
+	return net.JoinHostPort(host, port), host, nil
+}
+
+// ticketCanPublish reads the ticket's perms claim (no verification: the
+// video server checks; this only decides whether to show the buttons).
+func ticketCanPublish(token string) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return false
+	}
+	payload, err := decodeSegment(parts[1])
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(payload), `"video.publish"`)
+}
+
+func decodeSegment(s string) ([]byte, error) {
+	return base64.RawURLEncoding.DecodeString(strings.TrimRight(s, "="))
+}
+
+func (v *VideoService) events(seq int, sess *videoSession) {
+	for {
+		select {
+		case <-sess.conn.Done():
+			v.mu.Lock()
+			current := v.sess == sess
+			if current {
+				v.sess = nil
+				v.st.status, v.st.err = "error", "Lost the connection to the video server."
+				v.dirty = true
+			}
+			v.mu.Unlock()
+			if current {
+				v.stopShares()
+			}
+			return
+		case m, ok := <-sess.conn.Events():
+			if !ok {
+				continue
+			}
+			v.onControl(seq, sess, m)
+		}
+	}
+}
+
+func (v *VideoService) onControl(seq int, sess *videoSession, m *videopb.ControlMessage) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.sess != sess {
+		return
+	}
+	switch {
+	case m.GetParticipantJoined() != nil:
+		p := m.GetParticipantJoined().GetParticipant()
+		sess.people[p.GetSessionId()] = videoPerson{userID: p.GetUserId(), name: p.GetDisplayName()}
+	case m.GetParticipantLeft() != nil:
+		delete(sess.people, m.GetParticipantLeft().GetSessionId())
+	case m.GetTrackAdded() != nil:
+		tr := m.GetTrackAdded().GetTrack()
+		sess.tracks[tr.GetTrackId()] = tr
+	case m.GetTrackRemoved() != nil:
+		id := m.GetTrackRemoved().GetTrackId()
+		delete(sess.tracks, id)
+		delete(sess.subs, id)
+	case m.GetError() != nil && m.GetError().GetCode() == videopb.Error_KICKED:
+		// Out of the video room (we left the voice channel, or it closed):
+		// voice tells us separately; just tear video down.
+		go func() {
+			if v.current(seq) {
+				v.voiceLeftVideoOnly(sess)
+			}
+		}()
+	}
+	v.dirty = true
+}
+
+// voiceLeftVideoOnly ends sess after a kick from the video server.
+func (v *VideoService) voiceLeftVideoOnly(sess *videoSession) {
+	v.mu.Lock()
+	if v.sess != sess {
+		v.mu.Unlock()
+		return
+	}
+	v.sess = nil
+	v.st.status = "idle"
+	v.dirty = true
+	v.mu.Unlock()
+	v.stopShares()
+	_ = sess.conn.Close()
+}
+
+func (v *VideoService) stopShares() {
+	v.mu.Lock()
+	cam, scr := v.st.camera.share, v.st.screen.share
+	v.st.camera = shareStatus{gen: v.st.camera.gen + 1}
+	v.st.screen = shareStatus{gen: v.st.screen.gen + 1}
+	v.dirty = true
+	v.mu.Unlock()
+	for _, s := range []videoShare{cam, scr} {
+		if s != nil {
+			s.Stop()
+		}
+	}
+}
+
+// ---- receiving ----
+
+func (v *VideoService) onFrame(f qvclient.RemoteFrame) {
+	hub, _ := v.frames()
+	if hub == nil {
+		return
+	}
+	af, err := toAVC(f.Payload)
+	if err != nil {
+		return
+	}
+	if f.GroupStart && len(af.Desc) == 0 {
+		af.Keyframe = true // a group starts on a keyframe even without inline SPS/PPS
+	}
+	hub.Frame(f.TrackID, f.Layer, f.CaptureUS, af)
+}
+
+func (v *VideoService) keyframeNeeded(trackID uint32) {
+	v.mu.Lock()
+	sess := v.sess
+	v.mu.Unlock()
+	if sess != nil {
+		sess.conn.ReportDecodeStall(trackID)
+	}
+}
+
+// Subscribe asks for a track up to layer (the largest that fits its
+// tile); the call view calls it as tiles appear and resize.
+func (v *VideoService) Subscribe(trackID, layer int) {
+	v.mu.Lock()
+	sess := v.sess
+	if sess == nil || sess.tracks[uint32(trackID)] == nil {
+		v.mu.Unlock()
+		return
+	}
+	if cur, ok := sess.subs[uint32(trackID)]; ok && cur == uint32(layer) {
+		v.mu.Unlock()
+		return
+	}
+	sess.subs[uint32(trackID)] = uint32(layer)
+	v.mu.Unlock()
+	_ = sess.conn.Subscribe(uint32(trackID), uint32(layer), 0)
+}
+
+// Unsubscribe stops receiving a track (its tile is hidden, or the call
+// view is closed).
+func (v *VideoService) Unsubscribe(trackID int) {
+	v.mu.Lock()
+	sess := v.sess
+	if sess == nil {
+		v.mu.Unlock()
+		return
+	}
+	_, had := sess.subs[uint32(trackID)]
+	delete(sess.subs, uint32(trackID))
+	v.mu.Unlock()
+	if had {
+		_ = sess.conn.Unsubscribe(uint32(trackID))
+	}
+}
+
+// syncMsg is the lip-sync message on the frame socket: per track, the
+// local wall clock offset (µs) to add to a frame's capture time to show it
+// with its audio. Tracks of people whose audio isn't playing (or without
+// sync reports) are missing: show those frames as they come.
+type syncMsg struct {
+	Type    string           `json:"type"` // "sync"
+	Offsets map[uint32]int64 `json:"offsets"`
+}
+
+func (v *VideoService) sendSync(sess *videoSession) {
+	hub := v.hub.Load()
+	if v.offsets == nil || hub == nil {
+		return
+	}
+	byUser := v.offsets()
+	msg := syncMsg{Type: "sync", Offsets: map[uint32]int64{}}
+	v.mu.Lock()
+	for id, tr := range sess.tracks {
+		if off, ok := byUser[sess.people[tr.GetSessionId()].userID]; ok {
+			msg.Offsets[id] = off
+		}
+	}
+	v.mu.Unlock()
+	hub.Text(msg)
+}
+
+// ---- sending ----
+
+// Cameras lists cameras to pick from (empty in builds without capture).
+func (v *VideoService) Cameras() []VideoCamera {
+	if v.media == nil {
+		return []VideoCamera{}
+	}
+	cams, err := v.media.Cameras()
+	if err != nil || cams == nil {
+		return []VideoCamera{}
+	}
+	return cams
+}
+
+// ScreenSources lists screens and windows to share.
+func (v *VideoService) ScreenSources() []VideoSource {
+	if v.media == nil {
+		return []VideoSource{}
+	}
+	srcs, err := v.media.Screens()
+	if err != nil || srcs == nil {
+		return []VideoSource{}
+	}
+	return srcs
+}
+
+// SetCamera turns the camera on (cameraID "" = the best one) or off.
+// Turning it off while it's still starting cancels the start.
+func (v *VideoService) SetCamera(on bool, cameraID string) VideoState {
+	v.setShare(true, on, cameraID)
+	return v.State()
+}
+
+// SetScreen starts sharing a screen or window (VideoSource.ID), or stops.
+func (v *VideoService) SetScreen(on bool, sourceID string) VideoState {
+	v.setShare(false, on, sourceID)
+	return v.State()
+}
+
+func (v *VideoService) slot(camera bool) *shareStatus {
+	if camera {
+		return &v.st.camera
+	}
+	return &v.st.screen
+}
+
+func (v *VideoService) setShare(camera, on bool, id string) {
+	v.mu.Lock()
+	sl := v.slot(camera)
+	sl.gen++
+	gen := sl.gen
+	old := sl.share
+	sess := v.sess
+	*sl = shareStatus{gen: gen}
+	if on {
+		switch {
+		case v.media == nil:
+			sl.err = "This version of the app can't send video."
+			on = false
+		case sess == nil:
+			sl.err = "Not in a call."
+			on = false
+		case !v.st.canPublish:
+			sl.err = "You can't send video in this channel."
+			on = false
+		default:
+			sl.starting = true
+		}
+	}
+	v.dirty = true
+	v.mu.Unlock()
+	if old != nil {
+		old.Stop()
+	}
+	if !on {
+		return
+	}
+	go v.runShare(camera, gen, sess, id)
+}
+
+func (v *VideoService) runShare(camera bool, gen int, sess *videoSession, id string) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// Cancel the start if it's superseded (turned off, restarted, left).
+	go func() {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				v.mu.Lock()
+				stale := v.slot(camera).gen != gen || v.sess != sess
+				v.mu.Unlock()
+				if stale {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	onEnd := func(err error) {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		sl := v.slot(camera)
+		if sl.gen != gen {
+			return
+		}
+		*sl = shareStatus{gen: gen + 1, err: endMessage(camera, err)}
+		v.dirty = true
+	}
+	var share videoShare
+	var err error
+	if camera {
+		share, err = v.media.StartCamera(ctx, sess.client, id, v.preview, onEnd)
+	} else {
+		share, err = v.media.StartScreen(ctx, sess.client, id, onEnd)
+	}
+	v.mu.Lock()
+	sl := v.slot(camera)
+	if sl.gen != gen || v.sess != sess {
+		v.mu.Unlock()
+		if share != nil {
+			share.Stop()
+		}
+		return
+	}
+	if err != nil {
+		*sl = shareStatus{gen: gen, err: err.Error()}
+	} else {
+		*sl = shareStatus{gen: gen, on: true, name: share.Name(), share: share}
+	}
+	v.dirty = true
+	v.mu.Unlock()
+}
+
+func endMessage(camera bool, err error) string {
+	what := "Screen sharing"
+	if camera {
+		what = "The camera"
+	}
+	if err == nil {
+		return what + " stopped."
+	}
+	return what + " stopped: " + err.Error()
+}
+
+func (v *VideoService) preview(w, h int, rgba []byte) {
+	if hub := v.hub.Load(); hub != nil {
+		hub.Preview(w, h, rgba)
+	}
+}
+
+// ---- state ----
+
+func (v *VideoService) State() VideoState {
+	var url string
+	if hub := v.hub.Load(); hub != nil {
+		url = hub.URL()
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	share := func(s shareStatus) VideoShareState {
+		return VideoShareState{On: s.on, Starting: s.starting, Name: s.name, Error: s.err}
+	}
+	st := VideoState{
+		Available: v.st.available, Status: v.st.status, Error: v.st.err,
+		CanCapture: v.media != nil, CanPublish: v.st.canPublish,
+		Camera: share(v.st.camera), Screen: share(v.st.screen),
+		Tracks: []VideoTrack{},
+	}
+	if !st.Available {
+		return st
+	}
+	st.FrameURL = url
+	if v.sess == nil {
+		return st
+	}
+	for id, tr := range v.sess.tracks {
+		p := v.sess.people[tr.GetSessionId()]
+		vt := VideoTrack{TrackID: int(id), UserID: p.userID, Name: p.name, Kind: "camera",
+			Self: tr.GetSessionId() == v.sess.self}
+		if tr.GetKind() == videopb.TrackKind_SCREEN {
+			vt.Kind = "screen"
+		}
+		for _, l := range tr.GetLayers() {
+			vt.Layers = append(vt.Layers, VideoLayer{ID: int(l.GetId()), Width: int(l.GetWidth()), Height: int(l.GetHeight()), FPS: int(l.GetFps())})
+		}
+		st.Tracks = append(st.Tracks, vt)
+	}
+	sort.Slice(st.Tracks, func(i, j int) bool { return st.Tracks[i].TrackID < st.Tracks[j].TrackID })
+	return st
+}

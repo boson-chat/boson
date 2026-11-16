@@ -1,0 +1,227 @@
+//go:build cgo && !server && !ios && !android && (darwin || windows || (linux && videocapture))
+
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	qvclient "github.com/boson-chat/quicvideo/client"
+	"github.com/boson-chat/quicvideo/client/media"
+	"github.com/boson-chat/quicvideo/gen/controlpb"
+)
+
+// nativeMedia is quicvideo's client/media: ScreenCaptureKit, AVFoundation
+// and VideoToolbox on macOS (screen sharing from 12.3: it's weak-linked);
+// WGC and Media Foundation on Windows; on Linux (with -tags videocapture,
+// which needs FFmpeg, openh264 and PipeWire to build and run) the
+// PipeWire portal, V4L2 and FFmpeg encoders. Linux release builds don't
+// package those yet, so they watch but don't send.
+type nativeMedia struct{}
+
+func newVideoMedia() videoMedia { return nativeMedia{} }
+
+func (nativeMedia) Cameras() ([]VideoCamera, error) {
+	cams, err := media.ListCameras()
+	if err != nil {
+		return nil, err
+	}
+	def, _ := media.DefaultCamera(cams)
+	out := make([]VideoCamera, 0, len(cams))
+	for _, c := range cams {
+		out = append(out, VideoCamera{ID: c.ID, Name: c.Name, Kind: string(c.Kind), Default: c.ID == def.ID, Unavailable: c.Unavailable})
+	}
+	return out, nil
+}
+
+func (nativeMedia) Screens() ([]VideoSource, error) {
+	ds, ws, err := media.ListScreens()
+	if err != nil {
+		return nil, err
+	}
+	var out []VideoSource
+	for i, d := range ds {
+		if d.ID == media.PortalPicker {
+			return []VideoSource{{ID: "", Name: "Choose a screen or window…", Kind: "picker"}}, nil
+		}
+		name := fmt.Sprintf("Screen %d", i+1)
+		if d.Main {
+			name += " (main)"
+		}
+		out = append(out, VideoSource{ID: "display:" + strconv.FormatUint(uint64(d.ID), 10), Name: name, Kind: "display", Width: d.Width, Height: d.Height})
+	}
+	for _, w := range ws {
+		name := w.App
+		if w.Title != "" {
+			name = w.Title + " — " + w.App
+		}
+		out = append(out, VideoSource{ID: "window:" + strconv.FormatUint(uint64(w.ID), 10), Name: name, Kind: "window", Width: w.Width, Height: w.Height})
+	}
+	return out, nil
+}
+
+func (nativeMedia) StartCamera(ctx context.Context, c *qvclient.Client, id string, preview func(int, int, []byte), onEnd func(error)) (videoShare, error) {
+	name := "camera"
+	if cams, err := media.ListCameras(); err == nil {
+		for _, cam := range cams {
+			if cam.ID == id || (id == "" && func() bool { d, _ := media.DefaultCamera(cams); return d.ID == cam.ID }()) {
+				name = cam.Name
+			}
+		}
+	}
+	return startNativeShare(ctx, c, controlpb.TrackKind_CAMERA, name, preview, onEnd, func(push func(media.CapturedFrame)) (media.Source, error) {
+		return media.StartCamera(media.CameraOptions{ID: id, Width: 1280, Height: 720, FPS: 30}, push)
+	})
+}
+
+func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id string, onEnd func(error)) (videoShare, error) {
+	var o media.ScreenOptions
+	o.FPS, o.Cursor = 15, true
+	name := "screen"
+	switch kind, n, _ := strings.Cut(id, ":"); kind {
+	case "display":
+		v, _ := strconv.ParseUint(n, 10, 32)
+		o.DisplayID, name = uint32(v), "screen"
+	case "window":
+		v, _ := strconv.ParseUint(n, 10, 32)
+		o.WindowID, name = uint32(v), "window"
+	default:
+		o.DisplayID = media.PortalPicker
+	}
+	return startNativeShare(ctx, c, controlpb.TrackKind_SCREEN, name, nil, onEnd, func(push func(media.CapturedFrame)) (media.Source, error) {
+		return media.StartScreen(o, push)
+	})
+}
+
+// nativeShare is a running source + publisher + track.
+type nativeShare struct {
+	name  string
+	src   media.Source
+	pub   *media.Publisher
+	track *qvclient.LocalTrack
+	once  sync.Once
+	done  chan struct{}
+}
+
+func (s *nativeShare) Name() string { return s.name }
+
+// Stop releases the device first (the camera light goes off even if an
+// encoder is slow), then stops the encoders and unpublishes.
+func (s *nativeShare) Stop() {
+	s.once.Do(func() {
+		close(s.done)
+		s.src.Stop()
+		s.pub.Close()
+		_ = s.track.Unpublish()
+	})
+}
+
+// cameraStall: a camera that sends no picture for this long has stopped
+// (screens only send frames when something changes, so they don't stall).
+const cameraStall = 5 * time.Second
+
+// startNativeShare starts a source, waits for its first picture (its
+// size picks the layer ladder), publishes, and watches for the source
+// ending. Like the quicvideo viewer's share lifecycle.
+func startNativeShare(ctx context.Context, c *qvclient.Client, kind controlpb.TrackKind, name string,
+	preview func(int, int, []byte), onEnd func(error), start func(func(media.CapturedFrame)) (media.Source, error)) (videoShare, error) {
+	if c == nil {
+		return nil, errors.New("video: not connected")
+	}
+	camera := kind == controlpb.TrackKind_CAMERA
+	var mu sync.Mutex
+	var pub *media.Publisher
+	var lastFrame atomic.Int64
+	var lastPreview time.Time
+	sized := make(chan [2]int, 1)
+	push := func(f media.CapturedFrame) {
+		lastFrame.Store(time.Now().UnixNano())
+		if preview != nil && time.Since(lastPreview) > 66*time.Millisecond {
+			lastPreview = time.Now()
+			if img, err := media.ToRGBA(f.Picture, 320); err == nil {
+				preview(img.Bounds().Dx(), img.Bounds().Dy(), img.Pix)
+			}
+		}
+		mu.Lock()
+		p := pub
+		mu.Unlock()
+		if p != nil {
+			p.Push(f)
+			return
+		}
+		w, h := f.Picture.Size()
+		select {
+		case sized <- [2]int{w, h}:
+		default:
+		}
+	}
+	src, err := start(push)
+	if err != nil {
+		return nil, err
+	}
+	var wh [2]int
+	select {
+	case wh = <-sized:
+	case <-time.After(10 * time.Second):
+		wh[0], wh[1] = src.Size()
+	case <-ctx.Done():
+		src.Stop()
+		return nil, ctx.Err()
+	}
+	if wh[0] == 0 || wh[1] == 0 {
+		src.Stop()
+		return nil, fmt.Errorf("the %s delivered no picture in 10 s (is it in use by another app?)", name)
+	}
+	layers := media.CameraLayers(wh[0], wh[1], src.FPS())
+	if !camera {
+		layers = media.ScreenLayers(wh[0], wh[1])
+	}
+	p, track, err := media.PublishTrack(ctx, c, kind, layers, media.DefaultEncoder, media.PublisherOptions{
+		Screen:  !camera,
+		OnError: func(l uint32, err error) { log.Printf("video: encoder layer %d: %v", l, err) },
+	})
+	if err != nil {
+		src.Stop()
+		return nil, err
+	}
+	mu.Lock()
+	pub = p
+	mu.Unlock()
+	s := &nativeShare{name: name, src: src, pub: p, track: track, done: make(chan struct{})}
+	go func() {
+		var ended <-chan error
+		if e, ok := src.(media.Ender); ok {
+			ended = e.Ended()
+		}
+		var tick <-chan time.Time
+		if camera {
+			t := time.NewTicker(time.Second)
+			defer t.Stop()
+			tick = t.C
+		}
+		for {
+			select {
+			case <-s.done:
+				return
+			case err := <-ended:
+				s.Stop()
+				onEnd(err)
+				return
+			case <-tick:
+				if time.Since(time.Unix(0, lastFrame.Load())) > cameraStall {
+					s.Stop()
+					onEnd(fmt.Errorf("the camera sent no picture for %v", cameraStall))
+					return
+				}
+			}
+		}
+	}()
+	return s, nil
+}

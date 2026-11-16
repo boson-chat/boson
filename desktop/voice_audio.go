@@ -204,6 +204,11 @@ func (q *quicvoiceAudio) SetVADThreshold(unit float32) {
 	old.Close()
 }
 
+// Playout implements playoutSource (lip sync for video).
+func (q *quicvoiceAudio) Playout(sid uint16) (uint32, int64, bool) {
+	return q.eng.Load().Playout(sid)
+}
+
 func (q *quicvoiceAudio) Stats() audioStats {
 	es := q.eng.Load().Stats()
 	st := audioStats{MicLevel: es.MicLevel, Transmitting: es.Transmitting, Speaking: map[uint16]bool{}}

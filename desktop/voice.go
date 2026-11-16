@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/boson-chat/quicvoice/client"
+	"github.com/boson-chat/quicvoice/client/avsync"
 	"github.com/boson-chat/quicvoice/gen/controlpb"
 	"github.com/boson-chat/quicvoice/wire"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -44,6 +45,9 @@ type VoiceService struct {
 	// calls: what the OS hears about a call (Android: the foreground
 	// service and its "In voice" notification); nil on desktop and iOS.
 	calls callNotifier
+	// video: the call's video (VideoService), told when a call starts and
+	// ends; nil without it.
+	video videoHooks
 
 	mu       sync.Mutex
 	audio    audioBackend
@@ -85,6 +89,20 @@ type voiceSession struct {
 	self    uint16
 	members map[uint16]*voiceMember
 	left    bool // we left on purpose: its end isn't an error
+	// clocks: lip-sync reports per sender (AudioClock), for video.
+	clocks map[uint16]*avsync.Clock
+}
+
+// videoHooks is what VoiceService tells the call's video.
+type videoHooks interface {
+	voiceJoined(conn voiceConn)
+	voiceLeft()
+}
+
+// playoutSource is an audio backend that knows which of a sender's audio
+// timestamps reaches the speaker when (lip sync; the quicvoice engine).
+type playoutSource interface {
+	Playout(sessionID uint16) (ts uint32, localUS int64, ok bool)
 }
 
 type voiceMember struct {
@@ -603,7 +621,7 @@ func (s *VoiceService) Join(req VoiceJoinRequest) VoiceState {
 	s.syncCall()
 	a, _ := s.ensureAudio()
 
-	sess := &voiceSession{members: map[uint16]*voiceMember{}}
+	sess := &voiceSession{members: map[uint16]*voiceMember{}, clocks: map[uint16]*avsync.Clock{}}
 	ctx, cancel := context.WithTimeout(context.Background(), voiceDialTimeout)
 	defer cancel()
 	addrHost, _, _ := net.SplitHostPort(info.Addr)
@@ -656,6 +674,9 @@ func (s *VoiceService) Join(req VoiceJoinRequest) VoiceState {
 	}
 	go s.watch(sess)
 	s.syncCall()
+	if s.video != nil {
+		s.video.voiceJoined(conn)
+	}
 	return s.State()
 }
 
@@ -683,6 +704,9 @@ func (s *VoiceService) Leave() {
 			}
 		}
 		_ = sess.conn.Close()
+	}
+	if s.video != nil {
+		s.video.voiceLeft()
 	}
 	s.stopAudioIfIdle()
 	s.syncCall()
@@ -730,6 +754,9 @@ func (s *VoiceService) kicked(sess *voiceSession, msg string) {
 		}
 	}
 	_ = sess.conn.Close()
+	if s.video != nil {
+		s.video.voiceLeft()
+	}
 	s.stopAudioIfIdle()
 }
 
@@ -806,6 +833,9 @@ func (s *VoiceService) watch(sess *voiceSession) {
 				}
 			}
 			if current {
+				if s.video != nil {
+					s.video.voiceLeft()
+				}
 				s.stopAudioIfIdle()
 			}
 			return
@@ -824,9 +854,23 @@ func (s *VoiceService) onControl(sess *voiceSession, m *controlpb.ControlMessage
 		if v, ok := s.volumes[p.GetUserId()]; ok && s.audio != nil && s.sess == sess {
 			s.audio.SetUserVolume(sid, float32(v)/100)
 		}
+	case m.GetAudioClock() != nil:
+		// Lip sync: another member's audio clock → wall clock report.
+		c := m.GetAudioClock()
+		sid := uint16(c.GetSessionId())
+		if sess.members[sid] != nil {
+			clk := sess.clocks[sid]
+			if clk == nil {
+				clk = &avsync.Clock{}
+				sess.clocks[sid] = clk
+			}
+			clk.Report(c.GetTimestamp(), c.GetCaptureUs())
+		}
+		return // not a state change
 	case m.GetParticipantLeft() != nil:
 		sid := uint16(m.GetParticipantLeft().GetSessionId())
 		delete(sess.members, sid)
+		delete(sess.clocks, sid)
 		if s.audio != nil && s.sess == sess {
 			s.audio.RemoveSender(sid)
 		}
@@ -852,6 +896,40 @@ func (s *VoiceService) onControl(sess *voiceSession, m *controlpb.ControlMessage
 		}
 	}
 	s.dirty = true
+}
+
+// avOffsets is lip sync for video: per user id, the local wall clock
+// offset (µs) at which a video frame captured at time C by them should be
+// shown (C + offset), so it appears with the audio captured at C. From
+// their AudioClock reports (what their audio timestamps mean on their
+// clock) and our engine's playout (which of their timestamps reaches our
+// speaker when). Only people whose audio is playing now and who send
+// reports are present.
+func (s *VoiceService) avOffsets() map[string]int64 {
+	s.mu.Lock()
+	sess, a := s.sess, s.audio
+	s.mu.Unlock()
+	out := map[string]int64{}
+	ps, ok := a.(playoutSource)
+	if sess == nil || !ok {
+		return out
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for sid, clk := range sess.clocks {
+		m := sess.members[sid]
+		if m == nil {
+			continue
+		}
+		ts, localUS, ok := ps.Playout(sid)
+		if !ok {
+			continue
+		}
+		if senderUS, ok := clk.WallUS(ts); ok {
+			out[m.userID] = localUS - senderUS
+		}
+	}
+	return out
 }
 
 func memberFrom(p *controlpb.Participant) *voiceMember {
