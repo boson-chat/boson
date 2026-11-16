@@ -103,6 +103,12 @@
 .mvoice-icon-btn[data-live] { color: var(--success, #23a55a); }
 .mvoice-icon-btn[data-paused] { color: var(--warn, #e0a32a); }
 .mvoice-icon-btn[data-starting] { animation: mvoice-pulse 1s ease-in-out infinite; }
+/* The call view's bar holds up to six controls: a little tighter, so the
+   room's name still fits at 360px (they stay 44px tall). */
+.mvoice-bar[data-incall] { gap: 2px; padding-right: var(--space-1); }
+.mvoice-bar[data-incall] .mvoice-icon-btn { width: 40px; }
+.mvoice-bar[data-incall] .mvoice-bar-open { gap: var(--space-2); padding-left: var(--space-2); padding-right: var(--space-1); }
+.mvoice-bar-count { display: inline-flex; align-items: center; gap: 3px; }
 .mvoice-leave { background: var(--danger); border-color: var(--danger); color: #fff; }
 .mvoice-leave:active { background: color-mix(in oklab, var(--danger), black 20%); }
 

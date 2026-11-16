@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Bluetooth, Ear, Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Signal, SignalLow, SignalMedium, Volume2, X, LayoutGrid, MessageSquare, MonitorUp, MonitorX, SwitchCamera, Video, VideoOff } from 'lucide-preact';
+import { Bluetooth, Ear, Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Signal, SignalLow, SignalMedium, Volume2, X, LayoutGrid, MessageSquare, Users, MonitorUp, MonitorX, SwitchCamera, Video, VideoOff } from 'lucide-preact';
 import {
   getVoiceSettings, onVoiceSettingsChange, useVoice, type VoiceController, type VoiceParticipant, type VoiceState,
 } from '../../modules/voice';
@@ -56,16 +56,18 @@ export function MobileCallBar({ avatarFor }: { avatarFor?: (nick: string) => str
   const talking = call.participants.some((p) => p.speaking && !p.self);
   const sub = connecting ? 'Connecting…'
     : call.interrupted ? 'Paused while another call has the audio'
-    : inCallView ? `${call.participants.length} in call` // the room for the controls; the RTT is in the panel
+    : inCallView ? '' // the count shows as an icon: the room is for the controls (the RTT is in the panel)
     : `${call.participants.length} in call${call.rttMs > 0 ? ` · ${Math.round(call.rttMs)} ms` : ''}`;
   return (
     <>
-      <div class="mvoice-bar" data-state={connecting ? 'connecting' : call.interrupted ? 'paused' : 'connected'}>
+      <div class="mvoice-bar" data-state={connecting ? 'connecting' : call.interrupted ? 'paused' : 'connected'} data-incall={inCallView || undefined}>
         <button type="button" class="mvoice-bar-open" aria-label={`Voice: ${where}. Open the call`} onClick={() => setOpen(true)}>
           <span class="mvoice-dot" data-talking={talking || undefined} aria-hidden="true" />
           <span class="mvoice-bar-text">
             <span class="mvoice-bar-title">{where}</span>
-            <span class="mvoice-bar-sub">{sub}</span>
+            {inCallView && !connecting && !call.interrupted
+              ? <span class="mvoice-bar-sub mvoice-bar-count" aria-label={`${call.participants.length} in call`}><Users size={11} aria-hidden="true" />{call.participants.length}</span>
+              : <span class="mvoice-bar-sub">{sub}</span>}
           </span>
           {others.length > 0 && !inCallView && (
             <span class="mvoice-bar-faces" aria-hidden="true">
