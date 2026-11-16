@@ -312,7 +312,7 @@ function installVideo(): void {
     onState: () => () => {},
     subscribe: async () => {},
     unsubscribe: async () => {},
-    cameras: async () => [],
+    cameras: async () => [{ id: 'front', name: 'Front Camera', kind: 'builtin' as const, facing: 'front' as const, default: true }, { id: 'back', name: 'Back Camera', kind: 'builtin' as const, facing: 'back' as const, default: false }],
     screenSources: async () => [],
     setCamera: async () => state,
     setScreen: async () => state,
