@@ -265,7 +265,8 @@ describe('backlog on attach — carried-over conversations', () => {
     const next = buildChat('batch server-time').chat;
     next.seedConversations(out);
     expect(texts(next, 'alice')).toEqual(['psst']);
-    expect(texts(next, '#lobby')).toEqual(['You joined #lobby']);
+    // A bouncer's JOIN replay adds no "You joined" line.
+    expect(texts(next, '#lobby')).toEqual([]);
   });
 });
 

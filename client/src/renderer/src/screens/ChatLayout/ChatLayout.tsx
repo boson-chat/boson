@@ -224,7 +224,7 @@ export function ChatLayout({
             // A channel we're not in: ask for it again (a no-op if joined).
             if (engineState === 'connected') chat.rejoin(name);
           }}
-          onJoin={(name) => chat.join(name)}
+          onJoin={(name) => chat.join(name, { byUser: true })}
           onPart={(name) => chat.part(name)}
           channelOrder={channelOrder}
           onReorderChannels={onReorderChannels}

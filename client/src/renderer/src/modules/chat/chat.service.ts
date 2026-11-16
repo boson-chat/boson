@@ -855,10 +855,13 @@ export class ChatService {
 
   // `focus: false` joins without switching to the channel (a background
   // restore must not yank the user out of the one they're reading).
-  join(channel: string, opts: { focus?: boolean } = {}): void {
+  // `byUser`: the user asked for it (/join, the join box) — its JOIN gets
+  // a "You joined" line; restores and a bouncer's replay don't.
+  join(channel: string, opts: { focus?: boolean; byUser?: boolean } = {}): void {
     const name = normaliseChannel(channel);
     if (!name) return;
     const key = this.channelKey(name);
+    if (opts.byUser) this.announceJoin.add(key);
     if (!this.channels.has(key)) {
       // Store the channel keyed by its lowercase form so subsequent server
       // events (which may use different casing) land on the same record.
@@ -880,6 +883,7 @@ export class ChatService {
     const ch = this.channels.get(key);
     if (!ch || ch.joined || !/^[#&]/.test(key) || ch.joinStatus?.state === 'joining') return;
     ch.joinStatus = { state: 'joining' };
+    this.announceJoin.add(key);
     this.clearRejoinTimer(key);
     this.rejoinTimers.set(key, setTimeout(() => {
       this.rejoinTimers.delete(key);
@@ -894,6 +898,9 @@ export class ChatService {
   }
 
   private readonly rejoinTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Channels whose next self-JOIN is one the user asked for (join byUser,
+  // rejoin): only those say "You joined".
+  private readonly announceJoin = new Set<string>();
   private clearRejoinTimer(key: string): void {
     const t = this.rejoinTimers.get(key);
     if (t) { clearTimeout(t); this.rejoinTimers.delete(key); }
@@ -1920,7 +1927,7 @@ export class ChatService {
   private cmdJoin(args: string): void {
     const channel = args.split(/\s+/)[0];
     if (!channel) return this.systemHere('Usage: /join <channel>');
-    this.join(channel);
+    this.join(channel, { byUser: true });
   }
 
   private cmdPart(args: string): void {
@@ -2573,6 +2580,7 @@ export class ChatService {
           // We just joined a channel. Fire the self-membership event so the
           // persistence layer can add this channel to the saved set — even
           // if the channel record already existed locally (idempotent).
+          const existed = this.channels.has(key);
           const joinedCh = this.ensureChannel(e.Target, true);
           delete joinedCh.joinStatus;
           this.clearRejoinTimer(key);
@@ -2582,7 +2590,14 @@ export class ChatService {
           // extended-join echoes our own host + account on self-join — the
           // most reliable way to learn our cloak/account for presence.
           this.updateSelfIdentity(e.Host, e.Account);
-          this.appendSystem(e.Target, `You joined ${e.Target}`);
+          // Only a join the user made: not the restore on every launch, nor a
+          // bouncer re-sending the JOINs for channels it has been in all
+          // along (which read as "You joined" ×N on every open). A channel
+          // that turns up on its own on a direct connection (a role's
+          // auto-join, a SAJOIN) is new to us, so it's said too.
+          if (this.announceJoin.delete(key) || (!existed && !this.bouncerConn)) {
+            this.appendSystem(e.Target, `You joined ${e.Target}`);
+          }
           if (this.preferredActive === key) this.setActive(e.Target);
           else if (!this.activeChannel) {
             if (this.preferredActive) this.awaitPreferredActive(e.Target);

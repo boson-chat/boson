@@ -43,16 +43,17 @@ describe('scroll-back from lines held aside (plain ZNC)', () => {
   it('a 2000-line replay shows the newest 1500 and offers the rest on scroll-up, 50 at a time', () => {
     const t = setup();
     t.replay('a', 2000);
-    // 1500 in memory: the newest 1499 lines and "You joined #big".
+    // 1500 in memory: the newest 1500 lines (a bouncer's replayed JOIN
+    // doesn't add a "You joined").
     expect(t.ch().messages).toHaveLength(1500);
-    expect(t.lines()[0]).toBe('line 501');
+    expect(t.lines()[0]).toBe('line 500');
     expect(t.chat.getState().serverInfo.scrollbackAvailable).toBe(true);
     expect(t.ch().history).toEqual({ loading: false, exhausted: false });
 
     t.chat.loadOlderHistory('#big');
     expect(t.ch().messages).toHaveLength(1550);
-    expect(t.lines()[0]).toBe('line 451');
-    expect(t.lines()[49]).toBe('line 500');
+    expect(t.lines()[0]).toBe('line 450');
+    expect(t.lines()[49]).toBe('line 499');
     expect(t.ch().history?.exhausted).toBe(false);
     // Nothing was asked of the server.
     expect(t.raws.filter((r) => r.startsWith('CHATHISTORY'))).toEqual([]);
@@ -77,8 +78,8 @@ describe('scroll-back from lines held aside (plain ZNC)', () => {
     t.replay('a', 1600);
     t.chat.loadOlderHistory('#big');
     for (let i = 0; i < 20; i++) t.live(`live ${i}`);
-    expect(t.lines()[0]).toBe('line 51');
-    expect(t.lines()).toHaveLength(1549);
+    expect(t.lines()[0]).toBe('line 50');
+    expect(t.lines()).toHaveLength(1550);
     expect(t.ch().messages.at(-1)!.text).toBe('live 19');
   });
 
@@ -114,8 +115,7 @@ describe('scroll-back from lines held aside (plain ZNC)', () => {
     next.seedConversations(t.chat.exportConversations());
     next.loadOlderHistory('#big');
     const texts = next.getState().channels.find((c) => c.name === '#big')!.messages.map((m) => m.text);
-    // The new connection's own "You joined" pushed one more line aside.
-    expect(texts.filter((x) => x.startsWith('line '))[0]).toBe('line 52');
+    expect(texts.filter((x) => x.startsWith('line '))[0]).toBe('line 50');
   });
 
   it('a server with real history: lines held aside first, then its history', () => {
@@ -124,7 +124,7 @@ describe('scroll-back from lines held aside (plain ZNC)', () => {
     t.chat.loadOlderHistory('#big');
     // The 101 lines past the cap come back from where they were held…
     expect(t.raws.some((r) => r.startsWith('CHATHISTORY BEFORE #big'))).toBe(false);
-    expect(t.lines()[0]).toBe('line 51');
+    expect(t.lines()[0]).toBe('line 50');
     while (t.raws.every((r) => !r.startsWith('CHATHISTORY BEFORE')) && t.lines()[0] !== 'line 0') t.chat.loadOlderHistory('#big');
     expect(t.lines()[0]).toBe('line 0');
     t.chat.loadOlderHistory('#big');
