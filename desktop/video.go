@@ -90,6 +90,7 @@ type shareStatus struct {
 	on, starting bool
 	paused       bool   // camera: stopped by the system, restarts on resume
 	id           string // the camera or source asked for ("" = the default)
+	facing       string // the running camera's facing (VideoShareState.Facing)
 	name, err    string
 	gen          int // bumped on every start/stop; a superseded start gives up
 	share        videoShare
@@ -145,14 +146,18 @@ type VideoLayer struct {
 
 // VideoShareState is the camera or the screen share.
 type VideoShareState struct {
-	On       bool   `json:"on"`
-	Starting bool   `json:"starting"`
+	On       bool `json:"on"`
+	Starting bool `json:"starting"`
 	// Paused: the camera was stopped by the system (the app went to the
 	// background, the Mac slept) and turns back on when the app is active.
 	Paused bool   `json:"paused,omitempty"`
 	ID     string `json:"id,omitempty"`
+	// Facing: the camera in use faces "front" (the user), "back", or ""
+	// (a webcam). The UI mirrors its own preview unless it's "back"; what's
+	// sent is never mirrored.
+	Facing string `json:"facing,omitempty"`
 	Name   string `json:"name,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Error  string `json:"error,omitempty"`
 }
 
 // VideoState is the whole video UI state.
@@ -904,6 +909,9 @@ func (v *VideoService) runShare(camera bool, gen int, sess *videoSession, id str
 		}
 	} else {
 		*sl = shareStatus{gen: gen, id: id, on: true, name: share.Name(), share: share}
+		if f, ok := share.(facingShare); ok {
+			sl.facing = f.Facing()
+		}
 	}
 	v.dirty = true
 	v.mu.Unlock()
@@ -949,7 +957,7 @@ func (v *VideoService) State() VideoState {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	share := func(s shareStatus) VideoShareState {
-		return VideoShareState{On: s.on, Starting: s.starting, Paused: s.paused, ID: s.id, Name: s.name, Error: s.err}
+		return VideoShareState{On: s.on, Starting: s.starting, Paused: s.paused, ID: s.id, Facing: s.facing, Name: s.name, Error: s.err}
 	}
 	st := VideoState{
 		Available: v.st.available, Status: v.st.status, Error: v.st.err,

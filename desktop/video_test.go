@@ -92,12 +92,14 @@ func (c *fakeVideoConn) Close() error {
 func (c *fakeVideoConn) isClosed() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.closed }
 
 type fakeShare struct {
-	name  string
-	stops atomic.Int32
+	name   string
+	facing string
+	stops  atomic.Int32
 }
 
-func (s *fakeShare) Stop()        { s.stops.Add(1) }
-func (s *fakeShare) Name() string { return s.name }
+func (s *fakeShare) Stop()          { s.stops.Add(1) }
+func (s *fakeShare) Name() string   { return s.name }
+func (s *fakeShare) Facing() string { return s.facing }
 
 // fakeMedia starts shares after delay (or fails); onEnd is kept so a test
 // can end a share as if the device went away.
@@ -107,6 +109,7 @@ type fakeMedia struct {
 	err    error
 	shares []*fakeShare
 	onEnd  func(error)
+	facing string // the cameras' facing
 }
 
 func (m *fakeMedia) Cameras() ([]VideoCamera, error) {
@@ -126,7 +129,7 @@ func (m *fakeMedia) start(ctx context.Context, name string, onEnd func(error)) (
 	if m.err != nil {
 		return nil, m.err
 	}
-	s := &fakeShare{name: name}
+	s := &fakeShare{name: name, facing: m.facing}
 	m.shares = append(m.shares, s)
 	m.onEnd = onEnd
 	return s, nil
@@ -611,5 +614,30 @@ func TestVideoCameraResume(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	if st := h.svc.State(); st.Camera.On || st.Camera.Starting || st.Camera.Paused || shares() != n {
 		t.Fatalf("resumed after leaving: %+v", st.Camera)
+	}
+}
+
+// The running camera's facing reaches the UI (it mirrors only its own
+// preview of a front camera), and follows a switch.
+func TestVideoCameraFacing(t *testing.T) {
+	h := newVideoHarness(t)
+	h.join(t, `"video.publish"`)
+	h.media.facing = "front"
+	h.svc.SetCamera(true, "front")
+	waitUntil(t, "front camera on", func() bool { return h.svc.State().Camera.On })
+	if f := h.svc.State().Camera.Facing; f != "front" {
+		t.Fatalf("facing %q", f)
+	}
+	h.media.mu.Lock()
+	h.media.facing = "back"
+	h.media.mu.Unlock()
+	h.svc.SetCamera(true, "back")
+	waitUntil(t, "back camera on", func() bool { st := h.svc.State(); return st.Camera.On && st.Camera.ID == "back" })
+	if f := h.svc.State().Camera.Facing; f != "back" {
+		t.Fatalf("after switching: facing %q", f)
+	}
+	h.svc.SetCamera(false, "")
+	if f := h.svc.State().Camera.Facing; f != "" {
+		t.Fatalf("off: facing %q", f)
 	}
 }

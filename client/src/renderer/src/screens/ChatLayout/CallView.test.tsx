@@ -220,3 +220,17 @@ describe('the call on a phone', () => {
     expect(videoBridge.setCamera).toHaveBeenLastCalledWith(false, '');
   });
 });
+
+describe('the self-view', () => {
+  it('is mirrored for a front camera or a webcam, never for a back camera', async () => {
+    render(<CallView phone />);
+    const self = () => screen.getByLabelText('me (you)').querySelector('canvas')!;
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, camera: { on: true, starting: false, facing: 'front' } });
+    await screen.findByLabelText('me (you)');
+    expect(self().getAttribute('data-mirror')).not.toBeNull();
+    setVideo({ camera: { on: true, starting: false, facing: 'back' } });
+    expect(self().getAttribute('data-mirror')).toBeNull();
+    setVideo({ camera: { on: true, starting: false } }); // a webcam
+    expect(self().getAttribute('data-mirror')).not.toBeNull();
+  });
+});

@@ -1,5 +1,6 @@
 package com.wails.app;
 
+import android.view.OrientationEventListener;
 import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
@@ -66,6 +67,7 @@ public final class BosonVoice {
 
     static native void nativeInit();
     static native void nativeLeave();
+    static native void nativeOrientation(int degrees);
 
     /** From MainActivity.onCreate, once libwails.so is loaded. */
     public static void init(Activity a) {
@@ -130,6 +132,42 @@ public final class BosonVoice {
             if (l != null) l.countDown();
         }
         return true;
+    }
+
+    // ---- camera orientation ----
+
+    private static OrientationEventListener orientation;
+    private static int lastOrientation = -1;
+
+    /**
+     * 1 while a camera runs: report how the phone is held (rounded to a
+     * quarter turn) so a phone on its side sends upright video. The
+     * sensor, not the screen's rotation: the picture follows the phone
+     * even with rotation locked.
+     */
+    public static void watchOrientation(int on) {
+        main.post(() -> {
+            Context c = app;
+            if (on != 0 && orientation == null && c != null) {
+                orientation = new OrientationEventListener(c) {
+                    @Override
+                    public void onOrientationChanged(int deg) {
+                        if (deg == ORIENTATION_UNKNOWN) return; // flat: keep the last
+                        int q = ((deg + 45) / 90 * 90) % 360;
+                        if (q != lastOrientation) {
+                            lastOrientation = q;
+                            nativeOrientation(q);
+                        }
+                    }
+                };
+                if (orientation.canDetectOrientation()) orientation.enable();
+            } else if (on == 0 && orientation != null) {
+                orientation.disable();
+                orientation = null;
+                lastOrientation = -1;
+                nativeOrientation(0);
+            }
+        });
     }
 
     // ---- audio mode, focus and route ----
