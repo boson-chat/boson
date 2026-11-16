@@ -77,6 +77,12 @@
   box-shadow: 0 0 0 2px var(--surface-raised);
 }
 .mvoice-face[data-speaking] { box-shadow: 0 0 0 2px var(--success); }
+.mvoice-face:first-child { margin-left: 0; }
+/* A small phone (360px Android) with the video button: the faces would
+   crowd out "4 in call · 34 ms"; the call screen shows who's in. */
+@media (max-width: 380px) {
+  .mvoice-bar-faces { display: none; }
+}
 
 .mvoice-icon-btn {
   flex-shrink: 0;

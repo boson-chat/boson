@@ -128,6 +128,8 @@
 .voice-bar-quality[data-quality='unknown'] { color: var(--success); }
 
 .voice-bar-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.voice-bar-status-short { display: none; }
+.voice-bar-break { display: none; }
 .voice-bar-rtt { color: var(--fg-3); white-space: nowrap; }
 
 .voice-bar-where {
@@ -139,6 +141,7 @@
 
 .voice-bar-controls {
   display: flex;
+  flex-wrap: wrap; /* a narrow sidebar (a phone) takes a second row */
   align-items: center;
   gap: var(--space-1);
   margin-top: var(--space-1);
