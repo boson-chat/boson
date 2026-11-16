@@ -1,3 +1,9 @@
+## [0.69.11](https://github.com/boson-chat/boson/compare/v0.69.10...v0.69.11) (2026-11-16)
+
+### Bug Fixes
+
+* the phone call bar's title fits beside its controls ([#89](https://github.com/boson-chat/boson/issues/89)) ([1766c95](https://github.com/boson-chat/boson/commit/1766c9509b9ace4ac4c86d9f63e6721e6cb6db50))
+
 ## [0.69.10](https://github.com/boson-chat/boson/compare/v0.69.9...v0.69.10) (2026-11-16)
 
 ### Bug Fixes
