@@ -2,6 +2,7 @@ import type { AuthService } from '../../modules/auth';
 import { ChatService, type ChatState } from '../../modules/chat';
 import { DEFAULT_WINDOWS } from '../../modules/chat/chat.service';
 import { createOlderStore, type OlderStore } from '../../modules/history/older-store';
+import { seenNamespace, seenStoreFor, wipeSeenForUser } from '../../modules/seen';
 import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
@@ -1277,6 +1278,7 @@ export class DirectoryBloc {
     const userId = this.auth.getState().session?.user?.id;
     if (userId) {
       await this.identity.clearStorage(userId);
+      void wipeSeenForUser(userId).catch(() => {});
       // Drop every persisted chat scrollback for this user across all servers.
       // Sign-out is the user explicitly saying "forget about me"; leaving old
       // logs behind would leak history into the next account on this device.
@@ -2131,6 +2133,9 @@ export class DirectoryBloc {
       // store per server, kept across its reconnects).
       olderStore: this.olderStoreFor(server.id),
       windows: DEFAULT_WINDOWS,
+      // Who people were after they've left (local only; per user + server,
+      // kept across reconnects and runs).
+      seen: seenStoreFor(seenNamespace(server.id, userId)),
     });
     if (opts.carry) chat.seedConversations(opts.carry);
     else {

@@ -84,6 +84,37 @@
   color: var(--fg-3);
 }
 
+/* Remembered identity: the host on a clicked activity line, and what Boson
+   kept of a nick that has left. Set off from the live rows by a rule. */
+.nick-profile-remembered {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--border);
+}
+.nick-profile-remembered-head {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+.nick-profile-meta-tight { margin-top: var(--space-2); }
+.nick-profile-selectable {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+.nick-profile-copy {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.nick-profile-copy:hover { color: var(--fg); border-color: var(--fg-3); }
+
 /* Desktop card. Fixed, placed by NickProfileCard from what was clicked. */
 .nick-profile-card {
   position: fixed;

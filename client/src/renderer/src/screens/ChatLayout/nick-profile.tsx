@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { formatMask, type ChatMember, type WhoisInfo } from '../../modules/chat';
+import { describeSeen, formatMask, type ChatMember, type ChatMessage, type WhoisInfo } from '../../modules/chat';
+import { seenMask, type SeenRecord } from '../../modules/seen/seen.store';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import type { NickContextAction } from './NickContextMenu';
 import type { NickProfiles } from './nick-actions';
@@ -95,6 +96,119 @@ export function profileFlags(member: ChatMember | null, whois?: WhoisInfo): Prof
   return flags;
 }
 
+/**
+ * Who the nick was on one activity line (join/part/quit/kick), as recorded
+ * then: the host at that moment, which may differ from now.
+ */
+export interface LineIdentity {
+  user?: string;
+  host?: string;
+  account?: string;
+  realname?: string;
+  at: number;
+  kind: ChatMessage['kind'];
+}
+
+/** The identity a message recorded for its sender, when it has one. */
+export function lineIdentityOf(msg: ChatMessage): LineIdentity | undefined {
+  if (!msg.host) return undefined;
+  return { user: msg.user, host: msg.host, account: msg.account, realname: msg.realname, at: msg.timestamp, kind: msg.kind };
+}
+
+/** Whether we have the nick's identity live (member list or a WHOIS). */
+export function hasLiveIdentity(member: ChatMember | null, whois?: WhoisInfo): boolean {
+  return !!member?.hostname || !!(whois && !whois.notFound && whois.host);
+}
+
+/** Rows for a remembered record (seen store). */
+export function rememberedRows(seen: SeenRecord, skipMask?: string | null): ProfileRow[] {
+  const rows: ProfileRow[] = [];
+  const mask = seenMask(seen);
+  if (mask && mask !== skipMask) rows.push({ label: 'Host', value: mask });
+  if (seen.actualHost) rows.push({ label: 'Real host', value: seen.actualHost });
+  if (seen.account) rows.push({ label: 'Account', value: seen.account });
+  if (seen.realname) rows.push({ label: 'Real name', value: seen.realname });
+  if (seen.prevHosts?.length) rows.push({ label: 'Earlier', value: seen.prevHosts.join(' ') });
+  return rows;
+}
+
+function lineVerb(kind: ChatMessage['kind']): string {
+  switch (kind) {
+    case 'join': return 'When they joined';
+    case 'part': return 'When they left';
+    case 'quit': return 'When they quit';
+    case 'kick': return 'When they kicked';
+    default: return 'On this line';
+  }
+}
+
+function CopyButton({ text }: { text: string }) {
+  return (
+    <button
+      type="button"
+      class="nick-profile-copy"
+      title="Copy"
+      aria-label={`Copy ${text}`}
+      onClick={() => { void navigator.clipboard?.writeText(text); }}
+    >
+      Copy
+    </button>
+  );
+}
+
+/**
+ * The host recorded on an activity line, and what Boson remembers of a
+ * nick that has left (when there's nothing live to show). `copyable` adds
+ * a copy button to hosts (not in the hover tooltip, which can't be clicked).
+ */
+export function RememberedDetails({ nick, member, whois, seen, line, copyable = true }: {
+  nick: string;
+  member: ChatMember | null;
+  whois?: WhoisInfo;
+  seen?: SeenRecord;
+  line?: LineIdentity;
+  copyable?: boolean;
+}) {
+  const lineMask = line ? seenMask(line) : null;
+  const showSeen = !!seen && !hasLiveIdentity(member, whois);
+  const seenRows = showSeen ? rememberedRows(seen!, lineMask) : [];
+  if (!lineMask && !showSeen) return null;
+  const row = (r: ProfileRow) => (
+    <div key={r.label} class="nick-profile-meta-row">
+      <dt>{r.label}</dt>
+      <dd title={r.title}>
+        <span class="nick-profile-selectable">{r.value}</span>
+        {copyable && (r.label === 'Host' || r.label === 'Real host') && <CopyButton text={r.value} />}
+      </dd>
+    </div>
+  );
+  return (
+    <>
+      {lineMask && line && (
+        <div class="nick-profile-remembered" data-testid="nick-profile-line">
+          <div class="nick-profile-remembered-head">
+            {lineVerb(line.kind)} · {new Date(line.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+          </div>
+          <dl class="nick-profile-meta nick-profile-meta-tight">
+            {row({ label: 'Host', value: lineMask })}
+            {line.account && row({ label: 'Account', value: line.account })}
+            {line.realname && row({ label: 'Real name', value: line.realname })}
+          </dl>
+        </div>
+      )}
+      {showSeen && (
+        <div class="nick-profile-remembered" data-testid="nick-profile-remembered">
+          <div class="nick-profile-remembered-head" title="Kept on this device only">
+            Remembered · last seen {describeSeen(seen!)}
+          </div>
+          {seenRows.length > 0 && <dl class="nick-profile-meta nick-profile-meta-tight">{seenRows.map(row)}</dl>}
+          {seen!.nick !== nick && <div class="nick-profile-status">as {seen!.nick}</div>}
+        </div>
+      )}
+    </>
+  );
+}
+
 /** The nick's WHOIS, asked for once when the profile opens. */
 export function useWhois(nick: string, profiles?: NickProfiles): WhoisInfo | undefined {
   useEffect(() => { profiles?.request(nick); }, [nick]);
@@ -102,10 +216,14 @@ export function useWhois(nick: string, profiles?: NickProfiles): WhoisInfo | und
 }
 
 /** The body of a profile: pills, then rows, then the lookup's state. */
-export function NickProfileDetails({ nick, member, whois }: {
+export function NickProfileDetails({ nick, member, whois, seen, line }: {
   nick: string;
   member: ChatMember | null;
   whois?: WhoisInfo;
+  /** What we remember of them, shown when nothing live is known. */
+  seen?: SeenRecord;
+  /** The identity on the activity line that was clicked. */
+  line?: LineIdentity;
 }) {
   const flags = profileFlags(member, whois);
   const rows = profileRows(nick, member, whois);
@@ -128,6 +246,7 @@ export function NickProfileDetails({ nick, member, whois }: {
           ))}
         </dl>
       )}
+      <RememberedDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />
       {whois?.loading && <div class="nick-profile-status">Looking up {nick}…</div>}
       {whois?.notFound && <div class="nick-profile-status">{nick} isn't on the network right now.</div>}
     </>
@@ -201,15 +320,18 @@ interface NickProfileCardProps {
   side?: 'below' | 'left';
   actions: readonly NickContextAction[];
   profiles?: NickProfiles;
+  /** The activity line clicked, when it was one. */
+  line?: LineIdentity;
   onClose: () => void;
 }
 
 // The desktop profile a click on a nick opens: who they are on the network
 // (a WHOIS, fetched on open) and what you can do. Stays until a click
 // outside it, Escape, or an action.
-export function NickProfileCard({ nick, member, avatarUrl, anchor, side = 'below', actions, profiles, onClose }: NickProfileCardProps) {
+export function NickProfileCard({ nick, member, avatarUrl, anchor, side = 'below', actions, profiles, line, onClose }: NickProfileCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const whois = useWhois(nick, profiles);
+  const seen = profiles?.seen?.(nick);
 
   useLayoutEffect(() => {
     const onDown = (e: MouseEvent): void => {
@@ -262,7 +384,7 @@ export function NickProfileCard({ nick, member, avatarUrl, anchor, side = 'below
       style={`width: ${CARD_WIDTH}px; top: ${anchor.bottom + 6}px; left: ${anchor.left}px;`}
     >
       <NickProfileHead nick={nick} member={member} avatarUrl={avatarUrl} size={40} />
-      <NickProfileDetails nick={nick} member={member} whois={whois} />
+      <NickProfileDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />
       {actions.length > 0 && (
         <div class="nick-profile-card-actions" role="menu">
           {actions.map((a) => (

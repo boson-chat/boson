@@ -2,6 +2,7 @@ export {
   ChatService,
   BLANK_LINE,
   SLASH_COMMANDS,
+  describeSeen,
   type ChatListener,
   type ChatFeedback,
   type ChatFeedbackListener,

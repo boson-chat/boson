@@ -264,4 +264,46 @@ test.describe('channel events from others', () => {
     await messages(page).locator('.message-row-name', { hasText: alice.nick }).hover();
     await expect(page.getByRole('tooltip')).toContainText(alice.nick);
   });
+
+  test("a peer's host is remembered after they quit", async ({ launchApp }) => {
+    test.setTimeout(120_000);
+    const channel = randomChannel('seen');
+    const ghost = await connectPeer(peerNick('gh'));
+    peers.push(ghost);
+    const { page, nick } = await connectGuest(launchApp);
+    await joinViaUi(page, channel, nick);
+
+    await ghost.join(channel);
+    await expect(memberRow(page, ghost.nick)).toBeVisible({ timeout: 20_000 });
+    ghost.send(`PRIVMSG ${channel} :before I go`);
+    await expect(messages(page).getByText('before I go')).toBeVisible();
+    await ghost.quit('gone');
+    await expectEvent(page, `${ghost.nick} quit (Quit: gone)`);
+    await expect(memberRow(page, ghost.nick)).toHaveCount(0);
+
+    // The quit line's nick: the host they had then.
+    const ident = new RegExp(`~?${escapeRe(ghost.nick)}@\\S+`);
+    await messages(page).locator('.message-system-quit .sys-nick', { hasText: ghost.nick }).click();
+    const card = page.getByRole('dialog', { name: ghost.nick });
+    await expect(card.getByTestId('nick-profile-line')).toContainText('When they quit');
+    await expect(card.getByTestId('nick-profile-line')).toContainText(ident);
+    await page.keyboard.press('Escape');
+
+    // Their message's author: gone from the network (WHOIS 401), so the card
+    // shows what Boson remembers.
+    await messages(page).locator('.message-row-name', { hasText: ghost.nick }).click();
+    await expect(card).toContainText("isn't on the network right now", { timeout: 15_000 });
+    const remembered = card.getByTestId('nick-profile-remembered');
+    await expect(remembered).toContainText(`last seen just now in ${channel}`);
+    await expect(remembered).toContainText(ident);
+    await page.keyboard.press('Escape');
+
+    // And /seen prints it into the buffer.
+    await say(page, `/seen ${ghost.nick}`);
+    await expect(async () => {
+      const collapsed = messages(page).locator('.message-activity-toggle[aria-expanded="false"]');
+      for (let i = await collapsed.count(); i > 0; i--) await collapsed.first().click();
+      await expect(messages(page).getByText(new RegExp(`^Remembered: ${escapeRe(ghost.nick)} \\(~?${escapeRe(ghost.nick)}@\\S+\\) was last seen`))).toBeVisible({ timeout: 1_000 });
+    }).toPass({ timeout: 15_000 });
+  });
 });

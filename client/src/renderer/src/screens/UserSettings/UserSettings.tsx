@@ -4,6 +4,8 @@ import { getUpdater, useUpdateState, type UpdateState } from '../../modules/upda
 import { Badge, Button, Card, Divider, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
 import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
+import { getPrivacySettings, setPrivacySettings, type PrivacySettings } from '../../modules/ui/privacy.store';
+import { clearAllSeen } from '../../modules/seen';
 import {
   getNotificationSettings, setNotificationSettings, type NotificationSettings,
 } from '../../modules/ui/notifications.store';
@@ -54,7 +56,7 @@ type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'voic
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',      label: 'Identity',      description: 'Display nick + handle' },
   { id: 'appearance',    label: 'Appearance',    description: 'Themes + colours' },
-  { id: 'content',       label: 'Content',       description: 'Link previews / embeds' },
+  { id: 'content',       label: 'Content',       description: 'Link previews / embeds, remembered hosts' },
   { id: 'notifications', label: 'Notifications', description: 'Desktop alerts' },
   { id: 'voice',         label: 'Voice',         description: 'Mic, speakers, push to talk' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
@@ -476,7 +478,43 @@ function ContentSection() {
         </div>
       </Card>
       <ImageCacheCard />
+      <RememberedHostsCard />
     </SectionFrame>
+  );
+}
+
+// Who people were after they've left: user@host, account, real name, kept
+// on this device only and never sent anywhere (modules/seen).
+function RememberedHostsCard() {
+  const [p, setP] = useState<PrivacySettings>(() => getPrivacySettings());
+  const [cleared, flashCleared] = useTransientFlag();
+  const update = (patch: Partial<PrivacySettings>): void => { setPrivacySettings(patch); setP(getPrivacySettings()); };
+  return (
+    <Card>
+      <div class="user-settings-card-body">
+        <Toggle
+          checked={p.rememberHosts}
+          label="Remember people's hosts after they leave"
+          onChange={(v) => update({ rememberHosts: v })}
+        />
+        <Toggle
+          checked={p.showHostsInActivity}
+          disabled={!p.rememberHosts}
+          label="Show hosts in join/part lines"
+          onChange={(v) => update({ showHostsInActivity: v })}
+        />
+        <p class="user-settings-image-cache-text">
+          Keeps each nick's last user@host, account and real name on this device, so their profile and /whois still
+          show who they were once they've gone. Never sent anywhere.
+        </p>
+        <div class="user-settings-image-cache-actions">
+          <Button variant="secondary" size="sm" onClick={() => { void clearAllSeen().then(flashCleared); }}>
+            Clear remembered hosts
+          </Button>
+          {cleared && <span class="user-settings-image-cache-text" role="status">Cleared</span>}
+        </div>
+      </div>
+    </Card>
   );
 }
 

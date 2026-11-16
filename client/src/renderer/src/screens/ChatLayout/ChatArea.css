@@ -670,6 +670,21 @@
   letter-spacing: 0.06em;
 }
 
+/* The nick on a join/part/quit line opens their profile (with the host
+   recorded on that line); the host itself, when shown, keeps its case. */
+.sys-nick {
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.sys-nick:hover { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
+.sys-host {
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 0.75;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* Collapsed membership-churn / repeated-system run. A single clickable
    teaser that expands into the full (de-duplicated) list. Keeps join/quit
    floods and replayed self-joins from drowning real conversation. */

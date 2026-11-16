@@ -23,6 +23,12 @@ describe('rowToMessage', () => {
     id: 'm1', kind: 'message', from: 'jrmu', text: 'hi', timestamp: 1000,
   };
 
+  it('keeps the sender identity recorded on activity lines', () => {
+    expect(rowToMessage({ ...base, kind: 'quit', user: '~u', host: 'h.example', account: 'acct', realname: 'Real' })).toEqual({
+      id: 'm1', kind: 'quit', from: 'jrmu', text: 'hi', timestamp: 1000, user: '~u', host: 'h.example', account: 'acct', realname: 'Real',
+    });
+  });
+
   it('keeps msgid and serverTime, which dedupe needs', () => {
     expect(rowToMessage({ ...base, msgid: 'abc', serverTime: 900 })).toEqual({
       id: 'm1', kind: 'message', from: 'jrmu', text: 'hi', timestamp: 1000, msgid: 'abc', serverTime: 900,
