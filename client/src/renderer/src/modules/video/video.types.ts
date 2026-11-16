@@ -37,6 +37,8 @@ export interface VideoState {
   // This build can send video / the channel lets us (we can speak).
   canCapture: boolean;
   canPublish: boolean;
+  // This build can share the screen too (iOS: camera only, for now).
+  canShareScreen: boolean;
   camera: VideoShareState;
   screen: VideoShareState;
   tracks: VideoTrack[];
@@ -64,6 +66,7 @@ export const EMPTY_VIDEO_STATE: VideoState = {
   status: 'idle',
   canCapture: false,
   canPublish: false,
+  canShareScreen: false,
   camera: { on: false, starting: false },
   screen: { on: false, starting: false },
   tracks: [],

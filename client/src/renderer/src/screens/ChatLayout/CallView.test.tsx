@@ -80,7 +80,7 @@ describe('CallVideoButtons', () => {
   it('shows nothing until the server offers video', async () => {
     const { container } = render(<CallVideoButtons />);
     await waitFor(() => expect(container.querySelector('.call-video-buttons')).toBeNull());
-    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true });
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: true });
     await screen.findByRole('button', { name: 'Turn camera on' });
     expect(screen.getByRole('button', { name: 'Share your screen' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Show the call' })).toBeTruthy();
@@ -88,7 +88,7 @@ describe('CallVideoButtons', () => {
 
   it('turns the camera on, says when it is starting, and cancels', async () => {
     render(<CallVideoButtons />);
-    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true });
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: true });
     fireEvent.click(await screen.findByRole('button', { name: 'Turn camera on' }));
     expect(videoBridge.setCamera).toHaveBeenCalledWith(true, '');
     fireEvent.click(await screen.findByRole('button', { name: 'Starting camera… (cancel)' }));
@@ -100,7 +100,7 @@ describe('CallVideoButtons', () => {
     setVideo({ available: true, status: 'connected', canCapture: false, canPublish: true });
     await screen.findByRole('button', { name: 'Show the call' });
     expect(screen.queryByRole('button', { name: /camera|screen/i })).toBeNull();
-    setVideo({ canCapture: true, canPublish: false });
+    setVideo({ canCapture: true, canPublish: false, canShareScreen: true });
     const btns = await screen.findAllByRole('button', { name: 'Sending video in this channel needs the speak role' }) as HTMLButtonElement[];
     expect(btns).toHaveLength(2);
     expect(btns.every((b) => b.disabled)).toBe(true);
@@ -108,7 +108,7 @@ describe('CallVideoButtons', () => {
 
   it('asks which screen or window when there is a choice', async () => {
     render(<CallVideoButtons />);
-    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true });
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: true });
     fireEvent.click(await screen.findByRole('button', { name: 'Share your screen' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /Notes — Notes/ }));
     expect(videoBridge.setScreen).toHaveBeenCalledWith(true, 'window:7');
@@ -116,7 +116,7 @@ describe('CallVideoButtons', () => {
 
   it("lists cameras and won't pick one that can't work", async () => {
     render(<CallVideoButtons />);
-    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true });
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: true });
     fireEvent.contextMenu(await screen.findByRole('button', { name: 'Turn camera on' }));
     const ft = await screen.findByRole('menuitem', { name: /FaceTime HD Camera/ }) as HTMLButtonElement;
     expect(ft.disabled).toBe(true);
@@ -128,7 +128,7 @@ describe('CallVideoButtons', () => {
 describe('CallView', () => {
   it('shows everyone: cameras, avatars, our self-view, and a screen share big', async () => {
     const { container } = render(<CallView />);
-    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, tracks: [ALICE_CAM, BOB_SCREEN], camera: { on: true, starting: false } });
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: true, tracks: [ALICE_CAM, BOB_SCREEN], camera: { on: true, starting: false } });
     await screen.findByLabelText('alice');
     expect(screen.getByLabelText('bob’s screen').getAttribute('data-big')).not.toBeNull();
     expect(screen.getByLabelText('alice').querySelector('canvas')).not.toBeNull();
@@ -157,5 +157,14 @@ describe('MobileCallBar', () => {
     const c = (await import('../../modules/video')).getVideoController()!;
     expect(c.getSnapshot().open).toBe(true);
     expect(screen.getByRole('button', { name: 'Back to chat' })).toBeTruthy();
+  });
+});
+
+describe('camera-only builds (iOS)', () => {
+  it('show the camera button but not screen sharing', async () => {
+    render(<CallVideoButtons />);
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: false });
+    await screen.findByRole('button', { name: 'Turn camera on' });
+    expect(screen.queryByRole('button', { name: 'Share your screen' })).toBeNull();
   });
 });

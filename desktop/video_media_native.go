@@ -1,4 +1,4 @@
-//go:build cgo && !server && !ios && !android && (darwin || windows || (linux && videocapture))
+//go:build cgo && !server && !android && (darwin || windows || (linux && videocapture))
 
 package main
 
@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +28,10 @@ import (
 type nativeMedia struct{}
 
 func newVideoMedia() videoMedia { return nativeMedia{} }
+
+// CanShareScreen: not on iOS yet (it needs a ReplayKit broadcast
+// extension); macOS before 12.3 says so when asked (ErrScreenUnsupported).
+func (nativeMedia) CanShareScreen() bool { return runtime.GOOS != "ios" }
 
 func (nativeMedia) Cameras() ([]VideoCamera, error) {
 	cams, err := media.ListCameras()

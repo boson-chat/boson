@@ -226,7 +226,7 @@ function installVideo(): void {
     trackId: id, userId, name, kind: 'camera' as const, self: false, layers: [{ id: 0, width: 640, height: 360, fps: 30 }],
   });
   const state: VideoState = {
-    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true,
+    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true, canShareScreen: true,
     camera: { on: true, starting: false },
     tracks: [
       cam(10, 'usr_nova', 'nova'),
