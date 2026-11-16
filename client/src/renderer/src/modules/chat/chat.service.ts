@@ -3467,6 +3467,11 @@ export class ChatService {
         const fresh = page.filter((m) => !this.isDuplicateMessage(ch, m));
         ch.messages.value = [...fresh, ...shown];
       }
+      // Nothing came back although the index said lines were held (an
+      // IndexedDB write that failed, e.g. in a WebView): forget them, so the
+      // next scroll-up goes on to the server's history instead of asking
+      // the store again forever.
+      if (page.length === 0) this.older.drop(key);
       const serverHistory = this.chathistorySupported() || this.playbackSupported();
       ch.history = { loading: false, exhausted: !serverHistory && !this.older.has(key) };
       this.emit();
