@@ -1,3 +1,9 @@
+## [0.69.6](https://github.com/boson-chat/boson/compare/v0.69.5...v0.69.6) (2026-11-16)
+
+### Bug Fixes
+
+* **updater:** don't offer a release until its build is attached ([#82](https://github.com/boson-chat/boson/issues/82)) ([b7beb42](https://github.com/boson-chat/boson/commit/b7beb42fa194e7f86a1ac027e9b851953934cf64))
+
 ## [0.69.5](https://github.com/boson-chat/boson/compare/v0.69.4...v0.69.5) (2026-11-16)
 
 ### Bug Fixes
