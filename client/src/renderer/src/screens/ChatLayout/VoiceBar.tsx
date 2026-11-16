@@ -74,7 +74,9 @@ export function VoiceBar() {
         <span class="voice-bar-quality" data-quality={connecting ? 'connecting' : call.quality}
           title={connecting ? 'Connecting…' : `${QUALITY_LABEL[call.quality]}${rtt ? ` · ${rtt}` : ''}${call.lossPercent >= 1 ? ` · ${call.lossPercent.toFixed(0)}% loss` : ''}`}>
           <QualityIcon size={15} aria-hidden="true" />
-          <span class="voice-bar-status">{connecting ? 'Connecting…' : 'Voice connected'}</span>
+          <span class="voice-bar-status">
+            {connecting ? 'Connecting…' : <><span class="voice-bar-status-long">Voice connected</span><span class="voice-bar-status-short">Connected</span></>}
+          </span>
         </span>
         {!connecting && rtt && <span class="voice-bar-rtt" aria-label={`Round trip ${rtt}`}>{rtt}</span>}
         <button type="button" class="voice-bar-btn voice-bar-leave" aria-label="Disconnect" title="Disconnect" onClick={() => { void voice.leave(); }}>
@@ -126,6 +128,8 @@ export function VoiceBar() {
             <span class="voice-bar-tx" data-on={call.transmitting && !call.muted && !call.deafened ? true : undefined} aria-hidden="true" />
           </span>
         )}
+        {/* On a phone the video controls take their own row. */}
+        {!connecting && <span class="voice-bar-break" aria-hidden="true" />}
         {!connecting && <CallVideoButtons />}
         <button type="button" class="voice-bar-btn" aria-label="Voice settings" title="Voice settings" onClick={() => openUserSettings('voice')}>
           <Settings size={16} aria-hidden="true" />
