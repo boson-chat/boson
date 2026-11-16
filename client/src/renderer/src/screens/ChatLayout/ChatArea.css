@@ -1619,6 +1619,14 @@
 .app-shell.is-narrow .message-row:has(+ .message-row-grouped) { padding-bottom: 2px; }
 /* Long URLs and words wrap anywhere rather than widen the row. */
 .app-shell.is-narrow .message-row-text-body { overflow-wrap: anywhere; }
+/* Follow-up messages use the full width: no timestamp column (the group's
+   first line has the time), except "Sending…", which goes under the text. */
+.app-shell.is-narrow .message-row-grouped .message-row-text { display: block; }
+.app-shell.is-narrow .message-row-grouped-time { display: none; }
+.app-shell.is-narrow .message-row-pending .message-row-grouped-time { display: block; }
+/* Rows reach the list's padding on both sides (the base row is shifted
+   left by its negative margin, leaving a gap on the right). */
+.app-shell.is-narrow .message-row { width: calc(100% + var(--space-3) * 2); }
 
 /* Header: 44px buttons in the same height as before. */
 .app-shell.is-narrow .chat-header { padding: var(--space-1) var(--space-3); }
