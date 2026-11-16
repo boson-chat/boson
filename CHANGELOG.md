@@ -1,3 +1,9 @@
+## [0.62.0](https://github.com/boson-chat/boson/compare/v0.61.2...v0.62.0) (2026-11-16)
+
+### Features
+
+* what's new in every release since yours, not just the latest ([#69](https://github.com/boson-chat/boson/issues/69)) ([81991ab](https://github.com/boson-chat/boson/commit/81991ab59cf868fd2af61ea6a8c5283f45910967))
+
 ## [0.61.2](https://github.com/boson-chat/boson/compare/v0.61.1...v0.61.2) (2026-11-16)
 
 ### Bug Fixes
