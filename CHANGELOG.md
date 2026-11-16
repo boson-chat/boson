@@ -1,3 +1,9 @@
+## [0.61.2](https://github.com/boson-chat/boson/compare/v0.61.1...v0.61.2) (2026-11-16)
+
+### Bug Fixes
+
+* load older messages on touch scrolling (iOS/Android) ([#67](https://github.com/boson-chat/boson/issues/67)) ([120c43b](https://github.com/boson-chat/boson/commit/120c43b4921276d190da656fb6bca0eddea52986))
+
 ## [0.61.1](https://github.com/boson-chat/boson/compare/v0.61.0...v0.61.1) (2026-11-16)
 
 ### Bug Fixes
