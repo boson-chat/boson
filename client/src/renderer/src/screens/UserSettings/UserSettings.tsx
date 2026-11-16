@@ -879,6 +879,8 @@ function AboutSection() {
   const updateState = useUpdateState(updater);
   const notes = 'notes' in updateState ? updateState.notes : undefined;
   const notesVersion = 'version' in updateState ? updateState.version : undefined;
+  // Several releases behind: the notes cover each release since this one.
+  const notesSince = 'notesSince' in updateState ? updateState.notesSince : undefined;
   // "Install updates automatically": not on Android, where the system
   // installer always asks.
   const offerAuto = !!updater?.setAutoInstall && platform !== 'android';
@@ -923,7 +925,7 @@ function AboutSection() {
             <>
               <Divider />
               <DetailRow
-                label={`What's new in v${notesVersion}`}
+                label={notesSince ? `What's new since v${notesSince}` : `What's new in v${notesVersion}`}
                 customValue={<div class="user-settings-update-notes">{notes}</div>}
               />
             </>

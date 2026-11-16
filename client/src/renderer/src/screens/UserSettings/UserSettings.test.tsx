@@ -415,6 +415,16 @@ describe('UserSettings — About: in-app updates', () => {
     await userEvent.setup().click(screen.getByRole('tab', { name: /About/ }));
   }
 
+  it('several releases behind: the notes are headed "What\'s new since" the installed version', async () => {
+    const { bridge, push } = stubUpdater();
+    await openAbout();
+    await waitFor(() => expect(bridge.getState).toHaveBeenCalled());
+    const notes = 'v9.1.0\nBug Fixes\n• b\n\nv9.0.0\nFeatures\n• a';
+    push({ kind: 'ready', version: '9.1.0', notes, notesSince: '8.0.0' });
+    expect(await screen.findByText("What's new since v8.0.0")).toBeTruthy();
+    expect(document.querySelector('.user-settings-update-notes')?.textContent).toBe(notes);
+  });
+
   it('walks available → downloading → ready, with the release notes', async () => {
     const { bridge, push } = stubUpdater();
     await openAbout();
