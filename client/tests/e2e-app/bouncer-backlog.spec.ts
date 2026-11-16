@@ -188,7 +188,12 @@ test.describe('bouncer backlog', () => {
         await page.waitForTimeout(300);
       }
       await expect(start).toBeVisible();
-      await expect(line(0)).toHaveCount(1);
+      // Each page lands above what's being read, which stays put; the list
+      // only renders rows near the viewport, so go to the top to see line 0.
+      await expect(async () => {
+        await messages(page).evaluate((el) => { el.scrollTop = 0; });
+        await expect(line(0)).toHaveCount(1, { timeout: 1_000 });
+      }).toPass({ timeout: 15_000 });
       // The list is windowed (only what's on screen is in the DOM): read it
       // top to bottom by scrolling.
       const bodies = await page.evaluate(async () => {
