@@ -84,6 +84,8 @@
          (voice_device_ios.m's voice-chat audio session). -->
     <key>NSMicrophoneUsageDescription</key>
     <string>Boson uses the microphone when you join a voice channel, so the others in it can hear you.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Boson uses the camera when you turn it on in a call, so the others in the channel can see you.</string>
     <key>UIBackgroundModes</key>
     <array>
         <string>audio</string>

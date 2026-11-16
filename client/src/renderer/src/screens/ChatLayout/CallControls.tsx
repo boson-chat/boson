@@ -63,11 +63,11 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
         title={canSend ? camLabel : sendTitle} onClick={toggleCamera} onContextMenu={(e) => { e.preventDefault(); void pickCamera(); }}>
         {cam.on || cam.starting ? <Video size={16} aria-hidden="true" /> : <VideoOff size={16} aria-hidden="true" />}
       </button>
-      <button type="button" class="voice-bar-btn" aria-pressed={scr.on} data-live={scr.on || scr.starting || undefined}
+      {st.canShareScreen && <button type="button" class="voice-bar-btn" aria-pressed={scr.on} data-live={scr.on || scr.starting || undefined}
         data-starting={scr.starting || undefined} disabled={!canSend} aria-label={canSend ? scrLabel : sendTitle}
         title={canSend ? scrLabel : sendTitle} onClick={() => { void toggleScreen(); }}>
         {scr.on || scr.starting ? <MonitorX size={16} aria-hidden="true" /> : <MonitorUp size={16} aria-hidden="true" />}
-      </button>
+      </button>}
       </>)}
       {withCallToggle && (
         <button type="button" class="voice-bar-btn" aria-pressed={snap.open} data-live={snap.open || undefined}

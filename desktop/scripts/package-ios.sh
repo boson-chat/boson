@@ -119,6 +119,7 @@ xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
   -framework AVFoundation -framework SafariServices \
   -framework CoreLocation -framework CoreMotion -framework SystemConfiguration -framework Network \
   -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
+  -framework CoreMedia -framework CoreVideo -framework VideoToolbox -framework IOSurface -framework CoreGraphics \
   -lresolv "$opus/lib/libopus.a" \
   ${sim_entitlements[@]+"${sim_entitlements[@]}"} \
   -o "$app/$APP_NAME" \

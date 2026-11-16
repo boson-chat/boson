@@ -155,11 +155,13 @@ type VideoState struct {
 	FrameURL string `json:"frameUrl,omitempty"`
 	// CanCapture: this build can send video (native capture); CanPublish:
 	// the ticket allows it (people who can speak in the channel).
-	CanCapture bool            `json:"canCapture"`
-	CanPublish bool            `json:"canPublish"`
-	Camera     VideoShareState `json:"camera"`
-	Screen     VideoShareState `json:"screen"`
-	Tracks     []VideoTrack    `json:"tracks"`
+	CanCapture bool `json:"canCapture"`
+	CanPublish bool `json:"canPublish"`
+	// CanShareScreen: this build can share the screen too (not on iOS yet).
+	CanShareScreen bool            `json:"canShareScreen"`
+	Camera         VideoShareState `json:"camera"`
+	Screen         VideoShareState `json:"screen"`
+	Tracks         []VideoTrack    `json:"tracks"`
 }
 
 const (
@@ -879,6 +881,19 @@ func (v *VideoService) preview(w, h int, rgba []byte) {
 	}
 }
 
+// screenSharer is media that may not share screens (iOS).
+type screenSharer interface{ CanShareScreen() bool }
+
+func (v *VideoService) canShareScreen() bool {
+	if v.media == nil {
+		return false
+	}
+	if s, ok := v.media.(screenSharer); ok {
+		return s.CanShareScreen()
+	}
+	return true
+}
+
 // ---- state ----
 
 func (v *VideoService) State() VideoState {
@@ -893,7 +908,7 @@ func (v *VideoService) State() VideoState {
 	}
 	st := VideoState{
 		Available: v.st.available, Status: v.st.status, Error: v.st.err,
-		CanCapture: v.media != nil, CanPublish: v.st.canPublish,
+		CanCapture: v.media != nil, CanPublish: v.st.canPublish, CanShareScreen: v.canShareScreen(),
 		Camera: share(v.st.camera), Screen: share(v.st.screen),
 		Tracks: []VideoTrack{},
 	}
