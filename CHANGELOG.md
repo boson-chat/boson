@@ -1,3 +1,9 @@
+## [0.63.0](https://github.com/boson-chat/boson/compare/v0.62.1...v0.63.0) (2026-11-16)
+
+### Features
+
+* video in voice channels (engine): tickets, quicvideod, frames, lip sync ([#70](https://github.com/boson-chat/boson/issues/70)) ([beae9e2](https://github.com/boson-chat/boson/commit/beae9e298fe9822cae525e05d8d319d4e5bd1dc2))
+
 ## [0.62.1](https://github.com/boson-chat/boson/compare/v0.62.0...v0.62.1) (2026-11-16)
 
 ### Bug Fixes
