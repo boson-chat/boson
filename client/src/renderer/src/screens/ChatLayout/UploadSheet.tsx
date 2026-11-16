@@ -51,8 +51,13 @@ interface Row {
 
 let rowSeq = 0;
 
+// Past this a preview isn't worth decoding: the full image would be decoded
+// for a 56px tile, which on a huge photo or GIF stalled the window right
+// after the drop.
+const THUMB_MAX_BYTES = 20 * 1024 * 1024;
+
 function canThumb(file: File): boolean {
-  return /^image\/(png|jpeg|gif|webp|avif)$/.test(file.type);
+  return /^image\/(png|jpeg|gif|webp|avif)$/.test(file.type) && file.size <= THUMB_MAX_BYTES;
 }
 
 export function UploadSheet({ open, files, target, limits, usage, homeLabel, notice, onSend, onCancel, onAdd, onRemove, now }: Props) {
@@ -165,7 +170,7 @@ export function UploadSheet({ open, files, target, limits, usage, homeLabel, not
               <li key={r.key} class={`upload-sheet-item${big ? ' upload-sheet-item-error' : ''}`} data-testid="upload-item">
                 <div class="upload-sheet-thumb" aria-hidden="true">
                   {r.thumb
-                    ? <img src={r.thumb} alt="" />
+                    ? <img src={r.thumb} alt="" decoding="async" loading="lazy" />
                     : media === 'video' ? <Film size={22} /> : media === 'audio' ? <Music size={22} /> : <FileText size={22} />}
                 </div>
                 <div class="upload-sheet-fields">
