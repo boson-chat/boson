@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -44,6 +45,48 @@ var (
 	ErrSize       = errors.New("selfupdate: the download's size doesn't match the manifest")
 	ErrChecksum   = errors.New("selfupdate: the download's sha256 doesn't match the manifest")
 )
+
+// VersionNotes is one release's version and notes (its body).
+type VersionNotes struct {
+	Version string
+	Notes   string
+}
+
+// FetchNotesSince lists the releases after current, up to and including
+// latest, newest first — for "what's new" when the installed copy is more
+// than one release behind. Only a GitHub latest-release feed has a list
+// next to it (…/releases); other feeds (a test feed) give nil.
+func FetchNotesSince(ctx context.Context, client *http.Client, feed, current, latest string) ([]VersionNotes, error) {
+	base, ok := strings.CutSuffix(feed, "/releases/latest")
+	if !ok {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	body, err := get(ctx, client, base+"/releases?per_page=50", 8<<20, "application/vnd.github+json")
+	if err != nil {
+		return nil, err
+	}
+	var rs []struct {
+		TagName    string `json:"tag_name"`
+		Body       string `json:"body"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
+	}
+	if err := json.Unmarshal(body, &rs); err != nil {
+		return nil, fmt.Errorf("selfupdate: releases: %w", err)
+	}
+	var out []VersionNotes
+	for _, r := range rs {
+		v := strings.TrimPrefix(r.TagName, "v")
+		if r.Draft || r.Prerelease || !Newer(v, current) || Newer(v, latest) {
+			continue
+		}
+		out = append(out, VersionNotes{Version: v, Notes: r.Body})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return Newer(out[i].Version, out[j].Version) })
+	return out, nil
+}
 
 // FetchRelease reads the feed's latest release.
 func FetchRelease(ctx context.Context, client *http.Client, feed string) (*Release, error) {

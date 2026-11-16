@@ -12,11 +12,11 @@ export type UpdateState =
   // manual: this copy can't install it itself (no signed manifest, too old,
   // or macOS runs it translocated / from a read-only disk); Apply opens the
   // release page. message says why, when there's something to say.
-  | { kind: 'available'; version: string; manual?: boolean; message?: string; notes?: string }
-  | { kind: 'downloading'; version: string; percent: number; bytesPerSecond: number; notes?: string }
+  | { kind: 'available'; version: string; manual?: boolean; message?: string; notes?: string; notesSince?: string }
+  | { kind: 'downloading'; version: string; percent: number; bytesPerSecond: number; notes?: string; notesSince?: string }
   // Staged and verified: Apply ("Restart to update") swaps it in and
   // relaunches (Android: hands it to the system installer).
-  | { kind: 'ready'; version: string; notes?: string }
+  | { kind: 'ready'; version: string; notes?: string; notesSince?: string }
   | { kind: 'error'; message: string; version?: string };
 
 export interface UpdaterBridge {

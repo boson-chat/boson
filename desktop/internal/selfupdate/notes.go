@@ -61,3 +61,29 @@ func ShortNotes(body string, max int) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// CombinedNotes is ShortNotes for each of several releases (newest first,
+// as FetchNotesSince gives them), each under its version: perRelease
+// entries from each, for up to maxReleases, then how many earlier ones
+// weren't shown. A release whose notes come to nothing still gets its
+// version line, so the list reads as complete.
+func CombinedNotes(list []VersionNotes, perRelease, maxReleases int) string {
+	var blocks []string
+	for i, r := range list {
+		if i == maxReleases {
+			n := len(list) - maxReleases
+			s := "s"
+			if n == 1 {
+				s = ""
+			}
+			blocks = append(blocks, fmt.Sprintf("…and %d earlier release%s", n, s))
+			break
+		}
+		block := "v" + r.Version
+		if short := ShortNotes(r.Notes, perRelease); short != "" {
+			block += "\n" + short
+		}
+		blocks = append(blocks, block)
+	}
+	return strings.Join(blocks, "\n\n")
+}
