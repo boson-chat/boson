@@ -1,3 +1,9 @@
+## [0.62.1](https://github.com/boson-chat/boson/compare/v0.62.0...v0.62.1) (2026-11-16)
+
+### Bug Fixes
+
+* phone scrolling, folded events, rejoin with status, fewer "You joined" ([#68](https://github.com/boson-chat/boson/issues/68)) ([999d03e](https://github.com/boson-chat/boson/commit/999d03e6b63ec69453d53da821949c9f31e956a2))
+
 ## [0.62.0](https://github.com/boson-chat/boson/compare/v0.61.2...v0.62.0) (2026-11-16)
 
 ### Features
