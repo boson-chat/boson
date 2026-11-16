@@ -1,3 +1,9 @@
+## [0.69.3](https://github.com/boson-chat/boson/compare/v0.69.2...v0.69.3) (2026-11-16)
+
+### Bug Fixes
+
+* the camera comes back on after the app was in the background ([#83](https://github.com/boson-chat/boson/issues/83)) ([24fe8b4](https://github.com/boson-chat/boson/commit/24fe8b460b5ae2d0fcb165f72117d74f3d8ff606))
+
 ## [0.69.2](https://github.com/boson-chat/boson/compare/v0.69.1...v0.69.2) (2026-11-16)
 
 ### Bug Fixes
