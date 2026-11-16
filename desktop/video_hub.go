@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"log"
 	"net"
 	"net/http"
 	"sync"
@@ -114,8 +115,10 @@ func (h *frameHub) serve(w http.ResponseWriter, r *http.Request) {
 
 // hubRequest is a text message from the page.
 type hubRequest struct {
-	Type    string `json:"type"` // "keyframe"
+	Type    string `json:"type"` // "keyframe" | "log"
 	TrackID uint32 `json:"trackId"`
+	Where   string `json:"where"` // log: which part of the page
+	Msg     string `json:"msg"`   // log: the error
 }
 
 func (h *frameHub) readLoop(ctx context.Context, ws *websocket.Conn, cancel func()) {
@@ -129,8 +132,16 @@ func (h *frameHub) readLoop(ctx context.Context, ws *websocket.Conn, cancel func
 			continue
 		}
 		var req hubRequest
-		if json.Unmarshal(b, &req) == nil && req.Type == "keyframe" && h.onKeyframe != nil {
+		if json.Unmarshal(b, &req) != nil {
+			continue
+		}
+		switch {
+		case req.Type == "keyframe" && h.onKeyframe != nil:
 			h.onKeyframe(req.TrackID)
+		case req.Type == "log":
+			// The page's video errors (it sends at most a few), so a
+			// phone's webview problems show in the app's log.
+			log.Printf("video page: %s: %.500s", req.Where, req.Msg)
 		}
 	}
 }

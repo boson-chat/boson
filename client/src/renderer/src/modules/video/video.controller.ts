@@ -370,15 +370,11 @@ export class VideoController {
     const ws = new this.env.WebSocket(url);
     ws.binaryType = 'arraybuffer';
     ws.onmessage = (ev: MessageEvent) => {
-      if (typeof ev.data === 'string') {
-        const m = parseText(ev.data);
-        if (m) this.offsets = m.offsets;
-        return;
+      try {
+        this.onSocketMessage(ev);
+      } catch (e) {
+        this.reportError('frame socket', e);
       }
-      const m = parseBinary(ev.data as ArrayBuffer);
-      if (!m) return;
-      if (m.kind === 'frame') this.player(m.trackId).push(m);
-      else this.drawPreview(m.width, m.height, m.rgba);
     };
     ws.onclose = () => {
       if (this.ws === ws) {
@@ -408,10 +404,43 @@ export class VideoController {
         this.rafId = 0;
         return;
       }
-      this.renderFrame();
+      // An exception here must not end the loop: every tile would freeze.
+      try {
+        this.renderFrame();
+      } catch (e) {
+        this.reportError('render', e);
+      }
       this.rafId = this.env.raf(tick);
     };
     this.rafId = this.env.raf(tick);
+  }
+
+  private onSocketMessage(ev: MessageEvent): void {
+    if (typeof ev.data === 'string') {
+      const m = parseText(ev.data);
+      if (m) this.offsets = m.offsets;
+      return;
+    }
+    const m = parseBinary(ev.data as ArrayBuffer);
+    if (!m) return;
+    if (m.kind === 'frame') this.player(m.trackId).push(m);
+    else this.drawPreview(m.width, m.height, m.rgba);
+  }
+
+  private reported = 0;
+
+  // Errors in the video path go to the console and (the first few) to Go's
+  // log over the frame socket: a phone's webview console isn't at hand.
+  private reportError(where: string, e: unknown): void {
+    const msg = e instanceof Error ? `${e.name}: ${e.message}${e.stack ? `\n${e.stack.split('\n').slice(0, 4).join('\n')}` : ''}` : String(e);
+    console.error(`[video] ${where}:`, e);
+    if (this.reported >= 20) return;
+    this.reported++;
+    try {
+      if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify({ type: 'log', where, msg }));
+    } catch {
+      // the socket is going away
+    }
   }
 
   /** One render pass (the animation frame; tests call it directly). */

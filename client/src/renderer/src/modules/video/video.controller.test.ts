@@ -299,3 +299,30 @@ describe('camera resume', () => {
     expect(bridge.resumeCamera).not.toHaveBeenCalled();
   });
 });
+
+describe('errors in the video path', () => {
+  it("don't stop the render loop, and are reported to Go over the frame socket", async () => {
+    const ticks: (() => void)[] = [];
+    const { c } = setup();
+    (c as unknown as { env: { raf: (f: () => void) => number } }).env.raf = (f) => { ticks.push(f); return ticks.length; };
+    await flush();
+    c.setOpen(true);
+    const ws = FakeSocket.last!;
+    const canvas = document.createElement('canvas');
+    let calls = 0;
+    canvas.getContext = (() => ({ clearRect() {}, drawImage() { calls++; throw new Error('draw failed'); } })) as unknown as typeof canvas.getContext;
+    c.attachCanvas(10, canvas);
+    ws.recv(frameMsg(10, 1, { key: true, desc: DESC }));
+    ticks.at(-1)!(); // renders: draw throws
+    ws.recv(frameMsg(10, 2));
+    ticks.at(-1)!(); // the loop is still scheduled and renders again
+    expect(calls).toBe(2);
+    const logs = ws.sent.map((s) => JSON.parse(s)).filter((m) => m.type === 'log');
+    expect(logs.length).toBe(2);
+    expect(logs[0].where).toBe('render');
+    expect(logs[0].msg).toContain('draw failed');
+    // A message that breaks the handler is reported too, and later ones still work.
+    ws.recv(new ArrayBuffer(0));
+    ws.recv('{"type":"sync","offsets":{"10":5}}');
+  });
+});
