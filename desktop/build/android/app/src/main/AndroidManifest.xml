@@ -21,6 +21,10 @@
          Not required, so devices without one can still install. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- Without this, CAMERA implies a required back camera (aapt2:
+         uses-implied-feature), and Play would hide the app from devices
+         without one. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <!-- In-app updates: hand a downloaded, signature-checked release APK to
          the system installer (WailsBridge.installUpdate). -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
