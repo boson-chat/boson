@@ -21,6 +21,8 @@
             <string>12.0.0</string>
         <key>NSMicrophoneUsageDescription</key>
             <string>Boson uses your microphone when you join a voice channel or test your mic.</string>
+        <key>NSCameraUsageDescription</key>
+            <string>Boson uses your camera when you turn it on in a call, so the others in the channel can see you.</string>
         <key>NSHighResolutionCapable</key>
             <string>true</string>
         <key>NSHumanReadableCopyright</key>

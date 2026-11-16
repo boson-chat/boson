@@ -2,8 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <!-- Voice channels: the microphone (with NSMicrophoneUsageDescription in
-       Info.plist). The hardened runtime refuses it without this. -->
+  <!-- Calls: the camera (video in voice channels) and the microphone,
+       with NSCameraUsageDescription / NSMicrophoneUsageDescription in
+       Info.plist. The hardened runtime refuses them without these. -->
+  <key>com.apple.security.device.camera</key>
+  <true/>
   <key>com.apple.security.device.audio-input</key>
   <true/>
 </dict>
