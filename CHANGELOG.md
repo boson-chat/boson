@@ -1,3 +1,9 @@
+## [0.69.7](https://github.com/boson-chat/boson/compare/v0.69.6...v0.69.7) (2026-11-16)
+
+### Bug Fixes
+
+* only the front camera's self-view is mirrored; sent video never is ([#85](https://github.com/boson-chat/boson/issues/85)) ([6ae5c34](https://github.com/boson-chat/boson/commit/6ae5c34933c32676aaa81287b4230ff85335b918))
+
 ## [0.69.6](https://github.com/boson-chat/boson/compare/v0.69.5...v0.69.6) (2026-11-16)
 
 ### Bug Fixes
