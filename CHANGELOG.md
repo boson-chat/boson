@@ -1,3 +1,9 @@
+## [0.69.8](https://github.com/boson-chat/boson/compare/v0.69.7...v0.69.8) (2026-11-16)
+
+### Bug Fixes
+
+* screen shares play smoothly (30 fps, their own pacing, out of lip sync) ([#86](https://github.com/boson-chat/boson/issues/86)) ([da2a6a9](https://github.com/boson-chat/boson/commit/da2a6a9d66aeb7ae8fd260811a8a630250e8b862))
+
 ## [0.69.7](https://github.com/boson-chat/boson/compare/v0.69.6...v0.69.7) (2026-11-16)
 
 ### Bug Fixes
