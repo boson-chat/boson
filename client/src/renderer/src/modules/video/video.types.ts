@@ -22,6 +22,10 @@ export interface VideoTrack {
 export interface VideoShareState {
   on: boolean;
   starting: boolean;
+  // The camera was stopped by the system (the app in the background, the
+  // Mac asleep) and comes back by itself when the app is active again.
+  paused?: boolean;
+  id?: string; // the camera asked for ('' or absent: the default)
   name?: string;
   error?: string;
 }

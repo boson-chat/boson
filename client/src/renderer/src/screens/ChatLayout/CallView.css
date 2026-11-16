@@ -110,4 +110,5 @@
 /* Video on (camera, screen, call view open): live, not a warning (data-on
    is the voice bar's red "muted/deafened"). */
 .voice-bar-btn[data-live] { color: var(--success, #23a55a); }
+.voice-bar-btn[data-paused] { color: var(--warn, #e0a32a); }
 .call-tile[data-speaking] { box-shadow: 0 0 0 2px var(--success, #23a55a); }

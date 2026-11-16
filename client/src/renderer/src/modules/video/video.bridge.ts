@@ -12,6 +12,9 @@ export interface VideoBridge {
   screenSources(): Promise<VideoSource[]>;
   setCamera(on: boolean, cameraId: string): Promise<VideoState>;
   setScreen(on: boolean, sourceId: string): Promise<VideoState>;
+  // Turn a camera the system stopped back on (a no-op otherwise). Optional:
+  // older shells don't have it.
+  resumeCamera?(): Promise<VideoState>;
 }
 
 export function videoBridge(): VideoBridge | null {

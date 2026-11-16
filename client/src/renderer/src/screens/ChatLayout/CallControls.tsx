@@ -22,11 +22,14 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
 
   const cam = st.camera;
   const scr = st.screen;
-  const camLabel = cam.starting ? 'Starting camera… (cancel)' : cam.on ? 'Turn camera off' : 'Turn camera on';
+  // Paused: stopped by the system (the Mac slept); it comes back on its own.
+  const camLive = cam.on || cam.starting || !!cam.paused;
+  const camLabel = cam.paused ? 'Camera paused: it comes back when the computer is awake (turn off)'
+    : cam.starting ? 'Starting camera… (cancel)' : cam.on ? 'Turn camera off' : 'Turn camera on';
   const scrLabel = scr.starting ? 'Starting screen share… (cancel)' : scr.on ? 'Stop sharing your screen' : 'Share your screen';
 
   const toggleCamera = () => {
-    if (cam.on || cam.starting) {
+    if (camLive) {
       void video.setCamera(false);
       return;
     }
@@ -58,10 +61,10 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
       {/* Builds that can't send (phones for now, Linux release builds)
           watch only: no send buttons. */}
       {st.canCapture && (<>
-      <button type="button" class="voice-bar-btn" aria-pressed={cam.on} data-live={cam.on || cam.starting || undefined}
+      <button type="button" class="voice-bar-btn" aria-pressed={camLive} data-live={camLive || undefined} data-paused={cam.paused || undefined}
         data-starting={cam.starting || undefined} disabled={!canSend} aria-label={canSend ? camLabel : sendTitle}
         title={canSend ? camLabel : sendTitle} onClick={toggleCamera} onContextMenu={(e) => { e.preventDefault(); void pickCamera(); }}>
-        {cam.on || cam.starting ? <Video size={16} aria-hidden="true" /> : <VideoOff size={16} aria-hidden="true" />}
+        {camLive ? <Video size={16} aria-hidden="true" /> : <VideoOff size={16} aria-hidden="true" />}
       </button>
       {st.canShareScreen && <button type="button" class="voice-bar-btn" aria-pressed={scr.on} data-live={scr.on || scr.starting || undefined}
         data-starting={scr.starting || undefined} disabled={!canSend} aria-label={canSend ? scrLabel : sendTitle}
@@ -76,8 +79,8 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
           <LayoutGrid size={16} aria-hidden="true" />
         </button>
       )}
-      {(cam.error || scr.error) && (
-        <span class="call-video-error" role="status">{cam.error || scr.error}</span>
+      {((!cam.paused && cam.error) || scr.error) && (
+        <span class="call-video-error" role="status">{(!cam.paused && cam.error) || scr.error}</span>
       )}
       {menu === 'screen' && (
         <div class="call-menu" role="menu" aria-label="Share which screen or window?">

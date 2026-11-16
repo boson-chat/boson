@@ -520,3 +520,96 @@ func TestVideoAdaptiveAudioDelay(t *testing.T) {
 		t.Fatal("adapted without an offset")
 	}
 }
+
+// The system stops the camera (iOS/Android in the background, a Mac's
+// sleep): it stays wanted, nothing restarts it until the app is active
+// again, and then it comes back by itself. "Camera off", a failed restart
+// and leaving the call each drop the wish.
+func TestVideoCameraResume(t *testing.T) {
+	h := newVideoHarness(t)
+	h.join(t, `"video.publish"`)
+	shares := func() int { h.media.mu.Lock(); defer h.media.mu.Unlock(); return len(h.media.shares) }
+	end := func(why string) {
+		h.media.mu.Lock()
+		onEnd := h.media.onEnd
+		h.media.mu.Unlock()
+		onEnd(errors.New(why))
+	}
+
+	// Resuming with the camera never turned on does nothing.
+	if st := h.svc.ResumeCamera(); st.Camera.On || st.Camera.Starting || shares() != 0 {
+		t.Fatalf("resume without a camera: %+v", st.Camera)
+	}
+
+	h.svc.SetCamera(true, "cam1")
+	waitUntil(t, "camera on", func() bool { return h.svc.State().Camera.On })
+
+	// Background: capture ends; the camera is paused, not off, and nothing
+	// restarts it meanwhile.
+	end("the capture session was interrupted")
+	waitUntil(t, "camera paused", func() bool { return h.svc.State().Camera.Paused })
+	time.Sleep(150 * time.Millisecond)
+	if st := h.svc.State(); st.Camera.On || st.Camera.Starting || st.Camera.ID != "cam1" || shares() != 1 {
+		t.Fatalf("while backgrounded: %+v, %d shares", st.Camera, shares())
+	}
+
+	// Foreground: back on, the same camera.
+	h.svc.ResumeCamera()
+	waitUntil(t, "camera back on", func() bool { return h.svc.State().Camera.On })
+	if st := h.svc.State(); st.Camera.Paused || st.Camera.Error != "" || st.Camera.ID != "cam1" || shares() != 2 {
+		t.Fatalf("after resume: %+v, %d shares", st.Camera, shares())
+	}
+	// Resuming again while it runs is a no-op.
+	h.svc.ResumeCamera()
+	time.Sleep(100 * time.Millisecond)
+	if shares() != 2 {
+		t.Fatalf("resume while on started another capture (%d)", shares())
+	}
+
+	// Turned off while paused: the foreground doesn't bring it back.
+	end("interrupted")
+	waitUntil(t, "paused again", func() bool { return h.svc.State().Camera.Paused })
+	h.svc.SetCamera(false, "")
+	if st := h.svc.ResumeCamera(); st.Camera.On || st.Camera.Starting || st.Camera.Paused {
+		t.Fatalf("resumed after Camera off: %+v", st.Camera)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if shares() != 2 {
+		t.Fatalf("Camera off then resume started a capture (%d)", shares())
+	}
+
+	// A restart that fails shows the usual reason, and isn't retried.
+	h.svc.SetCamera(true, "cam1")
+	waitUntil(t, "camera on (3)", func() bool { return h.svc.State().Camera.On })
+	end("interrupted")
+	waitUntil(t, "paused (3)", func() bool { return h.svc.State().Camera.Paused })
+	h.media.mu.Lock()
+	h.media.err = errors.New("the camera is in use by another app")
+	h.media.mu.Unlock()
+	h.svc.ResumeCamera()
+	waitUntil(t, "restart error", func() bool { return h.svc.State().Camera.Error == "the camera is in use by another app" })
+	if st := h.svc.State(); st.Camera.On || st.Camera.Paused {
+		t.Fatalf("after a failed restart: %+v", st.Camera)
+	}
+	h.media.mu.Lock()
+	h.media.err = nil
+	h.media.mu.Unlock()
+	h.svc.ResumeCamera()
+	time.Sleep(150 * time.Millisecond)
+	if st := h.svc.State(); st.Camera.On || st.Camera.Starting {
+		t.Fatalf("a failed restart was retried: %+v", st.Camera)
+	}
+
+	// Leaving the call while paused drops it too.
+	h.svc.SetCamera(true, "")
+	waitUntil(t, "camera on (4)", func() bool { return h.svc.State().Camera.On })
+	end("interrupted")
+	waitUntil(t, "paused (4)", func() bool { return h.svc.State().Camera.Paused })
+	n := shares()
+	h.svc.voiceLeft()
+	h.svc.ResumeCamera()
+	time.Sleep(100 * time.Millisecond)
+	if st := h.svc.State(); st.Camera.On || st.Camera.Starting || st.Camera.Paused || shares() != n {
+		t.Fatalf("resumed after leaving: %+v", st.Camera)
+	}
+}
