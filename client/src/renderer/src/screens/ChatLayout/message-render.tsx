@@ -425,6 +425,11 @@ export const MessageList = memo(function MessageList({
   // The user has scrolled this conversation since it was shown: until then
   // a ribbon in view (a short conversation) doesn't pull on its own.
   const userScrolled = useRef(false);
+  // A finger is on the list (touch screens). While it is, the list doesn't
+  // stick itself to the bottom: a drag up from the bottom starts inside
+  // AT_BOTTOM_SLACK, and re-sticking there pulled the list back down
+  // against the finger until the drag got past the slack.
+  const touching = useRef(false);
   const shownChannel = useRef<string | null | undefined>(undefined);
   const onViewportRef = useRef(onViewport);
   onViewportRef.current = onViewport;
@@ -478,7 +483,8 @@ export const MessageList = memo(function MessageList({
     const resized = placedSize.current !== null && placedSize.current !== sizeOf(el);
     if (!resized && placedTop.current !== null && Math.abs(el.scrollTop - placedTop.current) > 1 && placedLayout.current) {
       anchorRef.current = captureAnchor(placedLayout.current, Math.max(0, el.scrollTop));
-      atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
+      const movedUp = el.scrollTop < placedTop.current;
+      atBottomRef.current = !(touching.current && movedUp) && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
       placedTop.current = el.scrollTop;
     }
     const present = new Set<Element>();
@@ -498,14 +504,17 @@ export const MessageList = memo(function MessageList({
     const top = topSpacer.current?.offsetTop ?? layout.top;
     const now = top === layout.top ? layout : new Layout(layout.keys, rowHeights, top);
     layoutRef.current = now;
-    const toBottom = pendingSwitch.current || atBottomRef.current;
+    const switching = pendingSwitch.current;
+    const toBottom = switching || (atBottomRef.current && !touching.current);
     const target = toBottom ? bottomOf(el.scrollHeight, el.clientHeight) : restoreAnchor(now, anchorRef.current);
     pendingSwitch.current = false;
     // iOS rubber-bands past the top (scrollTop < 0) and springs back by
     // itself: putting it at 0 from here would cut the bounce short, every
     // frame, and fight the user's finger.
     const bouncingAtTop = !toBottom && el.scrollTop < 0 && target === 0;
-    if (target !== null && !bouncingAtTop && Math.abs(target - el.scrollTop) > 0.5) {
+    // Likewise past the bottom (scrollTop beyond the end).
+    const bouncingAtBottom = toBottom && !switching && target !== null && el.scrollTop > target;
+    if (target !== null && !bouncingAtTop && !bouncingAtBottom && Math.abs(target - el.scrollTop) > 0.5) {
       el.scrollTop = target;
       setByUs.current = el.scrollTop;
     }
@@ -573,9 +582,21 @@ export const MessageList = memo(function MessageList({
     const el = elRef.current;
     if (!el) return;
     const mark = (): void => { userScrolled.current = true; };
+    const down = (): void => { touching.current = true; };
+    // Finger lifted: place the list once more (a momentum scroll that ends
+    // at the bottom sticks there again via the scroll events).
+    const up = (): void => { touching.current = false; setHeightsVersion((n) => n + 1); };
     const opts = { passive: true } as const;
     for (const t of ['touchmove', 'wheel'] as const) el.addEventListener(t, mark, opts);
-    return () => { for (const t of ['touchmove', 'wheel'] as const) el.removeEventListener(t, mark); };
+    el.addEventListener('touchstart', down, opts);
+    el.addEventListener('touchend', up, opts);
+    el.addEventListener('touchcancel', up, opts);
+    return () => {
+      for (const t of ['touchmove', 'wheel'] as const) el.removeEventListener(t, mark);
+      el.removeEventListener('touchstart', down);
+      el.removeEventListener('touchend', up);
+      el.removeEventListener('touchcancel', up);
+    };
   }, [elRef]);
   useEffect(() => {
     const root = elRef.current;
@@ -623,7 +644,10 @@ export const MessageList = memo(function MessageList({
     }
     // Track bottom-stickiness on every scroll (including our own programmatic
     // scroll-to-bottom) — this drives live-append autoscroll.
-    reportBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);
+    // A finger dragging the list up has left the bottom, even inside the
+    // slack.
+    const draggedUp = touching.current && placedTop.current !== null && el.scrollTop < placedTop.current - 0.5;
+    reportBottom(!draggedUp && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);
     // Our own scrollTop adjustments don't move the anchor; the user's do.
     const ours = setByUs.current !== null && Math.abs(setByUs.current - el.scrollTop) < 1;
     setByUs.current = null;
@@ -838,15 +862,54 @@ export function coalesceActivity(items: readonly ChatMessage[]): Array<{ text: s
   return out;
 }
 
-// Collapsed summary for an activity run: a one-line teaser ("<first> · and N
-// more") that expands on click into the full coalesced list.
+type Presence = 'popped in' | 'nipped in and out' | 'popped out and back' | 'left';
+const PRESENCE_ORDER: readonly Presence[] = ['popped in', 'nipped in and out', 'popped out and back', 'left'];
+
+function nameList(nicks: readonly string[]): string {
+  if (nicks.length === 1) return nicks[0]!;
+  if (nicks.length <= 3) return `${nicks.slice(0, -1).join(', ')} and ${nicks[nicks.length - 1]}`;
+  return `${nicks.slice(0, 2).join(', ')} and ${nicks.length - 2} others`;
+}
+
+// What an activity run comes to, per person: where they ended up, not the
+// first line of the run (which read "x joined · and 5 more" for someone
+// who had long since quit). Joins and leaves (part or quit) per nick:
+//   joined, still here          → popped in
+//   joined, then gone           → nipped in and out
+//   gone, then back             → popped out and back
+//   gone                        → left
+// Other lines (system notices) follow, coalesced.
+export function summarizeActivity(items: readonly ChatMessage[]): string {
+  const seen = new Map<string, { first: 'in' | 'out'; last: 'in' | 'out' }>();
+  const other: ChatMessage[] = [];
+  for (const m of items) {
+    const dir = m.kind === 'join' ? 'in' : m.kind === 'part' || m.kind === 'quit' ? 'out' : null;
+    if (!dir || !m.from) { other.push(m); continue; }
+    const s = seen.get(m.from);
+    if (s) s.last = dir; else seen.set(m.from, { first: dir, last: dir });
+  }
+  const by = new Map<Presence, string[]>();
+  for (const [nick, { first, last }] of seen) {
+    const p: Presence = first === 'in'
+      ? (last === 'in' ? 'popped in' : 'nipped in and out')
+      : (last === 'in' ? 'popped out and back' : 'left');
+    const list = by.get(p) ?? [];
+    list.push(nick);
+    by.set(p, list);
+  }
+  const parts = PRESENCE_ORDER.filter((p) => by.has(p)).map((p) => `${nameList(by.get(p)!)} ${p}`);
+  for (const l of coalesceActivity(other)) parts.push(l.count > 1 ? `${l.text} ×${l.count}` : l.text);
+  // One line: the first few, then how many more (all of it on expand).
+  const MAX = 3;
+  return parts.length > MAX ? `${parts.slice(0, MAX).join(' · ')} · and ${parts.length - MAX} more` : parts.join(' · ');
+}
+
+// Collapsed summary for an activity run: what it came to (see
+// summarizeActivity); expands on click into the full coalesced list.
 function ActivityGroup({ items }: { items: ChatMessage[] }) {
   const [expanded, setExpanded] = useState(false);
   const lines = coalesceActivity(items);
   const total = items.length;
-  const first = lines[0]!;
-  const firstLabel = first.count > 1 ? `${first.text} ×${first.count}` : first.text;
-  const remaining = total - first.count;
   return (
     <div class={`message-activity ${expanded ? 'message-activity-expanded' : ''}`}>
       <button
@@ -859,9 +922,7 @@ function ActivityGroup({ items }: { items: ChatMessage[] }) {
         {expanded ? (
           <span class="message-activity-summary">{total} channel events</span>
         ) : (
-          <span class="message-activity-summary">
-            {firstLabel}{remaining > 0 ? ` · and ${remaining} more` : ''}
-          </span>
+          <span class="message-activity-summary">{summarizeActivity(items)}</span>
         )}
       </button>
       {expanded && (

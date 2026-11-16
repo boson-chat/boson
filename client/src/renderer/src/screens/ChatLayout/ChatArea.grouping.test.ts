@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldGroup, buildRenderItems, coalesceActivity, preformattedBody, ACTIVITY_COLLAPSE_MIN } from './message-render';
+import { shouldGroup, buildRenderItems, coalesceActivity, summarizeActivity, preformattedBody, ACTIVITY_COLLAPSE_MIN } from './message-render';
 import { parseTables } from './table';
 import type { ChatMessage } from '../../modules/chat';
 
@@ -235,5 +235,40 @@ describe('buildRenderItems — pasted markdown documents', () => {
     ]);
     expect(items.map((i) => i.type)).toEqual(['doc']);
     expect((items[0] as Extract<typeof items[number], { type: 'doc' }>).items).toHaveLength(5);
+  });
+});
+
+describe('summarizeActivity', () => {
+  let n = 0;
+  const ev = (kind: 'join' | 'part' | 'quit' | 'system', from: string, text = `${from} ${kind}`) =>
+    ({ id: `e${n++}`, kind, from, text, timestamp: n }) as Parameters<typeof summarizeActivity>[0][number];
+
+  it('says where each person ended up, not the first line', () => {
+    expect(summarizeActivity([
+      ev('join', 'stax_'), ev('quit', 'stax_'), ev('join', 'stax_'), ev('quit', 'stax_'),
+      ev('quit', 'stax'), ev('join', 'embee'),
+    ])).toBe('embee popped in · stax_ nipped in and out · stax left');
+  });
+
+  it('someone who left and came back', () => {
+    expect(summarizeActivity([ev('part', 'a'), ev('join', 'a'), ev('join', 'b'), ev('join', 'c')]))
+      .toBe('b and c popped in · a popped out and back');
+  });
+
+  it('long lists name two and count the rest', () => {
+    expect(summarizeActivity(['a', 'b', 'c', 'd', 'e'].map((x) => ev('join', x)))).toBe('a, b and 3 others popped in');
+    expect(summarizeActivity(['a', 'b', 'c'].map((x) => ev('quit', x)))).toBe('a, b and c left');
+  });
+
+  it('system lines follow, coalesced', () => {
+    expect(summarizeActivity([
+      ev('system', '', 'You joined #lobby'), ev('system', '', 'You joined #lobby'), ev('join', 'x'), ev('system', '', 'You joined #lobby'),
+    ])).toBe('x popped in · You joined #lobby ×3');
+  });
+
+  it('stays one line: three items, then how many more', () => {
+    expect(summarizeActivity([
+      ev('join', 'a'), ev('quit', 'b'), ev('system', '', 'x sets mode +v a'), ev('system', '', 'x sets mode +o a'), ev('system', '', 'topic changed'),
+    ])).toBe('a popped in · b left · x sets mode +v a · and 2 more');
   });
 });
