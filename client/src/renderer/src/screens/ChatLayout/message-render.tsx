@@ -354,6 +354,9 @@ interface MessageListProps {
 const OVERSCAN = 800;
 // Rows rendered before the viewport has been measured (the first frame).
 const INITIAL_ROWS = 40;
+// Load-older fires once the ribbon above the rows comes within this much of
+// the viewport's top (an IntersectionObserver over the scroller).
+export const LOAD_OLDER_MARGIN_PX = 120;
 const rowHeights = new HeightCache();
 
 interface ListRow {
@@ -417,6 +420,11 @@ export const MessageList = memo(function MessageList({
   const placedSize = useRef<string | null>(null);
   const sizeOf = (el: HTMLElement): string => `${el.clientWidth}x${el.clientHeight}`;
   const layoutRef = useRef<Layout | null>(null);
+  // The load-older ribbon (watched for coming into view).
+  const ribbonRef = useRef<HTMLDivElement | null>(null);
+  // The user has scrolled this conversation since it was shown: until then
+  // a ribbon in view (a short conversation) doesn't pull on its own.
+  const userScrolled = useRef(false);
   const shownChannel = useRef<string | null | undefined>(undefined);
   const onViewportRef = useRef(onViewport);
   onViewportRef.current = onViewport;
@@ -461,6 +469,7 @@ export const MessageList = memo(function MessageList({
       animated.current = new Set(rows.map((r) => r.key));
       reportedBottom.current = null;
       reportBottom(true);
+      userScrolled.current = false;
     }
     if (noLayout) return;
     if (el.clientHeight === 0 && el.scrollHeight === 0) { setNoLayout(true); return; }
@@ -468,7 +477,7 @@ export const MessageList = memo(function MessageList({
     // yet: that's the user's place now (on the layout they scrolled).
     const resized = placedSize.current !== null && placedSize.current !== sizeOf(el);
     if (!resized && placedTop.current !== null && Math.abs(el.scrollTop - placedTop.current) > 1 && placedLayout.current) {
-      anchorRef.current = captureAnchor(placedLayout.current, el.scrollTop);
+      anchorRef.current = captureAnchor(placedLayout.current, Math.max(0, el.scrollTop));
       atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK;
       placedTop.current = el.scrollTop;
     }
@@ -492,7 +501,11 @@ export const MessageList = memo(function MessageList({
     const toBottom = pendingSwitch.current || atBottomRef.current;
     const target = toBottom ? bottomOf(el.scrollHeight, el.clientHeight) : restoreAnchor(now, anchorRef.current);
     pendingSwitch.current = false;
-    if (target !== null && Math.abs(target - el.scrollTop) > 0.5) {
+    // iOS rubber-bands past the top (scrollTop < 0) and springs back by
+    // itself: putting it at 0 from here would cut the bounce short, every
+    // frame, and fight the user's finger.
+    const bouncingAtTop = !toBottom && el.scrollTop < 0 && target === 0;
+    if (target !== null && !bouncingAtTop && Math.abs(target - el.scrollTop) > 0.5) {
       el.scrollTop = target;
       setByUs.current = el.scrollTop;
     }
@@ -532,9 +545,68 @@ export const MessageList = memo(function MessageList({
     }
     return undefined;
   }, [historyLoading, historyError]);
-  // Fire load-older only when the user has actually reached the top, and
-  // debounce it: scroll events fire in bursts, so we wait for scrolling to
-  // settle (and re-confirm we're still at the top) before pulling.
+  // Load-older, from the scroll position. Two triggers, either enough:
+  //   - the ribbon above the rows comes into view (an IntersectionObserver
+  //     on the scroller, LOAD_OLDER_MARGIN_PX early). It doesn't depend on
+  //     scroll-event timing or an exact scrollTop, which touch scrolling
+  //     makes fragile: on iOS a fling ends in a rubber-band bounce past the
+  //     top (negative scrollTop) while the list re-places itself, and a
+  //     scroll event taken for a re-size returns before the check;
+  //   - scroll events that settle at the very top (debounced), where there
+  //     is no IntersectionObserver.
+  // Either way only once the user has touched / scrolled this conversation,
+  // and not while a request is in flight, done, or failed (the ribbon's
+  // button retries).
+  const live = useRef({ onLoadOlder, historySupported, historyLoading, historyExhausted, historyError });
+  live.current = { onLoadOlder, historySupported, historyLoading, historyExhausted, historyError };
+  const maybeLoadOlder = (): void => {
+    const p = live.current;
+    if (!p.onLoadOlder || !p.historySupported || p.historyLoading || p.historyExhausted || p.historyError) return;
+    if (!userScrolled.current) return;
+    p.onLoadOlder();
+  };
+  const maybeLoadRef = useRef(maybeLoadOlder);
+  maybeLoadRef.current = maybeLoadOlder;
+  // The user's own input on the list (not just its scroll events, which
+  // the list's own re-placing and a viewport re-size also produce).
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el) return;
+    const mark = (): void => { userScrolled.current = true; };
+    const opts = { passive: true } as const;
+    for (const t of ['touchmove', 'wheel'] as const) el.addEventListener(t, mark, opts);
+    return () => { for (const t of ['touchmove', 'wheel'] as const) el.removeEventListener(t, mark); };
+  }, [elRef]);
+  useEffect(() => {
+    const root = elRef.current;
+    const ribbon = ribbonRef.current;
+    if (!root || !ribbon || typeof IntersectionObserver === 'undefined') return;
+    const io = new IntersectionObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      if (!entry) return;
+      if (entry.isIntersecting) maybeLoadRef.current();
+    }, { root, rootMargin: `${LOAD_OLDER_MARGIN_PX}px 0px 0px 0px` });
+    io.observe(ribbon);
+    return () => io.disconnect();
+  }, [elRef, historySupported]);
+  // A page came in and the ribbon is still in view (the page was short of a
+  // screenful, or the list kept its place right under it): keep going.
+  // Only when rows were added, so a page that brought nothing doesn't loop.
+  const rowsAtLoad = useRef<number | null>(null);
+  useEffect(() => {
+    if (historyLoading) { rowsAtLoad.current = msgs.length; return; }
+    const before = rowsAtLoad.current;
+    rowsAtLoad.current = null;
+    if (before === null || msgs.length <= before || noLayout) return;
+    // Measured now (the list has re-placed itself under the new rows), not
+    // the observer's last word, which predates them.
+    const root = elRef.current;
+    const ribbon = ribbonRef.current;
+    if (!root || !ribbon) return;
+    if (ribbon.getBoundingClientRect().bottom >= root.getBoundingClientRect().top - LOAD_OLDER_MARGIN_PX) maybeLoadRef.current();
+  }, [historyLoading]);
+  // Scroll events: debounced (they come in bursts), then re-confirm the
+  // viewport is still at the top before pulling.
   const scrollDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frame = useRef<number | null>(null);
   useEffect(() => () => {
@@ -555,8 +627,9 @@ export const MessageList = memo(function MessageList({
     // Our own scrollTop adjustments don't move the anchor; the user's do.
     const ours = setByUs.current !== null && Math.abs(setByUs.current - el.scrollTop) < 1;
     setByUs.current = null;
-    if (!ours && Math.abs(el.scrollTop - (placedTop.current ?? -1)) > 1 && placedLayout.current) {
-      anchorRef.current = captureAnchor(placedLayout.current, el.scrollTop);
+    if (!ours && (placedTop.current === null || Math.abs(el.scrollTop - placedTop.current) > 1)) {
+      userScrolled.current = true;
+      if (placedLayout.current) anchorRef.current = captureAnchor(placedLayout.current, Math.max(0, el.scrollTop));
     }
     placedTop.current = el.scrollTop;
     if (!noLayout && frame.current === null) {
@@ -569,8 +642,7 @@ export const MessageList = memo(function MessageList({
     if (scrollDebounce.current) clearTimeout(scrollDebounce.current);
     scrollDebounce.current = setTimeout(() => {
       scrollDebounce.current = null;
-      if (historyLoading || historyExhausted || historyError) return;
-      if (el.scrollTop <= 4) onLoadOlder();
+      if (el.scrollTop <= 4) maybeLoadOlder();
     }, 250);
   };
 
@@ -578,7 +650,7 @@ export const MessageList = memo(function MessageList({
     <div class="chat-messages" ref={scrollRef} onScroll={onScroll}>
       <div class="messages-inner">
         {historySupported && (
-          <div class="chat-load-older">
+          <div class="chat-load-older" ref={ribbonRef}>
             {historyError ? (
               <button
                 type="button"

@@ -118,6 +118,24 @@ describe('memory windows', () => {
     expect(t.raws.filter((r) => r.startsWith('CHATHISTORY BEFORE'))).toEqual([`CHATHISTORY BEFORE #a timestamp=${pivot} 50`]);
   });
 
+  it('a store that says it holds lines but returns none (a failed IndexedDB write) falls through to the server', async () => {
+    const t = setup('batch server-time chathistory');
+    t.emit({ Kind: 'JOIN', From: 'me', Target: '#a' });
+    t.chat.setForeground(true);
+    t.chat.setActive('#a');
+    t.say('#a', 260);
+    t.chat.setViewport('#a', false);
+    // The index still claims lines; the backing store lost them.
+    t.older.takeNewest = () => Promise.resolve([]);
+    expect(t.older.has('#a')).toBe(true);
+    t.chat.loadOlderHistory('#a');
+    await Promise.resolve(); await Promise.resolve();
+    expect(t.older.has('#a')).toBe(false);
+    expect(t.ch('#a').history?.loading).toBe(false);
+    t.chat.loadOlderHistory('#a');
+    expect(t.raws.filter((r) => r.startsWith('CHATHISTORY BEFORE'))).toHaveLength(1);
+  });
+
   it('a held line replayed by a bouncer is not shown twice', () => {
     const t = setup();
     t.emit({ Kind: 'JOIN', From: 'me', Target: '#a' });
