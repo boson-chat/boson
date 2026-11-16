@@ -10,7 +10,7 @@
 // show as they arrive.
 import type { VideoBridge } from './video.bridge';
 import { codecFromDesc, parseBinary, parseText, type FrameMsg } from './video.frames';
-import { layerForTile } from './video.layout';
+import { fitRect, layerForTile } from './video.layout';
 import { EMPTY_VIDEO_STATE, type VideoCamera, type VideoSource, type VideoState, type VideoTrack } from './video.types';
 
 export interface VideoSnapshot {
@@ -171,11 +171,11 @@ class TrackPlayer {
       c.width = w;
       c.height = h;
     }
-    const s = Math.min(w / f.displayWidth, h / f.displayHeight);
-    const dw = f.displayWidth * s;
-    const dh = f.displayHeight * s;
+    // data-fit on the canvas: cameras cover their tile, screens are
+    // letterboxed (CallView).
+    const r = fitRect(f.displayWidth, f.displayHeight, w, h, c.dataset.fit === 'cover' ? 'cover' : 'contain');
     ctx.clearRect(0, 0, w, h);
-    ctx.drawImage(f, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    ctx.drawImage(f, r.x, r.y, r.w, r.h);
   }
 
   close(): void {
@@ -204,6 +204,7 @@ export class VideoController {
   private subs = new Map<number, number>(); // track → layer asked for
   private rafId = 0;
   private previewCanvas: HTMLCanvasElement | null = null;
+  private previewSrc: HTMLCanvasElement | null = null;
   private disposed = false;
 
   constructor(private bridge: VideoBridge, env?: Partial<VideoEnv>) {
@@ -424,11 +425,25 @@ export class VideoController {
     if (!c) return;
     const ctx = c.getContext('2d');
     if (!ctx) return;
-    if (c.width !== w || c.height !== h) {
-      c.width = w;
-      c.height = h;
+    // The picture goes to a scratch canvas at its own size, then into the
+    // tile like a received camera (cover, within limits): stretching the
+    // canvas instead squashed it into a phone's tall tiles.
+    const src = (this.previewSrc ??= document.createElement('canvas'));
+    if (src.width !== w || src.height !== h) {
+      src.width = w;
+      src.height = h;
     }
-    ctx.putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+    src.getContext('2d')?.putImageData(new ImageData(new Uint8ClampedArray(rgba), w, h), 0, 0);
+    const dpr = globalThis.devicePixelRatio || 1;
+    const cw = Math.max(1, Math.round(c.clientWidth * dpr));
+    const ch = Math.max(1, Math.round(c.clientHeight * dpr));
+    if (c.width !== cw || c.height !== ch) {
+      c.width = cw;
+      c.height = ch;
+    }
+    const r = fitRect(w, h, cw, ch, 'cover');
+    ctx.clearRect(0, 0, cw, ch);
+    ctx.drawImage(src, r.x, r.y, r.w, r.h);
   }
 
   dispose(): void {

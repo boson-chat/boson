@@ -100,6 +100,9 @@
 .mvoice-icon-btn:active { background: var(--surface-hover); }
 .mvoice-icon-btn[data-on] { color: var(--danger); border-color: color-mix(in oklab, var(--danger), transparent 50%); }
 .mvoice-icon-btn:disabled { opacity: 0.6; }
+.mvoice-icon-btn[data-live] { color: var(--success, #23a55a); }
+.mvoice-icon-btn[data-paused] { color: var(--warn, #e0a32a); }
+.mvoice-icon-btn[data-starting] { animation: mvoice-pulse 1s ease-in-out infinite; }
 .mvoice-leave { background: var(--danger); border-color: var(--danger); color: #fff; }
 .mvoice-leave:active { background: color-mix(in oklab, var(--danger), black 20%); }
 

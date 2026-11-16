@@ -17,6 +17,28 @@
 .call-view-count { opacity: 0.6; font-size: 0.85em; }
 .call-view-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .call-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.call-stage-content { position: relative; height: 100%; }
+/* Phones: more people than fit scroll (phoneLayout gives the height). */
+.call-view[data-phone] .call-stage { overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+/* Our own picture over the other person's: draggable to any corner. */
+.call-tile[data-pip] {
+  z-index: 2;
+  touch-action: none;
+  cursor: grab;
+  border-radius: 12px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.12);
+  transition: left 180ms ease, top 180ms ease, box-shadow 120ms ease;
+}
+.call-tile[data-pip][data-speaking] { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45), 0 0 0 2px var(--success, #23a55a); }
+.call-tile[data-pip] .call-tile-label { font-size: 0.72em; }
+.call-tile[data-pip] .call-tile-avatar { width: min(64px, 50%); font-size: 1.4em; }
+.call-view-notice {
+  padding: 6px 12px;
+  font-size: 0.8em;
+  color: var(--text-danger, #f23f43);
+  background: var(--surface-raised, #1e1f22);
+  border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+}
 .call-tile {
   position: absolute;
   border-radius: 8px;
