@@ -1,3 +1,9 @@
+## [0.66.0](https://github.com/boson-chat/boson/compare/v0.65.0...v0.66.0) (2026-11-16)
+
+### Features
+
+* watch a call's video on phones; watch-only builds show no send buttons ([#74](https://github.com/boson-chat/boson/issues/74)) ([5352ba4](https://github.com/boson-chat/boson/commit/5352ba4e28e5e1b3691d2e3fe80f0d6f2e70fc1a))
+
 ## [0.65.0](https://github.com/boson-chat/boson/compare/v0.64.0...v0.65.0) (2026-11-16)
 
 ### Features
