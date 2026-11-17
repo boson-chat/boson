@@ -165,11 +165,14 @@ function installVoice(): void {
     permissions: managed ? { 'irc.nebula.example': { policy: 'registered', canCreate: true, createScope: 'any', foundedChannels: [] } } : {},
     rooms: managed ? { 'irc.nebula.example': managedRooms } : {
       'irc.nebula.example': [
-        { id: 'general', name: 'General', participants: [
-          { sessionId: 3, userId: 'usr_nova', name: 'nova', muted: false, deafened: false, speaking: true },
-          { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', muted: true, deafened: false, speaking: false },
-          { sessionId: 5, userId: 'usr_pixel', name: 'pixel', muted: false, deafened: true, speaking: false },
-        ] },
+        // ?people=N: everyone but us is in General (before we join).
+        { id: 'general', name: 'General', participants: new URLSearchParams(location.search).has('people')
+          ? callPeople().filter((p) => !p.self).map(({ sessionId, userId, name, muted, deafened, speaking }) => ({ sessionId, userId, name, muted, deafened, speaking }))
+          : [
+            { sessionId: 3, userId: 'usr_nova', name: 'nova', muted: false, deafened: false, speaking: true },
+            { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', muted: true, deafened: false, speaking: false },
+            { sessionId: 5, userId: 'usr_pixel', name: 'pixel', muted: false, deafened: true, speaking: false },
+          ] },
         { id: 'pairing', name: 'Pairing', participants: [
           { sessionId: 8, userId: 'usr_orbit', name: 'orbit', muted: false, deafened: false, speaking: false },
         ] },
@@ -212,14 +215,14 @@ function installVoice(): void {
 }
 
 // ?people=N (1–9): how many are in the call (default 4, ourselves first).
-const EXTRA = ['orbit', 'mox', 'quill', 'ember', 'sage'];
+const EXTRA = ['orbit', 'mox', 'quill', 'ember', 'sage', 'ash', 'bix', 'cora', 'dune', 'eli', 'fern', 'gage', 'hale', 'iris', 'jett', 'kai', 'lux', 'moss', 'opal', 'pike', 'rook', 'tove', 'vale', 'wren'];
 function callPeople() {
   const all = [
     { sessionId: 1, userId: 'usr_ada', name: NICK, self: true, muted: false, deafened: false, speaking: true, volume: 100 },
     { sessionId: 3, userId: 'usr_nova', name: 'nova', self: false, muted: false, deafened: false, speaking: true, volume: 100 },
     { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', self: false, muted: true, deafened: false, speaking: false, volume: 100 },
     { sessionId: 5, userId: 'usr_pixel', name: 'pixel', self: false, muted: false, deafened: true, speaking: false, volume: 80 },
-    ...EXTRA.map((n, i) => ({ sessionId: 20 + i, userId: `usr_${n}`, name: n, self: false, muted: false, deafened: false, speaking: false, volume: 100 })),
+    ...EXTRA.map((n, i) => ({ sessionId: 20 + i, userId: `usr_${n}`, name: n, self: false, muted: i % 4 === 1, deafened: false, speaking: false, volume: 100 })),
   ];
   const n = Number(new URLSearchParams(location.search).get('people') ?? 4);
   return all.slice(0, Math.max(1, Math.min(all.length, n || 4)));

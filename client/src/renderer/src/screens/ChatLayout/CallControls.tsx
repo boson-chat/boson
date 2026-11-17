@@ -61,12 +61,13 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
       {/* Builds that can't send (phones for now, Linux release builds)
           watch only: no send buttons. */}
       {st.canCapture && (<>
-      <button type="button" class="voice-bar-btn" aria-pressed={camLive} data-live={camLive || undefined} data-paused={cam.paused || undefined}
+      <button type="button" class="voice-bar-btn call-cam-btn" aria-pressed={camLive} data-live={camLive || undefined} data-paused={cam.paused || undefined}
+        data-off={!camLive || undefined}
         data-starting={cam.starting || undefined} disabled={!canSend} aria-label={canSend ? camLabel : sendTitle}
         title={canSend ? camLabel : sendTitle} onClick={toggleCamera} onContextMenu={(e) => { e.preventDefault(); void pickCamera(); }}>
         {camLive ? <Video size={16} aria-hidden="true" /> : <VideoOff size={16} aria-hidden="true" />}
       </button>
-      {st.canShareScreen && <button type="button" class="voice-bar-btn" aria-pressed={scr.on} data-live={scr.on || scr.starting || undefined}
+      {st.canShareScreen && <button type="button" class="voice-bar-btn call-screen-btn" aria-pressed={scr.on} data-live={scr.on || scr.starting || undefined}
         data-starting={scr.starting || undefined} disabled={!canSend} aria-label={canSend ? scrLabel : sendTitle}
         title={canSend ? scrLabel : sendTitle} onClick={() => { void toggleScreen(); }}>
         {scr.on || scr.starting ? <MonitorX size={16} aria-hidden="true" /> : <MonitorUp size={16} aria-hidden="true" />}

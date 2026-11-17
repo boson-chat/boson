@@ -55,9 +55,19 @@ describe('VoiceSection', () => {
     await screen.findByText('Voice');
     await screen.findByText('General');
     expect(screen.getByText('Music')).toBeTruthy();
+    // Before joining: just faces (the speaker's ringed), no names.
+    const peek = screen.getByRole('button', { name: /2 in call: show who's in General/ });
+    expect(peek.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.voice-face[data-speaking]')).toBeTruthy();
+    expect(screen.queryByLabelText('alice: speaking')).toBeNull();
+    // Peek: who's in, without joining.
+    fireEvent.click(peek);
     expect(screen.getByLabelText('alice: speaking')).toBeTruthy();
     expect(screen.getByLabelText('bob: muted')).toBeTruthy();
     expect(document.querySelector('.voice-avatar[data-speaking]')).toBeTruthy();
+    expect(bridge.calls.some((c) => c.method === 'join')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: /hide who's in General/ }));
+    expect(screen.queryByLabelText('alice: speaking')).toBeNull();
   });
 
   it('shows nothing on a server without voice', async () => {
@@ -78,18 +88,23 @@ describe('VoiceSection', () => {
   it('joins on click and shows the connected bar', async () => {
     mount('irc.boson.chat');
     fireEvent.click(await screen.findByLabelText('Join voice channel Music'));
-    await screen.findByText('Voice connected');
+    await screen.findByText(/^Connected/);
     expect(screen.getByText('Music / boson')).toBeTruthy();
     expect(screen.getByLabelText('Music (connected)')).toBeTruthy();
-    // Our live roster replaces the polled one for the room we're in.
+    // Our live roster replaces the polled one for the room we're in, and
+    // shows without a peek once we're in.
     expect(screen.getByLabelText('me (you)')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /in call: hide who's in Music/ }).hasAttribute('disabled')).toBe(true);
+    // Red tint while muted or deafened.
+    expect(screen.getByLabelText('Mute').hasAttribute('data-off')).toBe(false);
 
     fireEvent.click(screen.getByLabelText('Mute'));
     await waitFor(() => expect(screen.getByLabelText('Unmute')).toBeTruthy());
+    expect(screen.getByLabelText('Unmute').hasAttribute('data-off')).toBe(true);
     fireEvent.click(screen.getByLabelText('Deafen'));
     await waitFor(() => expect(screen.getByLabelText('Undeafen')).toBeTruthy());
-    fireEvent.click(screen.getByLabelText('Disconnect'));
-    await waitFor(() => expect(screen.queryByText('Voice connected')).toBeNull());
+    fireEvent.click(screen.getByLabelText('Leave call'));
+    await waitFor(() => expect(screen.queryByText(/^Connected/)).toBeNull());
   });
 
   it('shows a join error with retry and dismiss', async () => {
@@ -113,6 +128,7 @@ describe('VoiceSection', () => {
 
   it('right-click a participant for their volume', async () => {
     mount('irc.boson.chat');
+    fireEvent.click(await screen.findByRole('button', { name: /show who's in General/ }));
     fireEvent.contextMenu(await screen.findByLabelText('alice: speaking'), { clientX: 10, clientY: 10 });
     const slider = await screen.findByLabelText('Volume for alice');
     fireEvent.input(slider, { target: { value: '150' } });
@@ -146,7 +162,7 @@ describe('VoiceSection', () => {
     try {
       mount('irc.boson.chat');
       fireEvent.click(await screen.findByLabelText('Join voice channel General'));
-      await screen.findByText('Voice connected');
+      await screen.findByText(/^Connected/);
       expect(screen.queryByRole('button', { name: 'Hold to talk' })).toBeNull();
       await act(async () => { controller.setInputMode('ptt'); });
       const hold = await screen.findByRole('button', { name: 'Hold to talk' });
@@ -156,5 +172,52 @@ describe('VoiceSection', () => {
     } finally {
       delete window.bosonPlatform;
     }
+  });
+});
+
+describe('a busy voice channel in the sidebar', () => {
+  const crowd = Array.from({ length: 15 }, (_, i) => ({
+    sessionId: 10 + i, userId: `usr_p${i}`, name: `p${i}`, muted: i % 4 === 1, deafened: false, speaking: i === 9,
+  }));
+  beforeEach(() => {
+    localStorage.clear();
+    __resetVoiceSettings();
+    bridge = createFakeVoiceBridge({ servers: { 'irc.boson.chat': {} }, rooms: { 'irc.boson.chat': [{ id: 'general', name: 'General', participants: crowd }] } });
+    controller = new VoiceController(bridge, {
+      authUrl: 'https://auth.boson.chat', voiceToken: async () => ({ token: 't', expiresAt: Date.now() + 300_000 }), pollMs: 60_000, keyTarget: null,
+    });
+    setVoiceController(controller);
+  });
+  afterEach(() => setVoiceController(null));
+
+  it('shows three faces (the speaker first) and +12, then five names and "+10 more · see all"', async () => {
+    mount('irc.boson.chat');
+    const peek = await screen.findByRole('button', { name: /15 in call: show who's in General/ });
+    const faces = peek.querySelectorAll('.voice-face');
+    expect(faces.length).toBe(3);
+    expect(faces[0].hasAttribute('data-speaking')).toBe(true); // p9 speaks: first
+    expect(peek.textContent).toContain('+12');
+    fireEvent.click(peek);
+    const names = [...document.querySelectorAll('.voice-participant .voice-participant-name')].map((e) => e.textContent);
+    expect(names.length).toBe(5);
+    expect(names[0]).toBe('p9'); // the speaker heads the list
+    fireEvent.click(screen.getByRole('button', { name: '+10 more · see all' }));
+    expect(document.querySelectorAll('.voice-participant').length).toBe(15);
+  });
+});
+
+describe('roomPeople', () => {
+  it('ranks you, then speakers, then sharers for a cut-down list', async () => {
+    const { roomPeople } = await import('./VoiceRooms');
+    const live = Array.from({ length: 9 }, (_, i) => ({ sessionId: i, userId: `u${i}`, name: `n${i}`, muted: false, deafened: false, speaking: i === 5, self: i === 7 }));
+    const r = roomPeople(live, [{ userId: 'u3', kind: 'screen', self: false }, { userId: 'u2', kind: 'camera', self: false }], false, false);
+    expect(r.capped.map((x) => x.p.name).slice(0, 3)).toEqual(['n7', 'n5', 'n3']);
+    expect(r.capped.length).toBe(5);
+    expect(r.hidden).toBe(4);
+    expect(r.people.find((x) => x.p.name === 'n2')!.camera).toBe(true);
+    expect(r.faces[0].p.name).toBe('n5');
+    expect(r.more).toBe(6);
+    // Seven or fewer: everyone, in order.
+    expect(roomPeople(live.slice(0, 7), [], false, false).capped.length).toBe(7);
   });
 });

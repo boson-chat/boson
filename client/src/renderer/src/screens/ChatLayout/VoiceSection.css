@@ -67,6 +67,66 @@
 
 .voice-participant-flag { flex-shrink: 0; color: var(--danger, #e0533a); }
 
+/* A room's row and its face stack: before you join, who's in shows as up
+   to three faces (speakers first, with a green ring) and "+N"; the stack
+   is a button that lists them ("peek") without joining. */
+.voice-room-line { display: flex; align-items: center; min-width: 0; }
+.voice-room-line > .voice-room-row { flex: 1; min-width: 0; }
+.voice-room-incall .channel-name,
+.voice-room-incall .voice-room-icon { color: var(--success); }
+.voice-faces {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  margin-right: var(--space-2);
+  padding: 0 4px 0 8px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: var(--fg-2);
+  font: 600 var(--text-xs) var(--font-mono);
+  cursor: pointer;
+}
+.voice-faces:disabled { cursor: default; }
+@media (hover: hover) {
+  .voice-faces:not(:disabled):hover { background: var(--surface-hover); color: var(--fg); }
+}
+.voice-faces:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.voice-faces-stack { display: inline-flex; align-items: center; }
+.voice-face {
+  display: inline-flex;
+  margin-left: -5px;
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 2px var(--surface-raised);
+}
+.voice-face[data-speaking] { box-shadow: 0 0 0 2px var(--success); }
+.voice-faces-chevron { transition: transform var(--motion-fast) var(--ease-standard); }
+.voice-faces-chevron[data-open] { transform: rotate(180deg); }
+.voice-live {
+  flex-shrink: 0;
+  padding: 1px 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  color: var(--bg, #070709);
+  font: 700 8px var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.voice-participant-cam { flex-shrink: 0; color: var(--fg-2); }
+.voice-see-all-row { list-style: none; }
+.voice-see-all {
+  margin-left: calc(var(--space-4) + 28px);
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 500 var(--text-xs) var(--font-mono);
+  cursor: pointer;
+}
+.voice-see-all:hover { text-decoration: underline; }
+
 /* Speaking ring: the avatar's outline lights up while they talk. */
 .voice-avatar {
   display: inline-flex;
@@ -128,9 +188,6 @@
 .voice-bar-quality[data-quality='unknown'] { color: var(--success); }
 
 .voice-bar-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.voice-bar-status-short { display: none; }
-.voice-bar-break { display: none; }
-.voice-bar-rtt { color: var(--fg-3); white-space: nowrap; }
 
 .voice-bar-where {
   color: var(--fg-3);
@@ -139,13 +196,6 @@
   white-space: nowrap;
 }
 
-.voice-bar-controls {
-  display: flex;
-  flex-wrap: wrap; /* a narrow sidebar (a phone) takes a second row */
-  align-items: center;
-  gap: var(--space-1);
-  margin-top: var(--space-1);
-}
 
 .voice-bar-btn {
   background: transparent;
@@ -166,23 +216,6 @@
 .voice-bar-btn[data-on] { color: var(--danger, #e0533a); }
 .voice-bar-leave:hover { color: var(--danger, #e0533a); }
 
-.voice-bar-mode {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  color: var(--fg-3);
-  letter-spacing: 0.05em;
-}
-.voice-bar-tx {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--muted);
-  transition: background var(--motion-instant) var(--ease-standard);
-}
-.voice-bar-tx[data-on] { background: var(--success); }
 
 .voice-bar-actions { display: inline-flex; gap: var(--space-1); margin-left: auto; }
 .voice-bar-error .voice-bar-status { color: var(--danger, #e0533a); font-weight: 700; }
@@ -193,7 +226,6 @@
 /* Listen only (joined below the speak role). */
 .voice-bar-btn:disabled { cursor: default; opacity: 0.8; }
 .voice-bar-btn:disabled:hover { background: transparent; border-color: transparent; }
-.voice-bar-listen { color: var(--warn, #e0a32a); letter-spacing: 0; }
 .voice-bar-notice .voice-bar-status { color: var(--fg); font-weight: 700; }
 
 /* Voice channels hanging under their text channel: one step in, with a
@@ -321,3 +353,71 @@
 .voice-dialog-actions .bds-btn[data-tone='danger'] { background: var(--danger); border-color: var(--danger); color: #fff; }
 .voice-dialog-actions .bds-btn[data-tone='danger-ghost'] { color: var(--danger); }
 .voice-dialog-actions:has(.bds-btn[data-tone='danger']) { justify-content: flex-end; }
+
+/* ---- the voice panel (the sidebar's foot, while in a call) ----
+   "Connected · 38 ms / General / Server" opens the call; leave; then mic,
+   deafen, camera, screen and settings. Red tint: muted, deafened, camera
+   off. Amber: you're sharing your screen. */
+.voice-panel { gap: var(--space-2); padding: var(--space-3); }
+.voice-panel .voice-bar-head { gap: var(--space-2); }
+.voice-panel .voice-bar-quality { flex: 0 0 auto; }
+.voice-panel-where {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.voice-panel-where:disabled { cursor: default; }
+.voice-panel-where:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.voice-panel-where .voice-bar-where { max-width: 100%; }
+.voice-panel-status {
+  color: var(--success);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.voice-panel-status[data-quality='ok'] { color: var(--warn, #e0a32a); }
+.voice-panel-status[data-quality='poor'] { color: var(--danger, #e0533a); }
+.voice-panel-status[data-quality='connecting'] { color: var(--warn, #e0a32a); }
+.voice-panel .voice-panel-leave {
+  width: 30px;
+  height: 30px;
+  background: var(--danger, #ef4444);
+  border-color: var(--danger, #ef4444);
+  color: #fff;
+}
+.voice-panel .voice-panel-leave:hover { filter: brightness(1.1); color: #fff; background: var(--danger, #ef4444); }
+.voice-panel-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
+  gap: 5px;
+}
+/* The video buttons' wrapper joins the grid. */
+.voice-panel-controls .call-video-buttons { display: contents; }
+.voice-panel-controls .call-video-error { grid-column: 1 / -1; margin: 0; }
+.voice-panel-controls .voice-bar-btn {
+  width: 100%;
+  height: 34px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+}
+.voice-panel-controls .voice-bar-btn:hover { background: var(--surface-hover); }
+.voice-panel-controls .voice-bar-btn[data-off] {
+  background: color-mix(in oklab, var(--danger, #ef4444), transparent 86%);
+  border-color: color-mix(in oklab, var(--danger, #ef4444), transparent 50%);
+  color: var(--danger, #f87171);
+}
+.voice-panel-controls .call-cam-btn[data-live] { color: var(--fg); }
+.voice-panel-controls .call-screen-btn[data-live] { background: var(--accent); border-color: var(--accent); color: var(--bg, #070709); }

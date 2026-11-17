@@ -134,15 +134,11 @@
    Material's minimum), without changing what it looks like. */
 .app-shell.is-narrow .chat-icon-btn { width: 44px; height: 44px; }
 .app-shell.is-narrow .channel-item { min-height: 44px; }
+.app-shell.is-narrow .voice-faces { height: 44px; min-width: 44px; margin-right: var(--space-1); padding: 0 4px 0 10px; gap: 3px; }
+.app-shell.is-narrow .voice-face { margin-left: -9px; }
 .app-shell.is-narrow .user-panel-item { min-height: 44px; }
 .app-shell.is-narrow .channel-add { width: 44px; height: 44px; margin: -11px -11px -11px 0; }
 .app-shell.is-narrow .voice-bar-btn { min-width: 44px; min-height: 44px; }
-/* The phone drawer is ~230–260px wide: "Connected" (the room is on the
-   next line), and the controls wrap (VoiceSection.css). */
-.app-shell.is-narrow .voice-bar-status-long { display: none; }
-.app-shell.is-narrow .voice-bar-status-short { display: inline; }
-.app-shell.is-narrow .voice-bar-mode { flex: 0 0 auto; padding: 0 var(--space-2); }
-.app-shell.is-narrow .voice-bar-break { display: block; flex-basis: 100%; height: 0; }
 
 /* Dialogs are full-screen sheets on a phone: their content fits its width. */
 @media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
