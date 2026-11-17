@@ -259,6 +259,8 @@ function pickerThumb(id: string): string {
 // WebKit video test feeds it from Go: desktop/video_webkit_test.go).
 function installLiveVideo(): void {
   const q = new URLSearchParams(location.search);
+  // &pacing=1: "Smoother screen shares" on (the experimental flag).
+  setVoiceSettings({ screenPacing: q.get('pacing') === '1' });
   const others = callPeople().filter((p) => !p.self);
   const layer = (w: number, h: number) => [{ id: 0, width: w, height: h, fps: 30 }];
   const state: VideoState = {

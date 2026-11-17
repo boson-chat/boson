@@ -684,7 +684,9 @@ func (v *VideoService) noteLateness(trackID uint32, captureUS uint64) {
 		return
 	}
 	tr := sess.tracks[trackID]
-	if tr == nil {
+	if tr == nil || tr.GetKind() == videopb.TrackKind_SCREEN {
+		// A late screen frame says nothing about lip sync: it mustn't
+		// delay its sharer's voice.
 		return
 	}
 	user := sess.people[tr.GetSessionId()].userID

@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { setVoiceSettings } from '../voice/voice.settings';
 import { VideoController, type VideoEnv } from './video.controller';
 import type { VideoBridge } from './video.bridge';
 import { EMPTY_VIDEO_STATE, type VideoState } from './video.types';
@@ -331,5 +332,54 @@ describe('screen shares', () => {
     expect(bridge.subscribe).toHaveBeenCalledWith(10, 2);
     c.tiles([{ trackId: 20, width: 378, height: 213, visible: false }]);
     expect(bridge.unsubscribe).toHaveBeenCalledWith(20);
+  });
+});
+
+describe('screen shares: "Smoother screen shares" (experimental)', () => {
+  const SCREEN = { trackId: 20, userId: 'usr_bob', name: 'bob', kind: 'screen' as const, self: false,
+    layers: [{ id: 0, width: 1920, height: 1200, fps: 30 }] };
+  afterEach(() => { setVoiceSettings({ screenPacing: false }); });
+
+  async function run(pacing: boolean) {
+    setVoiceSettings({ screenPacing: pacing });
+    const { c, setNow } = setup({ tracks: [SCREEN] });
+    await flush();
+    c.setOpen(true);
+    const ws = FakeSocket.last!;
+    const shown: number[] = [];
+    let now = 1_000_000_000;
+    const canvas = document.createElement('canvas');
+    canvas.getContext = (() => ({ clearRect() {}, drawImage() { shown.push(now); } })) as unknown as typeof canvas.getContext;
+    c.attachCanvas(20, canvas);
+    // An audio offset for bob: on main, his screen waits for it.
+    const T = now * 1000 - 50_000;
+    ws.recv('{"type":"sync","offsets":{"20":' + (now * 1000 - T + 200_000) + '}}');
+    let i = 0;
+    const t0 = now;
+    for (let t = t0; t < t0 + 600; t++) {
+      setNow(t);
+      // Captured every 33 ms; arriving 50 ms later, plus 20 ms on odd frames.
+      while (i < 10 && T / 1000 + i * 33 + 50 + (i % 2 ? 20 : 0) <= t) {
+        ws.recv(frameMsg(20, T + i * 33_000, i === 0 ? { key: true, desc: DESC } : {}));
+        i++;
+      }
+      now = t;
+      c.renderFrame();
+    }
+    return { shown, stats: c.stats()[20] };
+  }
+
+  it('off (the default): screen frames wait for their sharer\'s audio, as before', async () => {
+    const { shown, stats } = await run(false);
+    expect(stats.synced).toBe(true);
+    expect(shown[0]).toBeGreaterThanOrEqual(1_000_000_000 + 190);
+  });
+
+  it('on: paced by capture time with a small buffer, never by the audio', async () => {
+    const { shown, stats } = await run(true);
+    expect(stats.synced).toBe(false);
+    expect(shown.length).toBeGreaterThanOrEqual(9);
+    const gaps = shown.slice(1).map((t, k) => t - shown[k]);
+    for (const g of gaps) expect(Math.abs(g - 33)).toBeLessThanOrEqual(1);
   });
 });
