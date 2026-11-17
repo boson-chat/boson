@@ -148,10 +148,6 @@ export function ChatLayout({
     setLastActive(activeName);
     if (activeName) setDrawer('none');
   }
-  // No channel to show (none joined yet, or it was closed): the channels.
-  const shownDrawer = narrow && !active && drawer === 'none' && swipe.dragX === null ? 'nav' : drawer;
-  // The drawer under the chat that's showing (or being dragged into view).
-  const revealed = swipe.dragX !== null ? swipe.reveal : shownDrawer === 'none' ? null : shownDrawer;
 
   // ChanServ (channel registration) for this connection. `typeof` guard:
   // hand-rolled test fakes have no chanserv().
@@ -226,6 +222,19 @@ export function ChatLayout({
   // A phone: the call screen in place of the chat while it's open (else a
   // bar at the bottom of every screen).
   const phoneCallOpen = narrow && inCall && (onCallView || videoSnap.open);
+  // Opening the call (or a voice channel's view) shows it: close the
+  // drawer it was opened from.
+  const callShown = phoneCallOpen || (narrow && !!voiceView);
+  const [lastCallShown, setLastCallShown] = useState(callShown);
+  if (callShown !== lastCallShown) {
+    setLastCallShown(callShown);
+    if (callShown) setDrawer('none');
+  }
+  // No channel to show (none joined yet, or it was closed): the channels,
+  // unless the call or a voice channel's view is what's showing.
+  const shownDrawer = narrow && !active && !callShown && drawer === 'none' && swipe.dragX === null ? 'nav' : drawer;
+  // The drawer under the chat that's showing (or being dragged into view).
+  const revealed = swipe.dragX !== null ? swipe.reveal : shownDrawer === 'none' ? null : shownDrawer;
   // Video is received only while a call view shows it.
   useEffect(() => {
     const want = stageOpen || phoneCallOpen;

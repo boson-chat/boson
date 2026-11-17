@@ -49,7 +49,8 @@ var (
 	room      = flag.String("room", "general", "voice channel id")
 	insecure  = flag.Bool("insecure", false, "skip TLS verification (a local server's self-signed certificate)")
 	videoAddr = flag.String("video", "", "dial quicvideod here instead of the ticket's address (the emulator's 10.0.2.2 is the host's loopback)")
-	user      = flag.String("user", "", "watch this user id's camera (default: the first that isn't ours)")
+	user      = flag.String("user", "", "watch this user id's camera (default: the newest that isn't ours)")
+	skip      = flag.String("skip", "", "never watch this user id's camera (another probe's test pattern)")
 	wait      = flag.Duration("wait", 90*time.Second, "how long to wait for a camera to appear")
 	watch     = flag.Duration("for", 10*time.Second, "how long to watch it")
 	minFPS    = flag.Float64("min-fps", 5, "the camera passes at this many decoded pictures a second or more")
@@ -132,7 +133,8 @@ func run() result {
 		people[pp.GetSessionId()] = pp.GetUserId()
 	}
 	pick := func(tr *vpb.Track) bool {
-		return tr.GetKind() == vpb.TrackKind_CAMERA && tr.GetSessionId() != self && (*user == "" || people[tr.GetSessionId()] == *user)
+		who := people[tr.GetSessionId()]
+		return tr.GetKind() == vpb.TrackKind_CAMERA && tr.GetSessionId() != self && (*user == "" || who == *user) && (*skip == "" || who != *skip)
 	}
 	var cam *vpb.Track
 	// The newest camera: an earlier session of the same phone may still be

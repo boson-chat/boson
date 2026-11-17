@@ -14,7 +14,7 @@
 // card and the voice channel to join. callprobe then needs a voice token
 // for the same account (the script gets one; quicvoice lets one account
 // be in a call from two devices).
-import { _android, expect, test, type Page } from '@playwright/test';
+import { _android, expect, test, type AndroidDevice } from '@playwright/test';
 import { spawn } from 'node:child_process';
 import { createConfirmedUser } from '../e2e-app/helpers/auth';
 import { completeHandleSetup } from '../e2e-app/helpers/account';
@@ -27,13 +27,17 @@ const PROBE_ARGS = (process.env['CALLPROBE_ARGS'] ?? '').split(' ').filter(Boole
 const SHOTS = process.env['ANDROID_CALL_SHOTS'] ?? '';
 const uid = () => Math.random().toString(36).slice(2, 8);
 
-async function shot(page: Page, name: string): Promise<void> {
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${name}.png` });
+// The device's own screenshots: the WebView's leave out canvases (video).
+async function shot(device: AndroidDevice, name: string): Promise<void> {
+  if (SHOTS) await device.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
-function runProbe(): Promise<{ code: number; out: string }> {
+// PUBLISHER_ARGS: callprobe -publish args, a camera the phone should show.
+const PUB_ARGS = (process.env['CALLPROBE_PUBLISH_ARGS'] ?? '').split(' ').filter(Boolean);
+
+function runProbe(args = PROBE_ARGS): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
-    const p = spawn(PROBE, PROBE_ARGS);
+    const p = spawn(PROBE, args);
     let out = '';
     p.stdout.on('data', (d) => { out += d; });
     p.stderr.on('data', (d) => { out += d; });
@@ -48,7 +52,7 @@ test('the phone\'s camera reaches the other side of a real call', async () => {
   expect(device, 'an emulator or phone on adb').toBeTruthy();
   try {
     const page = await (await device.webView({ pkg: 'chat.boson.app' })).page();
-    await shot(page, '01-start');
+    await shot(device, '01-start');
 
     if (PROD) {
       await page.getByPlaceholder('email').first().fill(process.env['ANDROID_CALL_USER']!);
@@ -89,24 +93,51 @@ test('the phone\'s camera reaches the other side of a real call', async () => {
       await signin.getByRole('button', { name: 'Create account' }).click();
       await expect(signin).toBeHidden({ timeout: 30_000 });
     }
-    await shot(page, '02-connected');
+    await shot(device, '02-connected');
 
     // Into the voice channel, camera on.
     const row = page.getByRole('button', { name: `Voice channel ${VOICE}` }).first();
     await expect(row).toBeVisible({ timeout: 60_000 });
     await row.click();
-    await shot(page, '03-prejoin');
+    await shot(device, '03-prejoin');
     await page.getByRole('button', { name: 'Join call' }).first().click();
     await expect(page.getByRole('button', { name: 'Leave call' }).first()).toBeVisible({ timeout: 30_000 });
+    // Someone else's camera too (the phone must show it), while we watch.
+    const publisher = PUB_ARGS.length > 0 ? runProbe(PUB_ARGS) : null;
     await page.getByRole('button', { name: 'Turn camera on' }).first().click();
     await expect(page.getByRole('button', { name: 'Turn camera off' }).first()).toBeVisible({ timeout: 30_000 });
-    await shot(page, '04-camera-on');
+
+    // The call screen fills the phone: no drawer beside it, nothing wider.
+    const layout = await page.evaluate(() => {
+      const m = document.querySelector('.mcall')!.getBoundingClientRect();
+      return { left: Math.round(m.left), width: Math.round(m.width), vw: innerWidth, nav: document.querySelector('.app-shell')!.className.includes('reveal-nav') };
+    });
+    expect(layout, JSON.stringify(layout)).toEqual({ left: 0, width: layout.vw, vw: layout.vw, nav: false });
+
+    // A canvas with a picture in it (sized by a frame, not blank).
+    const lit = (sel: string) => page.evaluate((s) => {
+      const c = document.querySelector(s) as HTMLCanvasElement | null;
+      if (!c || c.width === 300 && c.height === 150) return 0;
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4 * 61) if (d[i] + d[i + 1] + d[i + 2] > 60) n++;
+      return n;
+    }, sel);
+    // Our own camera in the corner.
+    await expect.poll(() => lit('.mcall-pip canvas'), { timeout: 20_000, message: 'the self-view shows the camera' }).toBeGreaterThan(20);
+    // The other camera in its tile.
+    if (publisher) {
+      await expect.poll(() => lit('.mcall-grid .mcall-t canvas, .mcall-screen canvas'), { timeout: 30_000, message: 'the phone shows the other camera' }).toBeGreaterThan(20);
+    }
+    await shot(device, '04b-pictures');
+    await shot(device, '04-camera-on');
 
     // The other side.
     const { code, out } = await runProbe();
     console.log(`callprobe: ${out.trim()}`);
-    await shot(page, '05-after-probe');
+    await shot(device, '05-after-probe');
     expect(code, out).toBe(0);
+    if (publisher) await publisher;
   } finally {
     await device.close();
   }
