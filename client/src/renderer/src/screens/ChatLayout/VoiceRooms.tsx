@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { HeadphoneOff, Lock, MicOff, Plus, Settings, Volume2 } from 'lucide-preact';
+import { ChevronDown, HeadphoneOff, Lock, MicOff, Plus, Settings, Video, Volume2 } from 'lucide-preact';
+import { useVideo } from '../../modules/video';
+import { useNarrow } from '../../shared/narrow';
 import {
   roomsUnder, useVoice, type VoiceController, type VoiceParticipant, type VoiceRole, type VoiceRoom,
   type VoiceRoomParticipant, type VoiceRoomPermissions, type VoiceServerView,
@@ -88,7 +90,31 @@ export function useVoiceServer(host: string): {
   return { voice, snap, key, server: snap.servers[key] };
 }
 
-export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nested, avatarFor }: {
+// The most people listed under a room before it's cut to SIDE_SHOWN plus
+// "+N more · see all".
+const SIDE_MAX = 7;
+const SIDE_SHOWN = 5;
+
+type LiveParticipant = VoiceRoomParticipant & { self?: boolean; volume?: number; listener?: boolean };
+
+/** Who's in a room as the sidebar shows them: what video each sends (only
+ * known in the call you're in), and the order for a cut-down list: you,
+ * then speakers, then sharers. */
+export function roomPeople(live: LiveParticipant[], video: { userId: string; kind: 'camera' | 'screen'; self: boolean }[], selfCamera: boolean, selfScreen: boolean) {
+  const people = live.map((p) => ({
+    p,
+    self: !!p.self,
+    screen: p.self ? selfScreen : video.some((t) => !t.self && t.userId === p.userId && t.kind === 'screen'),
+    camera: p.self ? selfCamera : video.some((t) => !t.self && t.userId === p.userId && t.kind === 'camera'),
+  }));
+  const rank = (x: typeof people[number]) => (x.self ? 4 : 0) + (x.p.speaking ? 2 : 0) + (x.screen ? 1 : 0);
+  const capped = people.length > SIDE_MAX ? [...people].sort((a, b) => rank(b) - rank(a)).slice(0, SIDE_SHOWN) : people;
+  // The face stack: speakers first, three at most.
+  const faces = [...people].sort((a, b) => (b.p.speaking ? 1 : 0) - (a.p.speaking ? 1 : 0)).slice(0, 3);
+  return { people, capped, faces, more: Math.max(0, people.length - 3), hidden: people.length - capped.length };
+}
+
+export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nested, avatarFor, onSeeAll }: {
   voice: VoiceController;
   snap: ReturnType<typeof useVoice>['snap'];
   host: string;
@@ -98,15 +124,32 @@ export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nest
   // Under a text channel (indented a step).
   nested?: boolean;
   avatarFor?: (nick: string) => string | undefined;
+  // "+N more · see all" under a busy room (default: list everyone).
+  onSeeAll?: () => void;
 }) {
+  const { video, snap: vsnap } = useVideo();
+  const [peek, setPeek] = useState(false);
+  const [all, setAll] = useState(false);
+  const narrow = useNarrow(); // a phone: bigger faces, a 44px tap target
   const call = snap.call;
   const callHere = call.host === host && (call.status === 'connected' || call.status === 'connecting');
   const inThis = callHere && call.room === room.id;
   const locked = room.canJoin === false && !inThis;
   const listenOnly = room.canSpeak === false && !locked && !inThis;
   const joinable = server.audio && !locked;
-  const live: Array<VoiceRoomParticipant & { self?: boolean; volume?: number; listener?: boolean }> =
+  const live: LiveParticipant[] =
     inThis && call.status === 'connected' && call.participants.length > 0 ? call.participants : room.participants;
+  // Before you join, who's in shows as faces; their names on request
+  // ("peek"). In the call, always.
+  const showList = inThis || peek;
+  const vstate = vsnap.state;
+  const { capped, faces, more, hidden } = roomPeople(live, inThis ? vstate.tracks : [], inThis && vstate.camera.on, inThis && vstate.screen.on);
+  const listed = all ? roomPeople(live, inThis ? vstate.tracks : [], inThis && vstate.camera.on, inThis && vstate.screen.on).people : capped;
+  const seeAll = (): void => {
+    if (onSeeAll) onSeeAll();
+    else if (inThis && video && vstate.available) video.setOpen(true);
+    else setAll(true);
+  };
   const join = (): void => { if (joinable) void voice.join(host, room, serverName); };
   const title = !server.audio ? "Voice audio isn't available in this build"
     : locked ? lockReason(room)
@@ -115,8 +158,9 @@ export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nest
           : `Join ${room.name}`;
   return (
     <div class={`voice-room ${nested ? 'voice-room-nested' : ''}`} data-room={room.id}>
+      <div class="voice-room-line">
       <div
-        class={`channel-item voice-room-row ${inThis ? 'channel-item-active' : ''}`}
+        class={`channel-item voice-room-row ${inThis ? 'channel-item-active voice-room-incall' : ''}`}
         role="button"
         tabIndex={joinable ? 0 : -1}
         aria-disabled={!joinable || undefined}
@@ -146,7 +190,6 @@ export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nest
         </span>
         <span class="channel-name">{room.name}</span>
         {listenOnly && <span class="voice-room-badge" aria-hidden="true">listen only</span>}
-        {live.length > 0 && <span class="voice-room-count" aria-hidden="true">{live.length}</span>}
         {room.canManage && (
           <button
             type="button"
@@ -163,31 +206,62 @@ export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nest
         )}
       </div>
       {live.length > 0 && (
+        <button
+          type="button"
+          class="voice-faces"
+          aria-expanded={showList}
+          disabled={inThis}
+          aria-label={`${live.length} in call: ${showList ? 'hide' : 'show'} who's in ${room.name}`}
+          title={live.map((p) => p.name).join(', ')}
+          onClick={() => setPeek(!peek)}
+        >
+          <span class="voice-faces-stack">
+            {faces.map(({ p }) => (
+              <span key={`${p.sessionId}:${p.userId}`} class="voice-face" data-speaking={p.speaking || undefined}>
+                <Avatar nick={p.name} url={avatarFor?.(p.name)} size={narrow ? 24 : 20} />
+              </span>
+            ))}
+          </span>
+          {more > 0 && <span class="voice-faces-more">+{more}</span>}
+          {!inThis && <ChevronDown size={11} class="voice-faces-chevron" data-open={showList || undefined} aria-hidden="true" />}
+        </button>
+      )}
+      </div>
+      {showList && live.length > 0 && (
         <ul class="voice-participants" aria-label={`In ${room.name}`}>
-          {live.map((p) => (
+          {listed.map(({ p, screen, camera }) => (
             <VoiceParticipantRow
               key={`${p.sessionId}:${p.userId}`}
               p={p}
               self={!!(p as VoiceParticipant).self}
               listener={!!(p as VoiceParticipant).listener}
+              screen={screen}
+              camera={camera}
               url={avatarFor?.(p.name)}
               onMenu={(x, y) => setVoiceUi({ userMenu: { p, x, y }, roomMenu: null })}
             />
           ))}
+          {!all && hidden > 0 && (
+            <li class="voice-see-all-row">
+              <button type="button" class="voice-see-all" onClick={seeAll}>+{hidden} more · see all</button>
+            </li>
+          )}
         </ul>
       )}
     </div>
   );
 }
 
-function VoiceParticipantRow({ p, self, listener, url, onMenu }: {
+function VoiceParticipantRow({ p, self, listener, screen, camera, url, onMenu }: {
   p: VoiceRoomParticipant;
   self: boolean;
   listener: boolean;
+  screen?: boolean; // sharing their screen (known in your call)
+  camera?: boolean;
   url?: string;
   onMenu: (x: number, y: number) => void;
 }) {
-  const state = [p.speaking ? 'speaking' : '', listener ? 'listening' : p.muted ? 'muted' : '', p.deafened ? 'deafened' : ''].filter(Boolean).join(', ');
+  const state = [p.speaking ? 'speaking' : '', screen ? 'sharing their screen' : '', camera ? 'camera on' : '', listener ? 'listening' : p.muted ? 'muted' : '', p.deafened ? 'deafened' : ''].filter(Boolean).join(', ');
   return (
     <li
       class={`voice-participant ${p.speaking ? 'voice-participant-speaking' : ''} ${self ? 'voice-participant-self' : ''}`}
@@ -203,6 +277,8 @@ function VoiceParticipantRow({ p, self, listener, url, onMenu }: {
         <Avatar nick={p.name} url={url} size={20} />
       </span>
       <span class="voice-participant-name">{p.name}</span>
+      {screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
+      {camera && <Video size={12} class="voice-participant-cam" aria-hidden="true" />}
       {p.deafened ? (
         <HeadphoneOff size={13} class="voice-participant-flag" aria-label="deafened" />
       ) : listener ? (
