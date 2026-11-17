@@ -40,6 +40,9 @@ export interface VoiceSnapshot {
   call: VoiceState;
   // The display name of the server the call is on (given at join).
   callServerName: string;
+  // When the call connected (ms, Date.now), for "12:04" in the call's
+  // headers; 0 when not in a call.
+  callSince: number;
 }
 
 export interface VoiceToken {
@@ -87,7 +90,7 @@ export class VoiceController {
   private discoveredAt: Record<string, number> = {};
   private discovering = new Map<string, Promise<void>>();
   private call: VoiceState = IDLE_VOICE_STATE;
-  private snapshot: VoiceSnapshot = { servers: {}, call: IDLE_VOICE_STATE, callServerName: '' };
+  private snapshot: VoiceSnapshot = { servers: {}, call: IDLE_VOICE_STATE, callServerName: '', callSince: 0 };
   private callServerName = '';
   private readonly listeners = new Set<(s: VoiceSnapshot) => void>();
   private watchers = new Map<string, { count: number; timer: ReturnType<typeof setInterval> | null }>();
@@ -159,12 +162,18 @@ export class VoiceController {
   }
 
   private emit(): void {
-    this.snapshot = { servers: { ...this.servers }, call: this.call, callServerName: this.call.host ? this.callServerName : '' };
+    this.snapshot = { servers: { ...this.servers }, call: this.call, callServerName: this.call.host ? this.callServerName : '', callSince: this.callSince };
     this.listeners.forEach((fn) => fn(this.snapshot));
   }
 
+  private callSince = 0;
+
   private setCall(s: VoiceState): void {
+    const prev = this.call;
     this.call = { ...IDLE_VOICE_STATE, ...s, participants: s.participants ?? [] };
+    const c = this.call;
+    if (c.status !== 'connected') this.callSince = 0;
+    else if (prev.status !== 'connected' || prev.host !== c.host || prev.room !== c.room) this.callSince = Date.now();
     if (this.pttDown && this.call.status === 'idle' && !this.call.micTest) this.releasePTT();
     this.emit();
   }

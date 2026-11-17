@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { getVoiceController, type VoiceController, type VoiceSnapshot } from './voice.controller';
 import { IDLE_VOICE_STATE } from './voice.types';
 
-const EMPTY: VoiceSnapshot = { servers: {}, call: IDLE_VOICE_STATE, callServerName: '' };
+const EMPTY: VoiceSnapshot = { servers: {}, call: IDLE_VOICE_STATE, callServerName: '', callSince: 0 };
 
 // The voice controller and its live snapshot; null controller when the app
 // has no voice (a browser).

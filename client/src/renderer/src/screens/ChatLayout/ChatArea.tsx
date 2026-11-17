@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
 import { Menu, PlugZap, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
@@ -25,6 +26,9 @@ export { resolveScrollTop } from './scroll-resolve';
 
 interface ChatAreaProps {
   channel: ChatChannel | null;
+  // Under the channel's header while you're in a call elsewhere: the green
+  // in-call strip (InCallStrip).
+  callStrip?: ComponentChildren;
   myNick: string;
   knownChannels?: string[];
   onSend: (message: string) => void;
@@ -136,6 +140,7 @@ function PaneBackButton({ onBack }: { onBack?: () => void }) {
 
 export function ChatArea({
   channel,
+  callStrip,
   myNick,
   knownChannels = [],
   onSend,
@@ -459,6 +464,7 @@ export function ChatArea({
           )}
         </div>
       </div>
+      {callStrip}
 
       {offline && (slowReconnect || needsUser) && (
         <ConnectionStrip

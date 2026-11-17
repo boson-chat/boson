@@ -2,6 +2,9 @@ import { useEffect, useState } from 'preact/hooks';
 import { BosonGlyph } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { getWindowBridge, isDarwin, isMobile } from '../../shared/window-controls';
+import { useVoice } from '../../modules/voice';
+import { useNarrow } from '../../shared/narrow';
+import { openCall, useCallClock } from '../ChatLayout/call-shared';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -65,6 +68,7 @@ export function TitleBar({
       </div>
       {(onOpenSettings || onOpenInbox || (updateReady && onOpenUpdate)) && (
         <div class="title-bar-controls">
+          <CallPill />
           {updateReady && onOpenUpdate && (
             <button
               type="button"
@@ -214,5 +218,22 @@ function CloseIcon() {
       <line x1="1.5" y1="1.5" x2="8.5" y2="8.5" stroke="currentColor" stroke-width="1" stroke-linecap="square" />
       <line x1="8.5" y1="1.5" x2="1.5" y2="8.5" stroke="currentColor" stroke-width="1" stroke-linecap="square" />
     </svg>
+  );
+}
+
+// "In call · General · 12:04" while you're in a call (desktop): back to
+// the call from anywhere.
+function CallPill() {
+  const { snap } = useVoice();
+  const narrow = useNarrow();
+  const clock = useCallClock(snap.callSince);
+  const call = snap.call;
+  if (narrow || call.status !== 'connected' || !call.host) return null;
+  const where = call.roomName || call.room;
+  return (
+    <button type="button" class="title-bar-call" onClick={openCall} aria-label={`In call in ${where}${clock ? `, ${clock}` : ''}: open the call`}>
+      <span class="title-bar-call-dot" aria-hidden="true" />
+      In call · {where}{clock ? ` · ${clock}` : ''}
+    </button>
   );
 }

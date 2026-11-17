@@ -18,12 +18,15 @@ import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/pan
 import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
-import { useNarrow } from '../../shared/narrow';
+import { isNarrow, useNarrow } from '../../shared/narrow';
 import { MobileCallBar } from './MobileVoice';
 import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
+import { CallStage } from './CallStage';
+import { CallPanel, type CallChat } from './CallPanel';
+import { InCallStrip } from './InCallStrip';
 import { setVoiceUi, useVoiceUi } from './VoiceRooms';
 import { CallView } from './CallView';
-import { useVideo } from '../../modules/video';
+import { getVideoController, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { useSwipeDrawers } from './useSwipeDrawers';
 import './ChatLayout.css';
@@ -203,7 +206,7 @@ export function ChatLayout({
   const avatarFor = useAvatarFor(activeServerId ?? null);
   // The call view (video in voice channels) takes the chat's place while
   // it's open, during a call on a server with video.
-  const { snap: videoSnap } = useVideo();
+  const { video, snap: videoSnap } = useVideo();
   const { snap: voiceSnap } = useVoice();
   const callOpen = videoSnap.open && videoSnap.state.available && voiceSnap.call.status === 'connected';
   // A voice channel clicked in the sidebar and not joined: its pre-join
@@ -211,7 +214,25 @@ export function ChatLayout({
   const { view: voiceView } = useVoiceUi();
   const call = voiceSnap.call;
   // Another server: its voice channel's view doesn't follow.
-  useEffect(() => { setVoiceUi({ view: null }); }, [activeServerId]);
+  useEffect(() => {
+    setVoiceUi({ view: null });
+    if (!isNarrow()) getVideoController()?.setOpen(false);
+  }, [activeServerId]);
+  // Desktop: the call's stage while you're on its voice channel (or the
+  // call was opened from the voice panel, the title bar or the strip).
+  const inCall = call.status === 'connected' && !!call.host;
+  const onCallView = !!voiceView && voiceView.host === call.host && voiceView.roomId === call.room;
+  const stageOpen = !narrow && inCall && (onCallView || videoSnap.open);
+  // Video is received only while the stage shows it.
+  useEffect(() => {
+    if (!narrow && video && video.getSnapshot().open !== stageOpen) video.setOpen(stageOpen);
+  }, [narrow, video, stageOpen]);
+  // CHAT on the call's panel: the text channel the voice channel is under.
+  const callRoom = inCall ? voiceSnap.servers[call.host]?.rooms?.find((r) => r.id === call.room) : undefined;
+  const chatChannel = callRoom?.parent ? state.channels.find((c) => c.name.toLowerCase() === callRoom.parent) : undefined;
+  const callChat: CallChat | null = chatChannel
+    ? { channel: chatChannel.name, messages: chatChannel.messages, onSend: (text) => chat.send(chatChannel.name, text) }
+    : null;
   const prejoinOpen = !!voiceView && !(call.host === voiceView.host && call.room === voiceView.roomId && call.status !== 'idle' && call.status !== 'error');
 
   const rail = (
@@ -237,7 +258,10 @@ export function ChatLayout({
           channels={state.channels}
           activeChannel={state.activeChannel}
           onSelect={(name) => {
-            setVoiceUi({ view: null }); // a text channel: leave the voice channel's view
+            // A text channel: leave the voice channel's view (the call
+            // goes on; the strip and the title bar lead back).
+            setVoiceUi({ view: null });
+            if (!narrow) video?.setOpen(false);
             chat.setActive(name);
             setDrawer('none');
             // A channel we're not in: ask for it again (a no-op if joined).
@@ -278,6 +302,7 @@ export function ChatLayout({
   );
   const chatArea = (
         <ChatArea
+          callStrip={!narrow && inCall ? <InCallStrip avatarFor={avatarFor} /> : undefined}
           channel={active}
           onRejoin={(name) => chat.rejoin(name)}
           // Prefer the live per-server IRC nick (collision-adjusted / NickServ /
@@ -387,7 +412,7 @@ export function ChatLayout({
             onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
             ariaLabel="Resize channel list"
           />
-          {callOpen ? <CallView avatarFor={avatarFor} /> : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
+          {stageOpen ? <CallStage avatarFor={avatarFor} /> : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
           <ResizeHandle
             side="right"
             width={membersW}
@@ -398,7 +423,7 @@ export function ChatLayout({
             onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
             ariaLabel="Resize member list"
           />
-          {userPanel}
+          {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} /> : userPanel}
         </>
       )}
 
