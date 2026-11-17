@@ -235,3 +235,25 @@
   .title-bar-user-name { max-width: 30vw; }
   .title-bar-update-label { display: none; }
 }
+
+/* "In call · General · 12:04": back to the call. */
+.title-bar-call {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin-right: var(--space-2);
+  padding: 0 10px;
+  border: 1px solid color-mix(in oklab, var(--success), transparent 65%);
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--success), transparent 92%);
+  color: var(--success);
+  font: 500 11px var(--font-mono);
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  --wails-draggable: no-drag;
+}
+.title-bar-call:hover { background: color-mix(in oklab, var(--success), transparent 85%); }
+.title-bar-call:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.title-bar-call-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }

@@ -1,10 +1,10 @@
 import { Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Signal, SignalLow, SignalMedium, SlidersHorizontal, X } from 'lucide-preact';
-import { useVideo } from '../../modules/video';
 import { useVoice, type VoiceQuality } from '../../modules/voice';
 import { openUserSettings } from '../../modules/ui/open-settings';
 import { isMobile } from '../../shared/window-controls';
 import { HoldToTalk } from './MobileVoice';
 import { CallVideoButtons } from './CallControls';
+import { openCall } from './call-shared';
 import './VoiceSection.css';
 
 const QUALITY_LABEL: Record<VoiceQuality, string> = {
@@ -17,7 +17,6 @@ const QUALITY_LABEL: Record<VoiceQuality, string> = {
 // retry where one could help.
 export function VoiceBar() {
   const { voice, snap } = useVoice();
-  const { video, snap: vsnap } = useVideo();
   const call = snap.call;
   if (!voice || !call.host || call.status === 'idle') return null;
 
@@ -71,10 +70,8 @@ export function VoiceBar() {
   const QualityIcon = call.quality === 'poor' ? SignalLow : call.quality === 'ok' ? SignalMedium : Signal;
   const rtt = call.rttMs > 0 ? `${Math.round(call.rttMs)} ms` : '';
   const quality = connecting ? 'Connecting…' : `${QUALITY_LABEL[call.quality]}${rtt ? ` · ${rtt}` : ''}${call.lossPercent >= 1 ? ` · ${call.lossPercent.toFixed(0)}% loss` : ''}`;
-  // "Connected · 38 ms / General / Server" opens the call (where the
-  // server has video).
-  const canOpen = !connecting && !!video && vsnap.state.available;
-  const openCall = (): void => { if (canOpen) video!.setOpen(true); };
+  // "Connected · 38 ms / General / Server" opens the call.
+  const canOpen = !connecting;
   return (
     <div class="voice-bar voice-panel" data-state={call.status} aria-label="Voice connection">
       <div class="voice-bar-head">
