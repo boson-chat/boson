@@ -1,3 +1,9 @@
+## [0.78.0](https://github.com/boson-chat/boson/compare/v0.77.0...v0.78.0) (2026-11-17)
+
+### Features
+
+* live screen picker thumbnails on Windows ([#100](https://github.com/boson-chat/boson/issues/100)) ([0e8c544](https://github.com/boson-chat/boson/commit/0e8c544166d1272f4de5aba25c51d18a41ab0cbb))
+
 ## [0.77.0](https://github.com/boson-chat/boson/compare/v0.76.0...v0.77.0) (2026-11-17)
 
 ### Features
