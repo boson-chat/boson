@@ -1,3 +1,9 @@
+## [0.75.0](https://github.com/boson-chat/boson/compare/v0.74.0...v0.75.0) (2026-11-17)
+
+### Features
+
+* screen shares take their 30 fps layer, whatever the tile's size ([#97](https://github.com/boson-chat/boson/issues/97)) ([1fd1458](https://github.com/boson-chat/boson/commit/1fd14582b7d9ef143b5efd88242cd0decacda6f4)), closes [#86](https://github.com/boson-chat/boson/issues/86) [#87](https://github.com/boson-chat/boson/issues/87)
+
 ## [0.74.0](https://github.com/boson-chat/boson/compare/v0.73.0...v0.74.0) (2026-11-17)
 
 ### Features
