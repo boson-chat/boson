@@ -17,6 +17,11 @@ export interface VideoBridge {
   resumeCamera?(): Promise<VideoState>;
   // The pre-join camera preview (optional: older shells don't have it).
   previewCamera?(on: boolean, cameraId: string): Promise<VideoState>;
+  // The screen share picker (optional: older shells don't have them).
+  shareScreen?(on: boolean, sourceId: string, mode: 'detail' | 'motion'): Promise<VideoState>;
+  switchScreen?(sourceId: string): Promise<VideoState>;
+  screenThumbnails?(ids: string[]): Promise<Record<string, string>>;
+  stopThumbnails?(): Promise<void>;
 }
 
 export function videoBridge(): VideoBridge | null {
