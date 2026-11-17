@@ -23,13 +23,24 @@ export type VoiceDialog =
   | { kind: 'create'; host: string; parent: string | null }
   | { kind: 'edit'; host: string; roomId: string; confirmDelete?: boolean };
 
+// The voice channel you're looking at (clicked in the sidebar): its
+// pre-join view (desktop) or join sheet (phone) until you join, then the
+// call. expanded: the join sheet opens with everyone listed ("see all").
+export interface VoiceView {
+  host: string;
+  roomId: string;
+  serverName: string;
+  expanded?: boolean;
+}
+
 interface VoiceUiState {
+  view: VoiceView | null;
   dialog: VoiceDialog | null;
   roomMenu: { host: string; roomId: string; x: number; y: number } | null;
   userMenu: { p: VoiceRoomParticipant; x: number; y: number } | null;
 }
 
-let ui: VoiceUiState = { dialog: null, roomMenu: null, userMenu: null };
+let ui: VoiceUiState = { view: null, dialog: null, roomMenu: null, userMenu: null };
 const uiListeners = new Set<(s: VoiceUiState) => void>();
 
 export function setVoiceUi(patch: Partial<VoiceUiState>): void {
@@ -114,7 +125,7 @@ export function roomPeople(live: LiveParticipant[], video: { userId: string; kin
   return { people, capped, faces, more: Math.max(0, people.length - 3), hidden: people.length - capped.length };
 }
 
-export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nested, avatarFor, onSeeAll }: {
+export function VoiceRoomRow({ snap, host, server, room, serverName, nested, avatarFor, onSeeAll }: {
   voice: VoiceController;
   snap: ReturnType<typeof useVoice>['snap'];
   host: string;
@@ -147,15 +158,25 @@ export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nest
   const listed = all ? roomPeople(live, inThis ? vstate.tracks : [], inThis && vstate.camera.on, inThis && vstate.screen.on).people : capped;
   const seeAll = (): void => {
     if (onSeeAll) onSeeAll();
-    else if (inThis && video && vstate.available) video.setOpen(true);
+    else if (inThis || joinable) open(true);
     else setAll(true);
   };
-  const join = (): void => { if (joinable) void voice.join(host, room, serverName); };
+  // A click opens the channel: its pre-join view (or join sheet) where you
+  // pick mic and camera and then join; the call if you're in it. No
+  // one-click joins.
+  const open = (expanded = false): void => {
+    if (inThis) {
+      if (video && vstate.available) video.setOpen(true);
+      setVoiceUi({ view: { host, roomId: room.id, serverName } });
+      return;
+    }
+    if (joinable) setVoiceUi({ view: { host, roomId: room.id, serverName, expanded } });
+  };
   const title = !server.audio ? "Voice audio isn't available in this build"
     : locked ? lockReason(room)
       : inThis ? 'Connected'
         : listenOnly ? `Join ${room.name} to listen (talking needs ${roleShort(room.speakRole)})`
-          : `Join ${room.name}`;
+          : `Open ${room.name}`;
   return (
     <div class={`voice-room ${nested ? 'voice-room-nested' : ''}`} data-room={room.id}>
       <div class="voice-room-line">
@@ -164,15 +185,15 @@ export function VoiceRoomRow({ voice, snap, host, server, room, serverName, nest
         role="button"
         tabIndex={joinable ? 0 : -1}
         aria-disabled={!joinable || undefined}
-        aria-label={inThis ? `${room.name} (connected)` : locked ? `${room.name} (locked)` : `Join voice channel ${room.name}${listenOnly ? ', listen only' : ''}`}
+        aria-label={inThis ? `${room.name} (connected)` : locked ? `${room.name} (locked)` : `Voice channel ${room.name}${listenOnly ? ', listen only' : ''}`}
         title={title}
         data-state={inThis ? call.status : undefined}
         data-locked={locked || undefined}
-        onClick={join}
+        onClick={() => open()}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            join();
+            open();
           }
         }}
         onContextMenu={(e) => {

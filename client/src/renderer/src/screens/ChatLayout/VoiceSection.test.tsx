@@ -6,6 +6,8 @@ import { createFakeVoiceBridge, type FakeVoiceBridge } from '../../modules/voice
 import { __resetVoiceSettings } from '../../modules/voice/voice.settings';
 import { VoiceSection } from './VoiceSection';
 import { VoiceBar } from './VoiceBar';
+import { VoicePreJoin } from './PreJoin';
+import { setVoiceUi } from './VoiceRooms';
 
 function fakeAuth(signedIn: boolean): AuthService {
   const state = {
@@ -31,8 +33,15 @@ function mount(host: string, signedIn = true) {
     <AuthProvider service={fakeAuth(signedIn)}>
       <VoiceSection host={host} serverName="boson" engineState="connected" />
       <VoiceBar />
+      <VoicePreJoin self="me" />
     </AuthProvider>,
   );
+}
+
+// A click opens the voice channel's pre-join view; "Join call" joins.
+async function joinRoom(name: string) {
+  fireEvent.click(await screen.findByLabelText(`Voice channel ${name}`));
+  fireEvent.click(await screen.findByRole('button', { name: 'Join call' }));
 }
 
 describe('VoiceSection', () => {
@@ -48,7 +57,7 @@ describe('VoiceSection', () => {
     });
     setVoiceController(controller);
   });
-  afterEach(() => setVoiceController(null));
+  afterEach(() => { setVoiceController(null); setVoiceUi({ view: null }); });
 
   it('lists voice channels and who is in them on a server with voice', async () => {
     mount('irc.boson.chat');
@@ -87,7 +96,7 @@ describe('VoiceSection', () => {
 
   it('joins on click and shows the connected bar', async () => {
     mount('irc.boson.chat');
-    fireEvent.click(await screen.findByLabelText('Join voice channel Music'));
+    await joinRoom('Music');
     await screen.findByText(/^Connected/);
     expect(screen.getByText('Music / boson')).toBeTruthy();
     expect(screen.getByLabelText('Music (connected)')).toBeTruthy();
@@ -110,7 +119,7 @@ describe('VoiceSection', () => {
   it('shows a join error with retry and dismiss', async () => {
     bridge.opts.onJoin = (req, prev) => ({ ...prev, status: 'error', host: req.host, room: req.room, roomName: req.roomName, error: "Couldn't reach the voice server.", errorKind: 'unreachable' });
     mount('irc.boson.chat');
-    fireEvent.click(await screen.findByLabelText('Join voice channel General'));
+    await joinRoom('General');
     await screen.findByText("Couldn't reach the voice server.");
     expect(screen.getByLabelText('Try again')).toBeTruthy();
     fireEvent.click(screen.getByLabelText('Dismiss'));
@@ -161,7 +170,7 @@ describe('VoiceSection', () => {
     window.bosonPlatform = 'ios';
     try {
       mount('irc.boson.chat');
-      fireEvent.click(await screen.findByLabelText('Join voice channel General'));
+      await joinRoom('General');
       await screen.findByText(/^Connected/);
       expect(screen.queryByRole('button', { name: 'Hold to talk' })).toBeNull();
       await act(async () => { controller.setInputMode('ptt'); });
@@ -188,7 +197,7 @@ describe('a busy voice channel in the sidebar', () => {
     });
     setVoiceController(controller);
   });
-  afterEach(() => setVoiceController(null));
+  afterEach(() => { setVoiceController(null); setVoiceUi({ view: null }); });
 
   it('shows three faces (the speaker first) and +12, then five names and "+10 more · see all"', async () => {
     mount('irc.boson.chat');
@@ -201,8 +210,10 @@ describe('a busy voice channel in the sidebar', () => {
     const names = [...document.querySelectorAll('.voice-participant .voice-participant-name')].map((e) => e.textContent);
     expect(names.length).toBe(5);
     expect(names[0]).toBe('p9'); // the speaker heads the list
+    // Before joining, "see all" opens the channel (its pre-join view).
     fireEvent.click(screen.getByRole('button', { name: '+10 more · see all' }));
-    expect(document.querySelectorAll('.voice-participant').length).toBe(15);
+    await screen.findByText('Join General');
+    expect(bridge.calls.some((c) => c.method === 'join')).toBe(false);
   });
 });
 

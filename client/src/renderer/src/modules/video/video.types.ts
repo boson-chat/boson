@@ -48,6 +48,9 @@ export interface VideoState {
   canShareScreen: boolean;
   camera: VideoShareState;
   screen: VideoShareState;
+  // The camera shown only to you before joining (the pre-join self-view):
+  // nothing is sent. Absent from older shells.
+  preview?: VideoShareState;
   tracks: VideoTrack[];
 }
 

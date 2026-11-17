@@ -15,6 +15,8 @@ export interface VideoBridge {
   // Turn a camera the system stopped back on (a no-op otherwise). Optional:
   // older shells don't have it.
   resumeCamera?(): Promise<VideoState>;
+  // The pre-join camera preview (optional: older shells don't have it).
+  previewCamera?(on: boolean, cameraId: string): Promise<VideoState>;
 }
 
 export function videoBridge(): VideoBridge | null {

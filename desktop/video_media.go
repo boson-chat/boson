@@ -21,6 +21,10 @@ type videoMedia interface {
 	// StartScreen shares a screen or window (VideoSource.ID; "" = the main
 	// screen, or the system picker where there is one).
 	StartScreen(ctx context.Context, c *qvclient.Client, id string, onEnd func(error)) (videoShare, error)
+	// PreviewCamera captures the camera for the self-view only: nothing
+	// is encoded or sent (before joining a call, to check how you look).
+	// stop releases the camera; onEnd is called if it ends on its own.
+	PreviewCamera(id string, preview func(w, h int, rgba []byte), onEnd func(error)) (stop func(), facing string, err error)
 }
 
 // videoShare is a running capture + published track.
