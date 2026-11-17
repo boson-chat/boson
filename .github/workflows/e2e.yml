@@ -89,6 +89,10 @@ jobs:
         working-directory: client
         run: npx playwright install --with-deps chromium
 
+      - name: Call screen layout on phones (Playwright)
+        working-directory: client
+        run: npx playwright test -c tests/call-layout/playwright.config.ts
+
       - name: Typecheck e2e suite
         working-directory: client
         run: npx tsc -p tests/e2e-app/tsconfig.json

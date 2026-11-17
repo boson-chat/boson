@@ -63,6 +63,9 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
     if (t.track) video?.attachCanvas(t.track.trackId, el); else if (t.selfCamera) video?.attachPreview(el);
   };
   const remoteRows = remote.length > 4 ? '150px' : 'minmax(0, 1fr)';
+  // A 1:1 call (one other person, no screen share): they fill the stage,
+  // and you're the picture in the corner over it.
+  const solo = remote.length === 1 && !screenTile;
 
   return (
     <main class="mcall" aria-label={`Call in ${call.roomName || call.room}`}>
@@ -86,7 +89,7 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
               <MTile tile={screenTile} cls="mcall-screen" avatar={avatarFor?.(screenTile.name)} onSize={onSize} canvasRef={canvas(screenTile)}
                 label={screenTile.label} ariaLabel={`Enlarge ${screenTile.label}`} onClick={() => setScreenBig(true)} />
             )}
-            <div class="mcall-grid" style={{ gridAutoRows: remoteRows }}>
+            <div class="mcall-grid" data-solo={solo || undefined} style={{ gridAutoRows: solo ? 'minmax(0, 1fr)' : remoteRows }}>
               {remote.map((t) => <MTile key={t.key} tile={t} cls="mcall-tile" avatar={avatarFor?.(t.name)} onSize={onSize} canvasRef={canvas(t)} label={t.label} />)}
               {remote.length === 0 && <div class="mcall-alone">You're the only one here.</div>}
             </div>

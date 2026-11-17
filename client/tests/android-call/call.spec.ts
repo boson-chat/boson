@@ -130,6 +130,16 @@ test('the phone\'s camera reaches the other side of a real call', async () => {
       await expect.poll(() => lit('.mcall-grid .mcall-t canvas, .mcall-screen canvas'), { timeout: 30_000, message: 'the phone shows the other camera' }).toBeGreaterThan(20);
     }
     await shot(device, '04b-pictures');
+    // 1:1 (the phone and the publisher; the watching probe joins later):
+    // the other camera fills the stage, ours is the corner picture.
+    if (publisher) {
+      const solo = await page.evaluate(() => {
+        const r = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
+        const stage = r('.mcall-stage'), tile = r('.mcall-grid .mcall-t');
+        return { tiles: document.querySelectorAll('.mcall-grid .mcall-t').length, full: tile.width > stage.width - 24 && tile.height > stage.height * 0.85 };
+      });
+      expect(solo, JSON.stringify(solo)).toEqual({ tiles: 1, full: true });
+    }
     await shot(device, '04-camera-on');
 
     // The other side.
