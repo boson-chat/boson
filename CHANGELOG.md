@@ -1,3 +1,9 @@
+## [0.69.12](https://github.com/boson-chat/boson/compare/v0.69.11...v0.69.12) (2026-11-17)
+
+### Bug Fixes
+
+* **ci:** run the e2e job on ubuntu-24.04 ([#92](https://github.com/boson-chat/boson/issues/92)) ([b0f5a38](https://github.com/boson-chat/boson/commit/b0f5a38473013f99780eaeb65ca19782a543df5b))
+
 ## [0.69.11](https://github.com/boson-chat/boson/compare/v0.69.10...v0.69.11) (2026-11-16)
 
 ### Bug Fixes

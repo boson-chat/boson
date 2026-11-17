@@ -1,6 +1,6 @@
 {
   "name": "@boson/shared",
-  "version": "0.69.11",
+  "version": "0.69.12",
   "license": "AGPL-3.0-only",
   "private": true,
   "type": "module",
