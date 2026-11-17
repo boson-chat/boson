@@ -56,6 +56,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	// Dev builds' build-time environment (Android has no other).
+	if devBuild == "true" {
+		if err := applyDevEnv(devEnv, dataDir); err != nil {
+			log.Printf("dev env: %v", err)
+		}
+	}
 	// Dev and e2e builds may skip the OS keychain (BOSON_SECURE_STORE=derived),
 	// so e2e runs never touch the real one.
 	secureMode := ""

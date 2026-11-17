@@ -126,7 +126,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
 
         // Enable debugging in debug builds
-        if (DEBUG) {
+        if (DEBUG || BuildConfig.WEBVIEW_DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true);
         }
 

@@ -16,7 +16,11 @@
 # Environment:
 #   DEV=1           a dev build: the renderer from client/.env, devBuild=true,
 #                   API proxy allowed to reach http://10.0.2.2:3000 (the host
-#                   Mac, as the emulator sees it)
+#                   Mac, as the emulator sees it; DEV_API_BASE to change it,
+#                   DEV_AUTH_BASE / DEV_DIRECTORY_BASE for a local auth service
+#                   and directory, with the renderer's VITE_* to match)
+#   DEV_ENV_FILE    with DEV=1: the app's environment, built in (KEY=value
+#                   lines; KEY@=<base64> for a file; desktop/dev_env.go)
 #   ARCHS           Go architectures to include (default "arm64"; add amd64
 #                   for x86_64 emulators and Chromebooks)
 #   RUN=1           install + launch with adb
@@ -82,7 +86,14 @@ touch "$desktop/frontend/dist/.gitkeep"
 tags=android,nolibopusfile
 ldflags="-X main.appVersion=$VERSION"
 if [[ "${DEV:-}" == "1" ]]; then
-  ldflags="$ldflags -X main.devBuild=true -X main.apiBase=http://10.0.2.2:3000"
+  ldflags="$ldflags -X main.devBuild=true -X main.apiBase=${DEV_API_BASE:-http://10.0.2.2:3000}"
+  [[ -n "${DEV_AUTH_BASE:-}" ]] && ldflags="$ldflags -X main.authBase=$DEV_AUTH_BASE"
+  [[ -n "${DEV_DIRECTORY_BASE:-}" ]] && ldflags="$ldflags -X main.directoryBase=$DEV_DIRECTORY_BASE"
+  # The app's environment (an Android app has none of its own): see
+  # desktop/dev_env.go for the file's format.
+  if [[ -n "${DEV_ENV_FILE:-}" ]]; then
+    ldflags="$ldflags -X main.devEnv=$(base64 < "$DEV_ENV_FILE" | tr -d '\n')"
+  fi
 else
   tags="$tags,production"
   ldflags="$ldflags -s -w"
@@ -111,7 +122,7 @@ done
 
 # 3. The APK.
 (cd "$project" && ./gradlew --no-daemon --quiet assembleRelease \
-  -PbosonVersionName="$VERSION" -PbosonVersionCode="$VERSION_CODE")
+  -PbosonVersionName="$VERSION" -PbosonVersionCode="$VERSION_CODE" -PbosonDev="${DEV:-0}")
 apk="$out/$APP_NAME-$VERSION-android.apk"
 cp "$project/app/build/outputs/apk/release/app-release.apk" "$apk"
 echo "apk: $apk"

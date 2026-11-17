@@ -116,7 +116,8 @@ func origin(u *url.URL) string {
 
 func isLoopback(u *url.URL) bool {
 	h := strings.ToLower(u.Hostname())
-	return h == "localhost" || h == "127.0.0.1" || h == "::1"
+	// On Android, 10.0.2.2 is the emulator's alias for the host's loopback.
+	return h == "localhost" || h == "127.0.0.1" || h == "::1" || (emulatorHost && h == "10.0.2.2")
 }
 
 // Exact-origin match (so https://api.boson.chat.evil.com, http://api.boson.chat
