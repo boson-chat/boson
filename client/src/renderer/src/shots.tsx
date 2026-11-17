@@ -228,6 +228,31 @@ function callPeople() {
   return all.slice(0, Math.max(1, Math.min(all.length, n || 4)));
 }
 
+const PICKER_SOURCES = [
+  { id: 'display:1', name: 'Screen 1 (main)', kind: 'display' as const, width: 3024, height: 1964, main: true, hasSelf: true },
+  { id: 'display:2', name: 'Screen 2', kind: 'display' as const, width: 5120, height: 2880 },
+  { id: 'window:7', name: 'zsh — Terminal', kind: 'window' as const, app: 'Terminal', title: 'zsh — make netem' },
+  { id: 'window:8', name: 'quicvideo — design.md', kind: 'window' as const, app: 'Code', title: 'quicvideo — design.md' },
+  { id: 'window:9', name: 'boson.chat — Safari', kind: 'window' as const, app: 'Safari', title: 'boson.chat — Directory' },
+  { id: 'window:10', name: 'Release notes — Pages', kind: 'window' as const, app: 'Pages', title: 'Release notes 0.73' },
+];
+const thumbCache = new Map<string, string>();
+function pickerThumb(id: string): string {
+  let url = thumbCache.get(id);
+  if (url) return url;
+  const c = document.createElement('canvas');
+  c.width = 320; c.height = 200;
+  const g = c.getContext('2d')!;
+  const hue = [...id].reduce((a, ch) => a + ch.charCodeAt(0), 0) % 360;
+  g.fillStyle = `hsl(${hue},25%,14%)`; g.fillRect(0, 0, 320, 200);
+  g.fillStyle = `hsl(${hue},30%,26%)`; g.fillRect(24, 24, 180, 120);
+  g.fillStyle = `hsl(${hue},20%,20%)`; g.fillRect(150, 70, 140, 100);
+  g.fillStyle = 'rgba(255,255,255,0.6)'; g.font = '14px monospace'; g.fillText(id, 32, 48);
+  url = c.toDataURL('image/jpeg', 0.7);
+  thumbCache.set(id, url);
+  return url;
+}
+
 // ?video=call: the call view, with tiles drawn from painted test frames
 // through the real controller (a fake socket sends keyframes; a fake
 // decoder paints a labelled pattern per track). call: everyone else's
@@ -243,7 +268,7 @@ function installVideo(): void {
   const oneCam = new URLSearchParams(location.search).get('cams') === 'one';
   const camTracks = videoMode === 'none' ? [] : others.slice(0, oneCam ? 1 : others.length).map((p, i) => cam(10 + i * 2, p.userId, p.name));
   const state: VideoState = {
-    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true, canShareScreen: true,
+    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true, canShareScreen: true, canPickScreen: true,
     camera: { on: videoMode !== 'none', starting: false },
     tracks: [
       ...camTracks,
@@ -316,7 +341,11 @@ function installVideo(): void {
     subscribe: async () => {},
     unsubscribe: async () => {},
     cameras: async () => [{ id: 'front', name: 'Front Camera', kind: 'builtin' as const, facing: 'front' as const, default: true }, { id: 'back', name: 'Back Camera', kind: 'builtin' as const, facing: 'back' as const, default: false }],
-    screenSources: async () => [],
+    // The screen share picker: two displays and some windows, with drawn
+    // thumbnails.
+    screenSources: async () => PICKER_SOURCES,
+    screenThumbnails: async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, pickerThumb(id)])),
+    stopThumbnails: async () => {},
     setCamera: async () => state,
     setScreen: async () => state,
   };

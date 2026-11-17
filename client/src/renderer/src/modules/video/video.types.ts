@@ -29,6 +29,8 @@ export interface VideoShareState {
   // Which way the running camera faces: 'front' (the user), 'back', or
   // absent (a webcam). Our preview is mirrored unless it's 'back'.
   facing?: 'front' | 'back' | '';
+  // A screen share: optimized for text and detail, or smooth motion.
+  mode?: 'detail' | 'motion';
   name?: string;
   error?: string;
 }
@@ -46,6 +48,11 @@ export interface VideoState {
   canPublish: boolean;
   // This build can share the screen too (iOS: camera only, for now).
   canShareScreen: boolean;
+  // The app's own picker lists screens and windows (false where the OS
+  // has its own, Linux's portal). Absent from older shells.
+  canPickScreen?: boolean;
+  // "Share sound" with a screen share (not yet).
+  canShareAudio?: boolean;
   camera: VideoShareState;
   screen: VideoShareState;
   // The camera shown only to you before joining (the pre-join self-view):
@@ -70,6 +77,11 @@ export interface VideoSource {
   kind: 'display' | 'window' | 'picker';
   width?: number;
   height?: number;
+  app?: string; // a window's app
+  title?: string; // a window's title
+  icon?: string; // the app's icon (a data: URL)
+  main?: boolean; // the main display
+  hasSelf?: boolean; // Boson's window is on this display
 }
 
 export const EMPTY_VIDEO_STATE: VideoState = {

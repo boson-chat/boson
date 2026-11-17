@@ -5,6 +5,7 @@ import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { CallVideoButtons } from './CallControls';
 import { callTiles, closeCall, gridShape, useCallClock, type CallTileInfo } from './call-shared';
+import { SharingBar } from './ScreenPicker';
 import './CallStage.css';
 
 // The call on a desktop, in the main column while you're on its voice
@@ -69,6 +70,7 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
           </button>
         </div>
       </header>
+      <SharingBar />
       {mode === 'focus' && focused ? (
         <div class="stage-focus">
           <div class="stage-big">{tile(focused, 'big')}</div>

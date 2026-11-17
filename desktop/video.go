@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -66,9 +67,11 @@ type VideoService struct {
 	userOffsets map[string]int64
 	adapt       map[string]*avAdapt
 
-	stop chan struct{}
-	once sync.Once
-	pv   previewState // the pre-join camera preview (guarded by mu)
+	stop    chan struct{}
+	once    sync.Once
+	pv      previewState // the pre-join camera preview (guarded by mu)
+	thumbMu sync.Mutex
+	thumbs  *thumbSession // the picker's thumbnails, while it's open
 }
 
 // videoStatus is what State reports besides the session's tracks.
@@ -85,6 +88,9 @@ type videoStatus struct {
 	// Cleared by "Camera off", leaving the call, and a restart that fails.
 	camWant   bool
 	camWantID string
+	// screenMode: what the screen share is optimized for, "detail" or
+	// "motion" (set before it starts; kept while it runs).
+	screenMode string
 }
 
 type shareStatus struct {
@@ -157,8 +163,10 @@ type VideoShareState struct {
 	// (a webcam). The UI mirrors its own preview unless it's "back"; what's
 	// sent is never mirrored.
 	Facing string `json:"facing,omitempty"`
-	Name   string `json:"name,omitempty"`
-	Error  string `json:"error,omitempty"`
+	// Mode: a screen share is optimized for "detail" (text) or "motion".
+	Mode  string `json:"mode,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Error string `json:"error,omitempty"`
 }
 
 // VideoState is the whole video UI state.
@@ -176,8 +184,15 @@ type VideoState struct {
 	CanCapture bool `json:"canCapture"`
 	CanPublish bool `json:"canPublish"`
 	// CanShareScreen: this build can share the screen too (not on iOS yet).
-	CanShareScreen bool            `json:"canShareScreen"`
-	Camera         VideoShareState `json:"camera"`
+	CanShareScreen bool `json:"canShareScreen"`
+	// CanPickScreen: the app's own picker lists screens and windows (with
+	// thumbnails where the OS gives them); false where the system has its
+	// own picker (Linux: the portal).
+	CanPickScreen bool `json:"canPickScreen"`
+	// CanShareAudio: "Share sound" with a screen share. Not yet: the
+	// picker hides the toggle while this is false.
+	CanShareAudio bool            `json:"canShareAudio"`
+	Camera        VideoShareState `json:"camera"`
 	// Preview: the camera shown only to you, before joining (the pre-join
 	// view's self-view); nothing is sent.
 	Preview VideoShareState `json:"preview"`
@@ -786,7 +801,48 @@ func (v *VideoService) SetCamera(on bool, cameraID string) VideoState {
 
 // SetScreen starts sharing a screen or window (VideoSource.ID), or stops.
 func (v *VideoService) SetScreen(on bool, sourceID string) VideoState {
+	return v.ShareScreen(on, sourceID, "")
+}
+
+// ShareScreen starts sharing a screen or window optimized for mode
+// ("detail": text, up to 1440p at 15 fps; "motion" or "": 1080p at 30 fps),
+// or stops.
+func (v *VideoService) ShareScreen(on bool, sourceID, mode string) VideoState {
+	if mode != "detail" {
+		mode = "motion"
+	}
+	if on {
+		v.mu.Lock()
+		v.st.screenMode = mode
+		v.mu.Unlock()
+	}
 	v.setShare(false, on, sourceID)
+	return v.State()
+}
+
+// SwitchScreen shares another screen or window on the same track (the
+// picker's "Switch to this"): no new tile for the others, no gap.
+func (v *VideoService) SwitchScreen(sourceID string) VideoState {
+	v.mu.Lock()
+	share := v.st.screen.share
+	v.mu.Unlock()
+	sw, ok := share.(switchableShare)
+	if !ok {
+		v.mu.Lock()
+		v.st.screen.err = "This share can't switch."
+		v.dirty = true
+		v.mu.Unlock()
+		return v.State()
+	}
+	err := sw.Switch(sourceID)
+	v.mu.Lock()
+	if err != nil {
+		v.st.screen.err = err.Error()
+	} else {
+		v.st.screen.id, v.st.screen.name, v.st.screen.err = sourceID, share.Name(), ""
+	}
+	v.dirty = true
+	v.mu.Unlock()
 	return v.State()
 }
 
@@ -989,7 +1045,10 @@ func (v *VideoService) runShare(camera bool, gen int, sess *videoSession, id str
 	if camera {
 		share, err = v.media.StartCamera(ctx, sess.client, id, v.preview, onEnd)
 	} else {
-		share, err = v.media.StartScreen(ctx, sess.client, id, onEnd)
+		v.mu.Lock()
+		mode := v.st.screenMode
+		v.mu.Unlock()
+		share, err = v.media.StartScreen(ctx, sess.client, id, mode, onEnd)
 	}
 	v.mu.Lock()
 	sl := v.slot(camera)
@@ -1060,9 +1119,13 @@ func (v *VideoService) State() VideoState {
 	st := VideoState{
 		Available: v.st.available, Status: v.st.status, Error: v.st.err,
 		CanCapture: v.media != nil, CanPublish: v.st.canPublish, CanShareScreen: v.canShareScreen(),
-		Camera: share(v.st.camera), Screen: share(v.st.screen),
+		CanPickScreen: v.canShareScreen() && runtime.GOOS != "linux",
+		Camera:        share(v.st.camera), Screen: share(v.st.screen),
 		Preview: VideoShareState{On: v.pv.on, Starting: v.pv.starting, ID: v.pv.id, Facing: v.pv.facing, Error: v.pv.err},
 		Tracks:  []VideoTrack{},
+	}
+	if st.Screen.On || st.Screen.Starting {
+		st.Screen.Mode = v.st.screenMode
 	}
 	if v.pv.on || v.pv.starting {
 		st.FrameURL = url // the self-view's previews come over the frame socket

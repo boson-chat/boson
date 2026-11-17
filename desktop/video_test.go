@@ -92,14 +92,20 @@ func (c *fakeVideoConn) Close() error {
 func (c *fakeVideoConn) isClosed() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.closed }
 
 type fakeShare struct {
-	name   string
-	facing string
-	stops  atomic.Int32
+	name     string
+	facing   string
+	switched []string
+	stops    atomic.Int32
 }
 
 func (s *fakeShare) Stop()          { s.stops.Add(1) }
 func (s *fakeShare) Name() string   { return s.name }
 func (s *fakeShare) Facing() string { return s.facing }
+func (s *fakeShare) Switch(id string) error {
+	s.switched = append(s.switched, id)
+	s.name = "switched to " + id
+	return nil
+}
 
 // fakeMedia starts shares after delay (or fails); onEnd is kept so a test
 // can end a share as if the device went away.
@@ -112,6 +118,8 @@ type fakeMedia struct {
 	facing string // the cameras' facing
 	// PreviewCamera calls and stops.
 	previews, previewStops int
+	modes                  []string // StartScreen's modes
+	thumbs                 int      // Thumbnail calls
 }
 
 func (m *fakeMedia) Cameras() ([]VideoCamera, error) {
@@ -139,8 +147,17 @@ func (m *fakeMedia) start(ctx context.Context, name string, onEnd func(error)) (
 func (m *fakeMedia) StartCamera(ctx context.Context, _ *qvclient.Client, _ string, _ func(int, int, []byte), onEnd func(error)) (videoShare, error) {
 	return m.start(ctx, "FaceTime HD Camera", onEnd)
 }
-func (m *fakeMedia) StartScreen(ctx context.Context, _ *qvclient.Client, _ string, onEnd func(error)) (videoShare, error) {
+func (m *fakeMedia) StartScreen(ctx context.Context, _ *qvclient.Client, id, mode string, onEnd func(error)) (videoShare, error) {
+	m.mu.Lock()
+	m.modes = append(m.modes, mode)
+	m.mu.Unlock()
 	return m.start(ctx, "screen", onEnd)
+}
+func (m *fakeMedia) Thumbnail(id string, maxW int) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.thumbs++
+	return []byte("jpeg:" + id), nil
 }
 func (m *fakeMedia) PreviewCamera(id string, preview func(int, int, []byte), onEnd func(error)) (func(), string, error) {
 	m.mu.Lock()
@@ -705,4 +722,71 @@ func TestVideoCameraPreview(t *testing.T) {
 	h.media.mu.Unlock()
 	h.svc.PreviewCamera(true, "")
 	waitUntil(t, "preview error", func() bool { return h.svc.State().Preview.Error == "camera permission denied" })
+}
+
+// The picker's thumbnails: refreshed while the page polls, stopped as soon
+// as it closes, or on their own once the page stops asking.
+func TestVideoPickerThumbnails(t *testing.T) {
+	h := newVideoHarness(t)
+	count := func() int { h.media.mu.Lock(); defer h.media.mu.Unlock(); return h.media.thumbs }
+	h.svc.ScreenThumbnails([]string{"display:1", "window:7"})
+	waitUntil(t, "thumbnails", func() bool { return len(h.svc.ScreenThumbnails([]string{"display:1", "window:7"})) == 2 })
+	got := h.svc.ScreenThumbnails([]string{"display:1"})
+	if got["display:1"] != "data:image/jpeg;base64,"+base64.StdEncoding.EncodeToString([]byte("jpeg:display:1")) || len(got) != 1 {
+		t.Fatalf("thumbnails %v", got)
+	}
+	// Closed: no more captures.
+	h.svc.StopThumbnails()
+	waitUntil(t, "stopped", func() bool { return !h.svc.thumbnailsRunning() })
+	n := count()
+	time.Sleep(3 * thumbnailEvery)
+	if count() != n {
+		t.Fatalf("thumbnails kept coming after close: %d → %d", n, count())
+	}
+	// Never closed: they stop by themselves once nobody asks.
+	h.svc.ScreenThumbnails([]string{"display:1"})
+	if !h.svc.thumbnailsRunning() {
+		t.Fatal("not running")
+	}
+	deadline := time.Now().Add(thumbnailIdle + 3*time.Second)
+	for h.svc.thumbnailsRunning() {
+		if time.Now().After(deadline) {
+			t.Fatal("thumbnails kept running with nobody asking")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// The mode reaches the capture; "Switch to this" keeps the share (and its
+// track) and changes what it captures; no "Share sound" yet.
+func TestVideoScreenModeAndSwitch(t *testing.T) {
+	h := newVideoHarness(t)
+	h.join(t, `"video.publish"`)
+	h.svc.ShareScreen(true, "display:1", "detail")
+	waitUntil(t, "screen on", func() bool { return h.svc.State().Screen.On })
+	st := h.svc.State()
+	if st.Screen.Mode != "detail" || st.CanShareAudio {
+		t.Fatalf("screen %+v, audio %v", st.Screen, st.CanShareAudio)
+	}
+	h.media.mu.Lock()
+	modes := append([]string(nil), h.media.modes...)
+	h.media.mu.Unlock()
+	if len(modes) != 1 || modes[0] != "detail" {
+		t.Fatalf("modes %v", modes)
+	}
+	share := h.media.share(0)
+	st = h.svc.SwitchScreen("window:7")
+	if st.Screen.ID != "window:7" || st.Screen.Name != "switched to window:7" || !st.Screen.On || share.stops.Load() != 0 {
+		t.Fatalf("after switching: %+v, stops %d", st.Screen, share.stops.Load())
+	}
+	if len(share.switched) != 1 || share.switched[0] != "window:7" {
+		t.Fatalf("switched %v", share.switched)
+	}
+	// The default is smooth motion.
+	h.svc.SetScreen(false, "")
+	h.svc.SetScreen(true, "display:1")
+	waitUntil(t, "screen on (2)", func() bool { return h.svc.State().Screen.On })
+	if m := h.svc.State().Screen.Mode; m != "motion" {
+		t.Fatalf("default mode %q", m)
+	}
 }

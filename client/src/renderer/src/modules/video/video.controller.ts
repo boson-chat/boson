@@ -310,6 +310,28 @@ export class VideoController {
     return this.bridge.setCamera(on, cameraId).then((s) => { this.setState(s); return s; });
   }
 
+  /** Share a screen or window optimized for detail or motion (the picker). */
+  shareScreen(sourceId: string, mode: 'detail' | 'motion'): Promise<VideoState> {
+    const p = this.bridge.shareScreen ? this.bridge.shareScreen(true, sourceId, mode) : this.bridge.setScreen(true, sourceId);
+    return p.then((s) => { this.setState(s); return s; });
+  }
+
+  /** Share another source on the same track ("Switch to this"). */
+  switchScreen(sourceId: string): Promise<VideoState | null> {
+    if (!this.bridge.switchScreen) return Promise.resolve(null);
+    return this.bridge.switchScreen(sourceId).then((s) => { this.setState(s); return s; });
+  }
+
+  /** The picker's live thumbnails (data: URLs); keeps them coming. */
+  screenThumbnails(ids: string[]): Promise<Record<string, string>> {
+    return this.bridge.screenThumbnails ? this.bridge.screenThumbnails(ids).catch(() => ({})) : Promise.resolve({});
+  }
+
+  /** The picker closed: stop the thumbnail capture. */
+  stopThumbnails(): void {
+    void this.bridge.stopThumbnails?.().catch(() => {});
+  }
+
   setScreen(on: boolean, sourceId = ''): Promise<VideoState> {
     return this.bridge.setScreen(on, sourceId).then((s) => { this.setState(s); return s; });
   }

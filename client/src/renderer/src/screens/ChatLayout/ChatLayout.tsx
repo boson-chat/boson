@@ -25,6 +25,7 @@ import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
 import { CallStage } from './CallStage';
 import { CallPanel, type CallChat } from './CallPanel';
 import { InCallStrip } from './InCallStrip';
+import { ScreenPicker } from './ScreenPicker';
 import { setVoiceUi, useVoiceUi } from './VoiceRooms';
 import { getVideoController, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
@@ -434,6 +435,7 @@ export function ChatLayout({
             ariaLabel="Resize member list"
           />
           {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} /> : userPanel}
+          <ScreenPicker />
         </>
       )}
 

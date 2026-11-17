@@ -2,6 +2,7 @@ import { useState } from 'preact/hooks';
 import { LayoutGrid, MonitorUp, MonitorX, Video, VideoOff } from 'lucide-preact';
 import { useVideo, type VideoCamera, type VideoSource } from '../../modules/video';
 import './CallView.css';
+import { openScreenPicker } from './ScreenPicker';
 import { useVoice } from '../../modules/voice';
 
 // Camera, screen share and "show the call" for the voice bar and the call
@@ -40,6 +41,12 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
   const toggleScreen = async () => {
     if (scr.on || scr.starting) {
       void video.setScreen(false);
+      return;
+    }
+    // The app's own picker (thumbnails, detail or motion), where it lists
+    // the sources itself; Linux's system portal otherwise.
+    if (st.canPickScreen) {
+      openScreenPicker();
       return;
     }
     const list = await video.screenSources();

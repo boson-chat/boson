@@ -356,6 +356,10 @@ export async function installWailsBridges(): Promise<void> {
       setScreen: (on: boolean, sourceId: string) => vd('SetScreen', on, sourceId),
       resumeCamera: () => vd('ResumeCamera'),
       previewCamera: (on: boolean, cameraId: string) => vd('PreviewCamera', on, cameraId),
+      shareScreen: (on: boolean, sourceId: string, mode: string) => vd('ShareScreen', on, sourceId, mode),
+      switchScreen: (sourceId: string) => vd('SwitchScreen', sourceId),
+      screenThumbnails: (ids: string[]) => vd('ScreenThumbnails', ids),
+      stopThumbnails: () => vd('StopThumbnails'),
     };
   }
   // "Sign in with …" (desktop/sso.go): the loopback redirect listener.
