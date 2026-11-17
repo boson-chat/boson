@@ -331,10 +331,17 @@ export class VideoController {
     return this.bridge.setCamera(on, cameraId).then((s) => { this.setState(s); return s; });
   }
 
-  /** Share a screen or window optimized for detail or motion (the picker). */
-  shareScreen(sourceId: string, mode: 'detail' | 'motion'): Promise<VideoState> {
-    const p = this.bridge.shareScreen ? this.bridge.shareScreen(true, sourceId, mode) : this.bridge.setScreen(true, sourceId);
+  /** Share a screen or window optimized for detail or motion, with its
+   * sound or not (the picker). */
+  shareScreen(sourceId: string, mode: 'detail' | 'motion', sound = false): Promise<VideoState> {
+    const p = this.bridge.shareScreen ? this.bridge.shareScreen(true, sourceId, mode, sound) : this.bridge.setScreen(true, sourceId);
     return p.then((s) => { this.setState(s); return s; });
+  }
+
+  /** How loud a screen share's sound is for us: percent, 0 = muted. */
+  setShareVolume(trackId: number, percent: number): Promise<VideoState | null> {
+    if (!this.bridge.setShareVolume) return Promise.resolve(null);
+    return this.bridge.setShareVolume(trackId, percent).then((s) => { this.setState(s); return s; });
   }
 
   /** Share another source on the same track ("Switch to this"). */

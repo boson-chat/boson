@@ -6,6 +6,7 @@ import { Avatar } from '../../shared/Avatar/Avatar';
 import { CallVideoButtons } from './CallControls';
 import { callTiles, closeCall, gridShape, useCallClock, type CallTileInfo } from './call-shared';
 import { SharingBar } from './ScreenPicker';
+import { ShareSound } from './ShareSound';
 import './CallStage.css';
 
 // The call on a desktop, in the main column while you're on its voice
@@ -48,11 +49,21 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
   const rtt = call.rttMs > 0 ? `${Math.round(call.rttMs)} ms` : '';
   const pin = (key: string) => { setPinned(key); setMode('focus'); };
   const grid = gridShape(tiles.length);
-  const tile = (t: CallTileInfo, size: 'big' | 'strip' | 'grid') => (
-    <StageTile key={t.key} tile={t} size={size} avatar={avatarFor?.(t.name)} mirror={t.selfCamera && vstate.camera.facing !== 'back'}
-      onPin={size === 'big' ? undefined : () => pin(t.key)} onSize={onSize}
-      canvasRef={(el) => { if (t.track) video?.attachCanvas(t.track.trackId, el); else if (t.selfCamera) video?.attachPreview(el); }} />
-  );
+  const tile = (t: CallTileInfo, size: 'big' | 'strip' | 'grid') => {
+    const el = (
+      <StageTile key={t.key} tile={t} size={size} avatar={avatarFor?.(t.name)} mirror={t.selfCamera && vstate.camera.facing !== 'back'}
+        onPin={size === 'big' ? undefined : () => pin(t.key)} onSize={onSize}
+        canvasRef={(c) => { if (t.track) video?.attachCanvas(t.track.trackId, c); else if (t.selfCamera) video?.attachPreview(c); }} />
+    );
+    // A share with its sound: its volume and mute, next to the tile.
+    if (!t.track?.sound) return el;
+    return (
+      <div key={t.key} class="share-cell">
+        {el}
+        <ShareSound track={t.track} compact={size === 'strip'} />
+      </div>
+    );
+  };
 
   return (
     <main class="stage" aria-label={`Call in ${call.roomName || call.room}`}>

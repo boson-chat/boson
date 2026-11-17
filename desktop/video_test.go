@@ -79,6 +79,9 @@ func (c *fakeVideoConn) ReportDecodeStall(id uint32) {
 	c.mu.Unlock()
 }
 func (c *fakeVideoConn) Events() <-chan *videopb.ControlMessage { return c.events }
+
+// ServerCan: the fake server relays screen shares' sound.
+func (c *fakeVideoConn) ServerCan(capability string) bool { return capability == qvclient.CapScreenAudio }
 func (c *fakeVideoConn) Done() <-chan struct{}                  { return c.done }
 func (c *fakeVideoConn) Close() error {
 	c.mu.Lock()
@@ -119,8 +122,12 @@ type fakeMedia struct {
 	// PreviewCamera calls and stops.
 	previews, previewStops int
 	modes                  []string // StartScreen's modes
+	sounds                 []bool   // and whether each asked for sound
 	thumbs                 int      // Thumbnail calls
+	canSound               bool     // CanShareSound
 }
+
+func (m *fakeMedia) CanShareSound() bool { m.mu.Lock(); defer m.mu.Unlock(); return m.canSound }
 
 func (m *fakeMedia) Cameras() ([]VideoCamera, error) {
 	return []VideoCamera{{ID: "cam1", Name: "FaceTime HD Camera", Kind: "builtin", Default: true}}, nil
@@ -147,9 +154,10 @@ func (m *fakeMedia) start(ctx context.Context, name string, onEnd func(error)) (
 func (m *fakeMedia) StartCamera(ctx context.Context, _ *qvclient.Client, _ string, _ func(int, int, []byte), onEnd func(error)) (videoShare, error) {
 	return m.start(ctx, "FaceTime HD Camera", onEnd)
 }
-func (m *fakeMedia) StartScreen(ctx context.Context, _ *qvclient.Client, id, mode string, onEnd func(error)) (videoShare, error) {
+func (m *fakeMedia) StartScreen(ctx context.Context, _ *qvclient.Client, id, mode string, sound bool, onEnd func(error)) (videoShare, error) {
 	m.mu.Lock()
 	m.modes = append(m.modes, mode)
+	m.sounds = append(m.sounds, sound)
 	m.mu.Unlock()
 	return m.start(ctx, "screen", onEnd)
 }
@@ -762,7 +770,7 @@ func TestVideoPickerThumbnails(t *testing.T) {
 func TestVideoScreenModeAndSwitch(t *testing.T) {
 	h := newVideoHarness(t)
 	h.join(t, `"video.publish"`)
-	h.svc.ShareScreen(true, "display:1", "detail")
+	h.svc.ShareScreen(true, "display:1", "detail", false)
 	waitUntil(t, "screen on", func() bool { return h.svc.State().Screen.On })
 	st := h.svc.State()
 	if st.Screen.Mode != "detail" || st.CanShareAudio {

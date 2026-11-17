@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,6 +53,10 @@ type VideoService struct {
 	audioDelay func(userID string, d time.Duration)
 	// now is the clock (tests).
 	now func() time.Time
+	// sounds plays screen shares' sound (VoiceService: the voice engine's
+	// mixer, voice_share_sound.go); nil = this build can't, and the video
+	// server isn't asked for it.
+	sounds shareSoundPlayer
 
 	hubOnce sync.Once
 	hub     atomic.Pointer[frameHub] // set once, on first use
@@ -72,6 +77,21 @@ type VideoService struct {
 	pv      previewState // the pre-join camera preview (guarded by mu)
 	thumbMu sync.Mutex
 	thumbs  *thumbSession // the picker's thumbnails, while it's open
+	// shareVol: how loud each screen share's sound is for us, percent
+	// (0 = muted, 100 = as sent, up to 200), by screen track. Guarded by mu.
+	shareVol map[uint32]int
+	// soundOffs: the lip-sync offsets of shares whose sound is playing, by
+	// screen track (sendSync), for the adaptive delay of their sound.
+	soundOffs atomic.Pointer[map[uint32]int64]
+}
+
+// shareSoundPlayer plays screen shares' sound (*VoiceService).
+type shareSoundPlayer interface {
+	playShareSound(track uint32, captureUS uint64, payload []byte, gain float32)
+	removeShareSound(track uint32)
+	setShareSoundGain(track uint32, gain float32)
+	shareSoundOffset(track uint32) (int64, bool)
+	setShareSoundDelay(track uint32, d time.Duration)
 }
 
 // videoStatus is what State reports besides the session's tracks.
@@ -91,6 +111,9 @@ type videoStatus struct {
 	// screenMode: what the screen share is optimized for, "detail" or
 	// "motion" (set before it starts; kept while it runs).
 	screenMode string
+	// screenSound: the share should carry its sound (the picker's "Share
+	// sound"; set before it starts).
+	screenSound bool
 }
 
 type shareStatus struct {
@@ -130,6 +153,20 @@ type videoSession struct {
 	people map[uint32]videoPerson
 	tracks map[uint32]*videopb.Track
 	subs   map[uint32]uint32 // track → max layer asked for
+	// canSound: the server relays screen shares' sound (its Welcome lists
+	// the screen-audio capability).
+	canSound bool
+}
+
+// soundFor is the sound track of a screen share (0 if it has none).
+// Called with v.mu held.
+func (s *videoSession) soundFor(screen uint32) uint32 {
+	for id, tr := range s.tracks {
+		if tr.GetKind() == videopb.TrackKind_SCREEN_AUDIO && tr.GetForTrackId() == screen {
+			return id
+		}
+	}
+	return 0
 }
 
 type videoPerson struct{ userID, name string }
@@ -142,6 +179,10 @@ type VideoTrack struct {
 	Kind    string       `json:"kind"` // camera | screen
 	Self    bool         `json:"self"`
 	Layers  []VideoLayer `json:"layers"`
+	// Sound: a screen share that carries its sound; Volume is how loud it
+	// is for us, percent (0 = muted, 100 = as sent, up to 200).
+	Sound  bool `json:"sound,omitempty"`
+	Volume int  `json:"volume"`
 }
 
 type VideoLayer struct {
@@ -164,7 +205,9 @@ type VideoShareState struct {
 	// sent is never mirrored.
 	Facing string `json:"facing,omitempty"`
 	// Mode: a screen share is optimized for "detail" (text) or "motion".
-	Mode  string `json:"mode,omitempty"`
+	Mode string `json:"mode,omitempty"`
+	// Sound: the screen share is sending its sound.
+	Sound bool   `json:"sound,omitempty"`
 	Name  string `json:"name,omitempty"`
 	Error string `json:"error,omitempty"`
 }
@@ -189,8 +232,9 @@ type VideoState struct {
 	// thumbnails where the OS gives them); false where the system has its
 	// own picker (Linux: the portal).
 	CanPickScreen bool `json:"canPickScreen"`
-	// CanShareAudio: "Share sound" with a screen share. Not yet: the
-	// picker hides the toggle while this is false.
+	// CanShareAudio: "Share sound" with a screen share: this build and OS
+	// can capture it (macOS 13+) and the video server relays it. The
+	// picker hides the toggle otherwise.
 	CanShareAudio bool            `json:"canShareAudio"`
 	Camera        VideoShareState `json:"camera"`
 	// Preview: the camera shown only to you, before joining (the pre-join
@@ -412,6 +456,7 @@ func (v *VideoService) start(seq int, t videoTicketer) {
 	conn, err := v.dial(dctx, addr, qvclient.Options{
 		Token:         ticket.GetToken(),
 		ClientVersion: "boson/" + appVersion,
+		Capabilities:  v.capabilities(),
 		TLS: &tls.Config{ServerName: serverName,
 			// A local quicvideod (dev builds) has a self-signed certificate.
 			InsecureSkipVerify: v.dev && isLoopbackHost(serverName)},
@@ -446,6 +491,9 @@ func (v *VideoService) start(seq int, t videoTicketer) {
 		people: map[uint32]videoPerson{}, tracks: map[uint32]*videopb.Track{}, subs: map[uint32]uint32{}}
 	if c, ok := conn.(*qvclient.Client); ok {
 		sess.client = c
+	}
+	if c, ok := conn.(interface{ ServerCan(string) bool }); ok {
+		sess.canSound = v.sounds != nil && c.ServerCan(qvclient.CapScreenAudio)
 	}
 	for _, p := range state.GetParticipants() {
 		sess.people[p.GetSessionId()] = videoPerson{userID: p.GetUserId(), name: p.GetDisplayName()}
@@ -539,8 +587,21 @@ func (v *VideoService) onControl(seq int, sess *videoSession, m *videopb.Control
 	case m.GetTrackAdded() != nil:
 		tr := m.GetTrackAdded().GetTrack()
 		sess.tracks[tr.GetTrackId()] = tr
+		// A sound for a share we're watching: hear it too.
+		if tr.GetKind() == videopb.TrackKind_SCREEN_AUDIO && tr.GetSessionId() != sess.self {
+			if _, watching := sess.subs[tr.GetForTrackId()]; watching {
+				sess.subs[tr.GetTrackId()] = 0
+				go func(id uint32) { _ = sess.conn.Subscribe(id, 0, 0) }(tr.GetTrackId())
+			}
+		}
 	case m.GetTrackRemoved() != nil:
 		id := m.GetTrackRemoved().GetTrackId()
+		if tr := sess.tracks[id]; tr != nil && tr.GetKind() == videopb.TrackKind_SCREEN_AUDIO && v.sounds != nil {
+			go v.sounds.removeShareSound(id)
+		}
+		if tr := sess.tracks[id]; tr != nil && tr.GetKind() == videopb.TrackKind_SCREEN {
+			delete(v.shareVol, id)
+		}
 		delete(sess.tracks, id)
 		delete(sess.subs, id)
 	case m.GetError() != nil && m.GetError().GetCode() == videopb.Error_KICKED:
@@ -587,6 +648,10 @@ func (v *VideoService) stopShares() {
 // ---- receiving ----
 
 func (v *VideoService) onFrame(f qvclient.RemoteFrame) {
+	if _, gain, ok := v.soundTrack(f.TrackID); ok {
+		v.sounds.playShareSound(f.TrackID, f.CaptureUS, f.Payload, gain)
+		return
+	}
 	v.noteLateness(f.TrackID, f.CaptureUS)
 	hub, _ := v.frames()
 	if hub == nil {
@@ -625,8 +690,21 @@ func (v *VideoService) Subscribe(trackID, layer int) {
 		return
 	}
 	sess.subs[uint32(trackID)] = uint32(layer)
+	// Watching a share: hear it too.
+	sound := uint32(0)
+	if v.sounds != nil && sess.tracks[uint32(trackID)].GetKind() == videopb.TrackKind_SCREEN {
+		if id := sess.soundFor(uint32(trackID)); id != 0 {
+			if _, on := sess.subs[id]; !on {
+				sess.subs[id] = 0
+				sound = id
+			}
+		}
+	}
 	v.mu.Unlock()
 	_ = sess.conn.Subscribe(uint32(trackID), uint32(layer), 0)
+	if sound != 0 {
+		_ = sess.conn.Subscribe(sound, 0, 0)
+	}
 }
 
 // Unsubscribe stops receiving a track (its tile is hidden, or the call
@@ -640,10 +718,77 @@ func (v *VideoService) Unsubscribe(trackID int) {
 	}
 	_, had := sess.subs[uint32(trackID)]
 	delete(sess.subs, uint32(trackID))
+	// Not watching a share any more: its sound stops with it.
+	sound := sess.soundFor(uint32(trackID))
+	_, soundOn := sess.subs[sound]
+	if sound != 0 && soundOn {
+		delete(sess.subs, sound)
+	} else {
+		sound = 0
+	}
 	v.mu.Unlock()
 	if had {
 		_ = sess.conn.Unsubscribe(uint32(trackID))
 	}
+	if sound != 0 {
+		_ = sess.conn.Unsubscribe(sound)
+		v.sounds.removeShareSound(sound)
+	}
+}
+
+// soundTrack: trackID is a share's sound we play (its screen track, and
+// the gain it's played at).
+func (v *VideoService) soundTrack(trackID uint32) (screen uint32, gain float32, ok bool) {
+	if v.sounds == nil {
+		return 0, 0, false
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.sess == nil {
+		return 0, 0, false
+	}
+	tr := v.sess.tracks[trackID]
+	if tr.GetKind() != videopb.TrackKind_SCREEN_AUDIO {
+		return 0, 0, false
+	}
+	screen = tr.GetForTrackId()
+	return screen, v.shareGainLocked(screen), true
+}
+
+func (v *VideoService) shareGainLocked(screen uint32) float32 {
+	if p, ok := v.shareVol[screen]; ok {
+		return float32(p) / 100
+	}
+	return 1
+}
+
+// SetShareVolume sets how loud a screen share's sound is for us, percent
+// (0 = muted, 100 = as sent, up to 200). For this call only.
+func (v *VideoService) SetShareVolume(trackID, percent int) VideoState {
+	percent = min(max(percent, 0), 200)
+	v.mu.Lock()
+	sess := v.sess
+	sound := uint32(0)
+	if sess != nil && sess.tracks[uint32(trackID)].GetKind() == videopb.TrackKind_SCREEN {
+		if v.shareVol == nil {
+			v.shareVol = map[uint32]int{}
+		}
+		v.shareVol[uint32(trackID)] = percent
+		sound = sess.soundFor(uint32(trackID))
+		v.dirty = true
+	}
+	v.mu.Unlock()
+	if sound != 0 && v.sounds != nil {
+		v.sounds.setShareSoundGain(sound, float32(percent)/100)
+	}
+	return v.State()
+}
+
+func (v *VideoService) capabilities() []string {
+	if v.sounds == nil {
+		return nil
+	}
+	return []string{qvclient.CapScreenAudio}
 }
 
 // syncMsg is the lip-sync message on the frame socket: per track, the
@@ -664,12 +809,32 @@ func (v *VideoService) sendSync(sess *videoSession) {
 	msg := syncMsg{Type: "sync", Offsets: map[uint32]int64{}}
 	v.mu.Lock()
 	v.userOffsets = byUser
+	var sounds map[uint32]uint32 // screen → its sound, for shares with sound
 	for id, tr := range sess.tracks {
+		if tr.GetKind() == videopb.TrackKind_SCREEN_AUDIO {
+			if sounds == nil {
+				sounds = map[uint32]uint32{}
+			}
+			sounds[tr.GetForTrackId()] = id
+			continue
+		}
 		if off, ok := byUser[sess.people[tr.GetSessionId()].userID]; ok {
 			msg.Offsets[id] = off
 		}
 	}
 	v.mu.Unlock()
+	// A share with its sound playing is in sync with that sound, not with
+	// its sharer's voice.
+	offs := map[uint32]int64{}
+	if v.sounds != nil {
+		for screen, sound := range sounds {
+			if off, ok := v.sounds.shareSoundOffset(sound); ok {
+				msg.Offsets[screen] = off
+				offs[screen] = off
+			}
+		}
+	}
+	v.soundOffs.Store(&offs)
 	hub.Text(msg)
 }
 
@@ -684,15 +849,34 @@ func (v *VideoService) noteLateness(trackID uint32, captureUS uint64) {
 		return
 	}
 	tr := sess.tracks[trackID]
-	if tr == nil || tr.GetKind() == videopb.TrackKind_SCREEN {
-		// A late screen frame says nothing about lip sync: it mustn't
-		// delay its sharer's voice.
+	if tr == nil {
 		return
 	}
-	user := sess.people[tr.GetSessionId()].userID
-	off, ok := v.userOffsets[user]
-	if user == "" || !ok {
-		return
+	// The adaptive delay's key: a person (their voice), or a share's sound.
+	var user string
+	var off int64
+	var ok bool
+	if tr.GetKind() == videopb.TrackKind_SCREEN {
+		// A late screen frame mustn't delay its sharer's voice; it delays
+		// the share's own sound, when it has one playing.
+		sound := sess.soundFor(trackID)
+		if sound == 0 {
+			return
+		}
+		offs := v.soundOffs.Load()
+		if offs == nil {
+			return
+		}
+		if off, ok = (*offs)[trackID]; !ok {
+			return
+		}
+		user = soundKey(sound)
+	} else {
+		user = sess.people[tr.GetSessionId()].userID
+		off, ok = v.userOffsets[user]
+		if user == "" || !ok {
+			return
+		}
 	}
 	late := time.Duration(now.UnixMicro()-(int64(captureUS)+off))*time.Microsecond + videoDecodeBudget
 	a := v.adapt[user]
@@ -750,11 +934,27 @@ func (v *VideoService) adaptDelays() {
 		}
 	}
 	v.mu.Unlock()
-	if v.audioDelay != nil {
-		for _, c := range changes {
+	for _, c := range changes {
+		if sound, ok := soundFromKey(c.user); ok {
+			if v.sounds != nil {
+				v.sounds.setShareSoundDelay(sound, c.d)
+			}
+		} else if v.audioDelay != nil {
 			v.audioDelay(c.user, c.d)
 		}
 	}
+}
+
+// soundKey is a share's sound's key in v.adapt (people are by user id).
+func soundKey(sound uint32) string { return "\x00sound:" + strconv.FormatUint(uint64(sound), 10) }
+
+func soundFromKey(k string) (uint32, bool) {
+	n, ok := strings.CutPrefix(k, "\x00sound:")
+	if !ok {
+		return 0, false
+	}
+	v, err := strconv.ParseUint(n, 10, 32)
+	return uint32(v), err == nil
 }
 
 // audioDelays is the current delay per person (tests).
@@ -803,19 +1003,23 @@ func (v *VideoService) SetCamera(on bool, cameraID string) VideoState {
 
 // SetScreen starts sharing a screen or window (VideoSource.ID), or stops.
 func (v *VideoService) SetScreen(on bool, sourceID string) VideoState {
-	return v.ShareScreen(on, sourceID, "")
+	return v.ShareScreen(on, sourceID, "", false)
 }
 
 // ShareScreen starts sharing a screen or window optimized for mode
 // ("detail": text, up to 1440p at 15 fps; "motion" or "": 1080p at 30 fps),
 // or stops.
-func (v *VideoService) ShareScreen(on bool, sourceID, mode string) VideoState {
+//
+// sound: also send what the shared screen or app plays, where the share
+// can (CanShareAudio).
+func (v *VideoService) ShareScreen(on bool, sourceID, mode string, sound bool) VideoState {
 	if mode != "detail" {
 		mode = "motion"
 	}
 	if on {
 		v.mu.Lock()
 		v.st.screenMode = mode
+		v.st.screenSound = sound
 		v.mu.Unlock()
 	}
 	v.setShare(false, on, sourceID)
@@ -1048,9 +1252,9 @@ func (v *VideoService) runShare(camera bool, gen int, sess *videoSession, id str
 		share, err = v.media.StartCamera(ctx, sess.client, id, v.preview, onEnd)
 	} else {
 		v.mu.Lock()
-		mode := v.st.screenMode
+		mode, sound := v.st.screenMode, v.st.screenSound && sess.canSound
 		v.mu.Unlock()
-		share, err = v.media.StartScreen(ctx, sess.client, id, mode, onEnd)
+		share, err = v.media.StartScreen(ctx, sess.client, id, mode, sound, onEnd)
 	}
 	v.mu.Lock()
 	sl := v.slot(camera)
@@ -1129,6 +1333,12 @@ func (v *VideoService) State() VideoState {
 	if st.Screen.On || st.Screen.Starting {
 		st.Screen.Mode = v.st.screenMode
 	}
+	if ss, ok := v.st.screen.share.(soundShare); ok && st.Screen.On {
+		st.Screen.Sound = ss.SendingSound()
+	}
+	if s, ok := v.media.(soundSharer); ok && v.sess != nil && v.sess.canSound {
+		st.CanShareAudio = st.CanPickScreen && s.CanShareSound()
+	}
 	if v.pv.on || v.pv.starting {
 		st.FrameURL = url // the self-view's previews come over the frame socket
 	}
@@ -1140,11 +1350,21 @@ func (v *VideoService) State() VideoState {
 		return st
 	}
 	for id, tr := range v.sess.tracks {
+		if tr.GetKind() == videopb.TrackKind_SCREEN_AUDIO {
+			continue // part of its share (VideoTrack.Sound)
+		}
 		p := v.sess.people[tr.GetSessionId()]
 		vt := VideoTrack{TrackID: int(id), UserID: p.userID, Name: p.name, Kind: "camera",
 			Self: tr.GetSessionId() == v.sess.self}
 		if tr.GetKind() == videopb.TrackKind_SCREEN {
 			vt.Kind = "screen"
+			if !vt.Self && v.sess.soundFor(id) != 0 {
+				vt.Sound = true
+				vt.Volume = 100
+				if p, ok := v.shareVol[id]; ok {
+					vt.Volume = p
+				}
+			}
 		}
 		for _, l := range tr.GetLayers() {
 			vt.Layers = append(vt.Layers, VideoLayer{ID: int(l.GetId()), Width: int(l.GetWidth()), Height: int(l.GetHeight()), FPS: int(l.GetFps())})

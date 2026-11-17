@@ -17,6 +17,10 @@ export interface VideoTrack {
   // Our own track (shown from the local self-view, never subscribed).
   self: boolean;
   layers: VideoLayer[];
+  // A screen share that carries its sound, and how loud it is for us:
+  // percent, 0 = muted, 100 = as sent, up to 200.
+  sound?: boolean;
+  volume?: number;
 }
 
 export interface VideoShareState {
@@ -31,6 +35,8 @@ export interface VideoShareState {
   facing?: 'front' | 'back' | '';
   // A screen share: optimized for text and detail, or smooth motion.
   mode?: 'detail' | 'motion';
+  // A screen share that's sending its sound.
+  sound?: boolean;
   name?: string;
   error?: string;
 }
@@ -51,7 +57,8 @@ export interface VideoState {
   // The app's own picker lists screens and windows (false where the OS
   // has its own, Linux's portal). Absent from older shells.
   canPickScreen?: boolean;
-  // "Share sound" with a screen share (not yet).
+  // "Share sound" with a screen share: this build and OS can capture it
+  // (macOS 13+) and the video server relays it.
   canShareAudio?: boolean;
   camera: VideoShareState;
   screen: VideoShareState;

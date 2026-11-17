@@ -34,6 +34,9 @@ func newVideoMedia() videoMedia { return nativeMedia{} }
 // extension); macOS before 12.3 says so when asked (ErrScreenUnsupported).
 func (nativeMedia) CanShareScreen() bool { return runtime.GOOS != "ios" && runtime.GOOS != "android" }
 
+// CanShareSound: a screen share can carry its sound (macOS 13+).
+func (nativeMedia) CanShareSound() bool { return media.ScreenAudioSupported() }
+
 func (nativeMedia) Cameras() ([]VideoCamera, error) {
 	cams, err := media.ListCameras()
 	if err != nil {
@@ -139,13 +142,26 @@ func (s *cameraShare) Stop() {
 	s.videoShare.Stop()
 }
 
-func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id, mode string, onEnd func(error)) (videoShare, error) {
+func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id, mode string, sound bool, onEnd func(error)) (videoShare, error) {
 	m := media.ScreenMotion
 	if mode == string(media.ScreenDetail) {
 		m = media.ScreenDetail
 	}
+	// The share's sound, where the platform and the server can: captured
+	// with the picture (and with every source "Switch to this" picks).
+	var snd *screenSound
+	if sound && media.ScreenAudioSupported() && c != nil && c.ServerCan(qvclient.CapScreenAudio) {
+		var err error
+		if snd, err = newScreenSound(); err != nil {
+			log.Printf("video: share sound: %v", err)
+			snd = nil
+		}
+	}
 	opts := func(id string) (media.ScreenOptions, string) {
 		o := media.ScreenOptions{Cursor: true, Mode: m} // capture size and rate from the mode
+		if snd != nil {
+			o.Audio = snd.capture
+		}
 		name := "screen"
 		switch kind, n, _ := strings.Cut(id, ":"); kind {
 		case "display":
@@ -164,7 +180,19 @@ func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id, mode
 		return media.StartScreen(o, push)
 	})
 	if err != nil {
+		if snd != nil {
+			snd.stop()
+		}
 		return nil, err
+	}
+	if snd != nil {
+		// No sound is better than no share: a refusal leaves the picture.
+		if err := snd.publish(ctx, c, share.track.ID()); err != nil {
+			log.Printf("video: share sound: %v", err)
+			snd.stop()
+		} else {
+			share.sound = snd
+		}
 	}
 	share.switchTo = func(id string, push func(media.CapturedFrame)) (media.Source, string, error) {
 		o, name := opts(id)
@@ -252,7 +280,12 @@ type nativeShare struct {
 	mu   sync.Mutex
 	name string
 	src  media.Source
+
+	sound *screenSound // a screen share's sound, when it's sent
 }
+
+// SendingSound: the share carries its sound.
+func (s *nativeShare) SendingSound() bool { return s.sound != nil }
 
 func (s *nativeShare) Name() string { s.mu.Lock(); defer s.mu.Unlock(); return s.name }
 
@@ -312,6 +345,9 @@ func (s *nativeShare) Stop() {
 		src := s.src
 		s.mu.Unlock()
 		src.Stop()
+		if s.sound != nil {
+			s.sound.stop()
+		}
 		s.pub.Close()
 		_ = s.track.Unpublish()
 	})

@@ -4,6 +4,7 @@ import { EMPTY_VIDEO_STATE, VideoController, setVideoController, type VideoBridg
 import { ScreenPicker, SharingBar, openScreenPicker } from './ScreenPicker';
 import { initialPick, moveSelection, rememberShare, rememberedShare, sourcesFor } from './screen-picker';
 import { CallVideoButtons } from './CallControls';
+import { ShareSound } from './ShareSound';
 import { VoiceController, setVoiceController } from '../../modules/voice';
 import { createFakeVoiceBridge } from '../../modules/voice/voice.fake';
 
@@ -44,7 +45,7 @@ describe('the picker logic', () => {
 
 describe('the screen share picker', () => {
   let state: VideoState;
-  let bridge: VideoBridge & { screenThumbnails: ReturnType<typeof vi.fn>; stopThumbnails: ReturnType<typeof vi.fn> };
+  let bridge: VideoBridge & { screenThumbnails: ReturnType<typeof vi.fn>; stopThumbnails: ReturnType<typeof vi.fn>; setShareVolume: ReturnType<typeof vi.fn> };
   let push: (s: VideoState) => void;
 
   beforeEach(async () => {
@@ -55,7 +56,8 @@ describe('the screen share picker', () => {
       subscribe: vi.fn(async () => {}), unsubscribe: vi.fn(async () => {}), cameras: vi.fn(async () => []),
       screenSources: vi.fn(async () => SOURCES),
       setCamera: vi.fn(async () => state), setScreen: vi.fn(async () => state),
-      shareScreen: vi.fn(async (_on: boolean, id: string, mode: 'detail' | 'motion') => { state = { ...state, screen: { on: true, starting: false, id, mode, name: id } }; return state; }),
+      shareScreen: vi.fn(async (_on: boolean, id: string, mode: 'detail' | 'motion', sound?: boolean) => { state = { ...state, screen: { on: true, starting: false, id, mode, name: id, sound: !!sound } }; return state; }),
+      setShareVolume: vi.fn(async (trackId: number, percent: number) => { state = { ...state, tracks: state.tracks.map((t) => t.trackId === trackId ? { ...t, volume: percent } : t) }; return state; }),
       switchScreen: vi.fn(async (id: string) => state = { ...state, screen: { ...state.screen, id } }),
       screenThumbnails: vi.fn(async (ids: string[]) => Object.fromEntries(ids.map((id) => [id, `data:image/jpeg;base64,${id}`]))),
       stopThumbnails: vi.fn(async () => {}),
@@ -102,7 +104,7 @@ describe('the screen share picker', () => {
     expect(screen.getByRole('option', { name: /Screen 1/ }).getAttribute('aria-selected')).toBe('true');
     fireEvent.click(screen.getByRole('radio', { name: /Text & detail/ }));
     fireEvent.keyDown(screen.getByRole('option', { name: /Screen 1/ }), { key: 'Enter' });
-    await waitFor(() => expect(bridge.shareScreen).toHaveBeenCalledWith(true, 'display:1', 'detail'));
+    await waitFor(() => expect(bridge.shareScreen).toHaveBeenCalledWith(true, 'display:1', 'detail', false));
     expect(rememberedShare()).toMatchObject({ id: 'display:1', mode: 'detail' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
@@ -113,7 +115,7 @@ describe('the screen share picker', () => {
     fireEvent.input(screen.getByLabelText('Search windows'), { target: { value: 'safari' } });
     expect(screen.getAllByRole('option').length).toBe(1);
     fireEvent.dblClick(screen.getByRole('option', { name: /Directory/ }));
-    await waitFor(() => expect(bridge.shareScreen).toHaveBeenCalledWith(true, 'window:8', 'motion'));
+    await waitFor(() => expect(bridge.shareScreen).toHaveBeenCalledWith(true, 'window:8', 'motion', false));
     act(() => push(state));
     // Change: the picker opens on the current choice; another one switches.
     act(() => openScreenPicker());
@@ -137,11 +139,70 @@ describe('the screen share picker', () => {
     await screen.findByRole('dialog', { name: 'Share your screen' });
     expect(screen.getByText('Share to General')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Share screen' }));
-    await waitFor(() => expect(bridge.shareScreen).toHaveBeenCalledWith(true, 'display:1', 'motion'));
+    await waitFor(() => expect(bridge.shareScreen).toHaveBeenCalledWith(true, 'display:1', 'motion', false));
     act(() => push(state));
     await screen.findByText(/You're sharing/);
     expect(screen.getByRole('status').textContent).toContain('display:1 · smooth');
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
     expect(bridge.setScreen).toHaveBeenCalledWith(false, '');
+  });
+
+  it('"Share sound": off for each new share, sent when on, and a change of sound is a new share', async () => {
+    state = { ...state, canShareAudio: true };
+    act(() => push(state));
+    await opened();
+    const toggle = screen.getByRole('switch', { name: 'Share sound' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText('Everything you hear')).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Share screen' }));
+    await waitFor(() => expect(bridge.shareScreen).toHaveBeenCalledWith(true, 'display:1', 'motion', true));
+    act(() => push(state));
+    // While sharing with sound: the picker shows it on; turning it off and
+    // picking another window is a new share, not a switch.
+    act(() => openScreenPicker());
+    await screen.findByRole('dialog');
+    await waitFor(() => expect(screen.getAllByRole('option').length).toBe(2));
+    expect(screen.getByRole('switch', { name: 'Share sound' }).getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('tab', { name: 'WINDOWS · 3' }));
+    expect(screen.getByText('Only this app’s sound')).toBeTruthy();
+    fireEvent.click(screen.getByRole('switch', { name: 'Share sound' }));
+    fireEvent.click(screen.getByRole('option', { name: /make netem/ }));
+    expect(screen.queryByRole('button', { name: 'Switch to this' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Share window' }));
+    await waitFor(() => expect(bridge.shareScreen).toHaveBeenLastCalledWith(true, 'window:7', 'motion', false));
+    expect(bridge.switchScreen).not.toHaveBeenCalled();
+  });
+
+  it('the sharing bar says "with sound"', async () => {
+    state = { ...state, screen: { on: true, starting: false, id: 'display:1', name: 'Screen 1', mode: 'detail', sound: true } };
+    render(<SharingBar />);
+    act(() => push(state));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('Screen 1 · detail · with sound'));
+  });
+
+  it('viewers: mute a share\'s sound, unmute to where it was, or set its volume', async () => {
+    const tr = { trackId: 14, userId: 'usr_ada', name: 'ada', kind: 'screen' as const, self: false, layers: [], sound: true, volume: 100 };
+    state = { ...state, tracks: [tr] };
+    const { rerender } = render(<ShareSound track={tr} />);
+    const range = screen.getByRole('slider', { name: 'ada’s screen volume' }) as HTMLInputElement;
+    fireEvent.input(range, { target: { value: '60' } });
+    fireEvent.change(range, { target: { value: '60' } });
+    expect(bridge.setShareVolume).toHaveBeenLastCalledWith(14, 60);
+    rerender(<ShareSound track={{ ...tr, volume: 60 }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Mute ada’s screen' }));
+    expect(bridge.setShareVolume).toHaveBeenLastCalledWith(14, 0);
+    rerender(<ShareSound track={{ ...tr, volume: 0 }} />);
+    const unmute = screen.getByRole('button', { name: 'Unmute ada’s screen' });
+    expect(unmute.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(unmute);
+    expect(bridge.setShareVolume).toHaveBeenLastCalledWith(14, 60);
+    // A share without sound has no control; compact is the button alone.
+    rerender(<ShareSound track={{ ...tr, sound: false }} />);
+    expect(screen.queryByRole('button', { name: /ada’s screen/ })).toBeNull();
+    rerender(<ShareSound track={tr} compact />);
+    expect(screen.queryByRole('slider')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Mute ada’s screen' })).toBeTruthy();
   });
 });

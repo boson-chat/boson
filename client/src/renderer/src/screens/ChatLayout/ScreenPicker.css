@@ -150,7 +150,30 @@
 .picker-seg-name { font: 700 13px var(--font-mono); }
 .picker-seg-sub { font-size: 12px; color: var(--fg-2); }
 .picker-sound { display: flex; align-items: center; gap: 10px; height: 54px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
-.picker-switch { width: 36px; height: 20px; border: 0; border-radius: 10px; background: var(--border); }
+.picker-switch {
+  position: relative;
+  flex: none;
+  width: 36px;
+  height: 20px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 10px;
+  background: var(--border);
+  cursor: pointer;
+}
+.picker-switch-knob {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--fg-2);
+  transition: transform 120ms ease;
+}
+.picker-switch[aria-checked='true'] { background: var(--accent); }
+.picker-switch[aria-checked='true'] .picker-switch-knob { transform: translateX(16px); background: var(--bg); }
+.picker-switch:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .picker-foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid var(--border); }
 .picker-hint { flex: 1; font: 12px var(--font-mono); color: var(--fg-3); }
 .picker-btn {

@@ -18,6 +18,7 @@ func voiceServices(dataDir, authBase string, dev bool, api *ApiService, images *
 	video.dev = dev
 	video.offsets = voice.avOffsets
 	video.audioDelay = voice.setAudioDelay
+	video.sounds = voice // screen shares' sound plays through the voice engine
 	voice.video = video
 	// The "Leave" action on Android's in-call notification.
 	setNotificationLeave(voice.Leave)

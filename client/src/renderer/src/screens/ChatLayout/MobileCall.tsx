@@ -9,6 +9,7 @@ import { Avatar } from '../../shared/Avatar/Avatar';
 import { BottomSheet } from './BottomSheet';
 import { HoldToTalk, VoicePanel } from './MobileVoice';
 import { callTiles, closeCall, openCall, type CallTileInfo } from './call-shared';
+import { ShareSound } from './ShareSound';
 import './MobileCall.css';
 
 // The call on a phone: the call screen (header, stage, your own video as a
@@ -75,6 +76,7 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
         )}
       </header>
       <div class="mcall-stage">
+        {screenTile?.track?.sound && <ShareSound track={screenTile.track} compact={!screenBig} cls="mcall-share-sound" />}
         {screenTile && screenBig ? (
           <MTile tile={screenTile} cls="mcall-screen-big" avatar={avatarFor?.(screenTile.name)} onSize={onSize} canvasRef={canvas(screenTile)}
             label={`${screenTile.label} · tap to shrink`} ariaLabel="Show everyone" onClick={() => setScreenBig(false)} />
