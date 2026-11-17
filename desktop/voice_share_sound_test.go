@@ -19,7 +19,11 @@ type soundAudio struct {
 	at     int64
 }
 
-func (a *soundAudio) HandleAudio(d wire.Downlink) { a.mu.Lock(); a.got = append(a.got, d); a.mu.Unlock() }
+func (a *soundAudio) HandleAudio(d wire.Downlink) {
+	a.mu.Lock()
+	a.got = append(a.got, d)
+	a.mu.Unlock()
+}
 func (a *soundAudio) Playout(sid uint16) (uint32, int64, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

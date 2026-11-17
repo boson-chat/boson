@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/boson-chat/boson v0.0.0
-	github.com/boson-chat/quicvideo v1.12.0
+	github.com/boson-chat/quicvideo v1.13.0
 	github.com/boson-chat/quicvoice v1.11.0
 	github.com/coder/websocket v1.8.14
 	github.com/fsnotify/fsnotify v1.9.0

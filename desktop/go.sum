@@ -4,8 +4,8 @@ git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 h1:N3IGoHHp9pb6mj1cbXbuaSXV/UMKwmbKLf
 git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3/go.mod h1:QtOLZGz8olr4qH2vWK0QH0w0O4T9fEIjMuWpKUsH7nc=
 github.com/adrg/xdg v0.5.3 h1:xRnxJXne7+oWDatRhR1JLnvuccuIeCoBu2rtuLqQB78=
 github.com/adrg/xdg v0.5.3/go.mod h1:nlTsY+NNiCBGCK2tpm09vRqfVzrc2fLmXGpBLF0zlTQ=
-github.com/boson-chat/quicvideo v1.12.0 h1:xCAurdTlprFI4ceRjjEA/jxatVxtPWJUzLuMdAnKuw4=
-github.com/boson-chat/quicvideo v1.12.0/go.mod h1:iZqRG8z7PAqyY1maV4vDhfr6mMPa0Q161AQskit4lP4=
+github.com/boson-chat/quicvideo v1.13.0 h1:2g0QIK4GuichQgR6psOIh5m+jG69WxMBWBkd6y6TPns=
+github.com/boson-chat/quicvideo v1.13.0/go.mod h1:iZqRG8z7PAqyY1maV4vDhfr6mMPa0Q161AQskit4lP4=
 github.com/boson-chat/quicvoice v1.11.0 h1:6o6hFAeyxoDJSuCKt6Aw1lI1TfIrGr30W8BgabyC1Mk=
 github.com/boson-chat/quicvoice v1.11.0/go.mod h1:bbYQ7nhHKRDOOSKUDSWxSzN532CPcYCNNbLzPS2J1wA=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
