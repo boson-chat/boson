@@ -253,6 +253,32 @@ function pickerThumb(id: string): string {
   return url;
 }
 
+// ?video=live&ws=<frame hub URL>: the call view on a real frame socket and
+// the browser's real WebCodecs decoder: nova's camera is track 10, her
+// screen track 11, and our camera's self-view comes as previews (the
+// WebKit video test feeds it from Go: desktop/video_webkit_test.go).
+function installLiveVideo(): void {
+  const q = new URLSearchParams(location.search);
+  const others = callPeople().filter((p) => !p.self);
+  const layer = (w: number, h: number) => [{ id: 0, width: w, height: h, fps: 30 }];
+  const state: VideoState = {
+    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: q.get('ws') ?? '', canCapture: true, canPublish: true,
+    camera: { on: true, starting: false, facing: 'front' },
+    tracks: others.length === 0 ? [] : [
+      { trackId: 10, userId: others[0].userId, name: others[0].name, kind: 'camera', self: false, layers: layer(640, 360) },
+      { trackId: 11, userId: others[0].userId, name: others[0].name, kind: 'screen', self: false, layers: layer(1280, 720) },
+    ],
+  };
+  const bridge = {
+    state: async () => state, onState: () => () => {}, subscribe: async () => {}, unsubscribe: async () => {},
+    cameras: async () => [], screenSources: async () => [], setCamera: async () => state, setScreen: async () => state,
+  };
+  const c = new VideoController(bridge);
+  setVideoController(c);
+  (globalThis as unknown as { __video: VideoController }).__video = c; // the test reads its stats
+  setTimeout(() => c.setOpen(true), 400);
+}
+
 // ?video=call: the call view, with tiles drawn from painted test frames
 // through the real controller (a fake socket sends keyframes; a fake
 // decoder paints a labelled pattern per track). call: everyone else's
@@ -261,6 +287,7 @@ function pickerThumb(id: string): string {
 const videoMode = new URLSearchParams(location.search).get('video');
 function installVideo(): void {
   if (!videoMode) return;
+  if (videoMode === 'live') return installLiveVideo();
   const cam = (id: number, userId: string, name: string) => ({
     trackId: id, userId, name, kind: 'camera' as const, self: false, layers: [{ id: 0, width: 640, height: 360, fps: 30 }],
   });
