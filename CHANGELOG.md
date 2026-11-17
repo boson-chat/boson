@@ -1,3 +1,9 @@
+## [0.76.0](https://github.com/boson-chat/boson/compare/v0.75.0...v0.76.0) (2026-11-17)
+
+### Features
+
+* "Smoother screen shares" (experimental, off by default): screen pacing behind a flag ([#98](https://github.com/boson-chat/boson/issues/98)) ([337f56f](https://github.com/boson-chat/boson/commit/337f56f22c96ace285b6917631b9e61af4a1c826))
+
 ## [0.75.0](https://github.com/boson-chat/boson/compare/v0.74.0...v0.75.0) (2026-11-17)
 
 ### Features
