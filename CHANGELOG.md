@@ -1,3 +1,9 @@
+## [0.72.0](https://github.com/boson-chat/boson/compare/v0.71.0...v0.72.0) (2026-11-17)
+
+### Features
+
+* call UI (c): the desktop call stage, IN CALL / CHAT panel, in-call strip and pill ([#94](https://github.com/boson-chat/boson/issues/94)) ([4389523](https://github.com/boson-chat/boson/commit/43895237fb754e9069dca3f87815718be8a3f030))
+
 ## [0.71.0](https://github.com/boson-chat/boson/compare/v0.70.0...v0.71.0) (2026-11-17)
 
 ### Features
