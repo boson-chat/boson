@@ -790,3 +790,31 @@ func TestVideoScreenModeAndSwitch(t *testing.T) {
 		t.Fatalf("default mode %q", m)
 	}
 }
+
+// A late screen frame says nothing about lip sync: it never delays its
+// sharer's voice.
+func TestVideoScreenLatenessIgnored(t *testing.T) {
+	h := newVideoHarness(t)
+	h.join(t, `"video.publish"`)
+	c := h.conn(0)
+	c.events <- &videopb.ControlMessage{Msg: &videopb.ControlMessage_TrackAdded{TrackAdded: &videopb.TrackAdded{
+		Track: &videopb.Track{TrackId: 14, SessionId: 2, Kind: videopb.TrackKind_SCREEN}}}}
+	waitUntil(t, "alice's screen", func() bool { return len(h.svc.State().Tracks) == 2 })
+	h.svc.mu.Lock()
+	h.svc.userOffsets = map[string]int64{"usr_alice": 87_000}
+	h.svc.mu.Unlock()
+	h.svc.noteLateness(14, uint64(time.Now().Add(-time.Second).UnixMicro()))
+	h.svc.mu.Lock()
+	_, adapting := h.svc.adapt["usr_alice"]
+	h.svc.mu.Unlock()
+	if adapting {
+		t.Fatal("a late screen frame counted toward alice's audio delay")
+	}
+	h.svc.noteLateness(10, uint64(time.Now().Add(-time.Second).UnixMicro())) // her camera still counts
+	h.svc.mu.Lock()
+	_, adapting = h.svc.adapt["usr_alice"]
+	h.svc.mu.Unlock()
+	if !adapting {
+		t.Fatal("her camera's lateness didn't count")
+	}
+}

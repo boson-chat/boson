@@ -8,6 +8,7 @@
 // capture + offset comes round, i.e. with the audio captured at the same
 // moment. Without an offset (no audio playing, an old voice server) frames
 // show as they arrive.
+import { getVoiceSettings } from '../voice/voice.settings';
 import type { VideoBridge } from './video.bridge';
 import { codecFromDesc, parseBinary, parseText, type FrameMsg } from './video.frames';
 import { fitRect, layerForTile } from './video.layout';
@@ -56,6 +57,13 @@ function browserEnv(): VideoEnv {
 
 // A due time this far ahead is a bad offset, not a real delay: show now.
 const MAX_AHEAD_MS = 2000;
+// Experimental (Settings → Voice, "Smoother screen shares"): a screen
+// share's frame is shown at its capture time plus the smallest delay seen
+// lately plus this margin, so frames are paced by when they were
+// captured, not by when they happened to arrive (a frame just missing a
+// vsync waited for the next one). Off by default.
+const SCREEN_JITTER_MS = 20;
+const SCREEN_LAG_WINDOW = 90; // frames (3 s at 30 fps)
 
 interface Pending {
   frame: VideoFrame;
@@ -70,6 +78,10 @@ class TrackPlayer {
   private waitingForKey = true;
   queue: Pending[] = [];
   canvas: HTMLCanvasElement | null = null;
+  // A screen share, and whether it's paced by its own jitter buffer.
+  screen = false;
+  pace = false;
+  private lags: number[] = [];
   stats: TrackStats = { decoded: 0, shown: 0, dropped: 0, lastSkewMs: null, synced: false };
 
   constructor(
@@ -105,7 +117,12 @@ class TrackPlayer {
     const dec = new this.env.VideoDecoder({
       output: (frame) => {
         this.stats.decoded++;
-        this.queue.push({ frame, captureUS: frame.timestamp, arrivedMs: this.env.now() });
+        const arrivedMs = this.env.now();
+        if (this.screen && this.pace) {
+          this.lags.push(arrivedMs - frame.timestamp / 1000);
+          if (this.lags.length > SCREEN_LAG_WINDOW) this.lags.shift();
+        }
+        this.queue.push({ frame, captureUS: frame.timestamp, arrivedMs });
       },
       error: () => this.reset(),
     });
@@ -136,8 +153,12 @@ class TrackPlayer {
 
   /** Shows the newest frame that is due (dropping older ones). */
   render(nowMs: number, offsetUS: number | undefined): void {
+    const paced = this.screen && this.pace;
+    if (paced) offsetUS = undefined; // paced by its own buffer, not the audio
     this.stats.synced = offsetUS !== undefined;
+    const lagMs = paced && this.lags.length > 0 ? Math.min(...this.lags) + SCREEN_JITTER_MS : null;
     const due = (p: Pending) => {
+      if (lagMs !== null) return Math.min(p.captureUS / 1000 + lagMs, p.arrivedMs + 100);
       if (offsetUS === undefined) return p.arrivedMs;
       const d = (p.captureUS + offsetUS) / 1000;
       return d - nowMs > MAX_AHEAD_MS ? p.arrivedMs : d;
@@ -397,6 +418,8 @@ export class VideoController {
     let p = this.players.get(trackId);
     if (!p) {
       p = new TrackPlayer(this.env, trackId, (id) => this.askKeyframe(id));
+      p.screen = this.snapshot.state.tracks.find((t) => t.trackId === trackId)?.kind === 'screen';
+      p.pace = getVoiceSettings().screenPacing;
       this.players.set(trackId, p);
     }
     return p;

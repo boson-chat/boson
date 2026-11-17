@@ -15,6 +15,10 @@ export interface VoiceSettings {
   vadDb: number;
   // Per-user playback volume (by account id), percent 0…200.
   userVolumes: Record<string, number>;
+  // Experimental: pace received screen shares by capture time with a small
+  // jitter buffer (instead of showing frames as they arrive). Off by
+  // default until it's been checked on every platform's webview.
+  screenPacing: boolean;
 }
 
 export const VAD_MIN_DB = -60;
@@ -27,6 +31,7 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   pttCode: null,
   vadDb: -45,
   userVolumes: {},
+  screenPacing: false,
 };
 
 interface KV {
@@ -65,6 +70,7 @@ export function getVoiceSettings(): VoiceSettings {
         pttCode: typeof p.pttCode === 'string' && p.pttCode ? p.pttCode : null,
         vadDb: typeof p.vadDb === 'number' && Number.isFinite(p.vadDb) ? clamp(p.vadDb, VAD_MIN_DB, VAD_MAX_DB) : next.vadDb,
         userVolumes: volumes,
+        screenPacing: p.screenPacing === true,
       };
     }
   } catch { /* defaults */ }

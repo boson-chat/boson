@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Card, Divider, Field, Tabs, WarningBanner } from '@boson/shared';
+import { Button, Card, Divider, Field, Tabs, Toggle, WarningBanner } from '@boson/shared';
 import {
   VAD_MAX_DB, VAD_MIN_DB, getVoiceSettings, keyLabel, onVoiceSettingsChange, setVoiceSettings, useVoice,
   type VoiceDevices, type VoiceSettings,
@@ -172,9 +172,16 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
         </Card>
         <p class="voice-settings-note">
           {phone
-            ? 'Tap someone on the call screen to change how loud they are for you.'
+            ? 'In a call, More → People and volume changes how loud someone is for you.'
             : 'Right-click someone in a voice channel to change how loud they are for you.'}
         </p>
+        <Card>
+          <div class="user-settings-card-body user-settings-form">
+            <Field label="Smoother screen shares (experimental)" hint="Shows a shared screen at the pace it was captured, with a small buffer, rather than as frames arrive. Try it if screen shares look jumpy.">
+              <Toggle checked={s.screenPacing} onChange={(on) => setVoiceSettings({ screenPacing: on })} label="Smoother screen shares" />
+            </Field>
+          </div>
+        </Card>
       </div>
     </section>
   );

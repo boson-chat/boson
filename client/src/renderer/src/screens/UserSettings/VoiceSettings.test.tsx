@@ -78,4 +78,12 @@ describe('Settings → Voice', () => {
     render(<VoiceSettingsSection open />);
     expect(await screen.findByText("Couldn't start the mic test")).toBeTruthy();
   });
+
+  it('"Smoother screen shares" is off by default and saved when turned on', async () => {
+    render(<VoiceSettingsSection open />);
+    expect(getVoiceSettings().screenPacing).toBe(false);
+    const toggle = await screen.findByRole('switch', { name: 'Smoother screen shares' }).catch(() => screen.getByLabelText('Smoother screen shares'));
+    fireEvent.click(toggle);
+    await waitFor(() => expect(getVoiceSettings().screenPacing).toBe(true));
+  });
 });
