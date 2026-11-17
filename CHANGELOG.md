@@ -1,3 +1,9 @@
+## [0.70.0](https://github.com/boson-chat/boson/compare/v0.69.12...v0.70.0) (2026-11-17)
+
+### Features
+
+* call UI (a): voice channel face stack, peek list and the voice panel ([#91](https://github.com/boson-chat/boson/issues/91)) ([159b1e8](https://github.com/boson-chat/boson/commit/159b1e8dbdcda08165751da0700a7a71137f1b54))
+
 ## [0.69.12](https://github.com/boson-chat/boson/compare/v0.69.11...v0.69.12) (2026-11-17)
 
 ### Bug Fixes
