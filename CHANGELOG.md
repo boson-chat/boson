@@ -1,3 +1,9 @@
+## [0.74.0](https://github.com/boson-chat/boson/compare/v0.73.0...v0.74.0) (2026-11-17)
+
+### Features
+
+* call UI (e): the screen share picker and the "You're sharing" bar ([#96](https://github.com/boson-chat/boson/issues/96)) ([725717f](https://github.com/boson-chat/boson/commit/725717f7a6f72507d856a1c882818ca33ede4562))
+
 ## [0.73.0](https://github.com/boson-chat/boson/compare/v0.72.0...v0.73.0) (2026-11-17)
 
 ### Features
