@@ -258,6 +258,29 @@ export class VideoController {
     if (pinned && !live.has(pinned)) pinned = 0;
     this.publish({ state: s, pinned });
     this.syncSocket();
+    // Joined with the camera chosen on the pre-join view: on once the
+    // call's video is up.
+    if (this.cameraOnJoin && s.available && s.status === 'connected' && s.canCapture && s.canPublish) {
+      this.cameraOnJoin = false;
+      if (!s.camera.on && !s.camera.starting) void this.setCamera(true, this.cameraOnJoinId);
+    }
+  }
+
+  private cameraOnJoin = false;
+  private cameraOnJoinId = '';
+
+  /** The pre-join choice: turn the camera on as soon as the call's video
+   * is up (or not). Cleared once used, and by leaving. */
+  setCameraOnJoin(on: boolean, cameraId = ''): void {
+    this.cameraOnJoin = on;
+    this.cameraOnJoinId = cameraId;
+  }
+
+  /** The pre-join camera preview: the camera for your eyes only, drawn in
+   * the canvas given to attachPreview; nothing is sent. */
+  previewCamera(on: boolean, cameraId = ''): Promise<VideoState | null> {
+    if (!this.bridge.previewCamera) return Promise.resolve(null);
+    return this.bridge.previewCamera(on, cameraId).then((s) => { this.setState(s); return s; }, () => null);
   }
 
   /** The call view opened or closed: video is only received while open. */
@@ -362,7 +385,11 @@ export class VideoController {
 
   // The frame socket is open while the call view is and video is up.
   private syncSocket(): void {
-    const url = this.snapshot.open && this.snapshot.state.available ? this.snapshot.state.frameUrl ?? '' : '';
+    // Open while the call view is (video is up), or while the pre-join
+    // preview runs (its self-view comes over the same socket).
+    const st = this.snapshot.state;
+    const previewing = !!(st.preview?.on || st.preview?.starting);
+    const url = (this.snapshot.open && st.available) || previewing ? st.frameUrl ?? '' : '';
     if (url === this.wsUrl) return;
     this.closeSocket();
     this.wsUrl = url;

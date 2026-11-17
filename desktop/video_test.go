@@ -110,6 +110,8 @@ type fakeMedia struct {
 	shares []*fakeShare
 	onEnd  func(error)
 	facing string // the cameras' facing
+	// PreviewCamera calls and stops.
+	previews, previewStops int
 }
 
 func (m *fakeMedia) Cameras() ([]VideoCamera, error) {
@@ -140,6 +142,18 @@ func (m *fakeMedia) StartCamera(ctx context.Context, _ *qvclient.Client, _ strin
 func (m *fakeMedia) StartScreen(ctx context.Context, _ *qvclient.Client, _ string, onEnd func(error)) (videoShare, error) {
 	return m.start(ctx, "screen", onEnd)
 }
+func (m *fakeMedia) PreviewCamera(id string, preview func(int, int, []byte), onEnd func(error)) (func(), string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return nil, "", m.err
+	}
+	m.previews++
+	m.onEnd = onEnd
+	preview(2, 2, make([]byte, 16))
+	return func() { m.mu.Lock(); m.previewStops++; m.mu.Unlock() }, m.facing, nil
+}
+
 func (m *fakeMedia) share(i int) *fakeShare {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -640,4 +654,55 @@ func TestVideoCameraFacing(t *testing.T) {
 	if f := h.svc.State().Camera.Facing; f != "" {
 		t.Fatalf("off: facing %q", f)
 	}
+}
+
+// The pre-join preview: the camera for your eyes only, before joining.
+// It stops when turned off, when the call's camera starts, and when a
+// call starts or ends.
+func TestVideoCameraPreview(t *testing.T) {
+	h := newVideoHarness(t)
+	counts := func() (int, int) {
+		h.media.mu.Lock()
+		defer h.media.mu.Unlock()
+		return h.media.previews, h.media.previewStops
+	}
+
+	h.media.facing = "front"
+	st := h.svc.PreviewCamera(true, "")
+	if !st.Preview.Starting {
+		t.Fatalf("preview %+v", st.Preview)
+	}
+	waitUntil(t, "preview on", func() bool { return h.svc.State().Preview.On })
+	st = h.svc.State()
+	if st.FrameURL == "" || st.Preview.Facing != "front" || st.Available {
+		t.Fatalf("a preview before any call: %+v", st)
+	}
+	h.svc.PreviewCamera(false, "")
+	if n, stops := counts(); n != 1 || stops != 1 || h.svc.State().Preview.On {
+		t.Fatalf("off: %d previews, %d stops", n, stops)
+	}
+
+	// Joining ends it (whether or not the camera goes on in the call).
+	h.svc.PreviewCamera(true, "")
+	waitUntil(t, "preview on again", func() bool { return h.svc.State().Preview.On })
+	h.join(t, `"video.publish"`)
+	waitUntil(t, "preview off at join", func() bool { return !h.svc.State().Preview.On })
+	if _, stops := counts(); stops != 2 {
+		t.Fatalf("stops %d", stops)
+	}
+
+	// In a call with the camera on, the preview is the call's camera.
+	h.svc.SetCamera(true, "")
+	waitUntil(t, "camera on", func() bool { return h.svc.State().Camera.On })
+	if st := h.svc.PreviewCamera(true, ""); st.Preview.On || st.Preview.Starting {
+		t.Fatalf("a second camera capture: %+v", st.Preview)
+	}
+
+	// A preview that fails says why.
+	h.svc.voiceLeft()
+	h.media.mu.Lock()
+	h.media.err = errors.New("camera permission denied")
+	h.media.mu.Unlock()
+	h.svc.PreviewCamera(true, "")
+	waitUntil(t, "preview error", func() bool { return h.svc.State().Preview.Error == "camera permission denied" })
 }

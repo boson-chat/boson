@@ -132,6 +132,52 @@ func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id strin
 	})
 }
 
+func (nativeMedia) PreviewCamera(id string, preview func(int, int, []byte), onEnd func(error)) (func(), string, error) {
+	if err := cameraAllowed(); err != nil {
+		return nil, "", err
+	}
+	facing := ""
+	if cams, err := media.ListCameras(); err == nil {
+		def, _ := media.DefaultCamera(cams)
+		for _, cam := range cams {
+			if cam.ID == id || (id == "" && def.ID == cam.ID) {
+				facing = cam.Facing
+			}
+		}
+	}
+	var mu sync.Mutex
+	var last time.Time
+	src, err := media.StartCamera(media.CameraOptions{ID: id, Width: 1280, Height: 720, FPS: 30}, func(f media.CapturedFrame) {
+		mu.Lock()
+		due := time.Since(last) > 66*time.Millisecond
+		if due {
+			last = time.Now()
+		}
+		mu.Unlock()
+		if !due {
+			return
+		}
+		if img, err := media.ToRGBA(f.Picture, 320); err == nil {
+			preview(img.Bounds().Dx(), img.Bounds().Dy(), img.Pix)
+		}
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	done := make(chan struct{})
+	if e, ok := src.(media.Ender); ok {
+		go func() {
+			select {
+			case err := <-e.Ended():
+				onEnd(err)
+			case <-done:
+			}
+		}()
+	}
+	var once sync.Once
+	return func() { once.Do(func() { close(done); src.Stop() }) }, facing, nil
+}
+
 // nativeShare is a running source + publisher + track.
 type nativeShare struct {
 	name  string

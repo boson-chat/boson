@@ -68,6 +68,7 @@ type VideoService struct {
 
 	stop chan struct{}
 	once sync.Once
+	pv   previewState // the pre-join camera preview (guarded by mu)
 }
 
 // videoStatus is what State reports besides the session's tracks.
@@ -177,8 +178,11 @@ type VideoState struct {
 	// CanShareScreen: this build can share the screen too (not on iOS yet).
 	CanShareScreen bool            `json:"canShareScreen"`
 	Camera         VideoShareState `json:"camera"`
-	Screen         VideoShareState `json:"screen"`
-	Tracks         []VideoTrack    `json:"tracks"`
+	// Preview: the camera shown only to you, before joining (the pre-join
+	// view's self-view); nothing is sent.
+	Preview VideoShareState `json:"preview"`
+	Screen  VideoShareState `json:"screen"`
+	Tracks  []VideoTrack    `json:"tracks"`
 }
 
 const (
@@ -309,6 +313,7 @@ func (v *VideoService) send(name string, data any) {
 // voiceJoined: a voice join succeeded on conn (VoiceService.Join). Ask for
 // a video ticket and, if the server has video, join the video room.
 func (v *VideoService) voiceJoined(conn voiceConn) {
+	v.stopPreview() // the pre-join preview ends at the door
 	t, ok := conn.(videoTicketer)
 	if !ok {
 		return
@@ -322,6 +327,7 @@ func (v *VideoService) voiceJoined(conn voiceConn) {
 
 // voiceLeft: we left voice (or were dropped or kicked): leave video too.
 func (v *VideoService) voiceLeft() {
+	v.stopPreview()
 	v.mu.Lock()
 	v.seq++
 	sess := v.sess
@@ -800,6 +806,90 @@ func (v *VideoService) ResumeCamera() VideoState {
 	return v.State()
 }
 
+// previewState is the pre-join camera preview.
+type previewState struct {
+	on, starting bool
+	id, facing   string
+	err          string
+	gen          int
+	stop         func()
+}
+
+// PreviewCamera shows the camera to you alone, before joining a call (id
+// "" = the default camera). Nothing is encoded or sent. It stops when
+// turned off, when the camera is turned on in a call, and on leaving.
+func (v *VideoService) PreviewCamera(on bool, id string) VideoState {
+	v.mu.Lock()
+	v.pv.gen++
+	gen := v.pv.gen
+	stop := v.pv.stop
+	v.pv = previewState{gen: gen, id: id}
+	if on {
+		switch {
+		case v.media == nil:
+			v.pv.err = "This version of the app can't use the camera."
+			on = false
+		case v.st.camera.on || v.st.camera.starting:
+			on = false // the call's camera is the preview already
+		default:
+			v.pv.starting = true
+		}
+	}
+	v.dirty = true
+	v.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
+	if on {
+		if _, err := v.frames(); err != nil {
+			v.mu.Lock()
+			v.pv = previewState{gen: gen, err: err.Error()}
+			v.mu.Unlock()
+		} else {
+			go v.runPreview(gen, id)
+		}
+	}
+	return v.State()
+}
+
+func (v *VideoService) runPreview(gen int, id string) {
+	stop, facing, err := v.media.PreviewCamera(id, v.preview, func(err error) {
+		v.mu.Lock()
+		defer v.mu.Unlock()
+		if v.pv.gen == gen {
+			v.pv = previewState{gen: gen + 1, err: endMessage(true, err)}
+			v.dirty = true
+		}
+	})
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.pv.gen != gen {
+		if stop != nil {
+			go stop() // superseded while starting
+		}
+		return
+	}
+	if err != nil {
+		v.pv = previewState{gen: gen, id: id, err: err.Error()}
+	} else {
+		v.pv = previewState{gen: gen, id: id, on: true, facing: facing, stop: stop}
+	}
+	v.dirty = true
+}
+
+// stopPreview ends the pre-join preview (the call's camera takes over, or
+// the call is over).
+func (v *VideoService) stopPreview() {
+	v.mu.Lock()
+	stop := v.pv.stop
+	v.pv = previewState{gen: v.pv.gen + 1}
+	v.dirty = true
+	v.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
+}
+
 func (v *VideoService) slot(camera bool) *shareStatus {
 	if camera {
 		return &v.st.camera
@@ -817,6 +907,13 @@ func (v *VideoService) setShare(camera, on bool, id string) {
 	*sl = shareStatus{gen: gen, id: id}
 	if camera {
 		v.st.camWant, v.st.camWantID = on, id
+	}
+	previewStop := func() {}
+	if camera && on && v.pv.stop != nil {
+		// The call's camera replaces the pre-join preview (one device).
+		stop := v.pv.stop
+		v.pv = previewState{gen: v.pv.gen + 1}
+		previewStop = stop
 	}
 	if on {
 		switch {
@@ -838,6 +935,7 @@ func (v *VideoService) setShare(camera, on bool, id string) {
 	}
 	v.dirty = true
 	v.mu.Unlock()
+	previewStop()
 	if old != nil {
 		old.Stop()
 	}
@@ -963,7 +1061,11 @@ func (v *VideoService) State() VideoState {
 		Available: v.st.available, Status: v.st.status, Error: v.st.err,
 		CanCapture: v.media != nil, CanPublish: v.st.canPublish, CanShareScreen: v.canShareScreen(),
 		Camera: share(v.st.camera), Screen: share(v.st.screen),
-		Tracks: []VideoTrack{},
+		Preview: VideoShareState{On: v.pv.on, Starting: v.pv.starting, ID: v.pv.id, Facing: v.pv.facing, Error: v.pv.err},
+		Tracks:  []VideoTrack{},
+	}
+	if v.pv.on || v.pv.starting {
+		st.FrameURL = url // the self-view's previews come over the frame socket
 	}
 	if !st.Available {
 		return st

@@ -75,7 +75,7 @@ describe('voice channel management', () => {
     expect(staff.getAttribute('title')).toBe('Needs channel admin (&) or higher in #dev');
     fireEvent.click(staff);
     expect(bridge.calls.some((c) => c.method === 'join')).toBe(false);
-    expect(screen.getByLabelText('Join voice channel Town hall, listen only')).toBeTruthy();
+    expect(screen.getByLabelText('Voice channel Town hall, listen only')).toBeTruthy();
     expect(screen.getByText('listen only')).toBeTruthy();
   });
 
@@ -137,7 +137,7 @@ describe('voice channel management', () => {
 
   it('moves a room with the context menu', async () => {
     mount();
-    const row = await screen.findByLabelText('Join voice channel Town hall, listen only');
+    const row = await screen.findByLabelText('Voice channel Town hall, listen only');
     fireEvent.contextMenu(row);
     expect((screen.getByText('Move down') as HTMLButtonElement).disabled).toBe(true); // Staff isn't yours
     await act(async () => { fireEvent.click(screen.getByText('Move up')); });

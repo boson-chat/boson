@@ -20,6 +20,8 @@ import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { useNarrow } from '../../shared/narrow';
 import { MobileCallBar } from './MobileVoice';
+import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
+import { setVoiceUi, useVoiceUi } from './VoiceRooms';
 import { CallView } from './CallView';
 import { useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
@@ -204,6 +206,13 @@ export function ChatLayout({
   const { snap: videoSnap } = useVideo();
   const { snap: voiceSnap } = useVoice();
   const callOpen = videoSnap.open && videoSnap.state.available && voiceSnap.call.status === 'connected';
+  // A voice channel clicked in the sidebar and not joined: its pre-join
+  // view (the desktop's main column; a phone shows a join sheet).
+  const { view: voiceView } = useVoiceUi();
+  const call = voiceSnap.call;
+  // Another server: its voice channel's view doesn't follow.
+  useEffect(() => { setVoiceUi({ view: null }); }, [activeServerId]);
+  const prejoinOpen = !!voiceView && !(call.host === voiceView.host && call.room === voiceView.roomId && call.status !== 'idle' && call.status !== 'error');
 
   const rail = (
         <ServerRail
@@ -228,6 +237,7 @@ export function ChatLayout({
           channels={state.channels}
           activeChannel={state.activeChannel}
           onSelect={(name) => {
+            setVoiceUi({ view: null }); // a text channel: leave the voice channel's view
             chat.setActive(name);
             setDrawer('none');
             // A channel we're not in: ask for it again (a no-op if joined).
@@ -357,6 +367,7 @@ export function ChatLayout({
             {/* In a voice call: on top of whatever chat is open. */}
             <MobileCallBar avatarFor={avatarFor} />
             {callOpen ? <CallView avatarFor={avatarFor} phone /> : chatArea}
+            <VoiceJoinSheet self={myNick} avatarFor={avatarFor} />
             {shownDrawer !== 'none' && active && (
               <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />
             )}
@@ -376,7 +387,7 @@ export function ChatLayout({
             onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
             ariaLabel="Resize channel list"
           />
-          {callOpen ? <CallView avatarFor={avatarFor} /> : chatArea}
+          {callOpen ? <CallView avatarFor={avatarFor} /> : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
           <ResizeHandle
             side="right"
             width={membersW}
