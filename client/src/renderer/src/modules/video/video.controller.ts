@@ -353,7 +353,13 @@ export class VideoController {
     for (const s of sizes) {
       const t = tracks.get(s.trackId);
       if (!t || t.self) continue;
-      const layer = layerForTile(t.layers, s.width, s.height, s.visible);
+      // A screen share takes its top layer whatever the tile's size: its
+      // small layer runs at half the rate (15 against 30 fps), and a
+      // phone's tile is small. The server's bandwidth controller still
+      // steps it down when the link can't take it. Cameras: by size.
+      const layer = t.kind === 'screen' && s.visible && t.layers.length > 0
+        ? t.layers.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a)).id
+        : layerForTile(t.layers, s.width, s.height, s.visible);
       if (layer !== null) want.set(s.trackId, layer);
     }
     for (const [id, layer] of want) {
