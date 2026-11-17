@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/boson-chat/boson v0.0.0
-	github.com/boson-chat/quicvideo v1.11.0
+	github.com/boson-chat/quicvideo v1.12.0
 	github.com/boson-chat/quicvoice v1.11.0
 	github.com/coder/websocket v1.8.14
 	github.com/fsnotify/fsnotify v1.9.0
@@ -13,6 +13,7 @@ require (
 	github.com/wailsapp/wails/v3 v3.0.0-beta.30
 	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/image v0.41.0
+	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302
 )
 
 replace github.com/boson-chat/boson => ../
@@ -31,5 +32,4 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
-	gopkg.in/hraban/opus.v2 v2.0.0-20230925203106-0188a62cb302 // indirect
 )

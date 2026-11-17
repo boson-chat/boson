@@ -53,6 +53,8 @@ function PickerDialog({ onClose }: { onClose: () => void }) {
   const [search, setSearch] = useState('');
   const remembered = useRef(rememberedShare());
   const [mode, setMode] = useState<ShareMode>(sharing?.mode ?? remembered.current?.mode ?? 'motion');
+  // Per share, off unless this share already has it.
+  const [sound, setSound] = useState(!!sharing?.sound && !!st.canShareAudio);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const dialog = useRef<HTMLDivElement>(null);
   const optionRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -98,8 +100,11 @@ function PickerDialog({ onClose }: { onClose: () => void }) {
     const src = sources?.find((s) => s.id === id);
     if (!video || !src) return;
     rememberShare(src, mode);
-    if (sharing && sharing.mode === mode && sharing.id !== src.id) void video.switchScreen(src.id);
-    else if (!sharing || sharing.mode !== mode) void video.shareScreen(src.id, mode);
+    // Another source, same settings: the same track. Anything else that
+    // changed (the mode, the sound): a new share.
+    const same = !!sharing && sharing.mode === mode && !!sharing.sound === sound;
+    if (same && sharing!.id !== src.id) void video.switchScreen(src.id);
+    else if (!same) void video.shareScreen(src.id, mode, sound);
     video.setOpen(true);
     onClose();
   };
@@ -185,7 +190,9 @@ function PickerDialog({ onClose }: { onClose: () => void }) {
               <span class="picker-opt-title">SOUND</span>
               <div class="picker-sound">
                 <span class="picker-names"><span class="picker-seg-name">Share sound</span><span class="picker-seg-sub">{isScreen ? 'Everything you hear' : 'Only this app’s sound'}</span></span>
-                <button type="button" role="switch" aria-checked={false} aria-label="Share sound" class="picker-switch" disabled />
+                <button type="button" role="switch" aria-checked={sound} aria-label="Share sound" class="picker-switch" onClick={() => setSound(!sound)}>
+                  <span class="picker-switch-knob" aria-hidden="true" />
+                </button>
               </div>
             </div>
           )}
@@ -194,7 +201,7 @@ function PickerDialog({ onClose }: { onClose: () => void }) {
           <span class="picker-hint">Double-click to share at once · Enter shares · Esc cancels</span>
           <button type="button" class="picker-btn" onClick={onClose}>Cancel</button>
           <button type="button" class="picker-btn picker-primary" disabled={!chosen} onClick={() => share()}>
-            {sharing && sharing.id !== pick && sharing.mode === mode ? 'Switch to this' : isScreen ? 'Share screen' : 'Share window'}
+            {sharing && sharing.id !== pick && sharing.mode === mode && !!sharing.sound === sound ? 'Switch to this' : isScreen ? 'Share screen' : 'Share window'}
           </button>
         </div>
       </div>
@@ -228,7 +235,7 @@ export function SharingBar() {
         {thumb && <img src={thumb} alt="" />}
         <span class="voice-live" aria-hidden="true">LIVE</span>
       </span>
-      <span class="sharebar-text">You're sharing <span class="sharebar-what">{scr.name || 'your screen'}</span> · {how}</span>
+      <span class="sharebar-text">You're sharing <span class="sharebar-what">{scr.name || 'your screen'}</span> · {how}{scr.sound ? ' · with sound' : ''}</span>
       <button type="button" class="sharebar-btn" onClick={() => {
         if (snap.state.canPickScreen) openScreenPicker();
         else void video.setScreen(true, '');

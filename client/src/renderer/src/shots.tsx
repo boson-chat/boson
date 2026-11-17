@@ -295,14 +295,16 @@ function installVideo(): void {
   });
   const others = callPeople().filter((p) => !p.self);
   const oneCam = new URLSearchParams(location.search).get('cams') === 'one';
+  // &sound=1: the screen share carries its sound, and "Share sound" is on offer.
+  const withSound = new URLSearchParams(location.search).get('sound') === '1';
   const camTracks = videoMode === 'none' ? [] : others.slice(0, oneCam ? 1 : others.length).map((p, i) => cam(10 + i * 2, p.userId, p.name));
   const state: VideoState = {
-    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true, canShareScreen: true, canPickScreen: true,
+    ...EMPTY_VIDEO_STATE, available: true, status: 'connected', frameUrl: 'ws://fake/video', canCapture: true, canPublish: true, canShareScreen: true, canPickScreen: true, canShareAudio: withSound,
     camera: { on: videoMode !== 'none', starting: false },
     tracks: [
       ...camTracks,
       ...(videoMode === 'screen' && others.length > 0
-        ? [{ trackId: 11, userId: others[Math.min(1, others.length - 1)].userId, name: others[Math.min(1, others.length - 1)].name, kind: 'screen' as const, self: false, layers: [{ id: 0, width: 1920, height: 1080, fps: 15 }] }]
+        ? [{ trackId: 11, userId: others[Math.min(1, others.length - 1)].userId, name: others[Math.min(1, others.length - 1)].name, kind: 'screen' as const, self: false, layers: [{ id: 0, width: 1920, height: 1080, fps: 15 }], ...(withSound ? { sound: true, volume: 100 } : {}) }]
         : []),
     ],
   };
@@ -377,6 +379,10 @@ function installVideo(): void {
     stopThumbnails: async () => {},
     setCamera: async () => state,
     setScreen: async () => state,
+    setShareVolume: async (trackId: number, percent: number) => {
+      state.tracks = state.tracks.map((t) => (t.trackId === trackId ? { ...t, volume: percent } : t));
+      return { ...state };
+    },
   };
   const c = new VideoController(bridge, {
     WebSocket: FakeSocket as unknown as typeof WebSocket,

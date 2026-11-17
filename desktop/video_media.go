@@ -23,7 +23,9 @@ type videoMedia interface {
 	// mode: "detail" (text, up to 1440p, 15 fps) or "motion" (default;
 	// video and scrolling, 1080p, 30 fps): the capture, the layer ladder
 	// and the encoder's content hint.
-	StartScreen(ctx context.Context, c *qvclient.Client, id, mode string, onEnd func(error)) (videoShare, error)
+	// sound: also send what the shared screen or app plays (where the
+	// media can: soundSharer), on a SCREEN_AUDIO track tied to the share.
+	StartScreen(ctx context.Context, c *qvclient.Client, id, mode string, sound bool, onEnd func(error)) (videoShare, error)
 	// Thumbnail is a small JPEG of a source (a VideoSource.ID), for the
 	// picker; an error where there are none (Linux, Windows for now).
 	Thumbnail(id string, maxW int) ([]byte, error)
@@ -80,3 +82,9 @@ type VideoSource struct {
 	Main    bool `json:"main,omitempty"`
 	HasSelf bool `json:"hasSelf,omitempty"`
 }
+
+// soundSharer is media that can send a screen share's sound (macOS 13+).
+type soundSharer interface{ CanShareSound() bool }
+
+// soundShare is a screen share that's sending its sound.
+type soundShare interface{ SendingSound() bool }

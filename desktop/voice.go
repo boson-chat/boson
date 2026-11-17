@@ -54,6 +54,9 @@ type VoiceService struct {
 	audioErr string
 	running  bool // the audio device is open
 	sess     *voiceSession
+	// sounds: screen shares' sound playing here, by SCREEN_AUDIO track
+	// (voice_share_sound.go).
+	sounds   map[uint32]*shareSound
 	seq      int // bumped by every Join/Leave; a superseded join gives up
 	status   string
 	host     string

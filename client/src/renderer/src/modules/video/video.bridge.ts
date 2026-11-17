@@ -18,7 +18,9 @@ export interface VideoBridge {
   // The pre-join camera preview (optional: older shells don't have it).
   previewCamera?(on: boolean, cameraId: string): Promise<VideoState>;
   // The screen share picker (optional: older shells don't have them).
-  shareScreen?(on: boolean, sourceId: string, mode: 'detail' | 'motion'): Promise<VideoState>;
+  shareScreen?(on: boolean, sourceId: string, mode: 'detail' | 'motion', sound?: boolean): Promise<VideoState>;
+  // How loud a screen share's sound is for us (percent, 0 = muted).
+  setShareVolume?(trackId: number, percent: number): Promise<VideoState>;
   switchScreen?(sourceId: string): Promise<VideoState>;
   screenThumbnails?(ids: string[]): Promise<Record<string, string>>;
   stopThumbnails?(): Promise<void>;
