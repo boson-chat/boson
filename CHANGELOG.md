@@ -1,3 +1,9 @@
+## [0.71.0](https://github.com/boson-chat/boson/compare/v0.70.0...v0.71.0) (2026-11-17)
+
+### Features
+
+* call UI (b): a pre-join view and join sheet; no more one-click joins ([#93](https://github.com/boson-chat/boson/issues/93)) ([1b394c3](https://github.com/boson-chat/boson/commit/1b394c3953d4b11bbec8671d42b6b96e90a150c9))
+
 ## [0.70.0](https://github.com/boson-chat/boson/compare/v0.69.12...v0.70.0) (2026-11-17)
 
 ### Features
