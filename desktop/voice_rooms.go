@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -359,9 +360,14 @@ func voiceTrusted(info *VoiceInfo, authBase string, dev bool) bool {
 }
 
 func isLoopbackHost(h string) bool {
-	if h == "localhost" {
+	if h == "localhost" || (emulatorHost && h == "10.0.2.2") {
 		return true
 	}
 	ip := net.ParseIP(h)
 	return ip != nil && ip.IsLoopback()
 }
+
+// emulatorHost: on Android, 10.0.2.2 is the emulator's alias for the host
+// machine's loopback, where a dev stack runs. Only dev-build decisions ask
+// isLoopbackHost (a local server's self-signed certificate, http to it).
+var emulatorHost = runtime.GOOS == "android"

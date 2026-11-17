@@ -17,6 +17,9 @@ android {
         // From client/package.json, passed by scripts/package-android.sh.
         versionCode Integer.parseInt((project.findProperty('bosonVersionCode') ?: '1').toString())
         versionName((project.findProperty('bosonVersionName') ?: '0.0.0').toString())
+        // Dev builds (package-android.sh DEV=1): the WebView can be
+        // inspected (Chrome DevTools, the Android call test's Playwright).
+        buildConfigField "boolean", "WEBVIEW_DEBUG", (project.findProperty('bosonDev') == '1').toString()
 
         // Configure supported ABIs
         ndk {
