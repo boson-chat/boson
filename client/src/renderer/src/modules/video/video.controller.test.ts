@@ -3,7 +3,7 @@ import { VideoController, type VideoEnv } from './video.controller';
 import type { VideoBridge } from './video.bridge';
 import { EMPTY_VIDEO_STATE, type VideoState } from './video.types';
 import { codecFromDesc, parseBinary, parseText } from './video.frames';
-import { layerForTile, layout } from './video.layout';
+import { layerForTile } from './video.layout';
 
 // ---- fakes ----
 
@@ -130,15 +130,6 @@ describe('layout', () => {
     expect(layerForTile(TRACK.layers, 640, 360, true)).toBe(1);
     expect(layerForTile(TRACK.layers, 2560, 1440, true)).toBe(2);
     expect(layerForTile(TRACK.layers, 640, 360, false)).toBeNull();
-  });
-
-  it('lays out a grid, a pinned big tile, and at most 9 tiles', () => {
-    const grid = layout([1, 2, 3, 4], null, 1000, 600);
-    expect([...grid.values()].every((r) => r !== null)).toBe(true);
-    const pinned = layout([1, 2, 3], 2, 1000, 600);
-    expect(pinned.get(2)!.w).toBeGreaterThan(pinned.get(1)!.w * 2);
-    const many = layout(Array.from({ length: 12 }, (_, i) => i), null, 1000, 600);
-    expect([...many.values()].filter((r) => r === null)).toHaveLength(3);
   });
 });
 

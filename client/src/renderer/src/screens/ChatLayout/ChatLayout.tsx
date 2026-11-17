@@ -19,13 +19,13 @@ import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { isNarrow, useNarrow } from '../../shared/narrow';
-import { MobileCallBar } from './MobileVoice';
+import { MobileCallScreen, MobileMiniBar } from './MobileCall';
+import { closeCall } from './call-shared';
 import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
 import { CallStage } from './CallStage';
 import { CallPanel, type CallChat } from './CallPanel';
 import { InCallStrip } from './InCallStrip';
 import { setVoiceUi, useVoiceUi } from './VoiceRooms';
-import { CallView } from './CallView';
 import { getVideoController, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { useSwipeDrawers } from './useSwipeDrawers';
@@ -204,11 +204,10 @@ export function ChatLayout({
   // Resolves a nick → profile-image URL for Boson members on this server
   // (own avatar + presence matches), shared by the chat stream + member list.
   const avatarFor = useAvatarFor(activeServerId ?? null);
-  // The call view (video in voice channels) takes the chat's place while
-  // it's open, during a call on a server with video.
+  // In a call: its stage (desktop) or call screen (phone) takes the
+  // chat's place while you're on it.
   const { video, snap: videoSnap } = useVideo();
   const { snap: voiceSnap } = useVoice();
-  const callOpen = videoSnap.open && videoSnap.state.available && voiceSnap.call.status === 'connected';
   // A voice channel clicked in the sidebar and not joined: its pre-join
   // view (the desktop's main column; a phone shows a join sheet).
   const { view: voiceView } = useVoiceUi();
@@ -223,10 +222,14 @@ export function ChatLayout({
   const inCall = call.status === 'connected' && !!call.host;
   const onCallView = !!voiceView && voiceView.host === call.host && voiceView.roomId === call.room;
   const stageOpen = !narrow && inCall && (onCallView || videoSnap.open);
-  // Video is received only while the stage shows it.
+  // A phone: the call screen in place of the chat while it's open (else a
+  // bar at the bottom of every screen).
+  const phoneCallOpen = narrow && inCall && (onCallView || videoSnap.open);
+  // Video is received only while a call view shows it.
   useEffect(() => {
-    if (!narrow && video && video.getSnapshot().open !== stageOpen) video.setOpen(stageOpen);
-  }, [narrow, video, stageOpen]);
+    const want = stageOpen || phoneCallOpen;
+    if (video && video.getSnapshot().open !== want) video.setOpen(want);
+  }, [video, stageOpen, phoneCallOpen]);
   // CHAT on the call's panel: the text channel the voice channel is under.
   const callRoom = inCall ? voiceSnap.servers[call.host]?.rooms?.find((r) => r.id === call.room) : undefined;
   const chatChannel = callRoom?.parent ? state.channels.find((c) => c.name.toLowerCase() === callRoom.parent) : undefined;
@@ -389,9 +392,16 @@ export function ChatLayout({
             class="mobile-main"
             style={swipe.dragX !== null ? { transform: `translateX(${swipe.dragX}px)`, transition: 'none' } : undefined}
           >
-            {/* In a voice call: on top of whatever chat is open. */}
-            <MobileCallBar avatarFor={avatarFor} />
-            {callOpen ? <CallView avatarFor={avatarFor} phone /> : chatArea}
+            {phoneCallOpen ? (
+              <MobileCallScreen avatarFor={avatarFor}
+                onChat={chatChannel ? () => { closeCall(); chat.setActive(chatChannel.name); } : undefined} />
+            ) : (
+              <>
+                {chatArea}
+                {/* In a voice call: minimized, at the bottom. */}
+                <MobileMiniBar />
+              </>
+            )}
             <VoiceJoinSheet self={myNick} avatarFor={avatarFor} />
             {shownDrawer !== 'none' && active && (
               <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />

@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { LayoutGrid, MonitorUp, MonitorX, Video, VideoOff } from 'lucide-preact';
 import { useVideo, type VideoCamera, type VideoSource } from '../../modules/video';
+import './CallView.css';
 import { useVoice } from '../../modules/voice';
 
 // Camera, screen share and "show the call" for the voice bar and the call

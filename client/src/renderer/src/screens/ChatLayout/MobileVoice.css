@@ -1,88 +1,8 @@
-/* Voice on a phone (MobileVoice.tsx): the call bar over the chat and the
-   call screen (a bottom sheet). Touch targets are 44px and up; the ones
-   used mid-call (mute, leave, hold to talk) are bigger. */
+/* Voice on a phone (MobileVoice.tsx): the people sheet (VoicePanel) and
+   the hold-to-talk button. The call screen and the minimized bar are in
+   MobileCall.css. Touch targets are 44px and up. */
 
-.mvoice-bar {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  min-height: 52px;
-  padding: 0 var(--space-2) 0 0;
-  background: var(--surface-raised);
-  border-bottom: 1px solid var(--border);
-  font-family: var(--font-mono);
-  --mvoice-state: var(--success);
-}
-.mvoice-bar[data-state='connecting'],
-.mvoice-bar[data-state='paused'] { --mvoice-state: var(--warn); }
-.mvoice-bar[data-state='error'] { --mvoice-state: var(--danger); padding-left: var(--space-3); }
-
-.mvoice-bar-open {
-  flex: 1;
-  min-width: 0;
-  min-height: 52px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: 0 var(--space-2) 0 var(--space-3);
-  background: none;
-  border: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.mvoice-bar-open:active { background: var(--surface-hover); }
-
-.mvoice-dot {
-  flex-shrink: 0;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--mvoice-state);
-}
-.mvoice-dot[data-talking] {
-  box-shadow: 0 0 0 4px color-mix(in oklab, var(--mvoice-state), transparent 70%);
-}
-.mvoice-bar[data-state='connecting'] .mvoice-dot { animation: mvoice-pulse 1.2s ease-in-out infinite; }
 @keyframes mvoice-pulse { 50% { opacity: 0.35; } }
-@media (prefers-reduced-motion: reduce) {
-  .mvoice-bar[data-state='connecting'] .mvoice-dot { animation: none; }
-}
-
-.mvoice-bar-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.mvoice-bar-title {
-  color: var(--mvoice-state);
-  font-size: var(--text-sm);
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mvoice-bar-sub {
-  color: var(--fg-3);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.mvoice-bar-error { color: var(--fg-2); white-space: normal; }
-
-.mvoice-bar-faces { display: flex; flex-shrink: 0; }
-.mvoice-face {
-  display: inline-flex;
-  border-radius: 50%;
-  margin-left: -6px;
-  box-shadow: 0 0 0 2px var(--surface-raised);
-}
-.mvoice-face[data-speaking] { box-shadow: 0 0 0 2px var(--success); }
-.mvoice-face:first-child { margin-left: 0; }
-/* A small phone (360px Android) with the video button: the faces would
-   crowd out "4 in call · 34 ms"; the call screen shows who's in. */
-@media (max-width: 380px) {
-  .mvoice-bar-faces { display: none; }
-}
 
 .mvoice-icon-btn {
   flex-shrink: 0;
@@ -103,14 +23,6 @@
 .mvoice-icon-btn[data-live] { color: var(--success, #23a55a); }
 .mvoice-icon-btn[data-paused] { color: var(--warn, #e0a32a); }
 .mvoice-icon-btn[data-starting] { animation: mvoice-pulse 1s ease-in-out infinite; }
-/* The call view's bar holds up to six controls: a little tighter, so the
-   room's name still fits at 360px (they stay 44px tall). */
-.mvoice-bar[data-incall] { gap: 2px; padding-right: var(--space-1); }
-.mvoice-bar[data-incall] .mvoice-icon-btn { width: 40px; }
-.mvoice-bar[data-incall] .mvoice-bar-open { gap: var(--space-2); padding-left: var(--space-2); padding-right: var(--space-1); }
-.mvoice-bar-count { display: inline-flex; align-items: center; gap: 3px; }
-.mvoice-leave { background: var(--danger); border-color: var(--danger); color: #fff; }
-.mvoice-leave:active { background: color-mix(in oklab, var(--danger), black 20%); }
 
 /* ---- the call screen ---- */
 
