@@ -1,3 +1,9 @@
+## [0.77.0](https://github.com/boson-chat/boson/compare/v0.76.0...v0.77.0) (2026-11-17)
+
+### Features
+
+* "Share sound" with a screen share (macOS 13+), heard in sync by everyone watching ([#99](https://github.com/boson-chat/boson/issues/99)) ([f00c166](https://github.com/boson-chat/boson/commit/f00c166cb50e22de34ba40966a2af66b2418f261))
+
 ## [0.76.0](https://github.com/boson-chat/boson/compare/v0.75.0...v0.76.0) (2026-11-17)
 
 ### Features
