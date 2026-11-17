@@ -4,9 +4,9 @@ import { VoiceController, setVoiceController } from '../../modules/voice';
 import { createFakeVoiceBridge, type FakeVoiceBridge } from '../../modules/voice/voice.fake';
 import { __resetVoiceSettings } from '../../modules/voice/voice.settings';
 import { VideoController, setVideoController, EMPTY_VIDEO_STATE, type VideoBridge, type VideoState } from '../../modules/video';
-import { CallView } from './CallView';
+import { CallStage } from './CallStage';
+import { MobileCallScreen } from './MobileCall';
 import { CallVideoButtons } from './CallControls';
-import { MobileCallBar } from './MobileVoice';
 
 const PEOPLE = [
   { sessionId: 1, userId: 'usr_me', name: 'me', self: true, muted: false, deafened: false, speaking: false, volume: 100, listener: false },
@@ -125,41 +125,6 @@ describe('CallVideoButtons', () => {
   });
 });
 
-describe('CallView', () => {
-  it('shows everyone: cameras, avatars, our self-view, and a screen share big', async () => {
-    const { container } = render(<CallView />);
-    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: true, tracks: [ALICE_CAM, BOB_SCREEN], camera: { on: true, starting: false } });
-    await screen.findByLabelText('alice');
-    expect(screen.getByLabelText('bob’s screen').getAttribute('data-big')).not.toBeNull();
-    expect(screen.getByLabelText('alice').querySelector('canvas')).not.toBeNull();
-    expect(screen.getByLabelText('alice').getAttribute('data-speaking')).not.toBeNull();
-    expect(screen.getByLabelText('bob').querySelector('.call-tile-avatar')).not.toBeNull(); // audio only
-    expect(screen.getByLabelText('me (you)').querySelector('canvas[data-mirror]')).not.toBeNull(); // self-view
-    expect(container.querySelectorAll('.call-tile')).toHaveLength(4);
-  });
-
-  it('goes back to chat', async () => {
-    render(<CallView />);
-    setVideo({ available: true, status: 'connected', tracks: [ALICE_CAM] });
-    const c = (await import('../../modules/video')).getVideoController()!;
-    c.setOpen(true);
-    fireEvent.click(await screen.findByRole('button', { name: 'Back to chat' }));
-    expect(c.getSnapshot().open).toBe(false);
-  });
-});
-
-describe('MobileCallBar', () => {
-  it('opens the call view on a server with video', async () => {
-    render(<MobileCallBar />);
-    expect(screen.queryByRole('button', { name: 'Show the call' })).toBeNull();
-    setVideo({ available: true, status: 'connected' });
-    fireEvent.click(await screen.findByRole('button', { name: 'Show the call' }));
-    const c = (await import('../../modules/video')).getVideoController()!;
-    expect(c.getSnapshot().open).toBe(true);
-    expect(screen.getByRole('button', { name: 'Back to chat' })).toBeTruthy();
-  });
-});
-
 describe('camera-only builds (iOS)', () => {
   it('show the camera button but not screen sharing', async () => {
     render(<CallVideoButtons />);
@@ -184,49 +149,54 @@ describe('a camera the system stopped', () => {
 });
 
 describe('the call on a phone', () => {
-  it('has one bar: mute, camera, flip, chat and hang up; no second header', async () => {
+  it('has one dock: mute, camera, flip, more and leave; chat in the header', async () => {
     videoBridge.cameras = vi.fn(async () => [
-      { id: 'front', name: 'Front Camera', kind: 'builtin' as const, default: true },
-      { id: 'back', name: 'Back Camera', kind: 'builtin' as const, default: false },
+      { id: 'front', name: 'Front Camera', kind: 'builtin' as const, facing: 'front' as const, default: true },
+      { id: 'back', name: 'Back Camera', kind: 'builtin' as const, facing: 'back' as const, default: false },
     ]);
-    const { container } = render(<><MobileCallBar /><CallView phone /></>);
+    const onChat = vi.fn();
+    render(<MobileCallScreen onChat={onChat} />);
     setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: false, tracks: [ALICE_CAM],
-      camera: { on: true, starting: false, id: 'front' } });
-    const c = (await import('../../modules/video')).getVideoController()!;
-    act(() => c.setOpen(true));
+      camera: { on: true, starting: false, id: 'front', facing: 'front' } });
     await screen.findByLabelText('alice');
-    expect(container.querySelector('.call-view-head')).toBeNull();
     expect(screen.getAllByRole('button', { name: /leave/i })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Turn camera off' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Share your screen' })).toBeNull(); // not on phones yet
-    expect(screen.queryByRole('button', { name: 'Show the call' })).toBeNull();
-    // Two usable cameras: flip goes to the other one.
-    fireEvent.click(await screen.findByRole('button', { name: 'Switch camera' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Switch to the back camera' }));
     expect(videoBridge.setCamera).toHaveBeenLastCalledWith(true, 'back');
-    fireEvent.click(screen.getByRole('button', { name: 'Back to chat' }));
-    expect(c.getSnapshot().open).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Chat in General' }));
+    expect(onChat).toHaveBeenCalled();
+    // Our own picture, in a corner, mirrored (front camera).
+    expect(screen.getByLabelText('Your video').querySelector('canvas[data-mirror]')).toBeTruthy();
+    expect(screen.getByText('you · front')).toBeTruthy();
   });
 
   it('a paused camera (app was in the background) shows as paused, and a tap turns it off', async () => {
-    render(<><MobileCallBar /><CallView phone /></>);
+    render(<MobileCallScreen />);
     setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true,
       camera: { on: false, starting: false, paused: true, error: 'The camera stopped: interrupted' } });
-    const c = (await import('../../modules/video')).getVideoController()!;
-    act(() => c.setOpen(true));
     const b = await screen.findByRole('button', { name: /Camera paused/ });
     expect(b.getAttribute('data-paused')).not.toBeNull();
-    expect(screen.queryByText('The camera stopped: interrupted')).toBeNull(); // not an error while paused
     fireEvent.click(b);
     expect(videoBridge.setCamera).toHaveBeenLastCalledWith(false, '');
+  });
+
+  it('taps the screen share to fill the stage, and again to shrink it', async () => {
+    render(<MobileCallScreen />);
+    setVideo({ available: true, status: 'connected', tracks: [ALICE_CAM, BOB_SCREEN] });
+    fireEvent.click(await screen.findByRole('button', { name: 'Enlarge bob’s screen' }));
+    expect(screen.queryByLabelText('alice')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show everyone' }));
+    expect(screen.getByLabelText('alice')).toBeTruthy();
   });
 });
 
 describe('the self-view', () => {
   it('is mirrored for a front camera or a webcam, never for a back camera', async () => {
-    render(<CallView phone />);
-    const self = () => screen.getByLabelText('me (you)').querySelector('canvas')!;
-    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, camera: { on: true, starting: false, facing: 'front' } });
-    await screen.findByLabelText('me (you)');
+    render(<CallStage />);
+    const self = () => screen.getByRole('button', { name: 'Focus you' }).querySelector('canvas')!;
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, tracks: [BOB_SCREEN], camera: { on: true, starting: false, facing: 'front' } });
+    await screen.findByRole('button', { name: 'Focus you' });
     expect(self().getAttribute('data-mirror')).not.toBeNull();
     setVideo({ camera: { on: true, starting: false, facing: 'back' } });
     expect(self().getAttribute('data-mirror')).toBeNull();

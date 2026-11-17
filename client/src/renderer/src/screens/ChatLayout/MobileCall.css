@@ -1,0 +1,242 @@
+/* The call on a phone (MobileCall.tsx): call screen, More sheet and the
+   minimized bar. Controls are 44px and up; the dock's are 56px. */
+
+.mcall {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--bg);
+}
+.mcall-head {
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+}
+.mcall-icon {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.mcall-icon:focus-visible, .mcall-dock-btn:focus-visible, .mcall-opt:focus-visible,
+.mcall-mini-open:focus-visible, .mcall-t:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.mcall-icon-box { border-color: var(--border); background: var(--surface); color: var(--fg); }
+.mcall-icon-box[data-off] {
+  background: color-mix(in oklab, var(--danger, #ef4444), transparent 86%);
+  border-color: color-mix(in oklab, var(--danger, #ef4444), transparent 50%);
+  color: var(--danger, #f87171);
+}
+.mcall-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+.mcall-title { font: 700 16px var(--font-mono); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.mcall-meta { flex: 1; font: 12px var(--font-mono); color: var(--fg-2); white-space: nowrap; }
+
+.mcall-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+}
+.mcall-t {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+button.mcall-t { cursor: pointer; }
+.mcall-t[data-speaking] { border-color: var(--success); }
+.mcall-t[data-screen] { background: var(--surface-raised); }
+.mcall-screen { height: 214px; flex: none; }
+.mcall-screen-big { flex: 1; }
+.mcall-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room under the last row for your own picture. */
+  padding-bottom: 140px;
+}
+.mcall-alone { grid-column: 1 / -1; align-self: center; text-align: center; font: 13px var(--font-mono); color: var(--fg-3); }
+.mcall-video { width: 100%; height: 100%; display: block; }
+.mcall-video[data-mirror] { transform: scaleX(-1); }
+.mcall-avatar { display: inline-flex; border-radius: 8px; }
+.mcall-avatar[data-speaking] { box-shadow: 0 0 0 3px var(--success); }
+.mcall-tag {
+  position: absolute;
+  left: 6px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: calc(100% - 12px);
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 4px;
+  background: rgba(7, 7, 9, 0.8);
+  font: 500 11px var(--font-mono);
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mcall-muted { color: var(--danger, #f87171); flex-shrink: 0; }
+
+/* Your own video: a small picture in a corner, above the dock. */
+.mcall-pip {
+  position: absolute;
+  z-index: 3;
+  width: 96px;
+  height: 128px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  touch-action: none;
+  cursor: grab;
+  transition: left 180ms ease, right 180ms ease, top 180ms ease, bottom 180ms ease;
+}
+.mcall-pip[data-corner='br'] { right: 16px; bottom: 14px; }
+.mcall-pip[data-corner='bl'] { left: 16px; bottom: 14px; }
+.mcall-pip[data-corner='tr'] { right: 16px; top: 14px; }
+.mcall-pip[data-corner='tl'] { left: 16px; top: 14px; }
+.mcall-pip-label {
+  position: absolute;
+  left: 5px;
+  bottom: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(7, 7, 9, 0.8);
+  font: 10px var(--font-mono);
+  color: var(--fg);
+}
+
+.mcall-ptt { flex: none; display: flex; justify-content: center; padding: 6px 12px 0; }
+
+/* The dock: mic, camera, flip (camera on), more, leave. */
+.mcall-dock {
+  height: 88px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0 12px 6px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+.mcall-dock-btn {
+  width: 56px;
+  height: 56px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  cursor: pointer;
+}
+.mcall-dock-btn[data-off] {
+  background: color-mix(in oklab, var(--danger, #ef4444), transparent 86%);
+  border-color: color-mix(in oklab, var(--danger, #ef4444), transparent 50%);
+  color: var(--danger, #f87171);
+}
+.mcall-dock-btn[data-paused] { color: var(--warn, #e0a32a); }
+.mcall-dock-btn:disabled { opacity: 0.7; cursor: default; }
+.mcall-leave {
+  background: var(--danger, #ef4444);
+  border-color: var(--danger, #ef4444);
+  color: #fff;
+}
+.mcall-dock-btn.mcall-leave { width: 72px; }
+
+/* More: chat, audio output, deafen, people and volume, screen (soon). */
+.mcall-more { display: flex; flex-direction: column; margin: 0 calc(-1 * var(--space-4, 16px)); }
+.mcall-opt {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 56px;
+  padding: 0 18px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: 500 15px var(--font-body, inherit);
+  text-align: left;
+  cursor: pointer;
+}
+.mcall-opt svg { color: var(--fg-2); flex-shrink: 0; }
+.mcall-opt:disabled { color: var(--fg-3); cursor: default; }
+.mcall-opt:disabled svg { color: var(--fg-3); }
+.mcall-opt-label { flex: 1; }
+.mcall-opt-value { font: 12px var(--font-mono); color: var(--fg-2); }
+.mcall-opt-value[data-on] { color: var(--danger, #f87171); }
+.mcall-opt-close { justify-content: center; border-bottom: 0; color: var(--fg-2); }
+
+/* Minimized: a bar at the bottom of every screen while in a call. */
+.mcall-mini {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 68px;
+  padding: 0 10px 0 14px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-raised);
+  --mcall-state: var(--success);
+}
+.mcall-mini[data-state='connecting'], .mcall-mini[data-state='paused'] { --mcall-state: var(--warn, #e0a32a); }
+.mcall-mini[data-state='error'] { --mcall-state: var(--danger, #ef4444); }
+.mcall-mini .mcall-dot { background: var(--mcall-state); }
+.mcall-mini-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.mcall-mini-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.mcall-mini-title { font: 700 13px var(--font-mono); color: var(--mcall-state); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mcall-mini-sub { font: 11px var(--font-mono); color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mcall-mini[data-state='error'] .mcall-mini-sub { white-space: normal; }

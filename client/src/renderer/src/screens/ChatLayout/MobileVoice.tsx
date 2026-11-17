@@ -1,161 +1,16 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Bluetooth, Ear, Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Signal, SignalLow, SignalMedium, Volume2, X, LayoutGrid, MessageSquare, Users, MonitorUp, MonitorX, SwitchCamera, Video, VideoOff } from 'lucide-preact';
+import { Bluetooth, Ear, Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, Signal, SignalLow, SignalMedium, Volume2 } from 'lucide-preact';
 import {
-  getVoiceSettings, onVoiceSettingsChange, useVoice, type VoiceController, type VoiceParticipant, type VoiceState,
+  getVoiceSettings, onVoiceSettingsChange, type VoiceController, type VoiceParticipant, type VoiceState,
 } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { BottomSheet } from './BottomSheet';
-import { useVideo, type VideoCamera } from '../../modules/video';
 import './MobileVoice.css';
 
-// Voice on a phone (the narrow layout): the call bar at the top of the chat,
-// there whichever channel or server is open, with the two things you reach
-// for mid-call — mute and hang up — as big targets; a tap on it opens the
-// call screen (VoicePanel): who's in, who's talking, mute, deafen,
-// loudspeaker or earpiece, open mic or push to talk (a hold-to-talk
-// button), and each person's volume.
-//
-// With the call view open the bar is the call's only one (CallView has no
-// header on a phone): mute, camera, flip camera, screen (where the app can
-// share it), back to the chat, and hang up.
-export function MobileCallBar({ avatarFor }: { avatarFor?: (nick: string) => string | undefined }) {
-  const { voice, snap } = useVoice();
-  const { snap: vsnap } = useVideo();
-  const [open, setOpen] = useState(false);
-  const call = snap.call;
-  const live = !!voice && !!call.host && call.status !== 'idle';
-  if (!voice || !live) return null;
-
-  const where = call.roomName || call.room;
-  if (call.status === 'error') {
-    const retryable = call.errorKind === 'token' || call.errorKind === 'unreachable' || call.errorKind === 'dropped';
-    return (
-      <div class="mvoice-bar" data-state="error" role="alert">
-        <span class="mvoice-dot" aria-hidden="true" />
-        <div class="mvoice-bar-text">
-          <span class="mvoice-bar-title">{call.errorKind === 'kicked' ? 'Disconnected from voice' : 'Voice failed'}</span>
-          <span class="mvoice-bar-sub mvoice-bar-error">{call.error}</span>
-        </div>
-        {retryable && call.room && (
-          <button type="button" class="mvoice-icon-btn" aria-label="Try again"
-            onClick={() => { void voice.join(call.host, { id: call.room, name: where }, snap.callServerName); }}>
-            <RotateCw size={20} aria-hidden="true" />
-          </button>
-        )}
-        <button type="button" class="mvoice-icon-btn" aria-label="Dismiss" onClick={() => { void voice.dismissError(); }}>
-          <X size={20} aria-hidden="true" />
-        </button>
-      </div>
-    );
-  }
-
-  const connecting = call.status === 'connecting';
-  const listener = !!call.listener && !connecting;
-  const others = call.participants.filter((p) => !p.self);
-  const inCallView = vsnap.open && vsnap.state.available && call.status === 'connected';
-  const talking = call.participants.some((p) => p.speaking && !p.self);
-  const sub = connecting ? 'Connecting…'
-    : call.interrupted ? 'Paused while another call has the audio'
-    : inCallView ? '' // the count shows as an icon: the room is for the controls (the RTT is in the panel)
-    : `${call.participants.length} in call${call.rttMs > 0 ? ` · ${Math.round(call.rttMs)} ms` : ''}`;
-  return (
-    <>
-      <div class="mvoice-bar" data-state={connecting ? 'connecting' : call.interrupted ? 'paused' : 'connected'} data-incall={inCallView || undefined}>
-        <button type="button" class="mvoice-bar-open" aria-label={`Voice: ${where}. Open the call`} onClick={() => setOpen(true)}>
-          <span class="mvoice-dot" data-talking={talking || undefined} aria-hidden="true" />
-          <span class="mvoice-bar-text">
-            <span class="mvoice-bar-title">{where}</span>
-            {inCallView && !connecting && !call.interrupted
-              ? <span class="mvoice-bar-sub mvoice-bar-count" aria-label={`${call.participants.length} in call`}><Users size={11} aria-hidden="true" />{call.participants.length}</span>
-              : <span class="mvoice-bar-sub">{sub}</span>}
-          </span>
-          {others.length > 0 && !inCallView && (
-            <span class="mvoice-bar-faces" aria-hidden="true">
-              {others.slice(0, 3).map((p) => (
-                <span key={p.sessionId} class="mvoice-face" data-speaking={p.speaking || undefined}>
-                  <Avatar nick={p.name} url={avatarFor?.(p.name)} size={22} />
-                </span>
-              ))}
-            </span>
-          )}
-        </button>
-        <MuteButton voice={voice} call={call} listener={listener} small />
-        {!connecting && (inCallView ? <MobileCallControls /> : <MobileVideoToggle />)}
-        <button type="button" class="mvoice-icon-btn mvoice-leave" aria-label="Leave voice" onClick={() => { void voice.leave(); }}>
-          <PhoneOff size={20} aria-hidden="true" />
-        </button>
-      </div>
-      {open && <VoicePanel voice={voice} call={call} serverName={snap.callServerName} avatarFor={avatarFor} onClose={() => setOpen(false)} />}
-    </>
-  );
-}
-
-// The call view's controls on a phone: camera (on, off, or paused while the
-// app was in the background), flip to the next camera, screen share where
-// this build can, and back to the chat.
-function MobileCallControls() {
-  const { video, snap } = useVideo();
-  const { snap: vs } = useVoice();
-  const [cams, setCams] = useState<VideoCamera[]>([]);
-  const st = snap.state;
-  const cam = st.camera;
-  const scr = st.screen;
-  const camLive = cam.on || cam.starting || !!cam.paused;
-  // The cameras, once it's on: two or more → a flip button.
-  useEffect(() => {
-    if (!video || !camLive || cams.length > 0) return;
-    let alive = true;
-    void video.cameras().then((c) => { if (alive) setCams(c.filter((x) => !x.unavailable)); }, () => {});
-    return () => { alive = false; };
-  }, [video, camLive, cams.length]);
-  if (!video) return null;
-  const canSend = st.canCapture && st.canPublish && !vs.call.listener;
-  const camLabel = cam.paused ? 'Camera paused until the app is open again (turn off)'
-    : cam.starting ? 'Starting camera… (cancel)' : cam.on ? 'Turn camera off' : 'Turn camera on';
-  const flip = () => {
-    const cur = cams.findIndex((c) => c.id === cam.id) >= 0 ? cams.findIndex((c) => c.id === cam.id) : cams.findIndex((c) => c.default);
-    const next = cams[(Math.max(cur, 0) + 1) % cams.length];
-    if (next) void video.setCamera(true, next.id);
-  };
-  return (
-    <>
-      {st.canCapture && (
-        <button type="button" class="mvoice-icon-btn" aria-pressed={camLive} data-live={camLive || undefined}
-          data-starting={cam.starting || undefined} data-paused={cam.paused || undefined} disabled={!canSend} aria-label={camLabel}
-          onClick={() => { void video.setCamera(!camLive); }}>
-          {camLive ? <Video size={20} aria-hidden="true" /> : <VideoOff size={20} aria-hidden="true" />}
-        </button>
-      )}
-      {st.canCapture && cam.on && cams.length > 1 && (
-        <button type="button" class="mvoice-icon-btn" aria-label="Switch camera" onClick={flip}>
-          <SwitchCamera size={20} aria-hidden="true" />
-        </button>
-      )}
-      {st.canCapture && st.canShareScreen && (
-        <button type="button" class="mvoice-icon-btn" aria-pressed={scr.on} data-live={scr.on || scr.starting || undefined} disabled={!canSend}
-          aria-label={scr.on || scr.starting ? 'Stop sharing your screen' : 'Share your screen'}
-          onClick={() => { void video.setScreen(!(scr.on || scr.starting), ''); }}>
-          {scr.on || scr.starting ? <MonitorX size={20} aria-hidden="true" /> : <MonitorUp size={20} aria-hidden="true" />}
-        </button>
-      )}
-      <button type="button" class="mvoice-icon-btn" aria-label="Back to chat" onClick={() => video.setOpen(false)}>
-        <MessageSquare size={20} aria-hidden="true" />
-      </button>
-    </>
-  );
-}
-
-// Show the call's video (or go back to the chat): on servers with video.
-function MobileVideoToggle() {
-  const { video, snap } = useVideo();
-  if (!video || !snap.state.available) return null;
-  return (
-    <button type="button" class="mvoice-icon-btn" aria-pressed={snap.open} data-live={snap.open || undefined}
-      aria-label={snap.open ? 'Back to chat' : 'Show the call'} onClick={() => video.setOpen(!snap.open)}>
-      <LayoutGrid size={20} aria-hidden="true" />
-    </button>
-  );
-}
+// The phone's voice pieces still in use: the people sheet (VoicePanel:
+// who's in, each person's volume, mute, deafen, speaker or earpiece, open
+// mic or push to talk) and the hold-to-talk button. The call screen and
+// the minimized bar are MobileCall.tsx.
 
 function MuteButton({ voice, call, listener, small }: { voice: VoiceController; call: VoiceState; listener: boolean; small?: boolean }) {
   const muted = call.muted || call.deafened;
@@ -180,7 +35,7 @@ const ROUTE_LABEL: Record<string, string> = {
   speaker: 'Speaker', earpiece: 'Earpiece', headphones: 'Headphones', bluetooth: 'Bluetooth', other: 'Audio',
 };
 
-function VoicePanel({ voice, call, serverName, avatarFor, onClose }: {
+export function VoicePanel({ voice, call, serverName, avatarFor, onClose }: {
   voice: VoiceController;
   call: VoiceState;
   serverName: string;
