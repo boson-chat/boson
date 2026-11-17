@@ -317,3 +317,19 @@ describe('errors in the video path', () => {
     ws.recv('{"type":"sync","offsets":{"10":5}}');
   });
 });
+
+describe('screen shares', () => {
+  const SCREEN = { trackId: 20, userId: 'usr_bob', name: 'bob', kind: 'screen' as const, self: false,
+    layers: [{ id: 0, width: 1280, height: 800, fps: 15 }, { id: 1, width: 1920, height: 1200, fps: 30 }] };
+
+  it('take their top (30 fps) layer even on a small tile; cameras go by size', async () => {
+    const { c, bridge } = setup({ tracks: [TRACK, SCREEN] });
+    await flush();
+    c.setOpen(true);
+    c.tiles([{ trackId: 20, width: 378 * 3, height: 213 * 3, visible: true }, { trackId: 10, width: 378 * 3, height: 213 * 3, visible: true }]);
+    expect(bridge.subscribe).toHaveBeenCalledWith(20, 1);
+    expect(bridge.subscribe).toHaveBeenCalledWith(10, 2);
+    c.tiles([{ trackId: 20, width: 378, height: 213, visible: false }]);
+    expect(bridge.unsubscribe).toHaveBeenCalledWith(20);
+  });
+});
