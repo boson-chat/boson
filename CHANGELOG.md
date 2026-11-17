@@ -1,3 +1,9 @@
+## [0.73.0](https://github.com/boson-chat/boson/compare/v0.72.0...v0.73.0) (2026-11-17)
+
+### Features
+
+* call UI (d): the phone call screen, dock, More sheet and minimized bar ([#95](https://github.com/boson-chat/boson/issues/95)) ([7f6b02d](https://github.com/boson-chat/boson/commit/7f6b02db4f51bc88118fc7e9031eda07fccb2625))
+
 ## [0.72.0](https://github.com/boson-chat/boson/compare/v0.71.0...v0.72.0) (2026-11-17)
 
 ### Features
