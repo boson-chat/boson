@@ -202,6 +202,9 @@ func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id, mode
 	return share, nil
 }
 
+// StopThumbnails stops the thumbnails' captures (the picker closed).
+func (nativeMedia) StopThumbnails() { media.StopThumbnails() }
+
 // Thumbnail is a small JPEG of a display or window, for the picker.
 func (nativeMedia) Thumbnail(id string, maxW int) ([]byte, error) {
 	kind, n, _ := strings.Cut(id, ":")

@@ -81,8 +81,10 @@ func (c *fakeVideoConn) ReportDecodeStall(id uint32) {
 func (c *fakeVideoConn) Events() <-chan *videopb.ControlMessage { return c.events }
 
 // ServerCan: the fake server relays screen shares' sound.
-func (c *fakeVideoConn) ServerCan(capability string) bool { return capability == qvclient.CapScreenAudio }
-func (c *fakeVideoConn) Done() <-chan struct{}                  { return c.done }
+func (c *fakeVideoConn) ServerCan(capability string) bool {
+	return capability == qvclient.CapScreenAudio
+}
+func (c *fakeVideoConn) Done() <-chan struct{} { return c.done }
 func (c *fakeVideoConn) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -124,9 +126,11 @@ type fakeMedia struct {
 	modes                  []string // StartScreen's modes
 	sounds                 []bool   // and whether each asked for sound
 	thumbs                 int      // Thumbnail calls
+	thumbStops             int      // StopThumbnails calls
 	canSound               bool     // CanShareSound
 }
 
+func (m *fakeMedia) StopThumbnails()     { m.mu.Lock(); m.thumbStops++; m.mu.Unlock() }
 func (m *fakeMedia) CanShareSound() bool { m.mu.Lock(); defer m.mu.Unlock(); return m.canSound }
 
 func (m *fakeMedia) Cameras() ([]VideoCamera, error) {
@@ -746,6 +750,8 @@ func TestVideoPickerThumbnails(t *testing.T) {
 	// Closed: no more captures.
 	h.svc.StopThumbnails()
 	waitUntil(t, "stopped", func() bool { return !h.svc.thumbnailsRunning() })
+	stops := func() int { h.media.mu.Lock(); defer h.media.mu.Unlock(); return h.media.thumbStops }
+	waitUntil(t, "the media's captures stopped", func() bool { return stops() == 1 })
 	n := count()
 	time.Sleep(3 * thumbnailEvery)
 	if count() != n {
@@ -763,6 +769,7 @@ func TestVideoPickerThumbnails(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
+	waitUntil(t, "the media's captures stopped when idle", func() bool { return stops() == 2 })
 }
 
 // The mode reaches the capture; "Switch to this" keeps the share (and its

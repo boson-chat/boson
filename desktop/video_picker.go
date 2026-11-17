@@ -81,7 +81,13 @@ func (v *VideoService) runThumbnails(t *thumbSession) {
 		if v.thumbs == t {
 			v.thumbs = nil
 		}
+		newer := v.thumbs != nil // the picker reopened meanwhile
 		v.thumbMu.Unlock()
+		// The media's own thumbnail captures (Windows keeps one running per
+		// source between pictures) stop with the session.
+		if s, ok := v.media.(thumbStopper); ok && !newer {
+			s.StopThumbnails()
+		}
 	}()
 	tick := time.NewTicker(thumbnailEvery)
 	defer tick.Stop()
@@ -131,3 +137,7 @@ func (v *VideoService) captureThumbnails(t *thumbSession, ids []string) {
 	close(work)
 	wg.Wait()
 }
+
+// thumbStopper is media whose thumbnails keep captures running between
+// pictures (Windows: Windows.Graphics.Capture has no one-shot screenshot).
+type thumbStopper interface{ StopThumbnails() }
