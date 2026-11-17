@@ -1,3 +1,9 @@
+## [0.78.2](https://github.com/boson-chat/boson/compare/v0.78.1...v0.78.2) (2026-11-17)
+
+### Bug Fixes
+
+* a 1:1 call on a phone fills the stage with the other person ([#103](https://github.com/boson-chat/boson/issues/103)) ([a3ffdeb](https://github.com/boson-chat/boson/commit/a3ffdebf472ad1e9eb2e75eb743ebccf26bd8fb6))
+
 ## [0.78.1](https://github.com/boson-chat/boson/compare/v0.78.0...v0.78.1) (2026-11-17)
 
 ### Bug Fixes
