@@ -91,11 +91,13 @@ for p in CAMERA RECORD_AUDIO POST_NOTIFICATIONS; do "$adb" shell pm grant chat.b
 
 # 4. The test.
 if [[ -z "$prod" ]]; then
-  probe_args="-voice 127.0.0.1:27700 -insecure -token probe -video 127.0.0.1:27710 -wait 60s -for 10s"
+  probe_args="-voice 127.0.0.1:27700 -insecure -token probe -video 127.0.0.1:27710 -skip cam -wait 60s -for 10s"
+  # Someone else's camera, for the phone to show.
+  publish_args="-voice 127.0.0.1:27700 -insecure -token cam -video 127.0.0.1:27710 -publish -for 60s"
 else
   probe_args="-voice ${PROBE_VOICE:?} -room ${PROBE_ROOM:?} -token ${PROBE_TOKEN:?} -wait 90s -for 10s"
 fi
 mkdir -p "$work/shots"
-(cd "$client" && CALLPROBE="$work/callprobe" CALLPROBE_ARGS="$probe_args" ANDROID_CALL_SHOTS="$work/shots" \
+(cd "$client" && CALLPROBE="$work/callprobe" CALLPROBE_ARGS="$probe_args" CALLPROBE_PUBLISH_ARGS="${publish_args:-}" ANDROID_CALL_SHOTS="$work/shots" \
   npx playwright test -c tests/android-call/playwright.config.ts)
 echo "screenshots and logs: $work"
