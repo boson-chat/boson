@@ -1,3 +1,9 @@
+## [0.78.1](https://github.com/boson-chat/boson/compare/v0.78.0...v0.78.1) (2026-11-17)
+
+### Bug Fixes
+
+* Android calls show video, and the call screen fills the phone ([#102](https://github.com/boson-chat/boson/issues/102)) ([d6a3ecf](https://github.com/boson-chat/boson/commit/d6a3ecfd0e60b3c66694051ff94f0dbd54c925d7))
+
 ## [0.78.0](https://github.com/boson-chat/boson/compare/v0.77.0...v0.78.0) (2026-11-17)
 
 ### Features
