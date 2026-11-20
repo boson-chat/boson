@@ -1,3 +1,9 @@
+## [0.81.1](https://github.com/boson-chat/boson/compare/v0.81.0...v0.81.1) (2026-11-20)
+
+### Bug Fixes
+
+* **client:** list soju/evrd bouncer networks with BOUNCER LISTNETWORKS ([#109](https://github.com/boson-chat/boson/issues/109)) ([bf7feb5](https://github.com/boson-chat/boson/commit/bf7feb5c7b331b5db595073c646806eb818c498f))
+
 ## [0.81.0](https://github.com/boson-chat/boson/compare/v0.80.0...v0.81.0) (2026-11-20)
 
 ### Features
