@@ -1,3 +1,9 @@
+## [0.78.4](https://github.com/boson-chat/boson/compare/v0.78.3...v0.78.4) (2026-11-20)
+
+### Bug Fixes
+
+* a video tile with no picture says why ([#105](https://github.com/boson-chat/boson/issues/105)) ([f79ce24](https://github.com/boson-chat/boson/commit/f79ce24cea81a5ddb8c52e0362ac2ebef8ac637f))
+
 ## [0.78.3](https://github.com/boson-chat/boson/compare/v0.78.2...v0.78.3) (2026-11-20)
 
 ### Bug Fixes
