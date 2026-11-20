@@ -24,6 +24,8 @@ import { HostServerModal } from './HostServerModal';
 import { useNetworkThemes } from '../../modules/ui/theme';
 import { useNetworkThemeSync } from './network-theme-sync';
 import type { ServerRailTile } from '../ChatLayout/ServerRail';
+import type { MyDm } from '../Friends/MySpace';
+import { SERVICE_CHANNEL } from '../../modules/chat/services';
 import './DirectoryScreen.css';
 
 interface Props {
@@ -205,6 +207,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     return {
       serverId: c.serverId,
       name: c.server.name,
+      host: c.server.hostname,
       engineState: c.engineState,
       bouncerUpstream: c.bouncerUpstream,
       unread,
@@ -214,6 +217,17 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
       ...(brand.available ? { networkTheme: { enabled: brand.enabled } } : {}),
     };
   });
+  // MY's direct messages: every connected server's, in rail order.
+  const myDms = (): MyDm[] => {
+    const out: MyDm[] = [];
+    for (const c of connections) {
+      for (const ch of c.chat.getState().channels) {
+        if (/^[#&]/.test(ch.name) || ch.name === SERVICE_CHANNEL) continue;
+        out.push({ serverId: c.serverId, serverName: c.server.name, name: ch.name, unread: ch.unread, mentions: ch.mentions });
+      }
+    }
+    return out;
+  };
   const toggleNetworkTheme = (serverId: string, on: boolean): void => {
     const c = connections.find((x) => x.serverId === serverId);
     if (c) themes.setNetworkEnabled(c.server.hostname, on);
@@ -323,6 +337,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           serverHost={active.server.hostname}
           myNick={me.handle}
           servers={railTiles()}
+          myDms={myDms()}
+          onOpenDm={(serverId, name) => { bloc.openConversation(serverId, name); }}
           activeServerId={activeServerId}
           bannerUrl={resolveServerImages(active, state.servers, state.listings[active.serverId]).bannerUrl}
           logoUrl={themes.brandingFor(active.server.hostname).logo}

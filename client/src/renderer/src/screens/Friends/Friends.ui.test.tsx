@@ -8,7 +8,8 @@ import { PersonMenu } from './PersonMenu';
 import { FriendsView } from './FriendsView';
 import { CallOverlays } from './CallOverlays';
 import { PrivacyCalls } from './PrivacyCalls';
-import { FriendsRailTile, PhoneTabBar } from './FriendsNav';
+import { PhoneTabBar } from './FriendsNav';
+import { CallsView, MyRailTile, MySidebar } from './MySpace';
 import { getFriendsUi, setFriendsUi } from './friends-ui';
 
 const HOST = 'irc.boson.example';
@@ -17,7 +18,13 @@ let ctl: FriendsController;
 let voice: VoiceController;
 
 beforeEach(async () => {
-  const bridge = createFakeVoiceBridge({ servers: { [HOST]: {} } });
+  const bridge = createFakeVoiceBridge({
+    servers: { [HOST]: {} },
+    rooms: { [HOST]: [
+      { id: 'general', name: 'General', participants: [{ sessionId: 1, userId: 'u_k', name: 'kestrel', muted: false, deafened: false, speaking: false }] },
+      { id: 'afk', name: 'AFK', participants: [] },
+    ] },
+  });
   voice = new VoiceController(bridge, {
     authUrl: 'https://auth.boson.chat', voiceToken: async () => ({ token: 'x', expiresAt: Date.now() + 300_000 }),
     pollMs: 3_600_000, keyTarget: null,
@@ -39,7 +46,7 @@ beforeEach(async () => {
   });
   setFriendsController(ctl);
   ctl.start();
-  setFriendsUi({ host: HOST, page: false, tab: 'chats' });
+  setFriendsUi({ host: HOST, my: false, myView: 'friends', tab: 'chats' });
   await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
 });
 
@@ -154,11 +161,58 @@ describe('PrivacyCalls and navigation', () => {
     await waitFor(() => expect(ctl.getSnapshot().privacy.doNotDisturb).toBe(true));
   });
 
-  it('the rail tile counts pending requests and opens the page; the phone bar switches tabs', async () => {
-    render(<><FriendsRailTile active={false} /><PhoneTabBar /></>);
-    fireEvent.click(await screen.findByRole('button', { name: 'Friends (1 pending)' }));
-    expect(getFriendsUi().page).toBe(true);
+  it('the phone bar switches tabs', async () => {
+    render(<PhoneTabBar />);
     fireEvent.click(screen.getByRole('button', { name: 'Calls' }));
     expect(getFriendsUi().tab).toBe('calls');
+  });
+});
+
+describe('MY', () => {
+  it('the rail tile is your avatar with a presence dot, and its badge counts requests and missed calls', async () => {
+    let clicked = 0;
+    const { container } = render(<MyRailTile nick="ada" presence="dnd" active={false} onClick={() => { clicked++; }} />);
+    const tile = await screen.findByRole('button', { name: 'You: friends, calls and messages (Do not disturb; 1 friend request)' });
+    expect(container.querySelector('.my-tile-dot')?.getAttribute('data-presence')).toBe('dnd');
+    expect(container.querySelector('.my-tile-badge')?.textContent).toBe('1');
+    expect(tile.textContent).toContain('A');
+    fireEvent.click(tile);
+    expect(clicked).toBe(1);
+  });
+
+  it('the sidebar has Friends and Calls above the direct messages, and opens them', async () => {
+    const opened: string[] = [];
+    render(
+      <MySidebar nick="ada" presence="online" view="friends" showServer
+        dms={[{ serverId: 's1', serverName: 'Nebula', name: 'mira', unread: 2, mentions: 0 }, { serverId: 's2', serverName: 'Pulsar', name: 'juno', unread: 0, mentions: 0 }]}
+        activeDm={null} onOpenDm={(d) => opened.push(`${d.serverId}/${d.name}`)} />,
+    );
+    const friends = await screen.findByRole('button', { name: 'Friends, 1 request' });
+    expect(friends.getAttribute('aria-current')).toBe('page');
+    const rows = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+    expect(rows).toEqual(['Friends, 1 request', 'Calls', 'mira on Nebula, 2 unread', 'juno on Pulsar']);
+    fireEvent.click(screen.getByRole('button', { name: 'Calls' }));
+    expect(getFriendsUi()).toMatchObject({ my: true, myView: 'calls' });
+    fireEvent.click(screen.getByRole('button', { name: 'juno on Pulsar' }));
+    expect(opened).toEqual(['s2/juno']);
+  });
+
+  it('Calls lists live voice channels to join and missed calls to call back, and marks them seen', async () => {
+    api = new FakeFriendsApi({ people: [{ username: 'kestrel', rel: 'friend' }], missed: [{ from: 'kestrel', video: false, minutesAgo: 5 }], pollWaitMs: 5 });
+    ctl = new FriendsController({
+      api, authUrl: 'https://auth.boson.chat', signedIn: () => true, me: () => 'ada', onAccessChange: () => () => {},
+      voice: () => voice, video: () => null, openCall: () => {}, toastMs: 1_000,
+    });
+    setFriendsController(ctl);
+    ctl.start();
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    await act(async () => { await voice.refreshRooms(HOST, true); });
+    const joined: string[] = [];
+    render(<CallsView layout="desktop" serverNameFor={() => 'Nebula'} onJoin={(h, id) => joined.push(`${h}/${id}`)} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Join General on Nebula' }));
+    expect(joined).toEqual([`${HOST}/general`]);
+    expect(screen.queryByText(/AFK/)).toBeNull();
+    expect(await screen.findByRole('button', { name: 'Call kestrel back' })).toBeTruthy();
+    await waitFor(() => expect(ctl.getSnapshot().missed).toBe(0));
   });
 });

@@ -1,32 +1,11 @@
-import { useEffect } from 'preact/hooks';
+import type { ComponentChildren } from 'preact';
 import { MessageSquare, Phone, Users } from 'lucide-preact';
 import { useFriends } from '../../modules/friends';
 import { FriendsView } from './FriendsView';
-import { PrivacyCalls } from './PrivacyCalls';
-import { MissedList } from './MissedCalls';
 import { setFriendsUi, useFriendsUi } from './friends-ui';
 import './FriendsNav.css';
 
 const count = (n: number): string => (n > 99 ? '99+' : String(n));
-
-// Desktop: the rail's MY tile (Friends), with the pending-requests count.
-export function FriendsRailTile({ active }: { active: boolean }) {
-  const { snap } = useFriends();
-  const pending = snap.incoming.length;
-  return (
-    <button
-      type="button"
-      class={`server-item friends-rail-tile${active ? ' server-item-active friends-rail-tile-active' : ''}`}
-      aria-label={pending > 0 ? `Friends (${pending} pending)` : 'Friends'}
-      aria-current={active ? 'true' : undefined}
-      title="Friends"
-      onClick={() => setFriendsUi({ page: true })}
-    >
-      MY
-      {pending > 0 && <span class="friends-rail-badge" aria-hidden="true">{count(pending)}</span>}
-    </button>
-  );
-}
 
 // Phones: the bottom bar (Chats, Friends, Calls).
 export function PhoneTabBar() {
@@ -54,29 +33,11 @@ export function PhoneTabBar() {
   );
 }
 
-// Phones: the Calls tab — missed calls, then Privacy & calls. Opening it
-// marks missed calls seen (the badge clears).
-export function CallsPage() {
-  const { friends, snap } = useFriends();
-  useEffect(() => { void friends?.seeMissed(); }, [friends]);
-  return (
-    <main class="calls-page" aria-label="Calls">
-      <h1 class="calls-page-title">Privacy &amp; calls</h1>
-      {snap.missedCalls.length > 0 && (
-        <section class="calls-page-missed">
-          <span class="calls-page-label">MISSED CALLS</span>
-          <MissedList calls={snap.missedCalls} />
-        </section>
-      )}
-      <PrivacyCalls layout="phone" />
-    </main>
-  );
-}
-
 // Phones: the Friends or Calls tab over the chats (which stay mounted).
-export function PhonePage() {
+// `calls` is the Calls page (MySpace's CallsView, wired by ChatLayout).
+export function PhonePage({ calls }: { calls: ComponentChildren }) {
   const { tab } = useFriendsUi();
   if (tab === 'friends') return <div class="phone-page"><FriendsView layout="phone" /></div>;
-  if (tab === 'calls') return <div class="phone-page"><CallsPage /></div>;
+  if (tab === 'calls') return <div class="phone-page">{calls}</div>;
   return null;
 }

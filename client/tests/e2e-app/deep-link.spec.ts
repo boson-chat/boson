@@ -36,7 +36,7 @@ test('warm deep links: malformed ones are ignored, a new host is added locally a
   // …which the valid link right behind them proves: it is the only effect.
   await deliverDeepLink(app, joinUrl({ host: IRC_HOST, port: String(IRC_PORT), tls: '0', name }));
   await expectConnected(page, name);
-  await expect(page.getByRole('navigation', { name: 'Servers' }).getByRole('button')).toHaveCount(2); // tile + "+"
+  await expect(page.getByRole('navigation', { name: 'Servers' }).getByRole('button')).toHaveCount(3); // MY + tile + "+"
 
   // The link minted a local server entry (removable in Advanced).
   await page.getByRole('button', { name: 'Browse / switch servers' }).click();
@@ -53,7 +53,7 @@ test('warm deep links: malformed ones are ignored, a new host is added locally a
   // existing connection — no duplicate entry or connection.
   await deliverDeepLink(app, joinUrl({ host: IRC_HOST, port: String(IRC_PORT), tls: '0', name: 'Other label' }));
   await expect(sidebarServerName(page)).toHaveText(name);
-  await expect(page.getByRole('navigation', { name: 'Servers' }).getByRole('button')).toHaveCount(2);
+  await expect(page.getByRole('navigation', { name: 'Servers' }).getByRole('button')).toHaveCount(3);
 });
 
 test('a deep link to a listed host:port connects the directory listing (second-instance delivery)', async ({ launchApp }) => {

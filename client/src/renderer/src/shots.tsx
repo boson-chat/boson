@@ -4,6 +4,7 @@
 // (scripted IRC events over a fake session — the same path the integration
 // tests use). Never imported by main.tsx; never in the app build.
 import { render } from 'preact';
+import { useEffect, useState } from 'preact/hooks';
 import './styles.css';
 import { trackVisualViewport } from './shared/visual-viewport';
 import { ChatService } from './modules/chat';
@@ -584,7 +585,7 @@ function installFriends(): void {
   setFriendsController(ctl);
   ctl.start();
   (globalThis as unknown as { __friends: unknown }).__friends = { api, ctl };
-  if (q.get('fpage')) setFriendsUi({ page: true });
+  if (q.get('fpage')) setFriendsUi({ my: true, myView: q.get('fpage') === 'calls' ? 'calls' : 'friends' });
   const tab = q.get('tab');
   if (tab === 'friends' || tab === 'calls') setFriendsUi({ tab });
   const ring = q.get('ring');
@@ -660,22 +661,31 @@ function chatView(): void {
     }
   }
 
-  const layout = (
+  // Re-renders as the chat changes (MY's direct messages follow).
+  const Layout = () => {
+    const [, bump] = useState(0);
+    useEffect(() => chat.subscribe(() => bump((n) => n + 1)), []);
+    return (
     <ChatLayout
       chat={chat}
       serverName="Nebula"
       serverHost={voiceMode || filesMode || brandMode ? 'irc.nebula.example' : undefined}
       myNick={NICK}
       servers={[
-        { serverId: 's1', name: 'Nebula', engineState: 'connected' },
+        { serverId: 's1', name: 'Nebula', host: 'irc.nebula.example', engineState: 'connected' },
         { serverId: 's2', name: 'Pulsar', engineState: 'connected', unread: 4, mentions: 2 },
         { serverId: 's3', name: 'Quasar', engineState: 'connected' },
       ]}
       activeServerId="s1"
+      myDms={friendsMode ? chat.getState().channels.filter((c) => !/^[#&~]/.test(c.name)).map((c) => ({ serverId: 's1', serverName: 'Nebula', name: c.name, unread: c.unread, mentions: c.mentions })) : undefined}
+      onOpenDm={(_s, name) => chat.setActive(name)}
       onSelectServer={() => {}}
       onBrowseServers={() => {}}
     />
-  );
+  
+    );
+  };
+  const layout = <Layout />;
   const withCalls = <>{layout}{friendsMode && <CallOverlays />}</>;
   render(
     voiceMode || filesMode || brandMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{withCalls}</AuthProvider> : withCalls,
@@ -709,6 +719,11 @@ function chatView(): void {
   session.emit(pm('orbit', 'and a quick walkthrough of the release: https://www.youtube.com/watch?v=dQw4w9WgXcQ', 3));
   session.emit(pm('nova', `${NICK}: are you around? wanted your eyes on the \`#ops\` topic before we cut the build`, 1, { msgid: 'm-mention' }));
 
+  // Friends: a couple of direct messages (MY lists them).
+  if (friendsMode) {
+    session.emit({ Kind: 'PRIVMSG', From: 'mox', Target: NICK, Message: 'pairing on the relay later?', Tags: { time: min(20) }, Raw: '' });
+    session.emit({ Kind: 'PRIVMSG', From: 'kestrel', Target: NICK, Message: 'the relay test passed', Tags: { time: min(4) }, Raw: '' });
+  }
   chat.setActive(CHAN);
   // Expose the emitter so the screenshot driver can inject extra events (e.g.
   // finalize an empty ban list when the Channel Settings modal is open).
