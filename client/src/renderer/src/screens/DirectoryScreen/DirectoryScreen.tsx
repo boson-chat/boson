@@ -16,6 +16,7 @@ import { ChatLayout } from '../ChatLayout';
 import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
 import { useNarrow } from '../../shared/narrow';
+import { getVoiceController } from '../../modules/voice';
 import { AtomLoader, Badge, BarLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
@@ -175,6 +176,15 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   const narrow = useNarrow();
 
   const { me, showChat, restoring, serverBrowserOpen, connections, activeServerId } = state;
+  // Private calls need a voice server of the account's network: find out
+  // which connected servers have one, not only the one on screen (a call
+  // can ring, and be made from Friends, while another server is open).
+  const connectedHosts = connections.filter((c) => c.engineState === 'connected').map((c) => c.server.hostname).sort().join(' ');
+  useEffect(() => {
+    const voice = getVoiceController();
+    if (!voice) return;
+    for (const host of connectedHosts.split(' ')) if (host) void voice.discover(host);
+  }, [connectedHosts]);
   const active = activeConnection(state);
   const aggState = aggregateEngineState(state);
 
