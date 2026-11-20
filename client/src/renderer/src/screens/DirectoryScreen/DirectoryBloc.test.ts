@@ -2245,6 +2245,47 @@ describe('DirectoryBloc', () => {
       bloc.dispose();
     });
 
+    it('asks a soju-style bouncer (soju, evrd) with BOUNCER LISTNETWORKS', async () => {
+      const { bloc, engine } = await makeBloc();
+      vi.useFakeTimers();
+      try {
+        const p = bloc.discoverBouncerNetworks();
+        const call = engine.connectCalls.find((c) => c.serverId === '__bouncer-probe__')!;
+        expect(call.bouncerNetworks).toBe(true);
+        expect(call.serverPass).toBe('me:pw');
+        const probe = engine.sessionFor('__bouncer-probe__');
+
+        probe._emitEvent({ Kind: 'CAP', From: 'evrd', Target: '', Args: ['ACK', 'batch server-time soju.im/bouncer-networks'], Message: 'batch server-time soju.im/bouncer-networks', Raw: '' });
+        probe._emitEvent({ Kind: '001', From: 'evrd', Target: 'me', Message: 'welcome', Raw: '' });
+        expect(probe.rawCalls).toContain('BOUNCER LISTNETWORKS');
+        expect(probe.privmsgCalls).not.toContainEqual({ target: '*status', message: 'ListNetworks' });
+
+        probe._emitEvent({ Kind: 'BATCH', From: 'evrd', Target: '', Args: ['+1', 'soju.im/bouncer-networks'], Message: 'soju.im/bouncer-networks', Raw: '' });
+        probe._emitEvent({ Kind: 'BOUNCER', From: 'evrd', Target: '', Args: ['NETWORK', '3', 'name=Libera;host=irc.libera.chat;state=connected'], Message: '', Tags: { batch: '1' }, Raw: '' });
+        probe._emitEvent({ Kind: 'BOUNCER', From: 'evrd', Target: '', Args: ['NETWORK', '9', 'name=IRC\\sForever;state=disconnected'], Message: '', Tags: { batch: '1' }, Raw: '' });
+        // *status chatter (evrd's own sign-in notices) is not a network list.
+        probe._emitEvent({ Kind: 'PRIVMSG', From: '*status', Target: 'me', Message: '| not | a table |', Raw: '' });
+        probe._emitEvent({ Kind: 'BATCH', From: 'evrd', Target: '', Args: ['-1'], Message: '-1', Raw: '' });
+        // The batch end resolves at once — no capture window.
+        await expect(p).resolves.toEqual(['Libera', 'IRC Forever']);
+        expect(probe.disconnectCalls).toBeGreaterThanOrEqual(1);
+      } finally {
+        vi.useRealTimers();
+      }
+      bloc.dispose();
+    });
+
+    it('surfaces FAIL BOUNCER from a soju-style bouncer', async () => {
+      const { bloc, engine } = await makeBloc();
+      const p = bloc.discoverBouncerNetworks();
+      const probe = engine.sessionFor('__bouncer-probe__');
+      probe._emitEvent({ Kind: 'CAP', From: 'soju', Target: '', Args: ['ACK', 'soju.im/bouncer-networks'], Message: 'soju.im/bouncer-networks', Raw: '' });
+      probe._emitEvent({ Kind: '001', From: 'soju', Target: 'me', Message: 'welcome', Raw: '' });
+      probe._emitEvent({ Kind: 'FAIL', From: 'soju', Target: '', Args: ['BOUNCER', 'UNKNOWN_ERROR', 'LISTNETWORKS'], Message: 'Internal error', Raw: '' });
+      await expect(p).rejects.toThrow(/Internal error/);
+      bloc.dispose();
+    });
+
     it('rejects discovery when the bouncer profile is disabled', async () => {
       const storage = memoryStorage();
       const sessionStore = new SessionStore(storage);

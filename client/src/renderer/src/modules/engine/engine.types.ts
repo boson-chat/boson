@@ -40,6 +40,11 @@ export interface ConnectParams {
   // Send to the bouncer unpaced: the user turned flood control off in the
   // bouncer profile. Only meaningful with `bouncer`.
   bouncerNoFloodControl?: boolean;
+  // Ask for soju.im/bouncer-networks (soju, evrd), so the connection can
+  // list the bouncer's networks with BOUNCER LISTNETWORKS. Only the
+  // network-discovery probe sets it: with the cap and no network in the PASS
+  // line, such a bouncer attaches the client to no network at all.
+  bouncerNetworks?: boolean;
 }
 
 export interface JoinParams { serverId: string; channel: string }

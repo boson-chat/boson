@@ -10,6 +10,7 @@ import { getBouncerStore } from '../../modules/chat/bouncer.store';
 import { getNotifier } from '../../modules/ui/notifier';
 import { getWindowBridge } from '../../shared/window-controls';
 import { parseZncNetworks } from '../../modules/chat/znc.parse';
+import { BOUNCER_NETWORKS_CAP, bouncerNetworkNames, parseBouncerNetworkArgs, type BouncerNetwork } from '../../modules/chat/bouncer-networks.parse';
 import type { DirectoryService, Server, User } from '../../modules/directory';
 import type { BouncerUpstreamState, EngineClient, EngineState, ServerSession } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
@@ -1596,10 +1597,13 @@ export class DirectoryBloc {
     this.emit();
   }
 
-  // Discover the networks configured on the user's ZNC bouncer. Opens a
+  // Discover the networks configured on the user's bouncer. Opens a
   // SHORT-LIVED probe connection authenticating with `PASS username:password`
-  // (no `/network` → ZNC's user session), sends `*status ListNetworks`, and
-  // parses the reply table. The probe is a bare ServerSession — no ChatService,
+  // (no `/network`). A bouncer that speaks soju's protocol (soju, evrd) ACKs
+  // the soju.im/bouncer-networks cap the probe asks for; it's then asked with
+  // `BOUNCER LISTNETWORKS` and the networks' `name` attributes are the result
+  // (the reply batch's end resolves at once). Otherwise (ZNC) the probe sends
+  // `*status ListNetworks` and parses the reply table. The probe is a bare ServerSession — no ChatService,
   // no saved-session row, no UI artifacts — torn down in the finally. Rejects
   // with a user-facing message on no/incomplete profile, no welcome, or a
   // dropped connection (e.g. bad password). The serverPass is never logged.
@@ -1614,6 +1618,11 @@ export class DirectoryBloc {
     try {
       return await new Promise<string[]>((resolve, reject) => {
         const collected: string[] = [];
+        // soju.im/bouncer-networks: whether the bouncer ACKed the cap, the
+        // networks its LISTNETWORKS reply listed, and that reply's batch ref.
+        let sojuNetworks = false;
+        const listed: BouncerNetwork[] = [];
+        let listBatch: string | null = null;
         // Pre-welcome NOTICEs / error numerics from the bouncer — surfaced in
         // the error message so a timeout/close isn't a blind failure (ZNC
         // says things like "Access denied" or "You need to specify a network").
@@ -1641,7 +1650,7 @@ export class DirectoryBloc {
           clearTimeout(welcomeTimer);
           cleanup();
           if (err) reject(err);
-          else resolve(parseZncNetworks(collected));
+          else resolve(sojuNetworks ? bouncerNetworkNames(listed) : parseZncNetworks(collected));
         };
         // If we never see the welcome, give up rather than hang.
         const welcomeTimer = setTimeout(
@@ -1656,6 +1665,7 @@ export class DirectoryBloc {
           nick: sanitizeIrcNick(this.me?.handle ?? 'boson'),
           serverPass: `${profile.username}:${profile.password}`,
           tlsInsecure: profile.tlsInsecure || undefined,
+          bouncerNetworks: true,
         });
         unsubState = session.onState((s) => {
           if (s === 'disconnected') {
@@ -1665,12 +1675,36 @@ export class DirectoryBloc {
           }
         });
         unsubEvent = session.onEvent((e) => {
+          if (e.Kind === 'CAP' && (e.Args?.[0] ?? '').toUpperCase() === 'ACK'
+            && (e.Message ?? '').split(' ').includes(BOUNCER_NETWORKS_CAP)) {
+            sojuNetworks = true;
+            return;
+          }
           if (e.Kind === '001') {
             gotWelcome = true;
-            session?.privmsg('*status', 'ListNetworks');
-            // Collect *status lines for a short window, then resolve.
+            if (sojuNetworks) session?.raw('BOUNCER LISTNETWORKS');
+            else session?.privmsg('*status', 'ListNetworks');
+            // Collect the reply for a short window, then resolve (a
+            // bouncer-networks reply resolves as soon as its batch ends).
             captureTimer = setTimeout(() => finish(), BOUNCER_PROBE_CAPTURE_MS);
             return;
+          }
+          if (sojuNetworks) {
+            if (e.Kind === 'BATCH') {
+              const ref = e.Args?.[0] ?? '';
+              if (ref.startsWith('+') && e.Args?.[1] === BOUNCER_NETWORKS_CAP) listBatch = ref.slice(1);
+              else if (listBatch !== null && ref === `-${listBatch}`) finish();
+              return;
+            }
+            if (e.Kind === 'BOUNCER') {
+              const net = parseBouncerNetworkArgs(e.Args);
+              if (net) listed.push(net);
+              return;
+            }
+            if (e.Kind === 'FAIL' && (e.Args?.[0] ?? '').toUpperCase() === 'BOUNCER') {
+              finish(new Error(`Bouncer refused to list networks: ${e.Message ?? 'unknown error'}`));
+              return;
+            }
           }
           // Capture diagnostics before welcome: any NOTICE, or an error
           // numeric (4xx/5xx). These reveal why ZNC isn't completing login.

@@ -475,6 +475,7 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 		Bouncer:               p.Bouncer,
 		BouncerAutoConnect:    p.BouncerAutoConnect,
 		BouncerNoFloodControl: p.BouncerNoFloodControl,
+		BouncerNetworks:       p.BouncerNetworks,
 	}
 	if p.SASL != nil {
 		cfg.SASL = &irc.SASLPlain{User: p.SASL.User, Password: p.SASL.Password}
