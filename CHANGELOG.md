@@ -1,3 +1,9 @@
+## [0.79.0](https://github.com/boson-chat/boson/compare/v0.78.4...v0.79.0) (2026-11-20)
+
+### Features
+
+* guest voice and video for IRC guests ([#106](https://github.com/boson-chat/boson/issues/106)) ([7a6cc65](https://github.com/boson-chat/boson/commit/7a6cc658fcb082f221e72d408f7f7394aedf730e))
+
 ## [0.78.4](https://github.com/boson-chat/boson/compare/v0.78.3...v0.78.4) (2026-11-20)
 
 ### Bug Fixes
