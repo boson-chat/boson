@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { BosonGlyph } from '@boson/shared';
+import { Badge, BosonGlyph, Button, Count, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { getWindowBridge, isDarwin, isMobile } from '../../shared/window-controls';
 import { useVoice } from '../../modules/voice';
@@ -72,64 +72,72 @@ export function TitleBar({
         <span class="title-bar-title">Boson</span>
       </div>
       {(onOpenSettings || onOpenNotifications || (updateReady && onOpenUpdate)) && (
-        <div class="title-bar-controls">
+        <div class="title-bar-controls title-bar-actions">
           <CallPill />
           {updateReady && onOpenUpdate && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size={phone ? 'lg' : 'sm'}
               class="title-bar-update"
+              icon={<StatusDot status="accent" />}
               aria-label={`Boson v${updateReady} is ready — restart to update`}
               title={`Boson v${updateReady} is ready — restart to update`}
               onClick={onOpenUpdate}
             >
-              <span class="title-bar-update-dot" aria-hidden="true" />
               <span class="title-bar-update-label">Update</span>
-            </button>
+            </Button>
           )}
           {onOpenNotifications && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size={phone ? 'lg' : 'sm'}
               class={`title-bar-inbox title-bar-bell${notificationsOpen ? ' title-bar-bell-on' : ''}`}
               aria-label={notificationsCount > 0 ? `Notifications, ${notificationsCount} unread` : 'Notifications'}
               aria-haspopup="dialog"
               aria-expanded={notificationsOpen}
               title="Notifications"
               onClick={onOpenNotifications}
-            >
-              <Bell size={phone ? 18 : 13} aria-hidden="true" />
-              {notificationsCount > 0 && (
-                <span class="title-bar-inbox-badge" aria-hidden="true">
-                  {notificationsCount > 99 ? '99+' : notificationsCount}
-                </span>
+              icon={(
+                <>
+                  <Bell aria-hidden="true" />
+                  <Count value={notificationsCount} size={phone ? 'md' : 'sm'} overlay class="title-bar-inbox-badge" />
+                </>
               )}
-            </button>
+            />
           )}
-          {onOpenSettings && (
-            <button
-              type="button"
+          {onOpenSettings && (phone ? (
+            <Button
+              variant="ghost"
+              size="lg"
+              class="title-bar-user"
+              aria-label="User settings"
+              title="User settings"
+              onClick={onOpenSettings}
+              icon={userLabel ? <Avatar nick={userLabel} url={userMode === 'account' ? avatarUrl : null} size={28} class="title-bar-user-avatar" /> : <GearIcon />}
+            />
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
               class="title-bar-user"
               aria-label="User settings"
               title="User settings"
               onClick={onOpenSettings}
             >
-              {phone ? (
-                userLabel ? <Avatar nick={userLabel} url={userMode === 'account' ? avatarUrl : null} size={28} class="title-bar-user-avatar" /> : <GearIcon />
-              ) : userLabel ? (
+              {userLabel ? (
                 <>
                   {userMode === 'account' && (
                     <Avatar nick={userLabel} url={avatarUrl} size={18} class="title-bar-user-avatar" />
                   )}
                   <span class="title-bar-user-name">{userLabel}</span>
-                  {userMode === 'guest' && (
-                    <span class="title-bar-user-tag">guest</span>
-                  )}
+                  {userMode === 'guest' && <Badge tone="neutral" class="title-bar-user-tag">guest</Badge>}
                 </>
               ) : (
                 <span class="title-bar-user-name">Settings</span>
               )}
-              {!phone && <GearIcon />}
-            </button>
-          )}
+              <GearIcon />
+            </Button>
+          ))}
         </div>
       )}
       {!darwin && !mobile && (
@@ -229,9 +237,9 @@ function CallPill() {
   if (narrow || call.status !== 'connected' || !call.host) return null;
   const where = call.roomName || call.room;
   return (
-    <button type="button" class="title-bar-call" onClick={openCall} aria-label={`In call in ${where}${clock ? `, ${clock}` : ''}: open the call`}>
-      <span class="title-bar-call-dot" aria-hidden="true" />
+    <Button variant="secondary" tone="success" size="sm" class="title-bar-call" icon={<StatusDot status="live" />}
+      onClick={openCall} aria-label={`In call in ${where}${clock ? `, ${clock}` : ''}: open the call`}>
       In call · {where}{clock ? ` · ${clock}` : ''}
-    </button>
+    </Button>
   );
 }

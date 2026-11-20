@@ -49,7 +49,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   window.matchMedia = matchMedia;
-  document.body.querySelectorAll('.bottom-sheet-backdrop, .nick-profile-card').forEach((n) => n.remove());
+  document.body.querySelectorAll('.bds-sheet-backdrop, .nick-profile-card').forEach((n) => n.remove());
 });
 
 describe('profileRows', () => {
@@ -162,7 +162,7 @@ describe('Profile on a phone', () => {
     render(<MessageRow msg={msg({ from: 'carol', text: 'bob: hi' })} myNick="me" members={[bob]} nickActions={{ profiles }} />);
     fireEvent.click(document.querySelector('.chat-token-mention')!);
     expect(card()).toBeNull();
-    const sheet = document.querySelector('.bottom-sheet')!;
+    const sheet = document.querySelector('.bds-sheet')!;
     expect(sheet.getAttribute('aria-label')).toBe('bob');
     expect(request).toHaveBeenCalledWith('bob');
     set({ nick: 'bob', loading: false, requestedAt: 0, channels: ['#general', '#boson'] });

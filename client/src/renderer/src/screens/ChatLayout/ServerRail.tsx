@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
-import { useState, useLayoutEffect } from 'preact/hooks';
+import { useState } from 'preact/hooks';
+import { Count, Menu, MenuItem, StatusDot } from '@boson/shared';
 import { createPortal } from 'preact/compat';
 import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
 import { isNarrow } from '../../shared/narrow';
@@ -184,16 +185,19 @@ export function ServerRail({
         // Ambient unread = small neutral dot. Mention = amber counter badge
         // with the number. Mentions are louder so they win when both apply.
         const badge = hasMention ? (
-          <span
+          <Count
+            value={mentions}
+            overlay
             class="server-item-mention-count"
-            aria-label={`${mentions} mention${mentions === 1 ? '' : 's'} in ${t.name}`}
-          >
-            {mentions > 99 ? '99+' : String(mentions)}
-          </span>
+            label={`${mentions} mention${mentions === 1 ? '' : 's'} in ${t.name}`}
+          />
         ) : showBadge ? (
-          <span
+          <StatusDot
+            status="unread"
+            size={8}
+            ring
             class="server-item-unread-dot"
-            aria-label={`${unread} unread message${unread === 1 ? '' : 's'} in ${t.name}`}
+            label={`${unread} unread message${unread === 1 ? '' : 's'} in ${t.name}`}
           />
         ) : null;
         // Hover name-flyout. The rail clips horizontal overflow (overflow-y
@@ -361,69 +365,18 @@ interface ServerRailContextMenuProps {
 function ServerRailContextMenu({
   x, y, onClose, onDetails, onLeave, onBouncerConnect, onBouncerDisconnect, networkTheme,
 }: ServerRailContextMenuProps) {
-  // Layout effect: the listeners are in place before the menu is painted,
-  // so an Escape or outside click right after it appears isn't missed.
-  useLayoutEffect(() => {
-    const onDown = (e: MouseEvent): void => {
-      const t = e.target as HTMLElement | null;
-      if (t && t.closest('.server-rail-context-menu')) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
-
   return (
-    <div
-      class="server-rail-context-menu"
-      style={`top: ${y}px; left: ${x}px;`}
-      role="menu"
-    >
-      {onDetails && (
-        <button type="button" class="server-rail-context-item" role="menuitem" onClick={onDetails}>
-          Server details
-        </button>
-      )}
-      {onBouncerConnect && (
-        <button type="button" class="server-rail-context-item" role="menuitem" onClick={onBouncerConnect}>
-          Connect network
-        </button>
-      )}
-      {onBouncerDisconnect && (
-        <button type="button" class="server-rail-context-item" role="menuitem" onClick={onBouncerDisconnect}>
-          Disconnect network
-        </button>
-      )}
+    <Menu x={x} y={y} onClose={onClose} class="server-rail-context-menu">
+      {onDetails && <MenuItem onClick={onDetails}>Server details</MenuItem>}
+      {onBouncerConnect && <MenuItem onClick={onBouncerConnect}>Connect network</MenuItem>}
+      {onBouncerDisconnect && <MenuItem onClick={onBouncerDisconnect}>Disconnect network</MenuItem>}
       {networkTheme && (
-        <button
-          type="button"
-          class="server-rail-context-item server-rail-context-item-check"
-          role="menuitemcheckbox"
-          aria-checked={networkTheme.enabled}
-          onClick={networkTheme.onToggle}
-        >
+        <MenuItem checkbox checked={networkTheme.enabled} onClick={networkTheme.onToggle}>
           Use this network's theme
-          <span class="server-rail-context-check" aria-hidden="true">{networkTheme.enabled ? '✓' : ''}</span>
-        </button>
+        </MenuItem>
       )}
-      {onLeave && (
-        <button
-          type="button"
-          class="server-rail-context-item server-rail-context-item-danger"
-          role="menuitem"
-          onClick={onLeave}
-        >
-          Leave server
-        </button>
-      )}
-    </div>
+      {onLeave && <MenuItem danger onClick={onLeave}>Leave server</MenuItem>}
+    </Menu>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { Modal } from '@boson/shared';
+import { Button, Modal } from '@boson/shared';
+import { X } from 'lucide-preact';
 import { classifyMessage, extractUrls, type ClassifiedUrl } from './embeds/classify';
 import { getFiles, type FilesLink } from '../../modules/files';
 import { FilesEmbed } from './FilesEmbed';
@@ -87,7 +88,7 @@ function EmbedItem({
 }: { c: ClassifiedUrl; settings: EmbedSettings; unfurl?: UnfurlFn; spotify?: SpotifyFn; onDismiss: () => void }) {
   const auto = settings.loadMode === 'auto';
   const dismiss = (
-    <button type="button" class="embed-dismiss" title="Dismiss" aria-label="Dismiss embed" onClick={onDismiss}>×</button>
+    <Button variant="ghost" size="sm" class="embed-dismiss" title="Dismiss" aria-label="Dismiss embed" onClick={onDismiss} icon={<X aria-hidden="true" />} />
   );
   switch (c.kind) {
     case 'image': return <ImageEmbed c={c} auto={auto} dismissBtn={dismiss} />;
@@ -120,9 +121,9 @@ function ImageEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
           <CachedImg class="embed-img" url={c.url} box={INLINE_BOX} maxHeight={INLINE_MAX_H} loading="lazy" />
         </button>
       ) : (
-        <button type="button" class="embed-chip" onClick={() => setLoaded(true)}>
+        <Button variant="secondary" size="sm" class="embed-chip" onClick={() => setLoaded(true)}>
           <span class="embed-chip-icon">🖼</span> Image · {c.domain} — click to load
-        </button>
+        </Button>
       )}
       {lightbox && <Lightbox url={c.url} onClose={() => setLightbox(false)} />}
     </div>
@@ -141,9 +142,9 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
         // eslint-disable-next-line jsx-a11y/media-has-caption
         <video ref={video} class="embed-video-el" src={c.url} controls preload="metadata" autoPlay={!auto} />
       ) : (
-        <button type="button" class="embed-chip" onClick={() => setLoaded(true)}>
+        <Button variant="secondary" size="sm" class="embed-chip" onClick={() => setLoaded(true)}>
           <span class="embed-chip-icon">🎬</span> Video · {c.domain} — click to play
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -225,9 +226,9 @@ function YouTubeEmbed({
     return (
       <div class="embed embed-youtube">
         {dismissBtn}
-        <button type="button" class="embed-chip" onClick={() => setStage('facade')}>
+        <Button variant="secondary" size="sm" class="embed-chip" onClick={() => setStage('facade')}>
           <span class="embed-chip-icon">▶</span> YouTube · {c.domain} — click to load
-        </button>
+        </Button>
       </div>
     );
   }
@@ -340,9 +341,9 @@ function SpotifyEmbed({
           )}
           <div class="embed-spotify-actions">
             {info?.previewUrl && (
-              <button type="button" class="embed-spotify-play" onClick={() => toggle(info.previewUrl)}>
+              <Button variant="secondary" size="sm" class="embed-spotify-play" onClick={() => toggle(info.previewUrl)}>
                 {playing === info.previewUrl ? '❚❚ Pause' : '▶ Preview'}
-              </button>
+              </Button>
             )}
             <a class="embed-spotify-open" href={c.url} target="_blank" rel="noopener noreferrer">Open in Spotify ↗</a>
           </div>
@@ -408,7 +409,7 @@ function Lightbox({ url, kind = 'web', onClose }: { url: string; kind?: ImageKin
       <span onClick={(e) => e.stopPropagation()} class="embed-lightbox-frame">
         <CachedImg class="embed-lightbox-img" url={url} kind={kind} />
       </span>
-      <button type="button" class="embed-lightbox-close" aria-label="Close" onClick={onClose}>×</button>
+      <Button variant="secondary" size="lg" class="embed-lightbox-close" aria-label="Close" onClick={onClose} icon={<X aria-hidden="true" />} />
     </div>,
     document.body,
   );
@@ -420,9 +421,9 @@ function FileEmbed({ c, dismissBtn }: { c: ClassifiedUrl; onDismiss: () => void;
   return (
     <div class={`embed embed-file ${exe ? 'embed-file-danger' : ''}`}>
       {dismissBtn}
-      <button type="button" class="embed-chip embed-chip-file" onClick={() => setConfirming(true)}>
+      <Button variant="secondary" size="sm" tone={exe ? 'danger' : undefined} class="embed-chip embed-chip-file" onClick={() => setConfirming(true)}>
         {exe ? '⚠' : '📄'} {c.ext ? `.${c.ext} ` : ''}file · {c.domain} — download
-      </button>
+      </Button>
       <Modal
         open={confirming}
         onClose={() => setConfirming(false)}
@@ -438,14 +439,14 @@ function FileEmbed({ c, dismissBtn }: { c: ClassifiedUrl; onDismiss: () => void;
             </p>
           )}
           <div class="embed-file-actions">
-            <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
-            <button
-              type="button"
+            <Button variant="ghost" onClick={() => setConfirming(false)}>Cancel</Button>
+            <Button
+              variant={exe ? 'danger' : 'primary'}
               class={exe ? 'embed-file-confirm-danger' : 'embed-file-confirm'}
               onClick={() => { openExternal(c.url); setConfirming(false); }}
             >
               Open in browser
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>

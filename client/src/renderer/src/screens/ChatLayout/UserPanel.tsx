@@ -1,13 +1,13 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { AtomLoader } from '@boson/shared';
+import { AtomLoader, Button, EmptyState, ListRow, StatusDot } from '@boson/shared';
 import { ArrowLeft } from 'lucide-preact';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
-import { NickProfileCard, anchorOf, memberActivity, prefixClass, profileRows, roleLabel, useFitInWindow, type ProfileAnchor } from './nick-profile';
-import { isNarrow } from '../../shared/narrow';
+import { NickProfileCard, RoleBadge, anchorOf, memberActivity, prefixClass, profileRows, useFitInWindow, type ProfileAnchor } from './nick-profile';
+import { isNarrow, useNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
 import './UserPanel.css';
 
@@ -87,15 +87,15 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
     ].filter((g) => g.members.length > 0);
   }, [channel]);
 
+  const narrow = useNarrow();
   const total = channel?.members.length ?? 0;
 
   return (
     <aside class="user-panel" aria-label="Members" style={width ? { width: `${width}px` } : undefined}>
       <div class="user-panel-header">
         {onBack && (
-          <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Back to chat">
-            <ArrowLeft size={20} aria-hidden="true" />
-          </button>
+          <Button variant="ghost" size="lg" class="chat-pane-back" onClick={onBack} aria-label="Back to chat"
+            icon={<ArrowLeft aria-hidden="true" />} />
         )}
         <div class="user-panel-title">
           Members{total > 0 ? ` — ${total}` : ''}
@@ -103,7 +103,7 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
       </div>
       <div class="user-panel-list">
         {!channel && (
-          <div class="user-panel-placeholder">No channel selected.</div>
+          <EmptyState class="user-panel-placeholder">No channel selected.</EmptyState>
         )}
         {channel && total === 0 && (
           <div class="user-panel-loading">
@@ -119,43 +119,43 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
             {g.members.map((m) => {
               const presence = m.awayMessage ? 'away' : 'online';
               return (
-                <div
+                <ListRow
                   key={m.nick}
+                  variant="nav"
+                  size={narrow ? 'lg' : 'md'}
                   class={`user-panel-item user-panel-item-${prefixClass(m.prefix)} user-panel-item-${presence}`}
-                  onClick={(e) => {
-                    if (isNarrow()) { setSheet(m.nick); return; }
-                    cancelPendingOpen();
-                    setHover(null);
-                    setCard({ nick: m.nick, anchor: anchorOf(e.currentTarget as Element) });
+                  leading={<Avatar nick={m.nick} url={avatarFor?.(m.nick)} size={22} />}
+                  title={<span class="user-panel-name">{m.nick}</span>}
+                  trailing={<StatusDot status={presence} size={8} class="user-panel-presence" label={presence === 'away' ? 'Away' : 'Online'} />}
+                  rowProps={{
+                    onClick: (e) => {
+                      if (isNarrow()) { setSheet(m.nick); return; }
+                      cancelPendingOpen();
+                      setHover(null);
+                      setCard({ nick: m.nick, anchor: anchorOf(e.currentTarget as Element) });
+                    },
+                    onMouseEnter: (e) => {
+                      // A tap on a phone emulates mouseenter; the sheet covers it.
+                      if (isNarrow() || card) return;
+                      const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                      const snapshot: HoverState = { member: m, rowTop: r.top, rowLeft: r.left };
+                      cancelPendingOpen();
+                      openTimer.current = setTimeout(() => {
+                        setHover(snapshot);
+                        openTimer.current = null;
+                      }, HOVER_OPEN_DELAY_MS);
+                    },
+                    onMouseLeave: () => {
+                      cancelPendingOpen();
+                      setHover((prev) => (prev && prev.member.nick === m.nick ? null : prev));
+                    },
+                    onContextMenu: (e) => {
+                      e.preventDefault();
+                      if (isNarrow()) return;
+                      setMenu({ nick: m.nick, x: e.clientX, y: e.clientY });
+                    },
                   }}
-                  onMouseEnter={(e) => {
-                    // A tap on a phone emulates mouseenter; the sheet covers it.
-                    if (isNarrow() || card) return;
-                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const snapshot: HoverState = { member: m, rowTop: r.top, rowLeft: r.left };
-                    cancelPendingOpen();
-                    openTimer.current = setTimeout(() => {
-                      setHover(snapshot);
-                      openTimer.current = null;
-                    }, HOVER_OPEN_DELAY_MS);
-                  }}
-                  onMouseLeave={() => {
-                    cancelPendingOpen();
-                    setHover((prev) => (prev && prev.member.nick === m.nick ? null : prev));
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    if (isNarrow()) return;
-                    setMenu({ nick: m.nick, x: e.clientX, y: e.clientY });
-                  }}
-                >
-                  <Avatar nick={m.nick} url={avatarFor?.(m.nick)} size={22} />
-                  <span class="user-panel-name">{m.nick}</span>
-                  <span
-                    class={`user-panel-presence user-panel-presence-${presence}`}
-                    aria-label={presence === 'away' ? 'Away' : 'Online'}
-                  />
-                </div>
+                />
               );
             })}
           </div>
@@ -234,9 +234,7 @@ function NickHoverCard({ member, rowTop, rowLeft }: {
     >
       <div class="nick-hovercard-head">
         <span class="nick-hovercard-nick">{member.nick}</span>
-        <span class={`nick-hovercard-role nick-hovercard-role-${prefixClass(member.prefix)}`}>
-          {roleLabel(member.prefix)}
-        </span>
+        <RoleBadge prefix={member.prefix} class={`nick-hovercard-role nick-hovercard-role-${prefixClass(member.prefix)}`} />
       </div>
       {activity && <div class="nick-hovercard-activity">{activity}</div>}
       {meta.length > 0 && (

@@ -58,15 +58,12 @@
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
-.channel-sidebar-header-banner .channel-sidebar-settings {
-  color: rgba(255, 255, 255, 0.85);
-}
+/* Over the banner image's scrim: light text whatever the theme. */
+.channel-sidebar-header-banner .channel-sidebar-settings { color: rgba(255, 255, 255, 0.85); }
+.channel-sidebar-header-banner .channel-sidebar-settings:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); color: #fff; }
 
-.channel-sidebar-header-banner .channel-sidebar-settings:hover {
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.4);
-}
+/* The gear (a ghost Button). */
+.channel-sidebar-settings { flex-shrink: 0; }
 
 /* Server name + meta (version / bouncer / status) stacked in one column. */
 .channel-sidebar-heading {
@@ -100,63 +97,11 @@
 }
 .sidebar-server-version { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-bnc { flex-shrink: 0; }
-.sidebar-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--success);
-}
-.sidebar-status-dot[data-state='connecting'] { background: var(--warn, #e0a32a); }
-.sidebar-status-dot[data-state='upstream-offline'] { background: var(--warn, #e0a32a); }
-.sidebar-bnc[data-upstream='disconnected'] { color: var(--warn, #e0a32a); }
-.sidebar-status-dot[data-state='disconnected'] { background: var(--danger, #e0533a); }
-/* Banner variant: lighten meta text + dot for legibility over the image scrim. */
+.sidebar-bnc[data-upstream='disconnected'] { color: var(--warn); }
+/* The connection dot (a StatusDot inside, for the colour). */
+.sidebar-status-dot { display: inline-flex; flex-shrink: 0; }
+/* Banner variant: lighten meta text for legibility over the image scrim. */
 .channel-sidebar-header-banner .sidebar-server-meta { color: rgba(255, 255, 255, 0.82); }
-
-.channel-sidebar-settings {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--fg-3);
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all var(--motion-fast) var(--ease-standard);
-}
-
-.channel-sidebar-settings:hover {
-  background: var(--surface-hover);
-  color: var(--accent);
-  border-color: var(--border);
-}
-
-.channel-sidebar-settings:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.channel-sidebar-search {
-  margin-top: var(--space-2);
-  width: 100%;
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-2);
-  outline: none;
-  transition: border-color var(--motion-fast) var(--ease-standard);
-}
-
-.channel-sidebar-search::placeholder { color: var(--fg-3); }
-.channel-sidebar-search:focus { border-color: var(--accent); }
 
 .channel-list {
   flex: 1;
@@ -166,14 +111,7 @@
 
 .channel-list::-webkit-scrollbar { width: 4px; }
 .channel-list::-webkit-scrollbar-track { background: transparent; }
-.channel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-.channel-empty {
-  padding: var(--space-3);
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
+.channel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-sm); }
 
 .channel-section-header {
   display: flex;
@@ -193,35 +131,8 @@
   font-weight: 600;
 }
 
-.channel-add {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--fg-3);
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  font-weight: 700;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--motion-fast) var(--ease-standard);
-  line-height: 1;
-}
-
-.channel-add:hover {
-  background: var(--surface-hover);
-  color: var(--accent);
-  border-color: var(--border);
-}
-.channel-add:active { transform: scale(0.92); }
-
-.channel-join-form {
-  display: flex;
-  flex-direction: column;
-}
+/* "+" (a ghost Button), kept to the section label's height. */
+.channel-add { margin: -3px 0; }
 
 .channel-join-actions {
   display: flex;
@@ -251,7 +162,7 @@
 .channel-join-error {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--danger, #ef4444);
+  color: var(--danger-fg);
 }
 
 .channel-join-results-head {
@@ -264,21 +175,13 @@
 
 .channel-join-results {
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--surface);
   max-height: 420px;
   min-height: 200px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-}
-
-.channel-join-empty {
-  padding: var(--space-6) var(--space-4);
-  text-align: center;
-  color: var(--fg-3);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
 }
 
 /* Result row visual hierarchy:
@@ -296,7 +199,6 @@
   background: transparent;
   text-align: left;
   cursor: pointer;
-  border-radius: 0;
   font-family: inherit;
   transition: background var(--motion-fast) var(--ease-standard);
 }
@@ -356,30 +258,6 @@
 
 .channel-join-page-range { color: var(--fg-3); }
 
-.channel-join-page-btn {
-  background: transparent;
-  border: 1px solid var(--border-soft);
-  color: var(--fg-2);
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  transition: all var(--motion-fast) var(--ease-standard);
-  white-space: nowrap;
-}
-
-.channel-join-page-btn:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--fg);
-  border-color: var(--fg-3);
-}
-
-.channel-join-page-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
 .channel-item {
   display: flex;
   align-items: center;
@@ -427,23 +305,9 @@
   white-space: nowrap;
 }
 
-.channel-leave {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  font-size: var(--text-base);
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  opacity: 0;
-  transition: opacity var(--motion-fast) var(--ease-standard);
-  cursor: pointer;
-}
-
-.channel-item:hover .channel-leave { opacity: 1; }
+/* Leave (a ghost Button): shown on hover, kept inside the row's height. */
+.channel-leave { margin: -4px 0; opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
+.channel-item:hover .channel-leave, .channel-leave:focus-visible { opacity: 1; }
 
 /* Join progress. Not yet joined: faint name, a dashed ring in place of the
    #. Joined but the member list / away status still arriving: dimmed name,
@@ -481,7 +345,6 @@
 @media (prefers-reduced-motion: reduce) {
   .channel-sync-spinner[data-sync='loading'] { animation: none; }
 }
-.channel-leave:hover { color: var(--danger); background: var(--surface-hover); }
 
 /* Unread / mention indicators.
    - Ambient unread (just new messages): bright channel name + small dot.
@@ -492,67 +355,6 @@
   color: var(--fg);
   font-weight: 600;
 }
-
-.channel-unread-dot {
-  flex-shrink: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--fg-2);
-  /* One-shot pop on mount — the dot only appears when a channel
-     transitions from "seen" to "unread", so the animation fires once
-     per unread cycle. ease-spring gives it a tiny overshoot for the
-     "Slack notification dot landing" feel. */
-  animation: channel-badge-pop var(--motion-base) var(--ease-spring) both;
-}
-
-.channel-mention-count {
-  flex-shrink: 0;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 var(--space-2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--accent-on);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  /* Same pop as the unread dot — keyed off mount, fires when the count
-     goes from 0 → non-zero. */
-  animation: channel-badge-pop var(--motion-base) var(--ease-spring) both;
-}
-
-@keyframes channel-badge-pop {
-  from { opacity: 0; transform: scale(0.6); }
-  to   { opacity: 1; transform: scale(1); }
-}
-
-/* When the leave-(×) button reveals on hover, suppress the indicator so
-   the row doesn't show both at once and feel crowded. */
-
-/* The synthetic `~server` pseudo-channel: holds NickServ + server-source
-   NOTICEs so they don't pollute real channel + DM lists. Distinct visual
-   treatment — dimmer text, no leave button, monospace `*` prefix in muted
-   colour. Sits at the very top of the channel list so it's discoverable
-   without being loud. */
-.channel-item-service {
-  color: var(--fg-3);
-  font-style: italic;
-  border-bottom: 1px solid var(--border-soft);
-  padding-bottom: var(--space-2);
-  margin-bottom: var(--space-2);
-}
-.channel-item-service .channel-name {
-  font-weight: 500;
-}
-.channel-hash-service {
-  color: var(--muted);
-}
-
 
 /* Touch screens: with no hover to reveal it, the leave button stays hidden
    (an invisible button at the row's edge is a trap). */

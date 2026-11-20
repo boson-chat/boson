@@ -8,44 +8,19 @@
   position: relative;
   max-width: 420px;
 }
+/* Dismiss (a ghost Button) over the embed's corner, shown on hover. */
 .embed-dismiss {
   position: absolute;
   top: 2px;
   right: 2px;
   z-index: 2;
-  width: 18px;
-  height: 18px;
-  line-height: 1;
-  border: none;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  cursor: pointer;
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-standard);
 }
-.embed:hover .embed-dismiss { opacity: 1; }
+.embed:hover .embed-dismiss, .embed-dismiss:focus-visible { opacity: 1; }
 
 /* Click-to-load chip (inert until clicked — no network/remote content). */
-.embed-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  max-width: 100%;
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--fg-2);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  white-space: nowrap;
-  transition: border-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
-}
-.embed-chip:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-3); }
-.embed-chip:disabled { opacity: 0.6; cursor: default; }
+.embed-chip { max-width: 100%; }
 
 .embed-chip-icon { font-size: 1em; line-height: 1; }
 
@@ -142,21 +117,6 @@
 }
 .embed-spotify-sub { font-size: var(--text-xs); color: var(--fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .embed-spotify-actions { display: flex; align-items: center; gap: var(--space-3); margin-top: 4px; }
-.embed-spotify-play {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: var(--space-1) var(--space-3);
-  border: none;
-  border-radius: 999px;
-  background: #1ed760;
-  color: #000;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  cursor: pointer;
-  transition: filter var(--motion-fast) var(--ease-standard);
-}
-.embed-spotify-play:hover { filter: brightness(1.08); }
 .embed-spotify-open { font-size: var(--text-xs); color: var(--fg-2); text-decoration: none; }
 .embed-spotify-open:hover { color: var(--fg); text-decoration: underline; }
 
@@ -209,11 +169,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: var(--space-6, 32px);
+  padding: var(--space-6);
   background: rgba(0, 0, 0, 0.82);
   backdrop-filter: blur(4px);
   cursor: zoom-out;
-  animation: embed-lightbox-in var(--motion-fast, 120ms) var(--ease-standard, ease);
+  animation: embed-lightbox-in var(--motion-fast) var(--ease-standard);
 }
 @keyframes embed-lightbox-in { from { opacity: 0; } to { opacity: 1; } }
 .embed-lightbox-img {
@@ -223,22 +183,7 @@
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
   cursor: default;
 }
-.embed-lightbox-close {
-  position: absolute;
-  top: 16px;
-  right: 20px;
-  width: 40px;
-  height: 40px;
-  font-size: 26px;
-  line-height: 1;
-  border: none;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
-  cursor: pointer;
-  transition: background var(--motion-fast) var(--ease-standard);
-}
-.embed-lightbox-close:hover { background: rgba(255, 255, 255, 0.24); }
+.embed-lightbox-close { position: absolute; top: 16px; right: 20px; }
 
 /* YouTube thumbnail with a play badge. */
 .embed-yt-thumb {
@@ -260,7 +205,7 @@
   transform: translate(-50%, -50%);
   width: 64px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: rgba(20, 20, 20, 0.75);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
   pointer-events: none;
@@ -278,23 +223,10 @@
 }
 .embed-yt-thumb:hover .embed-yt-play { background: #f00; transform: translate(-50%, -50%) scale(1.06); }
 
-/* File download chips. */
-.embed-chip-file { color: var(--fg-2); }
-.embed-file-danger .embed-chip-file { color: var(--danger); border-color: var(--danger); }
 .embed-file-warn { display: flex; flex-direction: column; gap: var(--space-2); max-width: 420px; }
 .embed-file-url { word-break: break-all; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-2); }
-.embed-file-danger-text { color: var(--danger); font-size: var(--text-sm); }
+.embed-file-danger-text { color: var(--danger-fg); font-size: var(--text-sm); }
 .embed-file-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
-.embed-file-actions button {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: var(--space-1) var(--space-3);
-  background: var(--surface);
-  color: var(--fg-2);
-  cursor: pointer;
-}
-.embed-file-confirm { color: var(--fg); }
-.embed-file-confirm-danger { color: var(--danger); border-color: var(--danger); }
 
 /* Website OG card — Discord-style: accent left bar, site name, accent title
    link, description, and a large preview image below. */

@@ -1,4 +1,7 @@
-.nick-context-menu {
+/* Only the voice-room menus (VoiceRooms.tsx, calls PR) still use these,
+   scoped to them: NickContextMenu itself is the shared Menu and keeps the
+   nick-context-menu-* classes only as test hooks. Delete with those. */
+:is(.voice-room-menu, .voice-user-menu).nick-context-menu {
   position: fixed;
   z-index: 200;
   min-width: 180px;
@@ -29,7 +32,7 @@
   }
 }
 
-.nick-context-menu-title {
+:is(.voice-room-menu, .voice-user-menu) .nick-context-menu-title {
   padding: var(--space-2) var(--space-3) var(--space-1);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -43,7 +46,7 @@
   white-space: nowrap;
 }
 
-.nick-context-menu-item {
+:is(.voice-room-menu, .voice-user-menu) .nick-context-menu-item {
   text-align: left;
   padding: var(--space-2) var(--space-3);
   background: transparent;
@@ -58,17 +61,17 @@
     transform var(--motion-fast) var(--ease-standard);
 }
 
-.nick-context-menu-item:hover {
+:is(.voice-room-menu, .voice-user-menu) .nick-context-menu-item:hover {
   background: var(--surface-hover);
 }
-.nick-context-menu-item:active {
+:is(.voice-room-menu, .voice-user-menu) .nick-context-menu-item:active {
   transform: scale(0.98);
 }
 
-.nick-context-menu-item-danger {
+:is(.voice-room-menu, .voice-user-menu) .nick-context-menu-item-danger {
   color: var(--danger);
 }
-.nick-context-menu-item-danger:hover {
+:is(.voice-room-menu, .voice-user-menu) .nick-context-menu-item-danger:hover {
   background: color-mix(in oklab, var(--danger), transparent 88%);
 }
 /* A choice in a set (Notifications: All / Mentions / Nothing). */

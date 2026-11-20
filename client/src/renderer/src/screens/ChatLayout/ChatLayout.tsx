@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatService, ChatState } from '../../modules/chat';
 import { banMask } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
-import { Modal } from '@boson/shared';
+import { Button, Input, Modal } from '@boson/shared';
 import { ServerRail, type ServerRailTile } from './ServerRail';
 import { ChannelSidebar } from './ChannelSidebar';
 import { VoiceSection } from './VoiceSection';
@@ -649,8 +649,8 @@ export function ChatLayout({
           <div class="kick-modal">
             <label class="kick-modal-label">
               Reason (optional)
-              <input
-                class="kick-modal-input"
+              <Input
+                inputSize="sm"
                 value={kickReason}
                 onInput={(e) => setKickReason((e.target as HTMLInputElement).value)}
                 placeholder="e.g. spamming"
@@ -659,9 +659,10 @@ export function ChatLayout({
               />
             </label>
             <div class="kick-modal-actions">
-              <button type="button" class="kick-modal-cancel" onClick={() => setKickTarget(null)}>Cancel</button>
-              <button
-                type="button"
+              <Button variant="ghost" size={narrow ? 'lg' : 'md'} class="kick-modal-cancel" onClick={() => setKickTarget(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                size={narrow ? 'lg' : 'md'}
                 class="kick-modal-confirm"
                 onClick={() => {
                   const reason = kickReason.trim() || undefined;
@@ -674,7 +675,7 @@ export function ChatLayout({
                 }}
               >
                 {kickTarget.ban ? 'Kick + Ban' : 'Kick'}
-              </button>
+              </Button>
             </div>
           </div>
         )}

@@ -26,7 +26,7 @@
   color: var(--fg-3);
   background: var(--surface-hover);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--motion-fast) var(--ease-standard);
   position: relative;
@@ -95,7 +95,7 @@
   width: 3px;
   height: 28px;
   background: var(--accent);
-  border-radius: 0 2px 2px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   /* Slide-out grow when a tile becomes active. The ::before is mount-
      on-active (it only exists while .server-item-active is applied),
      so a one-shot animation works without state machinery. */
@@ -124,109 +124,17 @@
 .server-item-state-disconnected { opacity: 0.45; }
 .server-item-state-idle { opacity: 0.45; }
 
-/* Notification indicators pinned to the tile's top-right corner.
-   - Ambient unread: small neutral dot, no number.
-   - Mention: amber counter badge with the mention count. */
-.server-item-unread-dot {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--fg-2);
-  border: 2px solid var(--bg);
-  pointer-events: none;
-}
-
-.server-item-mention-count {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 var(--space-1);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--accent-on);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  border: 2px solid var(--bg);
-  pointer-events: none;
-}
+/* Notification indicators pinned to the tile's top-right corner: a
+   StatusDot (ambient unread) or a Count (mentions), ringed in the rail's
+   colour. */
+.server-rail { --dot-ring: var(--pane-servers-bg, var(--surface)); --count-ring: var(--pane-servers-bg, var(--surface)); }
+.server-item-unread-dot { position: absolute; top: 0; right: 0; }
+.server-item-mention-count { position: absolute; top: -4px; right: -4px; }
 
 /* Tile-level mention treatment: faint accent ring catches the eye even at
    the periphery of vision. */
 .server-item-mention:not(.server-item-active) {
   border-color: color-mix(in oklab, var(--accent), transparent 50%);
-}
-
-/* Right-click context menu anchored at the cursor. Positioned fixed so the
-   nav's overflow/scroll doesn't clip it. */
-.server-rail-context-menu {
-  position: fixed;
-  z-index: 1000;
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-1);
-  min-width: 180px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
-  display: flex;
-  flex-direction: column;
-  /* Match NickContextMenu — drop from cursor with a small scale-up. */
-  transform-origin: top center;
-  animation: server-rail-context-menu-enter var(--motion-base) var(--ease-out) both;
-}
-
-@keyframes server-rail-context-menu-enter {
-  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
-}
-
-.server-rail-context-item-check {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.server-rail-context-check {
-  width: 1em;
-  color: var(--accent);
-  text-align: center;
-}
-
-.server-rail-context-item {
-  background: transparent;
-  border: none;
-  text-align: left;
-  padding: var(--space-2) var(--space-3);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--fg);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-  transition:
-    background var(--motion-instant) var(--ease-standard),
-    transform var(--motion-fast) var(--ease-standard);
-}
-
-.server-rail-context-item:hover {
-  background: var(--surface-hover);
-}
-.server-rail-context-item:active {
-  transform: scale(0.98);
-}
-
-.server-rail-context-item-danger { color: var(--danger); }
-.server-rail-context-item-danger:hover {
-  background: color-mix(in oklab, var(--danger), transparent 88%);
 }
 
 /* Hover name-flyout. Portaled to <body> (see ServerRail.tsx) so position:fixed
@@ -247,7 +155,7 @@
   letter-spacing: 0.01em;
   white-space: nowrap;
   pointer-events: none;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-menu);
   /* Fade in (opacity only — transform is reserved for the vertical centring). */
   animation: server-rail-tooltip-enter var(--motion-fast) var(--ease-out) both;
 }
@@ -284,7 +192,7 @@
   left: 4px;
   right: 4px;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
   pointer-events: none;
 }

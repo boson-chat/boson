@@ -21,6 +21,10 @@ describe('Menu', () => {
     expect(screen.getByRole('menuitem', { name: 'Block' }).className).toContain('bds-menu-item-danger');
     expect(screen.getByRole('menuitemradio', { name: /All/ }).getAttribute('aria-checked')).toBe('true');
   });
+  it('a checkbox item is a menuitemcheckbox', () => {
+    render(<Menu><MenuItem checkbox checked={false} onClick={() => {}}>Use theme</MenuItem></Menu>);
+    expect(screen.getByRole('menuitemcheckbox', { name: /Use theme/ }).getAttribute('aria-checked')).toBe('false');
+  });
   it('closes on an outside press and on Escape, not on an inside press', () => {
     const onClose = vi.fn();
     render(<div><span>outside</span><Menu onClose={onClose} x={10} y={20}><MenuItem onClick={() => {}}>In</MenuItem></Menu></div>);

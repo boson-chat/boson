@@ -1,7 +1,6 @@
-import { useLayoutEffect } from 'preact/hooks';
+import { Menu, MenuItem, MenuLabel } from '@boson/shared';
 import { createPortal } from 'preact/compat';
 import { PersonMenu, usePersonRelation } from '../Friends/PersonMenu';
-import './NickContextMenu.css';
 
 export interface NickContextAction {
   label: string;
@@ -37,25 +36,6 @@ interface NickContextMenuProps {
 //   - any action's onClick (the caller's onClick is invoked first, then
 //     onClose so the action sees the menu's state before it goes away).
 export function NickContextMenu({ x, y, onClose, title, actions, account }: NickContextMenuProps) {
-  // Layout effect: the listeners are in place before the menu is painted,
-  // so an Escape or outside click right after it appears isn't missed.
-  useLayoutEffect(() => {
-    const onDown = (e: MouseEvent): void => {
-      const t = e.target as HTMLElement | null;
-      if (t && t.closest('.nick-context-menu')) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
-
   // Room for the friend and call actions too (up to six more rows).
   const person = usePersonRelation(title, account);
   if (actions.length === 0) return null;
@@ -69,27 +49,21 @@ export function NickContextMenu({ x, y, onClose, title, actions, account }: Nick
   const clampedY = Math.max(8, Math.min(y, window.innerHeight - rows * MAX_HEIGHT_PER_ITEM - 60));
 
   return createPortal(
-    <div
-      class="nick-context-menu"
-      role="menu"
-      style={`top: ${clampedY}px; left: ${clampedX}px;`}
-    >
-      <div class="nick-context-menu-title">{title}</div>
+    <Menu x={clampedX} y={clampedY} onClose={onClose} class="nick-context-menu">
+      <MenuLabel class="nick-context-menu-title">{title}</MenuLabel>
       <PersonMenu nick={title} account={account} variant="menu" onDone={onClose} />
       {actions.map((a) => (
-        <button
+        <MenuItem
           key={a.label}
-          type="button"
-          role={a.checked === undefined ? 'menuitem' : 'menuitemradio'}
-          aria-checked={a.checked}
-          class={`nick-context-menu-item ${a.danger ? 'nick-context-menu-item-danger' : ''}`}
+          danger={a.danger}
+          checked={a.checked}
+          class="nick-context-menu-item"
           onClick={() => { a.onClick(); onClose(); }}
         >
-          {a.checked !== undefined && <span class="menu-check" aria-hidden="true">{a.checked ? '✓' : ''}</span>}
           {a.label}
-        </button>
+        </MenuItem>
       ))}
-    </div>,
+    </Menu>,
     document.body,
   );
 }

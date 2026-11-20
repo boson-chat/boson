@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useLayoutEffect } from 'preact/hooks';
-import { Paperclip, Plus, SendHorizontal, Smile } from 'lucide-preact';
+import { Paperclip, Plus, SendHorizontal, Smile, X } from 'lucide-preact';
+import { Button, Input } from '@boson/shared';
 import type { ChatInputBloc, ChatInputState } from './ChatInputBloc';
 import {
   ChannelAutocomplete,
@@ -119,14 +120,15 @@ export function ChatInputBar({
       {bannerError && (
         <div class="chat-banner chat-banner-error" role="alert">
           <span class="chat-banner-text">{bannerError}</span>
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
+            tone="danger"
             class="chat-banner-dismiss"
-            type="button"
             aria-label="Dismiss"
             onClick={onDismissBanner}
-          >
-            ×
-          </button>
+            icon={<X aria-hidden="true" />}
+          />
         </div>
       )}
       <div class="chat-input-wrap">
@@ -138,16 +140,16 @@ export function ChatInputBar({
           )}
           {onFiles && (
             <>
-              <button
+              <Button
+                variant="ghost"
+                size={phone ? 'lg' : 'sm'}
                 class="input-action"
-                type="button"
                 title="Attach files"
                 aria-label="Attach files"
                 disabled={disabled}
                 onClick={() => fileInputRef.current?.click()}
-              >
-                {phone ? <Plus size={22} aria-hidden="true" /> : <Paperclip size={17} aria-hidden="true" />}
-              </button>
+                icon={phone ? <Plus aria-hidden="true" /> : <Paperclip aria-hidden="true" />}
+              />
               <input
                 ref={fileInputRef}
                 type="file"
@@ -164,20 +166,20 @@ export function ChatInputBar({
             </>
           )}
           {!phone && <div class="emoji-picker-wrap">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               class="input-action"
-              type="button"
               title="Emoji"
               aria-label="Insert emoji"
               aria-expanded={emojiOpen}
               onClick={() => setEmojiOpen((v) => !v)}
-            >
-              <Smile size={18} aria-hidden="true" />
-            </button>
+              icon={<Smile aria-hidden="true" />}
+            />
             {emojiOpen && (
               <div class="emoji-picker" role="dialog" aria-label="Emoji picker">
-                <input
-                  class="emoji-picker-search"
+                <Input
+                  inputSize="sm"
                   type="text"
                   placeholder="Search…"
                   value={emojiQuery}
@@ -284,19 +286,35 @@ export function ChatInputBar({
             }}
           />
         </div>
-        <button
-          class="chat-send-btn"
-          type="button"
-          // Keep the focus (and a phone's keyboard) in the composer: a tap
-          // here would otherwise blur it and drop the keyboard after every
-          // message.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => bloc.send()}
-          disabled={disabled || !state.input.trim()}
-          aria-label="Send"
-        >
-          {phone ? <SendHorizontal size={20} aria-hidden="true" /> : 'Send'}
-        </button>
+        {phone ? (
+          <Button
+            // Nothing to send: the icon reads as a hint, not a dimmed
+            // orange block.
+            variant={disabled || !state.input.trim() ? 'ghost' : 'primary'}
+            size="lg"
+            class="chat-send-btn"
+            // Keep the focus (and a phone's keyboard) in the composer: a tap
+            // here would otherwise blur it and drop the keyboard after every
+            // message.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => bloc.send()}
+            disabled={disabled || !state.input.trim()}
+            aria-label="Send"
+            icon={<SendHorizontal aria-hidden="true" />}
+          />
+        ) : (
+          <Button
+            variant="primary"
+            size="sm"
+            class="chat-send-btn"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => bloc.send()}
+            disabled={disabled || !state.input.trim()}
+            aria-label="Send"
+          >
+            Send
+          </Button>
+        )}
       </div>
     </div>
   );

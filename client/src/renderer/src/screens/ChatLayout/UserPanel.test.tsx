@@ -235,7 +235,7 @@ describe('UserPanel on a phone', () => {
   });
   afterEach(() => {
     window.matchMedia = matchMedia;
-    document.body.querySelectorAll('.bottom-sheet-backdrop').forEach((n) => n.remove());
+    document.body.querySelectorAll('.bds-sheet-backdrop').forEach((n) => n.remove());
   });
 
   it('opens the nick sheet on tap instead of the hover card', () => {
@@ -251,7 +251,7 @@ describe('UserPanel on a phone', () => {
     expect(document.querySelector('.nick-hovercard')).toBeNull();
 
     fireEvent.click(row);
-    const sheet = document.querySelector('.bottom-sheet');
+    const sheet = document.querySelector('.bds-sheet');
     expect(sheet).not.toBeNull();
     expect(sheet!.textContent).toContain('Operator');
     expect(sheet!.textContent).toContain('bobacct');
@@ -260,14 +260,14 @@ describe('UserPanel on a phone', () => {
     expect(onSendMessage).toHaveBeenCalledWith('bob');
     // Slides out, then unmounts.
     act(() => { vi.advanceTimersByTime(400); });
-    expect(document.querySelector('.bottom-sheet')).toBeNull();
+    expect(document.querySelector('.bds-sheet')).toBeNull();
   });
 
   it('closes when the backdrop is tapped', () => {
     render(<UserPanel channel={makeChannel({ members: [makeMember({ nick: 'bob' })] })} />);
     fireEvent.click(document.querySelector('.user-panel-item')!);
-    fireEvent.click(document.querySelector('.bottom-sheet-backdrop')!);
+    fireEvent.click(document.querySelector('.bds-sheet-backdrop')!);
     act(() => { vi.advanceTimersByTime(400); });
-    expect(document.querySelector('.bottom-sheet')).toBeNull();
+    expect(document.querySelector('.bds-sheet')).toBeNull();
   });
 });
