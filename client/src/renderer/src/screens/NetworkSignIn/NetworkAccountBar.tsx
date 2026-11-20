@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { UserRound } from 'lucide-preact';
+import { Button } from '@boson/shared';
 import { getNetworkAccounts, type NetworkAccounts, type NetworkAccountsSnapshot } from '../../modules/netauth/network-accounts';
 import './NetworkSignIn.css';
 
@@ -32,8 +33,11 @@ export function NetworkAccountBar({ host, serverName, onSignedIn, accounts = get
   }
   return (
     <div class="netauth-bar">
-      <button
-        type="button"
+      <Button
+        variant="secondary"
+        size="sm"
+        tone="accent"
+        fullWidth
         class="netauth-bar-signin"
         onClick={() => {
           void accounts.promptSignIn({ link, serverName, reason: 'manage', allowGuest: false }).then((r) => {
@@ -42,7 +46,7 @@ export function NetworkAccountBar({ host, serverName, onSignedIn, accounts = get
         }}
       >
         Sign in to {name}
-      </button>
+      </Button>
     </div>
   );
 }

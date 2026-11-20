@@ -365,9 +365,9 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
             {mode === 'login' ? 'Sign in' : 'Create account'}
           </Button>
           {mode === 'login' && (
-            <button type="button" class="login-guest-toggle" onClick={() => { setView('forgot'); setError(null); setEmail(login.includes('@') ? login : email); }}>
+            <Button variant="ghost" size="sm" class="login-forgot" onClick={() => { setView('forgot'); setError(null); setEmail(login.includes('@') ? login : email); }}>
               Forgot password?
-            </button>
+            </Button>
           )}
           {!canSignUp && cfg && <p class="netauth-hint">{name} isn't taking new accounts right now.</p>}
         </div>

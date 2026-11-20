@@ -164,7 +164,7 @@ function NetworkStep({ accounts, outcome, onChange, onGuest }: {
       <section class="otherserver-network" aria-label={`About ${name}`}>
         <div class="otherserver-network-head">
           <h2 class="otherserver-network-name">{name}</h2>
-          <button type="button" class="login-guest-toggle otherserver-change" onClick={onChange}>Change</button>
+          <Button variant="ghost" size="sm" class="otherserver-change" onClick={onChange}>Change</Button>
         </div>
         {name !== domain && <span class="otherserver-network-site">{domain}</span>}
         {cfg && (

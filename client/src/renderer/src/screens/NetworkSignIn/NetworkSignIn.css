@@ -16,7 +16,7 @@
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--surface);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
@@ -32,9 +32,9 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
   padding: var(--space-3) var(--space-4);
-  border-left: 3px solid var(--warn);
+  border: 1px solid color-mix(in oklab, var(--warn), transparent 70%);
   background: color-mix(in oklab, var(--warn), transparent 92%);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: var(--radius-md);
 }
 
 .netauth-lede {
@@ -73,7 +73,7 @@
   gap: var(--space-3);
   margin-top: var(--space-3);
 }
-.netauth-actions > .login-guest-toggle { align-self: center; }
+.netauth-actions > button.login-forgot { margin-top: 0; }
 .netauth-row { display: flex; justify-content: space-between; gap: var(--space-2); }
 
 .netauth-foot {
@@ -101,23 +101,6 @@
 }
 .netauth-bar-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .netauth-bar-user { color: var(--fg-2); }
-.netauth-bar-signin {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-  font: inherit;
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  width: 100%;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: border-color var(--motion-instant) var(--ease-standard), background var(--motion-instant) var(--ease-standard);
-}
-.netauth-bar-signin:hover { border-color: var(--accent); background: var(--accent-dim); }
-.netauth-bar-signin:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
 /* The network's branding (network themes): its login background, dimmed
    toward the dialog's colour, with its logo over it. */
@@ -131,7 +114,7 @@
   margin: 0 auto var(--space-4);
   box-sizing: border-box;
   border: 1px solid var(--border-soft);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   overflow: hidden;
 }

@@ -35,12 +35,11 @@
 .login-error {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--danger);
+  color: var(--danger-fg);
   padding: var(--space-3) var(--space-4);
   background: color-mix(in oklab, var(--danger), transparent 92%);
   border: 1px solid color-mix(in oklab, var(--danger), transparent 80%);
-  border-left: 3px solid var(--danger);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: var(--radius-md);
   margin: var(--space-4) 0;
 }
 
@@ -59,20 +58,7 @@
   gap: var(--space-3);
 }
 
-.login-guest-toggle {
-  background: transparent;
-  border: none;
-  color: var(--fg-3);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  padding: var(--space-2);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  transition: color var(--motion-fast) var(--ease-standard);
-}
-
-.login-guest-toggle:hover { color: var(--fg); }
+.login-guest-toggle { align-self: center; }
 
 .login-guest-form {
   display: flex;
@@ -136,14 +122,15 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
   padding: var(--space-3) var(--space-4);
-  border-left: 3px solid var(--accent);
+  border: 1px solid color-mix(in oklab, var(--accent), transparent 70%);
   background: color-mix(in oklab, var(--accent), transparent 92%);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border-radius: var(--radius-md);
   margin: var(--space-4) 0;
 }
 
-.login-forgot {
-  display: block;
+button.login-forgot {
+  display: flex;
+  width: fit-content;
   margin: var(--space-3) auto 0;
 }
 
@@ -180,8 +167,8 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   color: var(--fg-2);
@@ -212,7 +199,7 @@
    realm line. */
 .login-server {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
@@ -234,10 +221,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.login-server-switch {
-  flex-shrink: 0;
-  padding: 0;
-}
+.login-server-switch { flex-shrink: 0; }
 
 /* "Continue to <network> as <user>": the last server used, still signed in. */
 .login-resume {
@@ -247,7 +231,6 @@
   gap: var(--space-1);
   margin-bottom: var(--space-6);
 }
-.login-resume-forget { font-size: var(--text-xs); padding: var(--space-1); }
 
 /* ---------- "Use another server" step ---------- */
 
@@ -269,7 +252,7 @@
 }
 .otherserver-network-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
 }
@@ -280,7 +263,7 @@
   color: var(--fg);
   overflow-wrap: anywhere;
 }
-.otherserver-change { padding: 0; flex-shrink: 0; }
+.otherserver-change { flex-shrink: 0; }
 .otherserver-network-site {
   font-family: var(--font-mono);
   font-size: var(--text-sm);

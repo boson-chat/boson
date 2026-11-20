@@ -259,13 +259,14 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
         <span>server</span>
         <span class="login-server-host">{other ? (otherAddress ?? '…') : 'boson.chat'}</span>
       </span>
-      <button
-        type="button"
-        class="login-guest-toggle login-server-switch"
+      <Button
+        variant="ghost"
+        size="sm"
+        class="login-server-switch"
         onClick={() => { setOther(!other); setOtherAddress(null); setOtherHost(null); }}
       >
         {other ? 'Back to boson.chat' : 'Use another server'}
-      </button>
+      </Button>
     </div>
   ) : null;
 
@@ -304,9 +305,9 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
             >
               Continue to {resume.last.name} as {resume.user}
             </Button>
-            <button type="button" class="login-guest-toggle login-resume-forget" onClick={resume.forget}>
+            <Button variant="ghost" size="sm" class="login-resume-forget" onClick={resume.forget}>
               Not you? Forget {resume.last.name}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -467,9 +468,9 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
             </div>
 
             {mode === 'login' && (
-              <button type="button" class="login-guest-toggle login-forgot" onClick={() => bloc.openForgot()}>
+              <Button variant="ghost" size="sm" class="login-forgot" onClick={() => bloc.openForgot()}>
                 Forgot password?
-              </button>
+              </Button>
             )}
 
             {ssoProviders.length > 0 && (
@@ -510,13 +511,13 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
 
         <div class="login-guest">
           {!guestPrompt ? (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               class="login-guest-toggle"
               onClick={() => setGuestPrompt(true)}
             >
               Continue without an account
-            </button>
+            </Button>
           ) : null}
           {!guestPrompt && !mainGuestOk ? (
             <p class="login-guest-note">boson.chat requires an account to chat. Without one you can still use other networks.</p>
