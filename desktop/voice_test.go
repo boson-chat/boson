@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -601,5 +602,40 @@ func TestClassifyVoiceError(t *testing.T) {
 		if kind, _ := classifyVoiceError(errors.New(msg), strings.HasPrefix(msg, "dial")); kind != want {
 			t.Errorf("%q → %q, want %q", msg, kind, want)
 		}
+	}
+}
+
+// A phone's screen stays on while in a call (screenAwake), and is let go
+// when the call ends — however it ends.
+func TestVoiceKeepsScreenAwake(t *testing.T) {
+	h := newVoiceHarness(t)
+	var mu sync.Mutex
+	var got []bool
+	h.svc.screenAwake = func(on bool) { mu.Lock(); got = append(got, on); mu.Unlock() }
+	calls := func() []bool { mu.Lock(); defer mu.Unlock(); return slices.Clone(got) }
+	go h.svc.stateLoop() // notices drops
+
+	h.svc.Join(VoiceJoinRequest{Host: "irc.boson.chat", Room: "general", Token: "tok"})
+	if c := calls(); !slices.Equal(c, []bool{true}) {
+		t.Fatalf("joined: %v", c)
+	}
+	h.svc.Leave()
+	if c := calls(); !slices.Equal(c, []bool{true, false}) {
+		t.Fatalf("left: %v", c)
+	}
+	// Dropped by the server.
+	h.svc.Join(VoiceJoinRequest{Host: "irc.boson.chat", Room: "general", Token: "tok"})
+	_ = h.conns[len(h.conns)-1].Close()
+	waitUntil(t, "screen let go after a drop", func() bool { c := calls(); return len(c) == 4 && !c[3] })
+	// A failed join never keeps it on.
+	h.svc.Join(VoiceJoinRequest{Host: "irc.evil.org", Room: "general", Token: "tok"})
+	if c := calls(); len(c) != 4 {
+		t.Fatalf("failed join: %v", c)
+	}
+	// Shutting down mid-call lets it go.
+	h.svc.Join(VoiceJoinRequest{Host: "irc.boson.chat", Room: "general", Token: "tok"})
+	_ = h.svc.ServiceShutdown()
+	if c := calls(); !slices.Equal(c[4:], []bool{true, false}) {
+		t.Fatalf("shutdown: %v", c)
 	}
 }

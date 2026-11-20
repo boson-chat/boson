@@ -45,6 +45,9 @@ type VoiceService struct {
 	// calls: what the OS hears about a call (Android: the foreground
 	// service and its "In voice" notification); nil on desktop and iOS.
 	calls callNotifier
+	// screenAwake keeps a phone's screen from dimming and locking while
+	// in a call (true) and lets it again after (false); nil on desktop.
+	screenAwake func(on bool)
 	// video: the call's video (VideoService), told when a call starts and
 	// ends; nil without it.
 	video videoHooks
@@ -295,13 +298,14 @@ func NewVoiceService(dataDir, authBase string, dev bool) *VoiceService {
 		dial: func(ctx context.Context, cfg client.Config) (voiceConn, error) {
 			return client.Dial(ctx, cfg)
 		},
-		micAuth: micPermission,
-		calls:   newCallNotifier(),
-		status:  "idle",
-		vadDB:   defaultVADDB,
-		volumes: map[string]int{},
-		speaker: true,
-		stop:    make(chan struct{}),
+		micAuth:     micPermission,
+		calls:       newCallNotifier(),
+		screenAwake: newScreenAwake(),
+		status:      "idle",
+		vadDB:       defaultVADDB,
+		volumes:     map[string]int{},
+		speaker:     true,
+		stop:        make(chan struct{}),
 	}
 }
 
@@ -735,7 +739,11 @@ func (s *VoiceService) syncCall() {
 	s.inCall = on
 	room, host := s.roomName, s.host
 	n := s.calls
+	awake := s.screenAwake
 	s.mu.Unlock()
+	if changed && awake != nil {
+		awake(on)
+	}
 	if !changed || n == nil {
 		return
 	}
