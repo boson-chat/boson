@@ -17,7 +17,7 @@ import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
 import { useNarrow } from '../../shared/narrow';
 import { getVoiceController } from '../../modules/voice';
-import { AtomLoader, Badge, BarLoader, Button, Field, Input, Modal, Toggle, WarningBanner } from '@boson/shared';
+import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
 import { HostServerModal } from './HostServerModal';
@@ -77,6 +77,8 @@ function languageLabel(code: string): string {
 }
 
 // Language chips: from the directories' facets when there are any.
+const VIEW_TABS = [{ id: 'directory', label: 'Directory' }, { id: 'bouncer', label: 'Bouncer' }];
+
 export function languageChips(facets: Facets | null, selected: string): Array<{ id: string; label: string }> {
   if (!facets || facets.languages.length === 0) return LANGUAGE_FILTERS;
   const ids = facets.languages.slice(0, MAX_LANGUAGE_CHIPS).map((l) => l.value);
@@ -502,21 +504,13 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
         <WarningBanner tone="danger" title="Couldn't load directory">{error}</WarningBanner>
       )}
 
-      <div class="directory-viewtabs" role="tablist" aria-label="Directory view">
-        <button
-          type="button" role="tab" aria-selected={view === 'directory'}
-          class={`directory-viewtab ${view === 'directory' ? 'directory-viewtab-active' : ''}`}
-          onClick={() => setView('directory')}
-        >
-          Directory
-        </button>
-        <button
-          type="button" role="tab" aria-selected={view === 'bouncer'}
-          class={`directory-viewtab ${view === 'bouncer' ? 'directory-viewtab-active' : ''}`}
-          onClick={() => setView('bouncer')}
-        >
-          Bouncer
-        </button>
+      <div class="directory-viewtabs">
+        <Tabs
+          label="Directory view"
+          tabs={VIEW_TABS}
+          active={view}
+          onChange={(id) => setView(id as 'directory' | 'bouncer')}
+        />
       </div>
 
       {view === 'bouncer' && (
@@ -553,9 +547,9 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
       </div>
 
       <div class="directory-filters">
-        <input
+        <Input
           type="text"
-          class="directory-search"
+          inputSize="sm"
           placeholder="Search servers…"
           value={query}
           onInput={(e) => bloc.setQuery((e.target as HTMLInputElement).value)}
@@ -564,16 +558,17 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
 
         <div class="directory-lang-chips" role="tablist" aria-label="Filter by language">
           {languageChips(facets, language).map((f) => (
-            <button
+            <Button
               key={f.id}
-              type="button"
+              variant="secondary"
+              size="sm"
+              tone={language === f.id ? 'accent' : undefined}
               role="tab"
               aria-selected={language === f.id}
-              class={`filter-chip ${language === f.id ? 'filter-chip-active' : ''}`}
               onClick={() => bloc.setLanguage(f.id)}
             >
               {f.label}
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -605,14 +600,16 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
 
         <Toggle checked={showNsfw} onChange={(v) => bloc.setShowNsfw(v)} label="Show NSFW" />
 
-        <button
-          type="button"
-          class={`directory-advanced-toggle ${advanced ? 'directory-advanced-toggle-active' : ''}`}
+        <Button
+          variant="ghost"
+          size="sm"
+          pressed={advanced}
+          class="directory-advanced-toggle"
           onClick={() => setAdvanced((v) => !v)}
           title="Show advanced controls (add a server manually)"
         >
           Advanced
-        </button>
+        </Button>
       </div>
 
       {advanced && (
@@ -620,7 +617,7 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           <Button variant="secondary" onClick={() => setAddOpen(true)}>
             + Add server manually
           </Button>
-          <span class="directory-list-tag" style="text-transform: none;">
+          <span class="directory-hint">
             Local entries are stored on this device only — never published to the directory.
           </span>
         </div>
@@ -676,13 +673,13 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           <span>Loading directory…</span>
         </div>
       ) : filteredServers.length === 0 ? (
-        <div class="directory-empty">
+        <EmptyState class="directory-empty">
           {/* The directories filter by language/topic themselves, so an empty
               page with a chip on means the filters, not the search. */}
           {(servers && servers.length > 0) || language !== 'all' || tag
             ? 'No servers match these filters.'
             : 'No servers found.'}
-        </div>
+        </EmptyState>
       ) : (
         <div class="directory-grid" role="list">
           {filteredServers.map((s) => {
@@ -870,9 +867,9 @@ export function BouncerNetworksPanel({ bloc, connections }: {
       )}
 
       {showSearch && (
-        <input
+        <Input
           type="search"
-          class="directory-search directory-bouncer-search"
+          inputSize="sm"
           placeholder="Search networks…"
           value={search}
           onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
@@ -885,11 +882,11 @@ export function BouncerNetworksPanel({ bloc, connections }: {
 
       {discovered && visibleDiscovered && (
         discovered.length === 0 ? (
-          <div class="directory-empty">No networks found on your bouncer.</div>
+          <EmptyState class="directory-empty">No networks found on your bouncer.</EmptyState>
         ) : (
           <div class="directory-bouncer-discovered">
             <div class="directory-bouncer-discovered-head">
-              <span class="directory-list-tag" style="text-transform: none;">
+              <span class="directory-hint">
                 {needle
                   ? `Found on your bouncer: ${visibleDiscovered.length} of ${discovered.length}`
                   : 'Found on your bouncer:'}
@@ -907,20 +904,23 @@ export function BouncerNetworksPanel({ bloc, connections }: {
               )}
             </div>
             {visibleDiscovered.length === 0 && (
-              <div class="directory-empty">No networks match “{search.trim()}”.</div>
+              <EmptyState class="directory-empty">No networks match “{search.trim()}”.</EmptyState>
             )}
             <div class="directory-bouncer-list" role="list">
               {visibleDiscovered.map((n) => (
-                <div key={n} class="directory-bouncer-row" role="listitem">
-                  <div class="directory-bouncer-name">{n}</div>
-                  {haveNetwork(n) ? (
+                <ListRow
+                  key={n}
+                  class="directory-bouncer-row"
+                  rowProps={{ role: 'listitem' }}
+                  title={n}
+                  trailing={haveNetwork(n) ? (
                     <Badge tone="info">Added</Badge>
                   ) : (
-                    <Button variant="primary" onClick={() => bloc.addBouncerNetwork({ name: n, network: n })}>
+                    <Button variant="primary" size="sm" onClick={() => bloc.addBouncerNetwork({ name: n, network: n })}>
                       Add
                     </Button>
                   )}
-                </div>
+                />
               ))}
             </div>
           </div>
@@ -928,30 +928,31 @@ export function BouncerNetworksPanel({ bloc, connections }: {
       )}
 
       {networks.length === 0 ? (
-        <div class="directory-empty">No bouncer networks yet — add one above.</div>
+        <EmptyState class="directory-empty">No bouncer networks yet — add one above.</EmptyState>
       ) : visibleNetworks.length === 0 ? (
-        <div class="directory-empty">None of your networks match “{search.trim()}”.</div>
+        <EmptyState class="directory-empty">None of your networks match “{search.trim()}”.</EmptyState>
       ) : (
         <div class="directory-bouncer-list" role="list">
           {visibleNetworks.map((s) => {
             const conn = connById.get(s.id);
             return (
-              <div key={s.id} class="directory-bouncer-row" role="listitem">
-                <div class="directory-bouncer-meta">
-                  <div class="directory-bouncer-name">{s.name}</div>
-                  <div class="directory-bouncer-net">
-                    network: {s.bouncer?.network ? s.bouncer.network : '(default)'}
-                  </div>
-                </div>
-                <div class="directory-bouncer-actions">
-                  <BouncerNetworkStatus
-                    conn={conn}
-                    onConnect={() => bloc.connectBouncerNetwork(s.id)}
-                    onConnectUpstream={() => bloc.bouncerConnect(s.id)}
-                  />
-                  <Button variant="ghost" onClick={() => bloc.removeBouncerNetwork(s.id)}>Remove</Button>
-                </div>
-              </div>
+              <ListRow
+                key={s.id}
+                class="directory-bouncer-row"
+                rowProps={{ role: 'listitem' }}
+                title={s.name}
+                subtitle={`network: ${s.bouncer?.network ? s.bouncer.network : '(default)'}`}
+                trailing={(
+                  <>
+                    <BouncerNetworkStatus
+                      conn={conn}
+                      onConnect={() => bloc.connectBouncerNetwork(s.id)}
+                      onConnectUpstream={() => bloc.bouncerConnect(s.id)}
+                    />
+                    <Button variant="ghost" size="sm" onClick={() => bloc.removeBouncerNetwork(s.id)}>Remove</Button>
+                  </>
+                )}
+              />
             );
           })}
         </div>
@@ -992,21 +993,22 @@ function ServerCard({
   const userCount = typeof server.user_count === 'number' ? server.user_count : null;
   const initials = computeInitials(server.name || server.hostname);
   const hue = hashHue(server.name || server.hostname);
-  const avatarStyle = `background: hsl(${hue} 70% 50%); color: #070709;`;
 
   return (
     <article class="directory-card" role="listitem">
       <header class="directory-card-head">
-        <div class="directory-card-avatar" style={server.icon_url ? undefined : avatarStyle} aria-hidden="true">
-          {server.icon_url
-            ? <img class="directory-card-avatar-img" src={server.icon_url} alt="" loading="lazy" />
-            : initials}
-        </div>
+        <Avatar
+          size={44}
+          class="directory-card-avatar"
+          initial={initials}
+          color={`hsl(${hue} 70% 50%)`}
+          image={server.icon_url ? <img src={server.icon_url} alt="" loading="lazy" /> : undefined}
+        />
         <div class="directory-card-titles">
           <h3 class="directory-card-name">
             {server.name}
             <span class={`directory-card-status ${isOffline ? 'directory-card-status-offline' : ''}`}>
-              <span class="directory-card-status-dot" aria-hidden="true" />
+              <StatusDot status={isOffline ? 'offline' : 'online'} />
               {isOffline ? 'OFFLINE' : 'ONLINE'}
             </span>
           </h3>
@@ -1020,20 +1022,21 @@ function ServerCard({
         )}
         {(server.tags.length > 0 || isLocal || verified || (showSource && server.source)) && (
           <div class="directory-card-tags">
-            {isLocal && <span class="directory-card-tag directory-card-tag-local">LOCAL</span>}
-            {verified && <span class="directory-card-tag directory-card-tag-verified">VERIFIED</span>}
+            {isLocal && <Badge tone="warn" class="directory-card-tag directory-card-tag-local">LOCAL</Badge>}
+            {verified && <Badge tone="verified" class="directory-card-tag directory-card-tag-verified">VERIFIED</Badge>}
             {showSource && server.source && (
-              <span
+              <Badge
+                tone="neutral"
                 class="directory-card-tag directory-card-tag-source"
                 title={server.also_listed_on?.length
                   ? `Listed on ${server.source.name}, and on ${server.also_listed_on.join(', ')}`
                   : `Listed on ${server.source.name}`}
               >
                 {server.source.name}{server.also_listed_on?.length ? ` +${server.also_listed_on.length}` : ''}
-              </span>
+              </Badge>
             )}
             {server.tags.map((t) => (
-              <span key={t} class="directory-card-tag">{t.toUpperCase()}</span>
+              <Badge key={t} tone="neutral" class="directory-card-tag">{t.toUpperCase()}</Badge>
             ))}
           </div>
         )}
@@ -1045,27 +1048,29 @@ function ServerCard({
             </span>
           )}
           {isCurrent && (
-            <span class="directory-current-badge" title="You're connected to this server">
+            <Badge tone="success" class="directory-current-badge" title="You're connected to this server">
               CURRENTLY CONNECTED
-            </span>
+            </Badge>
           )}
         </div>
       </div>
 
       <footer class="directory-card-footer">
         {showRemove && onRemove && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
+            tone="danger"
             class="directory-local-remove"
             onClick={onRemove}
             title="Remove this local entry"
           >
             Remove
-          </button>
+          </Button>
         )}
         {engine && (
           connected ? (
-            <span class="directory-list-joined">Joined</span>
+            <Badge tone="neutral" class="directory-list-joined">Joined</Badge>
           ) : (
             <Button
               variant="primary"
@@ -1360,6 +1365,10 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
   );
 }
 
+const ENGINE_DOT: Record<EngineState, 'offline' | 'away' | 'online' | 'error'> = {
+  idle: 'offline', connecting: 'away', connected: 'online', disconnected: 'error',
+};
+
 interface EnginePillProps {
   state: EngineState;
   connectionsCount: number;
@@ -1377,16 +1386,17 @@ function EnginePill({ state, connectionsCount, connectedCount, connected, onOpen
       ? `engine · ${state}`
       : `${connectionsCount} servers · ${connectedCount} connected`;
   return (
-    <button
-      type="button"
+    <Button
+      variant="secondary"
+      size="sm"
       class={`engine-pill engine-pill-${state}`}
       onClick={onOpenChat}
       disabled={!connected}
       title={connected ? 'Open chat' : `Engine: ${state}`}
+      icon={<StatusDot status={ENGINE_DOT[state]} pulse={state === 'connecting'} />}
     >
-      <span class="engine-pill-dot" aria-hidden="true" />
-      <span class="engine-pill-label">{label}</span>
-    </button>
+      {label}
+    </Button>
   );
 }
 

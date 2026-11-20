@@ -15,6 +15,11 @@ describe('Tabs', () => {
     expect(screen.getByRole('tab', { name: 'Signup' }).getAttribute('aria-selected')).toBe('false');
   });
 
+  it('names the tab list when given a label', () => {
+    render(<Tabs tabs={tabs} active="login" onChange={() => {}} label="Sign in or up" />);
+    expect(screen.getByRole('tablist', { name: 'Sign in or up' })).toBeTruthy();
+  });
+
   it('fires onChange with the clicked tab id', async () => {
     const onChange = vi.fn();
     render(<Tabs tabs={tabs} active="login" onChange={onChange} />);
