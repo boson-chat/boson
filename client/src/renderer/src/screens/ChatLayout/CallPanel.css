@@ -13,23 +13,9 @@
   height: 64px;
   flex: none;
   display: flex;
-  align-items: flex-end;
-  padding: 0 8px;
-  border-bottom: 1px solid var(--border);
+  flex-direction: column;
+  justify-content: flex-end;
 }
-.callpanel-tab {
-  flex: 1;
-  height: 44px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--fg-3);
-  font: 500 var(--text-xs) var(--font-mono);
-  letter-spacing: 0.1em;
-  cursor: pointer;
-}
-.callpanel-tab[aria-selected='true'] { color: var(--fg); border-bottom-color: var(--accent); }
-.callpanel-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .callpanel-people { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 0; }
 .callpanel-section {
   padding: 6px 16px 8px;
@@ -53,7 +39,7 @@
 .callpanel-person[data-speaking] .callpanel-face { box-shadow: 0 0 0 2px var(--pane-members-bg, var(--surface)), 0 0 0 4px var(--success); }
 .callpanel-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .callpanel-cam { color: var(--fg-2); flex-shrink: 0; }
-.callpanel-muted { color: var(--danger, #f87171); flex-shrink: 0; }
+.callpanel-muted { color: var(--danger-fg); flex-shrink: 0; }
 
 .callpanel-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .callpanel-messages {
@@ -68,21 +54,10 @@
   line-height: 1.5;
 }
 .callpanel-messages > :first-child { margin-top: auto; }
-.callpanel-empty { color: var(--fg-3); font: 12px var(--font-mono); }
+.callpanel-empty { margin-top: auto; }
 .callpanel-from { font: 700 12px var(--font-mono); }
 .callpanel-text { color: var(--fg); overflow-wrap: anywhere; user-select: text; }
 .callpanel-compose { padding: 12px; }
-.callpanel-input {
-  width: 100%;
-  height: 38px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font: 13px var(--font-body, inherit);
-}
-.callpanel-input:focus { outline: none; border-color: var(--accent); }
 .callpanel-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* The in-call strip under a text channel's header (InCallStrip.tsx). */
@@ -98,7 +73,6 @@
   font: 12px var(--font-mono);
   min-width: 0;
 }
-.incall-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
 .incall-where { color: var(--success); font-weight: 700; white-space: nowrap; }
 .incall-meta { color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .incall-faces { display: flex; align-items: center; gap: 4px; margin-left: 4px; flex-shrink: 0; }
@@ -106,16 +80,3 @@
 .incall-face[data-speaking] { box-shadow: 0 0 0 2px var(--success); }
 .incall-more { color: var(--fg-2); }
 .incall-spacer { flex: 1; }
-.incall-open {
-  flex-shrink: 0;
-  height: 30px;
-  padding: 0 14px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: var(--accent);
-  color: var(--bg);
-  font: 700 12px var(--font-mono);
-  cursor: pointer;
-}
-.incall-open:hover { filter: brightness(1.08); }
-.incall-open:focus-visible { outline: none; box-shadow: var(--focus-ring); }

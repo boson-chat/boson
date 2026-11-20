@@ -21,20 +21,8 @@
   font-size: var(--text-xs);
   color: var(--fg-3);
 }
-.voice-note-error { color: var(--warn, #e0a32a); }
+.voice-note-error { color: var(--warn); }
 .voice-note-error > span { flex: 1; min-width: 0; }
-.voice-note-retry {
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--fg-2);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  padding: 1px var(--space-2);
-  cursor: pointer;
-}
-.voice-note-retry:hover { color: var(--accent); border-color: var(--accent); }
-
 .voice-participants {
   list-style: none;
   margin: 0;
@@ -65,7 +53,7 @@
   white-space: nowrap;
 }
 
-.voice-participant-flag { flex-shrink: 0; color: var(--danger, #e0533a); }
+.voice-participant-flag { flex-shrink: 0; color: var(--danger-fg); }
 
 /* A room's row and its face stack: before you join, who's in shows as up
    to three faces (speakers first, with a green ring) and "+N"; the stack
@@ -83,7 +71,7 @@
   margin-right: var(--space-2);
   padding: 0 4px 0 8px;
   border: 0;
-  border-radius: 13px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--fg-2);
   font: 600 var(--text-xs) var(--font-mono);
@@ -107,25 +95,15 @@
 .voice-live {
   flex-shrink: 0;
   padding: 1px 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--accent);
-  color: var(--bg, #070709);
+  color: var(--accent-on);
   font: 700 8px var(--font-mono);
   letter-spacing: 0.02em;
 }
 .voice-participant-cam { flex-shrink: 0; color: var(--fg-2); }
 .voice-see-all-row { list-style: none; }
-.voice-see-all {
-  margin-left: calc(var(--space-4) + 28px);
-  height: 26px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--accent);
-  font: 500 var(--text-xs) var(--font-mono);
-  cursor: pointer;
-}
-.voice-see-all:hover { text-decoration: underline; }
+.voice-see-all { margin-left: calc(var(--space-4) + 28px - var(--space-3)); }
 
 /* Speaking ring: the avatar's outline lights up while they talk. */
 .voice-avatar {
@@ -148,7 +126,7 @@
 }
 .voice-user-menu-value { color: var(--fg); }
 .voice-user-menu .voice-range { margin: 0 var(--space-3); width: calc(100% - 2 * var(--space-3)); }
-.voice-user-menu .nick-context-menu-item:disabled { opacity: 0.5; cursor: default; }
+.voice-user-menu-reset { justify-content: flex-start; }
 
 .voice-range { accent-color: var(--accent); }
 
@@ -182,9 +160,9 @@
   color: var(--success);
   font-weight: 700;
 }
-.voice-bar-quality[data-quality='ok'] { color: var(--warn, #e0a32a); }
-.voice-bar-quality[data-quality='poor'] { color: var(--danger, #e0533a); }
-.voice-bar-quality[data-quality='connecting'] { color: var(--warn, #e0a32a); }
+.voice-bar-quality[data-quality='ok'] { color: var(--warn); }
+.voice-bar-quality[data-quality='poor'] { color: var(--danger-fg); }
+.voice-bar-quality[data-quality='connecting'] { color: var(--warn); }
 .voice-bar-quality[data-quality='unknown'] { color: var(--success); }
 
 .voice-bar-status { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -197,35 +175,12 @@
 }
 
 
-.voice-bar-btn {
-  background: transparent;
-  border: 1px solid transparent;
-  color: var(--fg-2);
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all var(--motion-fast) var(--ease-standard);
-}
-.voice-bar-btn:hover { background: var(--surface-hover); color: var(--fg); border-color: var(--border); }
-.voice-bar-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.voice-bar-btn[data-on] { color: var(--danger, #e0533a); }
-.voice-bar-leave:hover { color: var(--danger, #e0533a); }
-
-
 .voice-bar-actions { display: inline-flex; gap: var(--space-1); margin-left: auto; }
-.voice-bar-error .voice-bar-status { color: var(--danger, #e0533a); font-weight: 700; }
+.voice-bar-error .voice-bar-status { color: var(--danger-fg); font-weight: 700; }
 .voice-bar-error-text { color: var(--fg-2); line-height: var(--leading-tight); }
 
 /* ---- voice channel management ---- */
 
-/* Listen only (joined below the speak role). */
-.voice-bar-btn:disabled { cursor: default; opacity: 0.8; }
-.voice-bar-btn:disabled:hover { background: transparent; border-color: transparent; }
 .voice-bar-notice .voice-bar-status { color: var(--fg); font-weight: 700; }
 
 /* Voice channels hanging under their text channel: one step in, with a
@@ -251,17 +206,7 @@
 .voice-room-row[data-locked] .channel-name { opacity: 0.55; }
 .voice-room-row[aria-disabled='true'][data-locked] { opacity: 1; }
 
-.voice-room-badge {
-  flex-shrink: 0;
-  padding: 0 6px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 16px;
-  color: var(--fg-3);
-  white-space: nowrap;
-}
+.voice-room-badge { flex-shrink: 0; display: inline-flex; white-space: nowrap; }
 
 .voice-participant-listening {
   flex-shrink: 0;
@@ -269,32 +214,16 @@
   color: var(--fg-3);
 }
 
-/* Gear (rooms you manage) and the text channel's voice "+": show on hover
-   or keyboard focus, like the leave ×. */
+/* Gear (rooms you manage) and the text channel's voice "+" (shared ghost
+   Buttons): show on hover or keyboard focus, like the leave ×. */
 .voice-room-edit,
-.channel-voice-add {
-  background: transparent;
-  border: none;
-  color: var(--muted);
-  width: 20px;
-  height: 20px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  flex-shrink: 0;
-  opacity: 0;
-  cursor: pointer;
-  transition: opacity var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
-}
+.channel-voice-add { flex-shrink: 0; margin: -4px 0; opacity: 0; }
 .channel-item:hover .voice-room-edit,
 .channel-item:hover .channel-voice-add,
 .channel-item:focus-within .voice-room-edit,
 .channel-item:focus-within .channel-voice-add,
 .voice-room-edit:focus-visible,
 .channel-voice-add:focus-visible { opacity: 1; }
-.voice-room-edit:hover,
-.channel-voice-add:hover { color: var(--accent); background: var(--surface-hover); }
 @media (hover: none) {
   .voice-room-edit, .channel-voice-add { opacity: 1; }
 }
@@ -307,14 +236,11 @@
   color: var(--fg-3);
 }
 
-.nick-context-menu-divider { height: 1px; margin: var(--space-1) 0; background: var(--border-soft, var(--border)); }
-.voice-room-menu .nick-context-menu-item:disabled { opacity: 0.45; cursor: default; }
-.voice-room-menu .nick-context-menu-item:disabled:hover { background: transparent; }
 .voice-room-menu-error {
   padding: var(--space-1) var(--space-3);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--danger, #e0533a);
+  color: var(--danger-fg);
 }
 
 /* Create / edit dialog. */
@@ -350,54 +276,36 @@
 }
 .voice-dialog-actions { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
 .voice-dialog-spacer { flex: 1; }
-.voice-dialog-actions .bds-btn[data-tone='danger'] { background: var(--danger); border-color: var(--danger); color: #fff; }
-.voice-dialog-actions .bds-btn[data-tone='danger-ghost'] { color: var(--danger); }
-.voice-dialog-actions:has(.bds-btn[data-tone='danger']) { justify-content: flex-end; }
+.voice-dialog-actions:has(.bds-btn-danger) { justify-content: flex-end; }
 
 /* ---- the voice panel (the sidebar's foot, while in a call) ----
    "Connected · 38 ms / General / Server" opens the call; leave; then mic,
-   deafen, camera, screen and settings. Red tint: muted, deafened, camera
-   off. Amber: you're sharing your screen. */
+   deafen, camera, screen and settings (shared Buttons; pressed = on). */
 .voice-panel { gap: var(--space-2); padding: var(--space-3); }
 .voice-panel .voice-bar-head { gap: var(--space-2); }
 .voice-panel .voice-bar-quality { flex: 0 0 auto; }
+/* "Connected · 38 ms" over "General / Server": a ghost Button, two lines. */
 .voice-panel-where {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
+  justify-content: flex-start;
+  padding: 0 var(--space-1);
   text-align: left;
-  cursor: pointer;
+  font-size: var(--text-xs);
 }
-.voice-panel-where:disabled { cursor: default; }
-.voice-panel-where:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.voice-panel-where .voice-bar-where { max-width: 100%; }
+.voice-panel-where .voice-panel-status,
+.voice-panel-where .voice-bar-where { display: block; max-width: 100%; }
+.voice-panel-where .voice-bar-where { font-weight: 400; margin-top: 1px; }
 .voice-panel-status {
   color: var(--success);
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
 }
-.voice-panel-status[data-quality='ok'] { color: var(--warn, #e0a32a); }
-.voice-panel-status[data-quality='poor'] { color: var(--danger, #e0533a); }
-.voice-panel-status[data-quality='connecting'] { color: var(--warn, #e0a32a); }
-.voice-panel .voice-panel-leave {
-  width: 30px;
-  height: 30px;
-  background: var(--danger, #ef4444);
-  border-color: var(--danger, #ef4444);
-  color: #fff;
-}
-.voice-panel .voice-panel-leave:hover { filter: brightness(1.1); color: #fff; background: var(--danger, #ef4444); }
+.voice-panel-status[data-quality='ok'] { color: var(--warn); }
+.voice-panel-status[data-quality='poor'] { color: var(--danger-fg); }
+.voice-panel-status[data-quality='connecting'] { color: var(--warn); }
 .voice-panel-controls {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(34px, 1fr));
@@ -406,21 +314,6 @@
 /* The video buttons' wrapper joins the grid. */
 .voice-panel-controls .call-video-buttons { display: contents; }
 .voice-panel-controls .call-video-error { grid-column: 1 / -1; margin: 0; }
-.voice-panel-controls .voice-bar-btn {
-  width: 100%;
-  height: 34px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--fg);
-}
-.voice-panel-controls .voice-bar-btn:hover { background: var(--surface-hover); }
-.voice-panel-controls .voice-bar-btn[data-off] {
-  background: color-mix(in oklab, var(--danger, #ef4444), transparent 86%);
-  border-color: color-mix(in oklab, var(--danger, #ef4444), transparent 50%);
-  color: var(--danger, #f87171);
-}
-.voice-panel-controls .call-cam-btn[data-live] { color: var(--fg); }
-.voice-panel-controls .call-screen-btn[data-live] { background: var(--accent); border-color: var(--accent); color: var(--bg, #070709); }
 
 /* "VOICE  guest": you're in voice here as a guest. */
 .voice-section-guest {

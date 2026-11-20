@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { MicOff, Video } from 'lucide-preact';
+import { EmptyState, Input, Tabs } from '@boson/shared';
 import type { ChatMessage } from '../../modules/chat/chat.types';
 import { nickColor } from '../../modules/chat/nick-color';
 import { useVideo } from '../../modules/video';
@@ -48,13 +49,12 @@ export function CallPanel({ chat, avatarFor, width }: {
   );
   return (
     <aside class="callpanel" aria-label="Call" style={width ? { width: `${width}px` } : undefined}>
-      <div role="tablist" class="callpanel-tabs">
-        <button type="button" role="tab" class="callpanel-tab" aria-selected={!showChat} onClick={() => setTab('people')}>
-          IN CALL — {people.length}
-        </button>
-        {chat && (
-          <button type="button" role="tab" class="callpanel-tab" aria-selected={showChat} onClick={() => setTab('chat')}>CHAT</button>
-        )}
+      <div class="callpanel-tabs">
+        <Tabs
+          tabs={chat ? [{ id: 'people', label: `IN CALL — ${people.length}` }, { id: 'chat', label: 'CHAT' }] : [{ id: 'people', label: `IN CALL — ${people.length}` }]}
+          active={showChat ? 'chat' : 'people'}
+          onChange={(id) => setTab(id === 'chat' ? 'chat' : 'people')}
+        />
       </div>
       {!showChat ? (
         <div class="callpanel-people" role="tabpanel">
@@ -85,7 +85,7 @@ function CallChatTab({ chat }: { chat: CallChat }) {
   return (
     <div class="callpanel-chat" role="tabpanel">
       <div class="callpanel-messages" ref={list}>
-        {shown.length === 0 && <div class="callpanel-empty">No messages in {chat.channel} yet.</div>}
+        {shown.length === 0 && <EmptyState class="callpanel-empty">No messages in {chat.channel} yet.</EmptyState>}
         {shown.map((m) => (
           <div key={m.id} class="callpanel-msg">
             <span class="callpanel-from" style={{ color: nickColor(m.from) }}>{m.from}</span>
@@ -101,7 +101,7 @@ function CallChatTab({ chat }: { chat: CallChat }) {
         setText('');
       }}>
         <label class="callpanel-sr" for="callpanel-input">Message {chat.channel}</label>
-        <input id="callpanel-input" class="callpanel-input" placeholder={`Message ${chat.channel}`} value={text}
+        <Input id="callpanel-input" placeholder={`Message ${chat.channel}`} value={text}
           onInput={(e) => setText((e.target as HTMLInputElement).value)} />
       </form>
     </div>

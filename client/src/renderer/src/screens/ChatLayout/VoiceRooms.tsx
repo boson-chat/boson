@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { ChevronDown, HeadphoneOff, Lock, MicOff, Plus, Settings, Video, Volume2 } from 'lucide-preact';
+import { Badge, Button, Menu, MenuItem, MenuLabel, MenuSeparator } from '@boson/shared';
 import { useVideo } from '../../modules/video';
 import { useNarrow } from '../../shared/narrow';
 import {
@@ -10,7 +11,6 @@ import {
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { isGuestParticipant } from '../../modules/voice/guest-id';
 import { GuestBadge } from './GuestBadge';
-import './NickContextMenu.css';
 import './VoiceSection.css';
 
 // Voice channels in the channel list, Discord style: each IRC channel's
@@ -212,10 +212,11 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
               : <Volume2 size={14} aria-hidden="true" />}
         </span>
         <span class="channel-name">{room.name}</span>
-        {listenOnly && <span class="voice-room-badge" aria-hidden="true">listen only</span>}
+        {listenOnly && <span class="voice-room-badge" aria-hidden="true"><Badge tone="neutral">listen only</Badge></span>}
         {room.canManage && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             class="voice-room-edit"
             aria-label={`Edit voice channel ${room.name}`}
             title="Edit channel"
@@ -223,9 +224,8 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
               e.stopPropagation();
               setVoiceUi({ dialog: { kind: 'edit', host, roomId: room.id }, roomMenu: null });
             }}
-          >
-            <Settings size={13} aria-hidden="true" />
-          </button>
+            icon={<Settings aria-hidden="true" />}
+          />
         )}
       </div>
       {live.length > 0 && (
@@ -266,7 +266,7 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
           ))}
           {!all && hidden > 0 && (
             <li class="voice-see-all-row">
-              <button type="button" class="voice-see-all" onClick={seeAll}>+{hidden} more · see all</button>
+              <Button variant="ghost" size="sm" tone="accent" class="voice-see-all" onClick={seeAll}>+{hidden} more · see all</Button>
             </li>
           )}
         </ul>
@@ -342,8 +342,9 @@ export function ChannelVoiceAdd({ host, channel }: { host: string; channel: stri
   const { voice, key, server } = useVoiceServer(host);
   if (!voice || !server || server.discovery !== 'available' || !canCreateUnder(server.permissions, channel)) return null;
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       class="channel-voice-add"
       aria-label={`Create a voice channel in ${channel}`}
       title={`Create a voice channel in ${channel}`}
@@ -351,29 +352,12 @@ export function ChannelVoiceAdd({ host, channel }: { host: string; channel: stri
         e.stopPropagation();
         setVoiceUi({ dialog: { kind: 'create', host: key, parent: channel.toLowerCase() } });
       }}
-    >
-      <Plus size={13} aria-hidden="true" />
-    </button>
+      icon={<Plus aria-hidden="true" />}
+    />
   );
 }
 
 // ---- right-click menus ----
-
-function useDismiss(ref: { current: HTMLElement | null }, onClose: () => void): void {
-  useLayoutEffect(() => {
-    const onDown = (e: MouseEvent): void => {
-      if (ref.current && e.target instanceof Node && ref.current.contains(e.target)) return;
-      onClose();
-    };
-    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [onClose]);
-}
 
 // Right-click a voice channel you manage: edit, move, delete.
 export function VoiceRoomMenu({ voice, host, room, x, y, onClose }: {
@@ -387,7 +371,8 @@ export function VoiceRoomMenu({ voice, host, room, x, y, onClose }: {
   const ref = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  useDismiss(ref, onClose);
+  // The first item takes the focus, as a menu's should.
+  useLayoutEffect(() => { ref.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus(); }, []);
   const move = async (dir: -1 | 1): Promise<void> => {
     setBusy(true);
     setError(null);
@@ -406,14 +391,16 @@ export function VoiceRoomMenu({ voice, host, room, x, y, onClose }: {
     setVoiceUi({ roomMenu: null, dialog: { kind: 'edit', host, roomId: room.id, confirmDelete } });
   };
   return createPortal(
-    <div ref={ref} class="nick-context-menu voice-room-menu" role="menu" aria-label={`${room.name} options`} style={`top:${top}px;left:${left}px;width:${W}px`}>
-      <div class="nick-context-menu-title">{room.name}</div>
-      <button type="button" role="menuitem" class="nick-context-menu-item" onClick={() => edit(false)} autoFocus>Edit channel…</button>
-      <button type="button" role="menuitem" class="nick-context-menu-item" disabled={busy || !voice.canMove(host, room.id, -1)} onClick={() => { void move(-1); }}>Move up</button>
-      <button type="button" role="menuitem" class="nick-context-menu-item" disabled={busy || !voice.canMove(host, room.id, 1)} onClick={() => { void move(1); }}>Move down</button>
-      <div class="nick-context-menu-divider" role="separator" />
-      <button type="button" role="menuitem" class="nick-context-menu-item nick-context-menu-item-danger" onClick={() => edit(true)}>Delete channel</button>
-      {error && <div class="voice-room-menu-error" role="alert">{error}</div>}
+    <div ref={ref} class="voice-menu-anchor">
+      <Menu label={`${room.name} options`} x={left} y={top} style={`width:${W}px`} onClose={onClose}>
+        <MenuLabel>{room.name}</MenuLabel>
+        <MenuItem onClick={() => edit(false)}>Edit channel…</MenuItem>
+        <MenuItem disabled={busy || !voice.canMove(host, room.id, -1)} onClick={() => { void move(-1); }}>Move up</MenuItem>
+        <MenuItem disabled={busy || !voice.canMove(host, room.id, 1)} onClick={() => { void move(1); }}>Move down</MenuItem>
+        <MenuSeparator />
+        <MenuItem danger onClick={() => edit(true)}>Delete channel</MenuItem>
+        {error && <div class="voice-room-menu-error" role="alert">{error}</div>}
+      </Menu>
     </div>,
     document.body,
   );
@@ -429,8 +416,6 @@ export function VoiceUserMenu({ voice, participant, x, y, onClose }: {
   onClose: () => void;
 }) {
   const [volume, setVolume] = useState(() => voice.userVolume(participant.userId));
-  const ref = useRef<HTMLDivElement>(null);
-  useDismiss(ref, onClose);
   const set = (v: number): void => {
     setVolume(v);
     voice.setUserVolume(participant.userId, v);
@@ -439,8 +424,8 @@ export function VoiceUserMenu({ voice, participant, x, y, onClose }: {
   const left = Math.max(8, Math.min(x, window.innerWidth - W - 8));
   const top = Math.max(8, Math.min(y, window.innerHeight - 120));
   return createPortal(
-    <div ref={ref} class="nick-context-menu voice-user-menu" role="dialog" aria-label={`${participant.name}'s volume`} style={`top:${top}px;left:${left}px;width:${W}px`}>
-      <div class="nick-context-menu-title">{participant.name}</div>
+    <Menu role="dialog" class="voice-user-menu" label={`${participant.name}'s volume`} x={left} y={top} style={`width:${W}px`} onClose={onClose}>
+      <MenuLabel>{participant.name}</MenuLabel>
       <label class="voice-user-menu-row">
         <span class="voice-user-menu-label">User volume</span>
         <span class="voice-user-menu-value">{volume}%</span>
@@ -456,8 +441,8 @@ export function VoiceUserMenu({ voice, participant, x, y, onClose }: {
         onInput={(e) => set(Number((e.target as HTMLInputElement).value))}
         autoFocus
       />
-      <button type="button" class="nick-context-menu-item" disabled={volume === 100} onClick={() => set(100)}>Reset to 100%</button>
-    </div>,
+      <Button variant="ghost" size="sm" fullWidth class="voice-user-menu-reset" disabled={volume === 100} onClick={() => set(100)}>Reset to 100%</Button>
+    </Menu>,
     document.body,
   );
 }

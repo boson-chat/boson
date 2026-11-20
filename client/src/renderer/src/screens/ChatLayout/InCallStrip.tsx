@@ -1,3 +1,4 @@
+import { Button, StatusDot } from '@boson/shared';
 import { useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
@@ -21,7 +22,7 @@ export function InCallStrip({ avatarFor }: { avatarFor?: (nick: string) => strin
   const where = call.roomName || call.room;
   return (
     <div class="incall-strip" role="status" aria-label={`In call in ${where}`}>
-      <span class="incall-dot" aria-hidden="true" />
+      <StatusDot status="live" size={8} />
       <span class="incall-where">In {where}</span>
       <span class="incall-meta">
         {people.length} in call{sharer ? ` · ${sharer === 'you' ? "you're" : `${sharer} is`} sharing ${sharer === 'you' ? 'your' : 'their'} screen` : ''}
@@ -35,7 +36,7 @@ export function InCallStrip({ avatarFor }: { avatarFor?: (nick: string) => strin
         {people.length > FACES && <span class="incall-more">+{people.length - FACES}</span>}
       </span>
       <span class="incall-spacer" />
-      <button type="button" class="incall-open" onClick={openCall}>Open call</button>
+      <Button variant="primary" size="sm" onClick={openCall}>Open call</Button>
     </div>
   );
 }

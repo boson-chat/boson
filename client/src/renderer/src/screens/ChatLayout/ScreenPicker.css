@@ -1,4 +1,6 @@
-/* The screen share picker (ScreenPicker.tsx) and the sharing bar. */
+/* The screen share picker (ScreenPicker.tsx) and the sharing bar. Layout
+   only: buttons, tabs, the search box, "Optimize for" and the sound switch
+   are the shared components. */
 
 .picker-backdrop {
   position: fixed;
@@ -16,55 +18,20 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--surface-raised);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
+  box-shadow: var(--shadow-dialog);
 }
 .picker-head { display: flex; align-items: center; gap: 12px; padding: 18px 20px 0; }
 .picker-title { flex: 1; font: 700 17px var(--font-mono); color: var(--fg); }
-.picker-icon {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--fg-2);
-  cursor: pointer;
-}
-.picker-icon:hover { background: var(--surface-hover); color: var(--fg); }
 .picker-tabs-row { display: flex; align-items: flex-end; gap: 4px; padding: 6px 20px 0; border-bottom: 1px solid var(--border); }
-.picker-tabs { display: flex; }
-.picker-tab {
-  height: 38px;
-  padding: 0 14px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--fg-3);
-  font: 500 12px var(--font-mono);
-  letter-spacing: 0.08em;
-  cursor: pointer;
-}
-.picker-tab[aria-selected='true'] { color: var(--fg); border-bottom-color: var(--accent); }
+/* The tabs' own line sits on the row's. */
+.picker-tabs { display: flex; margin-bottom: -1px; }
 .picker-spacer { flex: 1; }
-.picker-search {
-  width: 220px;
-  height: 30px;
-  margin-bottom: 6px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font: 12px var(--font-mono);
-}
-.picker-search:focus { outline: none; border-color: var(--accent); }
+.picker-search { width: 220px; margin-bottom: 6px; }
 .picker-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; }
-.picker-empty { padding: 24px; text-align: center; font: 13px var(--font-mono); color: var(--fg-3); }
 .picker-grid { display: grid; gap: 10px; }
+/* A source: its live thumbnail and name; the chosen one in the accent. */
 .picker-src {
   display: flex;
   flex-direction: column;
@@ -72,14 +39,15 @@
   min-width: 0;
   padding: 8px;
   border: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--fg);
   text-align: left;
   cursor: pointer;
 }
 .picker-src:hover { background: var(--surface); }
-.picker-src[aria-selected='true'] { border-color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 92%); }
+.picker-src:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.picker-src[aria-selected='true'] { border-color: var(--accent); background: var(--accent-dim); }
 .picker-thumb {
   position: relative;
   display: block;
@@ -87,7 +55,7 @@
   aspect-ratio: 16 / 10;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--bg);
 }
 .picker-thumb img { width: 100%; height: 100%; object-fit: contain; display: block; }
@@ -97,13 +65,13 @@
   left: 6px;
   top: 6px;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: rgba(7, 7, 9, 0.8);
   font: 10px var(--font-mono);
   color: var(--fg-2);
 }
 .picker-label { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.picker-app-icon { width: 18px; height: 18px; flex: none; border-radius: 4px; }
+.picker-app-icon { width: 18px; height: 18px; flex: none; border-radius: var(--radius-sm); }
 .picker-app-glyph {
   display: inline-flex;
   align-items: center;
@@ -121,77 +89,23 @@
   gap: 10px;
   margin: 0 20px 4px;
   padding: 10px 12px;
-  border: 1px solid color-mix(in oklab, var(--warn, #f59e0b), transparent 60%);
-  border-radius: 6px;
-  background: color-mix(in oklab, var(--warn, #f59e0b), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--warn), transparent 60%);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--warn), transparent 92%);
   font-size: 13px;
-  color: var(--warn, #f5c46b);
+  color: var(--warn);
 }
 .picker-options { display: flex; gap: 20px; padding: 14px 20px; border-top: 1px solid var(--border); }
 .picker-opt { flex: 1; display: flex; flex-direction: column; gap: 8px; }
 .picker-opt-sound { flex: none; width: 220px; }
 .picker-opt-title { font: 11px var(--font-mono); letter-spacing: 0.1em; color: var(--fg-3); }
-.picker-seg-row { display: flex; gap: 8px; }
-.picker-seg {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-}
-.picker-seg[aria-checked='true'] { border-color: var(--accent); background: color-mix(in oklab, var(--accent), transparent 92%); }
-.picker-seg-name { font: 700 13px var(--font-mono); }
-.picker-seg-sub { font-size: 12px; color: var(--fg-2); }
-.picker-sound { display: flex; align-items: center; gap: 10px; height: 54px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
-.picker-switch {
-  position: relative;
-  flex: none;
-  width: 36px;
-  height: 20px;
-  margin-left: auto;
-  border: 0;
-  border-radius: 10px;
-  background: var(--border);
-  cursor: pointer;
-}
-.picker-switch-knob {
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--fg-2);
-  transition: transform 120ms ease;
-}
-.picker-switch[aria-checked='true'] { background: var(--accent); }
-.picker-switch[aria-checked='true'] .picker-switch-knob { transform: translateX(16px); background: var(--bg); }
-.picker-switch:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* "Optimize for": a Segmented whose options say a little more. */
+.picker-seg-row .bds-seg-opt { padding-top: 8px; padding-bottom: 8px; }
+.picker-seg-name { display: block; }
+.picker-seg-sub { display: block; margin-top: 2px; font: 400 12px var(--font-body); }
+.picker-sound { min-height: 54px; }
 .picker-foot { display: flex; align-items: center; gap: 10px; padding: 14px 20px 18px; border-top: 1px solid var(--border); }
 .picker-hint { flex: 1; font: 12px var(--font-mono); color: var(--fg-3); }
-.picker-btn {
-  height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--fg);
-  font: 600 13px var(--font-mono);
-  cursor: pointer;
-}
-.picker-btn:hover { background: var(--surface-hover); }
-.picker-btn:disabled { opacity: 0.5; cursor: default; }
-.picker-primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 700; }
-.picker-primary:hover { background: var(--accent); filter: brightness(1.08); }
-.picker-icon:focus-visible, .picker-tab:focus-visible, .picker-src:focus-visible, .picker-seg:focus-visible,
-.picker-btn:focus-visible, .sharebar-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .picker-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* While sharing: "You're sharing X · detail" with a small live preview,
@@ -209,9 +123,9 @@
   max-width: calc(100% - 32px);
   padding: 0 8px 0 10px;
   border: 1px solid color-mix(in oklab, var(--accent), transparent 50%);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-toast);
 }
 .sharebar-thumb {
   position: relative;
@@ -220,22 +134,10 @@
   flex: none;
   overflow: hidden;
   border: 1px solid var(--accent);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--bg);
 }
 .sharebar-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sharebar-thumb .voice-live { position: absolute; left: 3px; bottom: 2px; font-size: 7px; }
 .sharebar-text { font: 13px var(--font-mono); color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .sharebar-what { color: var(--accent); }
-.sharebar-btn {
-  flex: none;
-  height: 36px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface-raised);
-  color: var(--fg);
-  font: 600 13px var(--font-mono);
-  cursor: pointer;
-}
-.sharebar-stop { background: var(--danger, #ef4444); border-color: var(--danger, #ef4444); color: #fff; }

@@ -13,11 +13,13 @@ interface MenuProps {
   y?: number;
   class?: string;
   style?: JSX.CSSProperties | string;
+  /** 'dialog' for a popover that holds a control (a volume slider) rather than a list of commands. */
+  role?: 'menu' | 'dialog';
 }
 
 // A popover menu (right-click, a "…" button): a raised surface with menu
 // items. On phones the same items go in a Sheet instead.
-export function Menu({ label, children, onClose, x, y, class: extra, style }: MenuProps) {
+export function Menu({ label, children, onClose, x, y, class: extra, style, role = 'menu' }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -37,7 +39,7 @@ export function Menu({ label, children, onClose, x, y, class: extra, style }: Me
   }, [!!onClose]);
   const pos = x != null && y != null ? `position:fixed;left:${x}px;top:${y}px;` : '';
   return (
-    <div ref={ref} class={`bds-menu${extra ? ` ${extra}` : ''}`} role="menu" aria-label={label}
+    <div ref={ref} class={`bds-menu${extra ? ` ${extra}` : ''}`} role={role} aria-label={label}
       style={typeof style === 'string' || style == null ? `${pos}${style ?? ''}` : { ...(pos ? { position: 'fixed', left: `${x}px`, top: `${y}px` } : {}), ...style }}>
       {children}
     </div>

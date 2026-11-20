@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { Headphones, HeadphoneOff, LayoutGrid, Lock, Mic, MicOff, PanelLeft, PhoneOff, Volume2 } from 'lucide-preact';
+import { Button } from '@boson/shared';
 import { getVideoController, useTrackNotice, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
@@ -76,12 +77,10 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
         <span class="stage-meta">{[isPrivateCall(call.room) ? 'private · 1:1' : `${call.participants.length} in call`, rtt, clock].filter(Boolean).join(' · ')}</span>
         <span class="stage-spacer" />
         <div role="group" aria-label="Layout" class="stage-layout">
-          <button type="button" class="stage-btn" data-sel={mode === 'focus' || undefined} aria-pressed={mode === 'focus'} aria-label="Focus layout" title="Focus" onClick={() => setMode('focus')}>
-            <PanelLeft size={16} aria-hidden="true" />
-          </button>
-          <button type="button" class="stage-btn" data-sel={mode === 'grid' || undefined} aria-pressed={mode === 'grid'} aria-label="Grid layout" title="Grid" onClick={() => setMode('grid')}>
-            <LayoutGrid size={16} aria-hidden="true" />
-          </button>
+          <Button variant="secondary" pressed={mode === 'focus'} aria-label="Focus layout" title="Focus" onClick={() => setMode('focus')}
+            icon={<PanelLeft aria-hidden="true" />} />
+          <Button variant="secondary" pressed={mode === 'grid'} aria-label="Grid layout" title="Grid" onClick={() => setMode('grid')}
+            icon={<LayoutGrid aria-hidden="true" />} />
         </div>
       </header>
       <SharingBar />
@@ -100,21 +99,18 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
         </div>
       )}
       <div role="toolbar" aria-label="Call controls" class="stage-dock">
-        <button type="button" class="stage-dock-btn" data-off={call.muted || !!call.listener || undefined} aria-pressed={call.muted}
+        <Button variant="secondary" size="lg" pressed={call.muted}
           disabled={!!call.listener} aria-label={call.listener ? "Listen only: your mic isn't heard here" : call.muted ? 'Unmute' : 'Mute'}
-          title={call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice?.setMuted(!call.muted); }}>
-          {call.muted || call.listener ? <MicOff size={20} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}
-        </button>
-        <CallVideoButtons withCallToggle={false} />
-        <button type="button" class="stage-dock-btn" data-off={call.deafened || undefined} aria-pressed={call.deafened}
+          title={call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice?.setMuted(!call.muted); }}
+          icon={call.muted || call.listener ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />} />
+        <CallVideoButtons withCallToggle={false} size="lg" />
+        <Button variant="secondary" size="lg" pressed={call.deafened}
           aria-label={call.deafened ? 'Undeafen' : 'Deafen'} title={call.deafened ? 'Undeafen' : 'Deafen'}
-          onClick={() => { void voice?.setDeafened(!call.deafened); }}>
-          {call.deafened ? <HeadphoneOff size={20} aria-hidden="true" /> : <Headphones size={20} aria-hidden="true" />}
-        </button>
+          onClick={() => { void voice?.setDeafened(!call.deafened); }}
+          icon={call.deafened ? <HeadphoneOff aria-hidden="true" /> : <Headphones aria-hidden="true" />} />
         <span class="stage-dock-sep" aria-hidden="true" />
-        <button type="button" class="stage-dock-btn stage-leave" aria-label="Leave call" title="Leave" onClick={() => { closeCall(); void voice?.leave(); }}>
-          <PhoneOff size={22} aria-hidden="true" />
-        </button>
+        <Button variant="danger" size="lg" aria-label="Leave call" title="Leave" onClick={() => { closeCall(); void voice?.leave(); }}
+          icon={<PhoneOff aria-hidden="true" />} />
       </div>
     </main>
   );
@@ -140,7 +136,7 @@ function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef }: {
       {video ? (
         <canvas class="stage-video" ref={canvasRef} data-fit={tile.screen ? 'contain' : 'cover'} data-mirror={mirror || undefined} />
       ) : (
-        <span class="stage-avatar" data-size={size}><Avatar nick={tile.name} url={avatar} size={size === 'big' ? 110 : size === 'strip' ? 46 : 76} /></span>
+        <span class="stage-avatar"><Avatar nick={tile.name} url={avatar} size={size === 'big' ? 110 : size === 'strip' ? 46 : 76} /></span>
       )}
       {tile.track && notice && <span class="video-notice" role="status">{notice}</span>}
       <span class="stage-tag">

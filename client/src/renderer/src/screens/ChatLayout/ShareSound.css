@@ -1,4 +1,5 @@
-/* A screen share's sound control (ShareSound.tsx), over the share's tile. */
+/* A screen share's sound control (ShareSound.tsx), over the share's tile:
+   the shared Button (mute) and a volume slider on a dark plate. */
 .share-cell { position: relative; flex: 1; min-width: 0; min-height: 0; display: flex; }
 .share-sound {
   position: absolute;
@@ -8,29 +9,13 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 28px;
-  padding: 0 6px 0 2px;
-  border-radius: 4px;
+  padding: 2px 6px 2px 2px;
+  border-radius: var(--radius-md);
   background: rgba(7, 7, 9, 0.8);
   color: var(--fg);
 }
-.share-sound[data-compact] { padding: 0 2px; }
+.share-sound[data-compact] { padding: 2px; }
 /* On a phone: over the share at the top of the call screen's stage. */
-.share-sound.mcall-share-sound { top: 18px; right: auto; left: 18px; height: 34px; }
-.mcall-share-sound .share-sound-btn { width: 30px; height: 30px; }
-.share-sound-btn {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 3px;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.share-sound[data-muted] .share-sound-btn { color: var(--danger, #f87171); }
-.share-sound-btn:hover { background: rgba(255, 255, 255, 0.08); }
-.share-sound-btn:focus-visible, .share-sound-range:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.share-sound.mcall-share-sound { top: 18px; right: auto; left: 18px; }
 .share-sound-range { width: 84px; accent-color: var(--accent); cursor: pointer; }
+.share-sound-range:focus-visible { outline: none; box-shadow: var(--focus-ring); }

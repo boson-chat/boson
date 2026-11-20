@@ -23,4 +23,9 @@ describe('Toggle', () => {
     await userEvent.setup().click(screen.getByRole('checkbox'));
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('can be announced as a switch', () => {
+    render(<Toggle checked={true} onChange={() => {}} ariaLabel="Share sound" role="switch" />);
+    expect(screen.getByRole('switch', { name: 'Share sound' }).getAttribute('aria-checked')).toBe('true');
+  });
 });

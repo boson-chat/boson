@@ -3,6 +3,7 @@ import {
   ChevronDown, ChevronUp, Ear, Headphones, HeadphoneOff, MessageSquare, Mic, MicOff, MonitorUp, MoreHorizontal, PhoneOff,
   RotateCw, SwitchCamera, Users, Video, VideoOff, Volume2, X,
 } from 'lucide-preact';
+import { Button, ListRow, StatusDot } from '@boson/shared';
 import { getVideoController, useTrackNotice, useVideo, type VideoCamera } from '../../modules/video';
 import { useVoice, type VoiceController, type VoiceState } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
@@ -71,12 +72,12 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
   return (
     <main class="mcall" aria-label={`Call in ${call.roomName || call.room}`}>
       <header class="mcall-head">
-        <button type="button" class="mcall-icon" aria-label="Minimize call" onClick={closeCall}><ChevronDown size={22} aria-hidden="true" /></button>
-        <span class="mcall-dot" aria-hidden="true" />
+        <Button variant="ghost" size="lg" aria-label="Minimize call" onClick={closeCall} icon={<ChevronDown aria-hidden="true" />} />
+        <StatusDot status="live" size={8} />
         <span class="mcall-title">{call.roomName || call.room}</span>
         <span class="mcall-meta">· {isPrivateCall(call.room) ? 'private' : call.participants.length}{rtt ? ` · ${rtt}` : ''}</span>
         {onChat && (
-          <button type="button" class="mcall-icon" aria-label={`Chat in ${call.roomName || call.room}`} onClick={onChat}><MessageSquare size={20} aria-hidden="true" /></button>
+          <Button variant="ghost" size="lg" aria-label={`Chat in ${call.roomName || call.room}`} onClick={onChat} icon={<MessageSquare aria-hidden="true" />} />
         )}
       </header>
       <div class="mcall-stage">
@@ -103,22 +104,19 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
       </div>
       {call.pushToTalk && !call.listener && <div class="mcall-ptt"><HoldToTalk voice={voice} call={call} compact /></div>}
       <div role="toolbar" aria-label="Call controls" class="mcall-dock">
-        <button type="button" class="mcall-dock-btn" data-off={call.muted || !!call.listener || undefined} aria-pressed={call.muted} disabled={!!call.listener}
-          aria-label={call.listener ? "Listen only: your mic isn't heard here" : call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice.setMuted(!call.muted); }}>
-          {call.muted || call.listener ? <MicOff size={22} aria-hidden="true" /> : <Mic size={22} aria-hidden="true" />}
-        </button>
+        <Button variant="secondary" size="lg" pressed={call.muted} disabled={!!call.listener}
+          aria-label={call.listener ? "Listen only: your mic isn't heard here" : call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice.setMuted(!call.muted); }}
+          icon={call.muted || call.listener ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />} />
         {vstate.canCapture && (
-          <button type="button" class="mcall-dock-btn" data-off={!camLive || undefined} data-paused={cam.paused || undefined} aria-pressed={camLive} disabled={!canSend}
+          <Button variant="secondary" size="lg" data-paused={cam.paused || undefined} pressed={camLive} disabled={!canSend}
             aria-label={cam.paused ? 'Camera paused until the app is open again (turn off)' : camLive ? 'Turn camera off' : 'Turn camera on'}
-            onClick={() => { void video?.setCamera(!camLive); }}>
-            {camLive ? <Video size={22} aria-hidden="true" /> : <VideoOff size={22} aria-hidden="true" />}
-          </button>
+            onClick={() => { void video?.setCamera(!camLive); }}
+            icon={camLive ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />} />
         )}
         {cam.on && <FlipButton />}
-        <button type="button" class="mcall-dock-btn" aria-label="More options" onClick={() => setMore(true)}><MoreHorizontal size={22} aria-hidden="true" /></button>
-        <button type="button" class="mcall-dock-btn mcall-leave" aria-label="Leave call" onClick={() => { closeCall(); void voice.leave(); }}>
-          <PhoneOff size={24} aria-hidden="true" />
-        </button>
+        <Button variant="secondary" size="lg" aria-label="More options" onClick={() => setMore(true)} icon={<MoreHorizontal aria-hidden="true" />} />
+        <Button variant="danger" size="lg" aria-label="Leave call" onClick={() => { closeCall(); void voice.leave(); }}
+          icon={<PhoneOff aria-hidden="true" />} />
       </div>
       {more && <MoreSheet voice={voice} call={call} onChat={onChat} onPeople={() => { setMore(false); setPeople(true); }} onClose={() => setMore(false)} />}
       {people && <VoicePanel voice={voice} call={call} serverName={snap.callServerName} avatarFor={avatarFor} onClose={() => setPeople(false)} />}
@@ -212,10 +210,8 @@ function FlipButton() {
   const cur = cams.findIndex((c) => c.id === cam.id);
   const next = cams[((cur >= 0 ? cur : Math.max(0, cams.findIndex((c) => c.default))) + 1) % cams.length];
   return (
-    <button type="button" class="mcall-dock-btn" aria-label={`Switch to the ${next.facing === 'back' ? 'back' : next.facing === 'front' ? 'front' : 'next'} camera`}
-      onClick={() => { void video.setCamera(true, next.id); }}>
-      <SwitchCamera size={22} aria-hidden="true" />
-    </button>
+    <Button variant="secondary" size="lg" aria-label={`Switch to the ${next.facing === 'back' ? 'back' : next.facing === 'front' ? 'front' : 'next'} camera`}
+      onClick={() => { void video.setCamera(true, next.id); }} icon={<SwitchCamera aria-hidden="true" />} />
   );
 }
 
@@ -228,25 +224,18 @@ function MoreSheet({ voice, call, onChat, onPeople, onClose }: {
     <BottomSheet label="Call options" onClose={onClose} actions={[]} header={null}>
       <div class="mcall-more">
         {onChat && (
-          <button type="button" class="mcall-opt" onClick={() => { onClose(); onChat(); }}>
-            <MessageSquare size={20} aria-hidden="true" /><span class="mcall-opt-label">Chat in {call.roomName || call.room}</span>
-          </button>
+          <ListRow size="lg" leading={<MessageSquare size={20} aria-hidden="true" />} title={`Chat in ${call.roomName || call.room}`}
+            onClick={() => { onClose(); onChat(); }} />
         )}
-        <button type="button" class="mcall-opt" disabled={headset} onClick={() => { void voice.setSpeaker(!call.speaker); }}>
-          {call.speaker ? <Volume2 size={20} aria-hidden="true" /> : headset ? <Headphones size={20} aria-hidden="true" /> : <Ear size={20} aria-hidden="true" />}
-          <span class="mcall-opt-label">Audio output</span><span class="mcall-opt-value">{output}</span>
-        </button>
-        <button type="button" class="mcall-opt" aria-pressed={call.deafened} onClick={() => { void voice.setDeafened(!call.deafened); }}>
-          {call.deafened ? <HeadphoneOff size={20} aria-hidden="true" /> : <Headphones size={20} aria-hidden="true" />}
-          <span class="mcall-opt-label">Deafen</span><span class="mcall-opt-value" data-on={call.deafened || undefined}>{call.deafened ? 'On' : 'Off'}</span>
-        </button>
-        <button type="button" class="mcall-opt" onClick={onPeople}>
-          <Users size={20} aria-hidden="true" /><span class="mcall-opt-label">People and volume</span>
-        </button>
-        <button type="button" class="mcall-opt" disabled>
-          <MonitorUp size={20} aria-hidden="true" /><span class="mcall-opt-label">Share screen</span><span class="mcall-opt-value">soon on phones</span>
-        </button>
-        <button type="button" class="mcall-opt mcall-opt-close" onClick={onClose}>Close</button>
+        <ListRow size="lg" leading={call.speaker ? <Volume2 size={20} aria-hidden="true" /> : headset ? <Headphones size={20} aria-hidden="true" /> : <Ear size={20} aria-hidden="true" />}
+          title="Audio output" aside={output} mainProps={{ disabled: headset }} onClick={() => { void voice.setSpeaker(!call.speaker); }} />
+        <ListRow size="lg" leading={call.deafened ? <HeadphoneOff size={20} aria-hidden="true" /> : <Headphones size={20} aria-hidden="true" />}
+          title="Deafen" aside={<span class="mcall-opt-value" data-on={call.deafened || undefined}>{call.deafened ? 'On' : 'Off'}</span>}
+          mainProps={{ 'aria-pressed': call.deafened }} onClick={() => { void voice.setDeafened(!call.deafened); }} />
+        <ListRow size="lg" leading={<Users size={20} aria-hidden="true" />} title="People and volume" onClick={onPeople} />
+        <ListRow size="lg" leading={<MonitorUp size={20} aria-hidden="true" />} title="Share screen" aside="soon on phones"
+          mainProps={{ disabled: true }} onClick={() => {}} />
+        <Button variant="ghost" size="lg" fullWidth class="mcall-more-close" onClick={onClose}>Close</Button>
       </div>
     </BottomSheet>
   );
@@ -268,12 +257,11 @@ export function MobileMiniBar() {
           <span class="mcall-mini-sub">{call.error}</span>
         </span>
         {retryable && call.room && (
-          <button type="button" class="mcall-icon" aria-label="Try again"
-            onClick={() => { void voice.join(call.host, { id: call.room, name: where }, snap.callServerName); }}>
-            <RotateCw size={20} aria-hidden="true" />
-          </button>
+          <Button variant="ghost" size="lg" aria-label="Try again"
+            onClick={() => { void voice.join(call.host, { id: call.room, name: where }, snap.callServerName); }}
+            icon={<RotateCw aria-hidden="true" />} />
         )}
-        <button type="button" class="mcall-icon" aria-label="Dismiss" onClick={() => { void voice.dismissError(); }}><X size={20} aria-hidden="true" /></button>
+        <Button variant="ghost" size="lg" aria-label="Dismiss" onClick={() => { void voice.dismissError(); }} icon={<X aria-hidden="true" />} />
       </div>
     );
   }
@@ -285,21 +273,17 @@ export function MobileMiniBar() {
       : [sharer ? `${sharer} is sharing` : '', rtt].filter(Boolean).join(' · ') || 'Connected';
   return (
     <div class="mcall-mini" data-state={connecting ? 'connecting' : call.interrupted ? 'paused' : 'connected'}>
-      <button type="button" class="mcall-mini-open" aria-label={`Open the call in ${where}`} onClick={openCall}>
-        <span class="mcall-dot" aria-hidden="true" />
-        <span class="mcall-mini-text">
-          <span class="mcall-mini-title">{where} · {call.participants.length}</span>
-          <span class="mcall-mini-sub">{sub}</span>
-        </span>
-      </button>
-      <button type="button" class="mcall-icon mcall-icon-box" data-off={call.muted || undefined} aria-pressed={call.muted}
-        aria-label={call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice.setMuted(!call.muted); }}>
-        {call.muted ? <MicOff size={20} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}
-      </button>
-      <button type="button" class="mcall-icon mcall-icon-box" aria-label="Open call" onClick={openCall}><ChevronUp size={20} aria-hidden="true" /></button>
-      <button type="button" class="mcall-icon mcall-icon-box mcall-leave" aria-label="Leave call" onClick={() => { closeCall(); void voice.leave(); }}>
-        <PhoneOff size={20} aria-hidden="true" />
-      </button>
+      <Button variant="ghost" size="lg" class="mcall-mini-open" aria-label={`Open the call in ${where}`} onClick={openCall}
+        icon={<StatusDot status={connecting || call.interrupted ? 'away' : 'live'} size={8} />}>
+        <span class="mcall-mini-title">{where} · {call.participants.length}</span>
+        <span class="mcall-mini-sub">{sub}</span>
+      </Button>
+      <Button variant="secondary" size="lg" pressed={call.muted}
+        aria-label={call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice.setMuted(!call.muted); }}
+        icon={call.muted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />} />
+      <Button variant="secondary" size="lg" aria-label="Open call" onClick={openCall} icon={<ChevronUp aria-hidden="true" />} />
+      <Button variant="danger" size="lg" aria-label="Leave call" onClick={() => { closeCall(); void voice.leave(); }}
+        icon={<PhoneOff aria-hidden="true" />} />
     </div>
   );
 }
