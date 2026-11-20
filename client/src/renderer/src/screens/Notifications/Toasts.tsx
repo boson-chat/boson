@@ -130,33 +130,25 @@ function ToastCard({ t, phone, onClose }: { t: Toast; phone: boolean; onClose: (
   );
 }
 
+// The incoming call as a banner (option D): one row, as tall as a message
+// banner — who, "video call" / "voice call", then square Decline, Voice
+// only (video calls) and Accept (pulses). Tapping the row opens the call
+// full screen. Phones and desktop use the same banner.
 function RingToast({ call, phone, onDecline, onVoice, onAccept, onExpand }: {
   call: CallInfo; phone: boolean; onDecline: () => void; onVoice: () => void; onAccept: () => void; onExpand: () => void;
 }) {
   const name = call.peer.username;
   const kind = call.video ? 'video' : 'voice';
-  const avatar = <Avatar nick={name} accountUrl={call.peer.avatarUrl} size={phone ? 40 : 34} ringing />;
-  if (phone) {
-    return (
-      <ToastBox class="ntoast ntoast-ring" surface="phone" ringing role="alertdialog" ariaLabel={`${name} is calling`}
-        onOpen={onExpand} openLabel={`${name} is calling you, ${kind}. Open full screen`}
-        leading={avatar} title={name} body={`is calling you · ${kind}`} bodyTone="success"
-        actions={<>
-          <Button variant="danger" size="lg" icon={<PhoneOff aria-hidden="true" />} aria-label="Decline" onClick={onDecline} />
-          {call.video && <Button variant="secondary" size="lg" icon={<Mic aria-hidden="true" />} aria-label="Accept with voice only" onClick={onVoice} />}
-          <Button variant="success" size="lg" attention class="call-answer" icon={<Phone aria-hidden="true" />} aria-label="Accept" onClick={onAccept} />
-        </>} />
-    );
-  }
+  const size = phone ? 'lg' : 'md';
   return (
-    <ToastBox class="ntoast ntoast-ring" ringing role="alertdialog" ariaLabel={`${name} is calling`}
+    <ToastBox class="ntoast ntoast-ring" surface={phone ? 'phone' : 'desktop'} layout="row" role="alertdialog" ariaLabel={`${name} is calling`}
       onOpen={onExpand} openLabel={`${name} is calling you, ${kind}. Open full screen`}
-      leading={avatar} title={`${name} is calling`} meta={`${kind} call`}
-      body={`Accept, ${call.video ? 'take it voice only, ' : ''}or decline.`}
+      leading={<Avatar nick={name} accountUrl={call.peer.avatarUrl} size={36} />}
+      title={name} body={`${kind} call`} bodyTone="success"
       actions={<>
-        <Button variant="danger" size="sm" aria-label="Decline call" onClick={onDecline}>Decline</Button>
-        {call.video && <Button variant="secondary" size="sm" aria-label="Accept with voice only" onClick={onVoice}>Voice only</Button>}
-        <Button variant="success" size="sm" attention class="call-answer" icon={<Phone aria-hidden="true" />} aria-label="Accept call" onClick={onAccept}>Accept</Button>
+        <Button variant="danger" size={size} icon={<PhoneOff aria-hidden="true" />} aria-label={phone ? 'Decline' : 'Decline call'} onClick={onDecline} />
+        {call.video && <Button variant="secondary" size={size} icon={<Mic aria-hidden="true" />} aria-label="Accept with voice only" onClick={onVoice} />}
+        <Button variant="success" size={size} attention class="call-answer" icon={<Phone aria-hidden="true" />} aria-label={phone ? 'Accept' : 'Accept call'} onClick={onAccept} />
       </>} />
   );
 }

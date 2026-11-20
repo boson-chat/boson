@@ -19,6 +19,4 @@
   width: auto;
   max-width: none;
 }
-/* A ringing call's banner on phones: its buttons on their own line, at the end. */
-.ntoast-ring.bds-toast-phone .bds-toast-actions { justify-content: flex-end; padding-left: 0; gap: var(--space-3); }
 .bell-open .ntoasts { display: none; }

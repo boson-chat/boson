@@ -26,6 +26,9 @@
   animation: bds-toast-in var(--motion-medium) var(--ease-out);
 }
 .bds-toast-phone { animation-name: bds-toast-drop; }
+/* Every phone banner is at least one 44px button row tall, so a ringing
+   call's one-row banner and a message banner are the same height. */
+.bds-toast-phone { min-height: calc(var(--control-lg) + 22px); justify-content: center; }
 .bds-toast-dismissable { padding-right: 40px; }
 .bds-toast-phone.bds-toast-dismissable { padding-right: 44px; }
 
