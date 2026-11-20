@@ -1,3 +1,9 @@
+## [0.83.0](https://github.com/boson-chat/boson/compare/v0.82.1...v0.83.0) (2026-11-20)
+
+### Features
+
+* MY is your avatar, with Friends and Calls above your direct messages ([#113](https://github.com/boson-chat/boson/issues/113)) ([0aa16f3](https://github.com/boson-chat/boson/commit/0aa16f3900bc23ce4aa914d9878f6f43c35eb8b5))
+
 ## [0.82.1](https://github.com/boson-chat/boson/compare/v0.82.0...v0.82.1) (2026-11-20)
 
 ### Bug Fixes
