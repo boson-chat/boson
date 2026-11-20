@@ -82,11 +82,13 @@
 
 /* Sizes — applied after the variants so they win. */
 .bds-btn-size-sm { --bds-btn-h: var(--control-sm); --bds-btn-icon: 14px; padding: 0 var(--space-3); font-size: var(--text-xs); gap: 6px; }
-.bds-btn-size-lg { --bds-btn-h: var(--control-lg); --bds-btn-icon: 18px; padding: 0 var(--space-4); font-size: var(--text-base); }
+.bds-btn-size-lg { --bds-btn-h: var(--control-lg); --bds-btn-icon: 18px; padding: 0 var(--space-4); font-size: 13px; }
+/* A borderless text button needs less side room (phones' header actions). */
+.bds-btn-ghost.bds-btn-size-lg { padding: 0 var(--space-2); }
 .bds-btn-size-xl { --bds-btn-h: var(--control-xl); --bds-btn-icon: 28px; padding: 0 var(--space-6); font-size: var(--text-lg); border-radius: var(--radius-lg); }
 
 /* Icon-only: as wide as it is tall. */
-.bds-btn-icon-only { width: var(--bds-btn-h); padding: 0; }
+.bds-btn.bds-btn-icon-only { width: var(--bds-btn-h); padding: 0; }
 .bds-btn-round { border-radius: 50%; }
 
 .bds-btn-fullwidth { width: 100%; }

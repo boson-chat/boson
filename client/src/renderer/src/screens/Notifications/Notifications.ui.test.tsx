@@ -126,7 +126,7 @@ describe('the bell', () => {
     let closed = 0;
     render(<NotificationsPanel layout="desktop" onClose={() => { closed++; }} />);
     const rows = () => screen.getAllByRole('listitem');
-    expect(rows().map((r) => r.querySelector('.notes-row-title')?.textContent)).toEqual(['nova', 'mira', 'Memo from MemoServ', 'Missed call']);
+    expect(rows().map((r) => r.querySelector('.bds-row-title')?.textContent)).toEqual(['nova', 'mira', 'Memo from MemoServ', 'Missed call']);
     expect(rows()[3]!.querySelector('.notes-dot')).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: /^Calls/ }));
     expect(rows()).toHaveLength(1);

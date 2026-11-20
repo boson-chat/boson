@@ -1,40 +1,7 @@
-/* Private calls: calling, ringing, toasts (prototype: Friends.dc.html). */
-@keyframes callRingHalo { 0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--success), transparent 35%); } 70% { box-shadow: 0 0 0 14px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
-@keyframes callRingHaloLg { 0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--success), transparent 35%); } 70% { box-shadow: 0 0 0 22px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
-@keyframes callRingWiggle { 0%, 60%, 100% { transform: rotate(0); } 64% { transform: rotate(-14deg); } 68% { transform: rotate(12deg); } 72% { transform: rotate(-10deg); } 76% { transform: rotate(8deg); } 80% { transform: rotate(0); } }
-@keyframes callRingGlow {
-  0%, 100% { border-color: color-mix(in oklab, var(--success), transparent 65%); box-shadow: 0 16px 40px rgba(0, 0, 0, .6), 0 0 0 0 transparent; }
-  50% { border-color: color-mix(in oklab, var(--success), transparent 10%); box-shadow: 0 16px 40px rgba(0, 0, 0, .6), 0 0 24px 2px color-mix(in oklab, var(--success), transparent 75%); }
-}
-@keyframes callRingIn { from { transform: translateY(-12px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* Private calls: calling, ringing full screen, the status toast (prototype:
+   Friends.dc.html). Layout only: buttons, avatars and toasts are the
+   shared ones. */
 @keyframes callSlideUp { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
-@keyframes callAvatarPulse {
-  0% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--success), 0 0 0 4px color-mix(in oklab, var(--success), transparent 50%); }
-  100% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--success), 0 0 0 16px transparent; }
-}
-@keyframes callAvatarPulseLg {
-  0% { box-shadow: 0 0 0 4px var(--bg), 0 0 0 7px var(--success), 0 0 0 7px color-mix(in oklab, var(--success), transparent 50%); }
-  100% { box-shadow: 0 0 0 4px var(--bg), 0 0 0 7px var(--success), 0 0 0 30px transparent; }
-}
-
-.call-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  color: var(--fg);
-  font: 600 var(--text-sm) var(--font-mono);
-  cursor: pointer;
-}
-.call-btn:hover { background: var(--surface-hover); }
-.call-btn-danger, .call-btn-danger:hover { border-color: var(--danger); background: var(--danger); color: #fff; }
-.call-btn-ok, .call-btn-ok:hover { border-color: var(--success); background: var(--success); color: var(--bg); font-weight: 700; }
-.call-btn:focus-visible, .pcall-btn:focus-visible { outline: 2px solid color-mix(in oklab, var(--accent), transparent 30%); outline-offset: 2px; }
 
 /* Desktop: calling dialog. */
 .ocall-backdrop {
@@ -55,42 +22,13 @@
   gap: 14px;
   padding: 32px 24px 24px;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
+  box-shadow: var(--shadow-dialog);
 }
-.ocall .ocall-av { border-radius: 10px; font-size: 32px; box-shadow: 0 0 0 3px var(--surface), 0 0 0 6px color-mix(in oklab, var(--success), transparent 50%); }
 .ocall-name { font: 700 18px var(--font-mono); text-align: center; overflow-wrap: anywhere; }
 .ocall-sub { font-size: 13px; color: var(--fg-2); text-align: center; }
 .ocall-actions { display: flex; gap: 10px; margin-top: var(--space-2); }
-
-/* Desktop: the ringing card, top right. */
-.icall {
-  position: fixed;
-  top: 52px;
-  right: 16px;
-  z-index: 1200;
-  width: 340px;
-  max-width: calc(100vw - 32px);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: var(--space-4);
-  border: 1px solid color-mix(in oklab, var(--success), transparent 50%);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .6);
-  animation: callRingIn .25s ease-out, callRingGlow 1.6s ease-in-out .25s infinite;
-}
-.icall-who { display: flex; align-items: center; gap: var(--space-3); }
-.icall .icall-av { font-size: 18px; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--success); }
-.icall .call-pulse-sm { animation: callAvatarPulse 1.2s ease-out infinite; }
-.icall-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.icall-name { font: 700 14px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.icall-sub { font-size: var(--text-sm); color: var(--success); }
-.icall-actions { display: flex; gap: var(--space-2); }
-.icall-actions .call-btn { flex: 1; min-width: 0; padding: 0 var(--space-2); white-space: nowrap; }
-.icall .call-answer { animation: callRingHalo 1.2s ease-out infinite; }
-.icall .call-answer svg { animation: callRingWiggle 1.2s ease-in-out infinite; transform-origin: 50% 50%; }
 
 /* Phones: full screen. */
 .pcall {
@@ -105,37 +43,18 @@
   background: var(--bg);
   color: var(--fg);
 }
-.pcall-in { animation: callSlideUp .25s ease-out; }
+.pcall-in { animation: callSlideUp var(--motion-medium) var(--ease-out); }
 .pcall-who { display: flex; flex-direction: column; align-items: center; gap: 18px; min-width: 0; max-width: 100%; }
-.pcall .pcall-av { border-radius: 14px; font-size: 44px; }
-.pcall .call-pulse { animation: callAvatarPulseLg 1.4s ease-out infinite; }
 .pcall-name { font: 700 24px var(--font-mono); text-align: center; overflow-wrap: anywhere; }
 .pcall-sub { font-size: 15px; color: var(--fg-2); text-align: center; }
 .pcall-sub-ok { color: var(--success); }
-.pcall-buttons { width: 100%; display: flex; justify-content: space-between; align-items: flex-end; }
+.pcall-buttons { width: 100%; display: flex; justify-content: space-between; align-items: flex-start; }
 .pcall-buttons-one { justify-content: center; }
 .pcall-btn-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
-.pcall-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 72px;
-  height: 72px;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--surface-raised);
-  color: var(--fg);
-  cursor: pointer;
-}
-.pcall-btn-plain { width: 64px; height: 64px; }
-.pcall-btn-danger { border-color: var(--danger); background: var(--danger); color: #fff; }
-.pcall-btn-ok { border-color: var(--success); background: var(--success); color: var(--bg); }
-.pcall .call-answer { animation: callRingHaloLg 1.2s ease-out infinite; }
-.pcall .call-answer svg { animation: callRingWiggle 1.2s ease-in-out infinite; transform-origin: 50% 50%; }
 .pcall-btn-label { font: 12px var(--font-mono); color: var(--fg-2); }
 .pcall-btn-label-ok { color: var(--success); }
 
+/* "kestrel is busy": a status toast, bottom centre. */
 .call-toast {
   position: fixed;
   bottom: 24px;
@@ -143,22 +62,12 @@
   z-index: 1300;
   transform: translateX(-50%);
   max-width: calc(100vw - 32px);
-  padding: 10px var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface-raised);
-  color: var(--fg);
-  font: 500 13px var(--font-mono);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
 }
 .call-toast-phone {
   left: 16px;
   right: 16px;
   bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   transform: none;
-  padding: var(--space-3) 14px;
-  border-radius: 8px;
-  text-align: center;
 }
 
 /* Desktop, "Incoming calls: Full screen": centred over the whole window. */
@@ -182,24 +91,14 @@
   gap: 48px;
   padding: 56px 40px 40px;
   border: 1px solid color-mix(in oklab, var(--success), transparent 50%);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: var(--bg);
   color: var(--fg);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
-  animation: callSlideUp .25s ease-out;
+  box-shadow: var(--shadow-dialog);
+  animation: callSlideUp var(--motion-medium) var(--ease-out);
 }
-.fcall .pcall-av { border-radius: 14px; font-size: 42px; }
-.fcall .call-pulse { animation: callAvatarPulseLg 1.4s ease-out infinite; }
-.fcall-buttons { width: 100%; display: flex; justify-content: space-around; align-items: flex-end; }
-.fcall .call-answer { animation: callRingHaloLg 1.2s ease-out infinite; }
-.fcall .call-answer svg { animation: callRingWiggle 1.2s ease-in-out infinite; transform-origin: 50% 50%; }
+.fcall-buttons { width: 100%; display: flex; justify-content: space-around; align-items: flex-start; }
 
 @media (prefers-reduced-motion: reduce) {
-  .fcall, .fcall .call-pulse, .fcall .call-answer, .fcall .call-answer svg { animation: none; }
-  .fcall .call-answer { box-shadow: 0 0 0 4px color-mix(in oklab, var(--success), transparent 65%); }
-  .icall, .icall .call-pulse-sm, .icall .call-answer, .icall .call-answer svg,
-  .pcall-in, .pcall .call-pulse, .pcall .call-answer, .pcall .call-answer svg { animation: none; }
-  .icall { border-color: var(--success); }
-  .icall .call-answer { box-shadow: 0 0 0 3px color-mix(in oklab, var(--success), transparent 65%); }
-  .pcall .call-answer { box-shadow: 0 0 0 4px color-mix(in oklab, var(--success), transparent 65%); }
+  .fcall, .pcall-in { animation: none; }
 }

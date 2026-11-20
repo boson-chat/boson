@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { Mic, Phone, PhoneOff, X } from 'lucide-preact';
+import { Avatar as Tile, Button, Toast as ToastBox } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { useNarrow } from '../../shared/narrow';
 import { isMobile } from '../../shared/window-controls';
@@ -93,45 +94,39 @@ function ToastCard({ t, phone, onClose }: { t: Toast; phone: boolean; onClose: (
   const { friends } = useFriends();
   const timer = useToastTimer(onClose);
   const label = [t.title, t.where].filter(Boolean).join(' · ');
+  const size = phone ? 'lg' : 'sm';
   const actions = t.kind === 'friend' && t.friend && friends ? (
     <>
-      <button type="button" class="call-btn call-btn-ok" aria-label={`Accept ${t.friend.username}'s friend request`}
-        onClick={() => { void friends.acceptRequest(t.friend!); onClose(); }}>Accept</button>
-      <button type="button" class="call-btn" aria-label={`Ignore ${t.friend.username}'s friend request`}
-        onClick={() => { void friends.deleteRequest(t.friend!); onClose(); }}>Ignore</button>
+      <Button variant="success" size={size} aria-label={`Accept ${t.friend.username}'s friend request`}
+        onClick={() => { void friends.acceptRequest(t.friend!); onClose(); }}>Accept</Button>
+      <Button variant="secondary" size={size} aria-label={`Ignore ${t.friend.username}'s friend request`}
+        onClick={() => { void friends.deleteRequest(t.friend!); onClose(); }}>Ignore</Button>
     </>
   ) : t.kind === 'missed' && t.call && friends ? (
     <>
-      <button type="button" class="call-btn call-btn-ok" aria-label={`Call ${t.call.peer} back`}
-        onClick={() => { void friends.call(t.call!.peer, t.call!.video); onClose(); }}>
-        <Phone size={13} strokeWidth={2.5} aria-hidden="true" />Call back
-      </button>
-      <button type="button" class="call-btn" onClick={onClose}>Dismiss</button>
+      <Button variant="success" size={size} icon={<Phone aria-hidden="true" />} aria-label={`Call ${t.call.peer} back`}
+        onClick={() => { void friends.call(t.call!.peer, t.call!.video); onClose(); }}>Call back</Button>
+      <Button variant="secondary" size={size} onClick={onClose}>Dismiss</Button>
     </>
   ) : t.kind === 'started' && t.room ? (
     <>
-      <button type="button" class="call-btn call-btn-ok" aria-label={`Join ${t.room.name}`} onClick={() => openToast(t)}>Join</button>
-      <button type="button" class="call-btn" onClick={onClose}>Dismiss</button>
+      <Button variant="success" size={size} aria-label={`Join ${t.room.name}`} onClick={() => openToast(t)}>Join</Button>
+      <Button variant="secondary" size={size} onClick={onClose}>Dismiss</Button>
     </>
   ) : null;
   return (
-    <div class={`ntoast${phone ? ' ntoast-phone' : ''}${timer.paused ? ' ntoast-paused' : ''}`} role="group" aria-label={label}
-      onMouseEnter={timer.pause} onMouseLeave={timer.resume} onFocusIn={timer.pause} onFocusOut={timer.resume}>
-      <button type="button" class="ntoast-main" onClick={() => openToast(t)}
-        aria-label={`${label}: ${t.body}. Open`}>
-        {t.nick ? <Avatar nick={t.nick} serverId={t.serverId} accountUrl={t.friend?.avatarUrl} size={phone ? 36 : 34} class="ntoast-av" /> : <span class="ntoast-av ntoast-av-live" aria-hidden="true">◉</span>}
-        <span class="ntoast-text">
-          <span class="ntoast-head">
-            <span class="ntoast-title">{t.title}</span>
-            {t.where && <span class="ntoast-where">{t.where}</span>}
-          </span>
-          <span class="ntoast-body">{t.body}</span>
-        </span>
-      </button>
-      {actions && <div class="ntoast-actions">{actions}</div>}
-      <button type="button" class="ntoast-x" aria-label="Dismiss" onClick={onClose}><X size={14} aria-hidden="true" /></button>
-      <span class="ntoast-bar" aria-hidden="true" style={{ animationDuration: `${TOAST_MS}ms` }} />
-    </div>
+    <ToastBox
+      class="ntoast" surface={phone ? 'phone' : 'desktop'} role="group" ariaLabel={label}
+      boxProps={{ onMouseEnter: timer.pause, onMouseLeave: timer.resume, onFocusIn: timer.pause, onFocusOut: timer.resume }}
+      onOpen={() => openToast(t)} openLabel={`${label}: ${t.body}. Open`}
+      leading={t.nick
+        ? <Avatar nick={t.nick} serverId={t.serverId} accountUrl={t.friend?.avatarUrl} size={phone ? 36 : 34} />
+        : <Tile size={34} initial="◉" color="var(--success)" />}
+      title={t.title} meta={t.where || undefined} body={t.body}
+      actions={actions ?? undefined}
+      onDismiss={onClose} dismissIcon={<X aria-hidden="true" />}
+      timerMs={TOAST_MS} paused={timer.paused}
+    />
   );
 }
 
@@ -140,43 +135,28 @@ function RingToast({ call, phone, onDecline, onVoice, onAccept, onExpand }: {
 }) {
   const name = call.peer.username;
   const kind = call.video ? 'video' : 'voice';
+  const avatar = <Avatar nick={name} accountUrl={call.peer.avatarUrl} size={phone ? 40 : 34} ringing />;
   if (phone) {
     return (
-      <div class="ntoast ntoast-phone ntoast-ring" role="alertdialog" aria-label={`${name} is calling`}>
-        <button type="button" class="ntoast-main" onClick={onExpand} aria-label={`${name} is calling you, ${kind}. Open full screen`}>
-          <Avatar nick={name} accountUrl={call.peer.avatarUrl} size={40} class="ntoast-av call-pulse-sm" />
-          <span class="ntoast-text">
-            <span class="ntoast-title">{name}</span>
-            <span class="ntoast-body ntoast-body-ok">is calling you · {kind}</span>
-          </span>
-        </button>
-        <div class="ntoast-round">
-          <button type="button" class="pcall-btn pcall-btn-danger ntoast-rbtn" aria-label="Decline" onClick={onDecline}><PhoneOff size={20} aria-hidden="true" /></button>
-          {call.video && <button type="button" class="pcall-btn ntoast-rbtn" aria-label="Accept with voice only" onClick={onVoice}><Mic size={20} aria-hidden="true" /></button>}
-          <button type="button" class="pcall-btn pcall-btn-ok ntoast-rbtn call-answer" aria-label="Accept" onClick={onAccept}><Phone size={20} aria-hidden="true" /></button>
-        </div>
-      </div>
+      <ToastBox class="ntoast ntoast-ring" surface="phone" ringing role="alertdialog" ariaLabel={`${name} is calling`}
+        onOpen={onExpand} openLabel={`${name} is calling you, ${kind}. Open full screen`}
+        leading={avatar} title={name} body={`is calling you · ${kind}`} bodyTone="success"
+        actions={<>
+          <Button variant="danger" size="lg" icon={<PhoneOff aria-hidden="true" />} aria-label="Decline" onClick={onDecline} />
+          {call.video && <Button variant="secondary" size="lg" icon={<Mic aria-hidden="true" />} aria-label="Accept with voice only" onClick={onVoice} />}
+          <Button variant="success" size="lg" attention class="call-answer" icon={<Phone aria-hidden="true" />} aria-label="Accept" onClick={onAccept} />
+        </>} />
     );
   }
   return (
-    <div class="ntoast ntoast-ring" role="alertdialog" aria-label={`${name} is calling`}>
-      <button type="button" class="ntoast-main" onClick={onExpand} aria-label={`${name} is calling you, ${kind}. Open full screen`}>
-        <Avatar nick={name} accountUrl={call.peer.avatarUrl} size={34} class="ntoast-av call-pulse-sm" />
-        <span class="ntoast-text">
-          <span class="ntoast-head">
-            <span class="ntoast-title">{name} is calling</span>
-            <span class="ntoast-where">{kind} call</span>
-          </span>
-          <span class="ntoast-body">Accept, {call.video ? 'take it voice only, ' : ''}or decline.</span>
-        </span>
-      </button>
-      <div class="ntoast-actions">
-        <button type="button" class="call-btn call-btn-danger" aria-label="Decline call" onClick={onDecline}>Decline</button>
-        {call.video && <button type="button" class="call-btn" aria-label="Accept with voice only" onClick={onVoice}>Voice only</button>}
-        <button type="button" class="call-btn call-btn-ok call-answer" aria-label="Accept call" onClick={onAccept}>
-          <Phone size={13} strokeWidth={2.5} aria-hidden="true" />Accept
-        </button>
-      </div>
-    </div>
+    <ToastBox class="ntoast ntoast-ring" ringing role="alertdialog" ariaLabel={`${name} is calling`}
+      onOpen={onExpand} openLabel={`${name} is calling you, ${kind}. Open full screen`}
+      leading={avatar} title={`${name} is calling`} meta={`${kind} call`}
+      body={`Accept, ${call.video ? 'take it voice only, ' : ''}or decline.`}
+      actions={<>
+        <Button variant="danger" size="sm" aria-label="Decline call" onClick={onDecline}>Decline</Button>
+        {call.video && <Button variant="secondary" size="sm" aria-label="Accept with voice only" onClick={onVoice}>Voice only</Button>}
+        <Button variant="success" size="sm" attention class="call-answer" icon={<Phone aria-hidden="true" />} aria-label="Accept call" onClick={onAccept}>Accept</Button>
+      </>} />
   );
 }
