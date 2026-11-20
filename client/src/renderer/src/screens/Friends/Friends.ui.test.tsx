@@ -100,6 +100,12 @@ describe('PersonMenu', () => {
 });
 
 describe('FriendsView', () => {
+  it('phone: each friend has Remove friend', async () => {
+    render(<FriendsView layout="phone" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove kestrel from friends' }));
+    await waitFor(() => expect(ctl.getSnapshot().friends.map((f) => f.username)).not.toContain('kestrel'));
+  });
+
   it('desktop: friends with their switch, pending, blocked, add by handle', async () => {
     render(<FriendsView layout="desktop" />);
     expect(await screen.findByText('kestrel')).toBeTruthy();

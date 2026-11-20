@@ -90,8 +90,8 @@ export function FriendsView({ layout }: Props) {
             {snap.loaded && snap.friends.length === 0 && (
               <p class="friends-empty">No friends yet. Add someone by their handle, or {phone ? 'tap' : 'right-click'} a name in Members.</p>
             )}
-            {!phone && snap.friends.length > 0 && (
-              <p class="friends-note">“Can call me anytime” lets that friend through even when you're on Do not disturb or calls are set to Nobody.</p>
+            {snap.friends.length > 0 && (
+              <p class="friends-note">“Can call me anytime” lets that friend through even when you're on Do not disturb or calls are set to Nobody. Off, they can call you when your settings allow it (by default, friends can). To stop someone calling, remove or block them.</p>
             )}
           </>
         )}
@@ -179,6 +179,10 @@ function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
           <span class="friends-anytime-label" aria-hidden="true">Can call me anytime</span>
           {sw}
         </div>
+        <div class="friends-row-remove">
+          <button type="button" class="friends-btn friends-btn-ghost friends-remove" aria-label={`Remove ${f.username} from friends`}
+            onClick={() => { void friends.removeFriend(f); }}>Remove friend</button>
+        </div>
       </div>
     );
   }
@@ -191,7 +195,8 @@ function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
       </div>
       <span class="friends-anytime">{sw}</span>
       {calls}
-      <button type="button" class="friends-btn friends-btn-ghost" onClick={() => { void friends.removeFriend(f); }}>Remove</button>
+      <button type="button" class="friends-btn friends-btn-ghost" aria-label={`Remove ${f.username} from friends`}
+        onClick={() => { void friends.removeFriend(f); }}>Remove</button>
     </div>
   );
 }
