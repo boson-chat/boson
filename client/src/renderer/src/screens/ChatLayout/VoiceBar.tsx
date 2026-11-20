@@ -1,4 +1,5 @@
 import { Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, RotateCw, Signal, SignalLow, SignalMedium, SlidersHorizontal, X } from 'lucide-preact';
+import { Button } from '@boson/shared';
 import { useVoice, type VoiceQuality } from '../../modules/voice';
 import { openUserSettings } from '../../modules/ui/open-settings';
 import { isMobile } from '../../shared/window-controls';
@@ -29,9 +30,8 @@ export function VoiceBar() {
         <div class="voice-bar-head">
           <span class="voice-bar-status">Disconnected from voice</span>
           <span class="voice-bar-actions">
-            <button type="button" class="voice-bar-btn" aria-label="Dismiss" title="Dismiss" onClick={() => { void voice.dismissError(); }}>
-              <X size={15} aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" aria-label="Dismiss" title="Dismiss" onClick={() => { void voice.dismissError(); }}
+              icon={<X aria-hidden="true" />} />
           </span>
         </div>
         <div class="voice-bar-error-text">{call.error}</div>
@@ -48,14 +48,12 @@ export function VoiceBar() {
           <span class="voice-bar-status">Voice failed</span>
           <span class="voice-bar-actions">
             {retryable && call.room && (
-              <button type="button" class="voice-bar-btn" aria-label="Try again" title="Try again"
-                onClick={() => { void voice.join(call.host, { id: call.room, name: call.roomName || call.room }, snap.callServerName); }}>
-                <RotateCw size={15} aria-hidden="true" />
-              </button>
+              <Button variant="ghost" size="sm" aria-label="Try again" title="Try again"
+                onClick={() => { void voice.join(call.host, { id: call.room, name: call.roomName || call.room }, snap.callServerName); }}
+                icon={<RotateCw aria-hidden="true" />} />
             )}
-            <button type="button" class="voice-bar-btn" aria-label="Dismiss" title="Dismiss" onClick={() => { void voice.dismissError(); }}>
-              <X size={15} aria-hidden="true" />
-            </button>
+            <Button variant="ghost" size="sm" aria-label="Dismiss" title="Dismiss" onClick={() => { void voice.dismissError(); }}
+              icon={<X aria-hidden="true" />} />
           </span>
         </div>
         <div class="voice-bar-error-text">{call.error}</div>
@@ -78,57 +76,35 @@ export function VoiceBar() {
         <span class="voice-bar-quality" data-quality={connecting ? 'connecting' : call.quality} title={quality}>
           <QualityIcon size={15} aria-hidden="true" />
         </span>
-        <button type="button" class="voice-panel-where" onClick={openCall} disabled={!canOpen}
+        <Button variant="ghost" class="voice-panel-where" onClick={openCall} disabled={!canOpen}
           aria-label={canOpen ? `Open the call in ${where}` : `Voice: ${where}`} title={canOpen ? 'Open the call' : quality}>
           <span class="voice-panel-status" data-quality={connecting ? 'connecting' : call.quality}>
             {connecting ? 'Connecting…' : `Connected${rtt ? ` · ${rtt}` : ''}`}
           </span>
           <span class="voice-bar-where">{where}</span>
-        </button>
-        <button type="button" class="voice-bar-btn voice-panel-leave" aria-label="Leave call" title="Leave" onClick={() => { void voice.leave(); }}>
-          <PhoneOff size={14} aria-hidden="true" />
-        </button>
+        </Button>
+        <Button variant="danger" size="sm" aria-label="Leave call" title="Leave" onClick={() => { void voice.leave(); }}
+          icon={<PhoneOff aria-hidden="true" />} />
       </div>
       <div class="voice-panel-controls">
         {listener ? (
-          <button
-            type="button"
-            class="voice-bar-btn"
-            data-off
-            disabled
+          <Button variant="secondary" fullWidth disabled
             aria-label="Listen only: your mic isn't heard in this channel"
             title="Listen only: talking in this channel needs a higher role"
-          >
-            <MicOff size={16} aria-hidden="true" />
-          </button>
+            icon={<MicOff aria-hidden="true" />} />
         ) : (
-          <button
-            type="button"
-            class="voice-bar-btn"
-            aria-pressed={call.muted}
-            data-off={call.muted || undefined}
-            aria-label={call.muted ? 'Unmute' : 'Mute'}
-            title={call.muted ? 'Unmute' : 'Mute'}
+          <Button variant="secondary" fullWidth pressed={call.muted}
+            aria-label={call.muted ? 'Unmute' : 'Mute'} title={call.muted ? 'Unmute' : 'Mute'}
             onClick={() => { void voice.setMuted(!call.muted); }}
-          >
-            {call.muted ? <MicOff size={16} aria-hidden="true" /> : <Mic size={16} aria-hidden="true" />}
-          </button>
+            icon={call.muted ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />} />
         )}
-        <button
-          type="button"
-          class="voice-bar-btn"
-          aria-pressed={call.deafened}
-          data-off={call.deafened || undefined}
-          aria-label={call.deafened ? 'Undeafen' : 'Deafen'}
-          title={call.deafened ? 'Undeafen' : 'Deafen'}
+        <Button variant="secondary" fullWidth pressed={call.deafened}
+          aria-label={call.deafened ? 'Undeafen' : 'Deafen'} title={call.deafened ? 'Undeafen' : 'Deafen'}
           onClick={() => { void voice.setDeafened(!call.deafened); }}
-        >
-          {call.deafened ? <HeadphoneOff size={16} aria-hidden="true" /> : <Headphones size={16} aria-hidden="true" />}
-        </button>
-        {!connecting && <CallVideoButtons withCallToggle={false} />}
-        <button type="button" class="voice-bar-btn" aria-label="Voice settings" title="Voice settings" onClick={() => openUserSettings('voice')}>
-          <SlidersHorizontal size={16} aria-hidden="true" />
-        </button>
+          icon={call.deafened ? <HeadphoneOff aria-hidden="true" /> : <Headphones aria-hidden="true" />} />
+        {!connecting && <CallVideoButtons withCallToggle={false} size="md" fullWidth />}
+        <Button variant="secondary" fullWidth aria-label="Voice settings" title="Voice settings" onClick={() => openUserSettings('voice')}
+          icon={<SlidersHorizontal aria-hidden="true" />} />
       </div>
       {/* A tablet in the wide layout has no key to hold: the button. */}
       {isMobile() && call.pushToTalk && !listener && !connecting && <HoldToTalk voice={voice} call={call} compact />}

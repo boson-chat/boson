@@ -31,4 +31,10 @@ describe('Menu', () => {
     expect(onClose).toHaveBeenCalledTimes(2);
     expect(screen.getByRole('menu').getAttribute('style')).toContain('left: 10px');
   });
+
+  it('can be a dialog popover (a slider inside, not commands)', () => {
+    render(<Menu label="ada's volume" role="dialog"><input type="range" aria-label="Volume" /></Menu>);
+    expect(screen.getByRole('dialog', { name: "ada's volume" })).toBeTruthy();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
 });

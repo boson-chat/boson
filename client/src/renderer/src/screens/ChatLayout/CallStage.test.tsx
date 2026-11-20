@@ -97,9 +97,9 @@ describe('the call stage (desktop)', () => {
     const grid = document.querySelector('.stage-grid') as HTMLElement;
     expect(grid.style.gridAutoRows).toBe('200px');
     expect(grid.style.gridTemplateColumns).toBe('repeat(4, minmax(0, 1fr))');
-    expect(screen.getByRole('button', { name: 'Turn camera on' }).hasAttribute('data-off')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Turn camera on' }).getAttribute('aria-pressed')).toBe('false');
     fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Unmute' }).hasAttribute('data-off')).toBe(true));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Unmute' }).getAttribute('aria-pressed')).toBe('true'));
   });
 });
 

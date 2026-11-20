@@ -33,4 +33,12 @@ describe('ListRow', () => {
     expect(container.querySelector('.bds-row-title-danger')).toBeTruthy();
     expect(container.querySelector('.bds-row-lg.bds-row-unread')).toBeTruthy();
   });
+
+  it('passes mainProps to the body button (disabled, aria-pressed)', () => {
+    const onClick = vi.fn();
+    render(<ListRow title="Share screen" onClick={onClick} mainProps={{ disabled: true, 'aria-pressed': false }} />);
+    const b = screen.getByRole('button', { name: /Share screen/ }) as HTMLButtonElement;
+    expect(b.disabled).toBe(true);
+    expect(b.getAttribute('aria-pressed')).toBe('false');
+  });
 });

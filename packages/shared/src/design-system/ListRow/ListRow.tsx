@@ -20,6 +20,8 @@ interface ListRowProps {
   onClick?: (e: MouseEvent) => void;
   /** The body button's accessible name. */
   ariaLabel?: string;
+  /** More attributes for the body button (disabled, aria-expanded, aria-pressed). */
+  mainProps?: Omit<JSX.ButtonHTMLAttributes<HTMLButtonElement>, 'class' | 'className' | 'onClick' | 'type'>;
   /** item: a row in a list (divider under it) · nav: a sidebar entry. */
   variant?: 'item' | 'nav';
   /** md (desktop) · lg (phones: bigger text, 16px inset, 44px+ targets). */
@@ -37,7 +39,7 @@ interface ListRowProps {
 // A row in a list: friends, calls, missed calls, the bell's entries, MY's
 // direct messages (and, as variant "nav", a sidebar's entries).
 export function ListRow({
-  leading, title, titleTone, meta, aside, subtitle, subtitleLines = 1, trailing, onClick, ariaLabel,
+  leading, title, titleTone, meta, aside, subtitle, subtitleLines = 1, trailing, onClick, ariaLabel, mainProps,
   variant = 'item', size = 'md', selected = false, unread = false, children, as = 'div', class: extra, rowProps,
 }: ListRowProps) {
   const cls = [
@@ -63,7 +65,7 @@ export function ListRow({
     <Tag {...(rowProps as unknown as JSX.HTMLAttributes<HTMLDivElement> & JSX.HTMLAttributes<HTMLLIElement>)} class={cls} aria-current={variant === 'nav' && selected ? 'page' : undefined}>
       <span class="bds-row-line">
         {onClick
-          ? <button type="button" class="bds-row-main" aria-label={ariaLabel} onClick={onClick}>{body}</button>
+          ? <button {...mainProps} type="button" class="bds-row-main" aria-label={ariaLabel} onClick={onClick}>{body}</button>
           : <span class="bds-row-main">{body}</span>}
         {trailing != null && <span class="bds-row-trail">{trailing}</span>}
       </span>

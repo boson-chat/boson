@@ -44,7 +44,7 @@ describe('the call on a phone: the minimized bar and the call screen', () => {
     expect(screen.getByText('38 ms')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
     await waitFor(() => expect(bridge.calls).toContainEqual({ method: 'setMuted', args: [true] }));
-    expect(screen.getByRole('button', { name: 'Unmute' }).hasAttribute('data-off')).toBe(true);
+    expect(screen.getByRole('button', { name: 'Unmute' }).getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'Open call' }));
     expect(view).toEqual({ host: 'irc.boson.chat', roomId: 'general', serverName: 'boson' });
     fireEvent.click(screen.getByRole('button', { name: 'Leave call' }));

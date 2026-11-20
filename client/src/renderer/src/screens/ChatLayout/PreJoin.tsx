@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { MicOff, Mic, Video, VideoOff, Volume2 } from 'lucide-preact';
+import { Button, EmptyState, ListRow } from '@boson/shared';
 import { useVideo } from '../../modules/video';
 import type { VoiceRoom, VoiceRoomParticipant } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
@@ -121,7 +122,7 @@ export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (n
             </div>
           ))}
           {people.length > 3 && <div class="prejoin-tile prejoin-more">+{people.length - 3} more</div>}
-          {people.length === 0 && <div class="prejoin-tile prejoin-empty">Nobody's here yet.</div>}
+          {people.length === 0 && <div class="prejoin-tile prejoin-empty"><EmptyState>Nobody's here yet.</EmptyState></div>}
         </div>
         <div class="prejoin-bar">
           <PreviewTile cls="prejoin-preview" camOn={j.camOn} starting={!!preview?.starting} error={preview?.error}
@@ -131,15 +132,13 @@ export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (n
             <span class="prejoin-here">{hereText(people.map((p) => p.name))} Pick how you join; you can change it any time.</span>
           </div>
           <div class="prejoin-actions">
-          <button type="button" class="prejoin-btn" data-off={!j.micOn || undefined} aria-pressed={!j.micOn}
-            aria-label={j.micOn ? 'Mute' : 'Unmute'} title={j.micOn ? 'Join with your mic on (click to mute)' : 'Join muted (click to unmute)'} onClick={j.toggleMic}>
-            {j.micOn ? <Mic size={20} aria-hidden="true" /> : <MicOff size={20} aria-hidden="true" />}
-          </button>
-          <button type="button" class="prejoin-btn" data-off={!j.camOn || undefined} aria-pressed={j.camOn}
-            aria-label={j.camOn ? 'Turn camera off' : 'Turn camera on'} title={j.camOn ? 'Join with your camera on' : 'Join with your camera off'} onClick={j.toggleCam}>
-            {j.camOn ? <Video size={20} aria-hidden="true" /> : <VideoOff size={20} aria-hidden="true" />}
-          </button>
-          <button type="button" class="prejoin-join" onClick={j.join}>Join call</button>
+          <Button variant="secondary" size="lg" pressed={!j.micOn}
+            aria-label={j.micOn ? 'Mute' : 'Unmute'} title={j.micOn ? 'Join with your mic on (click to mute)' : 'Join muted (click to unmute)'} onClick={j.toggleMic}
+            icon={j.micOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />} />
+          <Button variant="secondary" size="lg" pressed={j.camOn}
+            aria-label={j.camOn ? 'Turn camera off' : 'Turn camera on'} title={j.camOn ? 'Join with your camera on' : 'Join with your camera off'} onClick={j.toggleCam}
+            icon={j.camOn ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />} />
+          <Button variant="primary" size="lg" onClick={j.join}>Join call</Button>
           </div>
         </div>
       </div>
@@ -175,45 +174,52 @@ export function VoiceJoinSheet({ self, avatarFor }: { self: string; avatarFor?: 
           {shown.map((p) => {
             const st = personState(p);
             return (
-              <div key={`${p.sessionId}:${p.userId}`} class="joinsheet-person">
-                <span class="joinsheet-face" data-speaking={p.speaking || undefined}><Avatar nick={p.name} url={avatarFor?.(p.name)} size={28} /></span>
-                <span class="joinsheet-who">
-                  <span class="joinsheet-name">{p.name}{isGuestParticipant(p) && <> <GuestBadge /></>}</span>
-                  <span class="joinsheet-state" data-tone={st.tone}>{st.text}</span>
-                </span>
-                {(p.muted || p.deafened) && <MicOff size={16} class="joinsheet-muted" aria-label="muted" />}
-              </div>
+              <ListRow
+                key={`${p.sessionId}:${p.userId}`}
+                size="lg"
+                class="joinsheet-person"
+                leading={<span class="joinsheet-face" data-speaking={p.speaking || undefined}><Avatar nick={p.name} url={avatarFor?.(p.name)} size={28} /></span>}
+                title={<>{p.name}{isGuestParticipant(p) && <> <GuestBadge /></>}</>}
+                subtitle={<span class="joinsheet-state" data-tone={st.tone}>{st.text}</span>}
+                trailing={(p.muted || p.deafened) ? <MicOff size={16} class="joinsheet-muted" aria-label="muted" /> : undefined}
+              />
             );
           })}
-          {people.length === 0 && <div class="joinsheet-person joinsheet-empty">Nobody's here yet.</div>}
+          {people.length === 0 && <EmptyState class="joinsheet-empty">Nobody's here yet.</EmptyState>}
           {!all && people.length > 3 && (
-            <button type="button" class="joinsheet-more" aria-label={`Show everyone in ${j.room.name}`} onClick={() => setAll(true)}>
-              <span class="joinsheet-more-faces">
-                {people.slice(3, 9).map((p) => (
-                  <span key={`${p.sessionId}:${p.userId}`} class="joinsheet-more-face"><Avatar nick={p.name} url={avatarFor?.(p.name)} size={24} /></span>
-                ))}
-              </span>
-              <span class="joinsheet-more-text">and {people.length - 3} more</span>
-              <span class="joinsheet-more-link">Show all</span>
-            </button>
+            <ListRow
+              size="lg"
+              class="joinsheet-more"
+              ariaLabel={`Show everyone in ${j.room.name}`}
+              onClick={() => setAll(true)}
+              leading={(
+                <span class="joinsheet-more-faces">
+                  {people.slice(3, 9).map((p) => (
+                    <span key={`${p.sessionId}:${p.userId}`} class="joinsheet-more-face"><Avatar nick={p.name} url={avatarFor?.(p.name)} size={24} /></span>
+                  ))}
+                </span>
+              )}
+              title={<span class="joinsheet-more-text">and {people.length - 3} more</span>}
+              aside={<span class="joinsheet-more-link">Show all</span>}
+            />
           )}
           {all && people.length > 3 && (
-            <button type="button" class="joinsheet-fewer" onClick={() => setAll(false)}>Show fewer</button>
+            <Button variant="ghost" size="lg" tone="accent" fullWidth onClick={() => setAll(false)}>Show fewer</Button>
           )}
         </div>
         <PreviewTile cls="joinsheet-preview" camOn={j.camOn} starting={!!preview?.starting} error={preview?.error}
           self={self} selfAvatar={avatarFor?.(self)} facing={preview?.facing} attach={(el) => j.video?.attachPreview(el)} />
         <div class="joinsheet-toggles">
-          <button type="button" class="joinsheet-tog" data-off={!j.micOn || undefined} aria-pressed={j.micOn} onClick={j.toggleMic}>
-            {j.micOn ? <Mic size={22} aria-hidden="true" /> : <MicOff size={22} aria-hidden="true" />}
+          <Button variant="secondary" size="lg" fullWidth pressed={j.micOn} onClick={j.toggleMic}
+            icon={j.micOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />}>
             {j.micOn ? 'Mic on' : 'Muted'}
-          </button>
-          <button type="button" class="joinsheet-tog" data-off={!j.camOn || undefined} aria-pressed={j.camOn} onClick={j.toggleCam}>
-            {j.camOn ? <Video size={22} aria-hidden="true" /> : <VideoOff size={22} aria-hidden="true" />}
+          </Button>
+          <Button variant="secondary" size="lg" fullWidth pressed={j.camOn} onClick={j.toggleCam}
+            icon={j.camOn ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />}>
             {j.camOn ? 'Camera on' : 'Camera off'}
-          </button>
+          </Button>
         </div>
-        <button type="button" class="joinsheet-join" onClick={j.join}>Join call</button>
+        <Button variant="primary" size="lg" fullWidth onClick={j.join}>Join call</Button>
       </div>
     </BottomSheet>
   );

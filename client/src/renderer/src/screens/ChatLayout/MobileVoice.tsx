@@ -1,4 +1,6 @@
+import type { ComponentChildren, JSX } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
+import { Button, EmptyState, ListRow, Segmented } from '@boson/shared';
 import { Bluetooth, Ear, Headphones, HeadphoneOff, Mic, MicOff, PhoneOff, Signal, SignalLow, SignalMedium, Volume2 } from 'lucide-preact';
 import {
   getVoiceSettings, onVoiceSettingsChange, type VoiceController, type VoiceParticipant, type VoiceState,
@@ -12,22 +14,25 @@ import './MobileVoice.css';
 // mic or push to talk) and the hold-to-talk button. The call screen and
 // the minimized bar are MobileCall.tsx.
 
-function MuteButton({ voice, call, listener, small }: { voice: VoiceController; call: VoiceState; listener: boolean; small?: boolean }) {
+// A call control with its word under it: a 44px Button and a caption.
+function CallControl({ label, children }: { label: string; children: ComponentChildren }) {
+  return (
+    <div class="mvoice-ctl">
+      {children}
+      <span class="mvoice-ctl-label" aria-hidden="true">{label}</span>
+    </div>
+  );
+}
+
+function MuteButton({ voice, call, listener }: { voice: VoiceController; call: VoiceState; listener: boolean }) {
   const muted = call.muted || call.deafened;
   const label = listener ? "Listen only: talking here needs a higher role" : muted ? 'Unmute' : 'Mute';
   return (
-    <button
-      type="button"
-      class={small ? 'mvoice-icon-btn' : 'mvoice-round'}
-      data-on={muted || listener || undefined}
-      aria-pressed={muted}
-      aria-label={label}
-      disabled={listener}
-      onClick={() => { void voice.setMuted(!muted); }}
-    >
-      {muted || listener ? <MicOff size={small ? 20 : 26} aria-hidden="true" /> : <Mic size={small ? 20 : 26} aria-hidden="true" />}
-      {!small && <span class="mvoice-round-label">{listener ? 'Listening' : muted ? 'Muted' : 'Mute'}</span>}
-    </button>
+    <CallControl label={listener ? 'Listening' : muted ? 'Muted' : 'Mute'}>
+      <Button variant="secondary" size="lg" pressed={muted} aria-label={label} disabled={listener}
+        onClick={() => { void voice.setMuted(!muted); }}
+        icon={muted || listener ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />} />
+    </CallControl>
   );
 }
 
@@ -83,36 +88,31 @@ export function VoicePanel({ voice, call, serverName, avatarFor, onClose }: {
             voice={voice}
           />
         ))}
-        {call.participants.length === 0 && <li class="mvoice-empty">{connecting ? 'Joining…' : 'Nobody here yet.'}</li>}
+        {call.participants.length === 0 && <li class="mvoice-empty"><EmptyState>{connecting ? 'Joining…' : 'Nobody here yet.'}</EmptyState></li>}
       </ul>
 
       <div class="mvoice-controls">
         <MuteButton voice={voice} call={call} listener={listener} />
-        <button type="button" class="mvoice-round" data-on={call.deafened || undefined} aria-pressed={call.deafened}
-          aria-label={call.deafened ? 'Undeafen' : 'Deafen'} onClick={() => { void voice.setDeafened(!call.deafened); }}>
-          {call.deafened ? <HeadphoneOff size={26} aria-hidden="true" /> : <Headphones size={26} aria-hidden="true" />}
-          <span class="mvoice-round-label">{call.deafened ? 'Deafened' : 'Deafen'}</span>
-        </button>
-        <button type="button" class="mvoice-round" aria-pressed={call.speaker} disabled={headset}
-          aria-label={headset ? `Playing through ${routeLabel}` : call.speaker ? 'Switch to the earpiece' : 'Switch to the speaker'}
-          onClick={() => { void voice.setSpeaker(!call.speaker); }}>
-          <RouteIcon size={26} aria-hidden="true" />
-          <span class="mvoice-round-label">{routeLabel}</span>
-        </button>
-        <button type="button" class="mvoice-round mvoice-round-leave" aria-label="Leave voice"
-          onClick={() => { onClose(); void voice.leave(); }}>
-          <PhoneOff size={26} aria-hidden="true" />
-          <span class="mvoice-round-label">Leave</span>
-        </button>
+        <CallControl label={call.deafened ? 'Deafened' : 'Deafen'}>
+          <Button variant="secondary" size="lg" pressed={call.deafened}
+            aria-label={call.deafened ? 'Undeafen' : 'Deafen'} onClick={() => { void voice.setDeafened(!call.deafened); }}
+            icon={call.deafened ? <HeadphoneOff aria-hidden="true" /> : <Headphones aria-hidden="true" />} />
+        </CallControl>
+        <CallControl label={routeLabel}>
+          <Button variant="secondary" size="lg" pressed={call.speaker} disabled={headset}
+            aria-label={headset ? `Playing through ${routeLabel}` : call.speaker ? 'Switch to the earpiece' : 'Switch to the speaker'}
+            onClick={() => { void voice.setSpeaker(!call.speaker); }} icon={<RouteIcon aria-hidden="true" />} />
+        </CallControl>
+        <CallControl label="Leave">
+          <Button variant="danger" size="lg" aria-label="Leave voice"
+            onClick={() => { onClose(); void voice.leave(); }} icon={<PhoneOff aria-hidden="true" />} />
+        </CallControl>
       </div>
 
       {!listener && (
-        <div class="mvoice-mode" role="radiogroup" aria-label="When you transmit">
-          <button type="button" role="radio" aria-checked={mode === 'vad'} class="mvoice-mode-opt"
-            onClick={() => voice.setInputMode('vad')}>Open mic</button>
-          <button type="button" role="radio" aria-checked={mode === 'ptt'} class="mvoice-mode-opt"
-            onClick={() => voice.setInputMode('ptt')}>Push to talk</button>
-        </div>
+        <Segmented size="lg" class="mvoice-mode" label="When you transmit" value={mode}
+          options={[{ id: 'vad', label: 'Open mic' }, { id: 'ptt', label: 'Push to talk' }]}
+          onChange={(m) => voice.setInputMode(m)} />
       )}
       {!listener && mode === 'ptt' && <HoldToTalk voice={voice} call={call} />}
     </BottomSheet>
@@ -130,18 +130,24 @@ function Person({ p, url, open, onToggle, voice }: {
   const state = [p.speaking ? 'speaking' : '', p.listener ? 'listening' : p.muted ? 'muted' : '', p.deafened ? 'deafened' : ''].filter(Boolean).join(', ');
   const name = `${p.name}${p.self ? ' (you)' : ''}`;
   return (
-    <li class="mvoice-person" data-speaking={p.speaking || undefined}>
-      <button type="button" class="mvoice-person-row" disabled={p.self || !p.userId} aria-expanded={p.self ? undefined : open}
-        aria-label={`${name}${state ? `: ${state}` : ''}${p.self ? '' : '. Volume'}`} onClick={onToggle}>
-        <span class="mvoice-person-avatar" data-speaking={p.speaking || undefined}>
-          <Avatar nick={p.name} url={url} size={32} />
-        </span>
-        <span class="mvoice-person-name">{name}</span>
+    <ListRow
+      as="li"
+      size="lg"
+      class="mvoice-person"
+      rowProps={{ 'data-speaking': p.speaking || undefined, ...(p.self || !p.userId ? { 'aria-label': `${name}${state ? `: ${state}` : ''}` } : {}) } as JSX.HTMLAttributes<HTMLElement>}
+      leading={<span class="mvoice-person-avatar" data-speaking={p.speaking || undefined}><Avatar nick={p.name} url={url} size={32} /></span>}
+      title={name}
+      titleTone={p.speaking ? 'success' : undefined}
+      aside={(<>
         {!p.self && p.volume !== 100 && <span class="mvoice-person-vol">{p.volume}%</span>}
         {p.deafened ? <HeadphoneOff size={16} class="mvoice-person-flag" aria-hidden="true" />
           : p.listener ? <span class="mvoice-person-listening">listening</span>
           : p.muted ? <MicOff size={16} class="mvoice-person-flag" aria-hidden="true" /> : null}
-      </button>
+      </>)}
+      onClick={p.self || !p.userId ? undefined : onToggle}
+      ariaLabel={`${name}${state ? `: ${state}` : ''}. Volume`}
+      mainProps={{ 'aria-expanded': open }}
+    >
       {open && (
         <div class="mvoice-person-volume">
           <input
@@ -161,7 +167,7 @@ function Person({ p, url, open, onToggle, voice }: {
           <span class="mvoice-person-vol">{volume}%</span>
         </div>
       )}
-    </li>
+    </ListRow>
   );
 }
 
@@ -178,11 +184,14 @@ export function HoldToTalk({ voice, call, compact }: { voice: VoiceController; c
   useEffect(() => () => voice.holdToTalk(false), [voice]);
   const on = held && call.transmitting && !call.muted && !call.deafened;
   return (
-    <button
-      type="button"
+    <Button
+      variant={on ? 'success' : 'secondary'}
+      size={compact ? 'lg' : 'xl'}
+      fullWidth
       class={`mvoice-ptt${compact ? ' mvoice-ptt-compact' : ''}`}
       data-held={held || undefined}
       data-on={on || undefined}
+      pressed={on ? undefined : held}
       aria-pressed={held}
       aria-label="Hold to talk"
       onPointerDown={(e) => {
@@ -195,9 +204,9 @@ export function HoldToTalk({ voice, call, compact }: { voice: VoiceController; c
       onPointerCancel={up}
       onLostPointerCapture={up}
       onContextMenu={(e) => e.preventDefault()}
+      icon={<Mic aria-hidden="true" />}
     >
-      <Mic size={22} aria-hidden="true" />
       {held ? (call.muted || call.deafened ? 'Muted' : 'Talking…') : 'Hold to talk'}
-    </button>
+    </Button>
   );
 }

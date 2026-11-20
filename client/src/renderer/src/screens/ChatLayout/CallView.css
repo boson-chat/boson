@@ -1,41 +1,21 @@
 /* The camera and screen buttons (CallVideoButtons in CallControls.tsx)
-   and their menus, shared by the voice panel and the call docks. */
+   and their menus, shared by the voice panel and the call docks. Layout
+   only: the buttons are the shared Button, the menus the shared Menu. */
 
 .call-video-buttons { display: inline-flex; align-items: center; gap: 2px; position: relative; }
+/* Starting the camera or a share: a slow blink until it's live. */
 .call-video-buttons [data-starting] { animation: call-pulse 1s ease-in-out infinite; }
 @keyframes call-pulse { 50% { opacity: 0.5; } }
-.call-video-error { font-size: 0.75em; color: var(--text-danger, #f23f43); margin-left: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  .call-video-buttons [data-starting] { animation: none; opacity: 0.7; }
+}
+.call-video-error { font-size: var(--text-xs); color: var(--danger-fg); margin-left: 4px; }
 .call-menu {
   position: absolute;
   bottom: calc(100% + 6px);
   left: 0;
-  z-index: 20;
   min-width: 220px;
   max-height: 320px;
   overflow: auto;
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
-  border-radius: 6px;
-  background: var(--bg-floating, #111214);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
-
-.call-menu-item {
-  text-align: left;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  padding: 6px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-.call-menu-item:hover:not(:disabled) { background: var(--bg-modifier-hover, rgba(255, 255, 255, 0.06)); }
-.call-menu-item:disabled { opacity: 0.5; cursor: default; }
-.call-menu-dim { opacity: 0.6; }
-.call-menu-cancel { opacity: 0.8; }
-/* Video on (camera, screen, call view open): live, not a warning (data-on
-   is the voice bar's red "muted/deafened"). */
-.voice-bar-btn[data-live] { color: var(--success, #23a55a); }
-.voice-bar-btn[data-paused] { color: var(--warn, #e0a32a); }
-
+.call-menu-dim { color: var(--fg-3); }

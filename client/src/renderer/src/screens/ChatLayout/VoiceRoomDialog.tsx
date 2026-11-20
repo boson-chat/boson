@@ -139,7 +139,7 @@ export function VoiceRoomDialog({ voice, dialog, server, joinedChannels, isNetwo
             <Button type="button" variant="ghost" disabled={busy} onClick={() => (dialog.kind === 'edit' && dialog.confirmDelete ? onClose() : setConfirmDelete(false))}>
               Cancel
             </Button>
-            <Button type="button" variant="primary" data-tone="danger" disabled={busy} loading={busy} onClick={() => { void remove(); }}>
+            <Button type="button" variant="danger" disabled={busy} loading={busy} onClick={() => { void remove(); }}>
               Delete channel
             </Button>
           </div>
@@ -217,7 +217,7 @@ export function VoiceRoomDialog({ voice, dialog, server, joinedChannels, isNetwo
 
         <div class="voice-dialog-actions">
           {editing && (
-            <Button type="button" variant="ghost" data-tone="danger-ghost" disabled={busy} onClick={() => setConfirmDelete(true)}>
+            <Button type="button" variant="ghost" tone="danger" disabled={busy} onClick={() => setConfirmDelete(true)}>
               Delete channel
             </Button>
           )}

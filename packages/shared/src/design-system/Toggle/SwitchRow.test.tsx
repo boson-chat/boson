@@ -26,4 +26,9 @@ describe('SwitchRow', () => {
     await userEvent.setup().click(screen.getByText('DND'));
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('passes role="switch" to its switch', () => {
+    render(<SwitchRow title="Share sound" checked={false} onChange={() => {}} role="switch" />);
+    expect(screen.getByRole('switch', { name: 'Share sound' }).getAttribute('aria-checked')).toBe('false');
+  });
 });
