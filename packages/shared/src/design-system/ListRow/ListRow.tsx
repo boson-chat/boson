@@ -32,13 +32,15 @@ interface ListRowProps {
   as?: 'div' | 'li';
   class?: string;
   rowProps?: JSX.HTMLAttributes<HTMLElement>;
+  /** Extra attributes for the body button when onClick is set (a settings menu's role="tab" + aria-selected). */
+  mainProps?: JSX.HTMLAttributes<HTMLButtonElement>;
 }
 
 // A row in a list: friends, calls, missed calls, the bell's entries, MY's
 // direct messages (and, as variant "nav", a sidebar's entries).
 export function ListRow({
   leading, title, titleTone, meta, aside, subtitle, subtitleLines = 1, trailing, onClick, ariaLabel,
-  variant = 'item', size = 'md', selected = false, unread = false, children, as = 'div', class: extra, rowProps,
+  variant = 'item', size = 'md', selected = false, unread = false, children, as = 'div', class: extra, rowProps, mainProps,
 }: ListRowProps) {
   const cls = [
     'bds-row', `bds-row-${variant}`, `bds-row-${size}`,
@@ -63,7 +65,7 @@ export function ListRow({
     <Tag {...(rowProps as unknown as JSX.HTMLAttributes<HTMLDivElement> & JSX.HTMLAttributes<HTMLLIElement>)} class={cls} aria-current={variant === 'nav' && selected ? 'page' : undefined}>
       <span class="bds-row-line">
         {onClick
-          ? <button type="button" class="bds-row-main" aria-label={ariaLabel} onClick={onClick}>{body}</button>
+          ? <button {...mainProps} type="button" class="bds-row-main" aria-label={ariaLabel} onClick={onClick}>{body}</button>
           : <span class="bds-row-main">{body}</span>}
         {trailing != null && <span class="bds-row-trail">{trailing}</span>}
       </span>

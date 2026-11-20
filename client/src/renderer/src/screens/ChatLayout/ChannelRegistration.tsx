@@ -6,7 +6,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { RefreshCw, ShieldCheck, ShieldOff, ShieldAlert } from 'lucide-preact';
-import { Button, Input, Toggle } from '@boson/shared';
+import { Button, Input, ListRow, SwitchRow } from '@boson/shared';
 import {
   CHAN_ROLES, chanServErrorText, sameName,
   type AccessEntry, type ChanRole, type ChanServController, type ChanServResult, type ChanServState, type ChannelPolicy,
@@ -140,9 +140,15 @@ function StatusBlock({ channel, info, loading, error, policy, isFounder, onRefre
         {lines.map((l, i) => <p key={i} class="chan-reg-status-line">{l}</p>)}
         {error && !info && error.code === 'unreadable' && <ReplyDetails lines={error.lines} />}
       </div>
-      <button type="button" class="chat-icon-btn chan-reg-refresh" onClick={onRefresh} title="Check again" aria-label="Check registration again">
-        <RefreshCw size={14} aria-hidden="true" />
-      </button>
+      <Button
+        variant="ghost"
+        size="sm"
+        class="chan-reg-refresh"
+        icon={<RefreshCw size={14} />}
+        onClick={onRefresh}
+        title="Check again"
+        aria-label="Check registration again"
+      />
     </section>
   );
 }
@@ -258,10 +264,7 @@ function RolesSection({ channel, ctl, founder, roles, access, status, error }: {
       <h4 class="chan-settings-heading">Roles</h4>
       <p class="chan-settings-note">Given automatically whenever these accounts join.</p>
       {founder && (
-        <div class="chan-role-row chan-role-founder">
-          <span class="chan-role-account">{founder}</span>
-          <span class="chan-role-fixed">Founder</span>
-        </div>
+        <ListRow class="chan-role-row chan-role-founder" title={founder} trailing={<span class="chan-role-fixed">Founder</span>} />
       )}
       {status === 'loading' && !access && <p class="chan-settings-note">Loading roles…</p>}
       {status === 'error' && error && <p class="chan-reg-error">{chanServErrorText(error)}</p>}
@@ -292,26 +295,31 @@ function RolesSection({ channel, ctl, founder, roles, access, status, error }: {
 function RoleRow({ channel, ctl, entry, roles }: { channel: string; ctl: ChanServController; entry: AccessEntry; roles: readonly ChanRole[] }) {
   const [busy, result, run] = useAction();
   return (
-    <li class="chan-role-row">
-      <span class="chan-role-account">{entry.account}</span>
-      {entry.role ? (
-        <select
-          class="bds-input bds-input-sm chan-role-select" aria-label={`Role for ${entry.account}`} value={entry.role} disabled={busy}
-          onChange={(e) => {
-            const next = (e.target as HTMLSelectElement).value as ChanRole;
-            void run(() => ctl.setAccess(channel, entry.account, next, entry.role));
-          }}
-        >
-          {CHAN_ROLES.filter((r) => roles.includes(r)).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-        </select>
-      ) : (
-        <span class="chan-role-fixed" title="A custom access level, managed with ChanServ directly">{entry.raw}</span>
-      )}
-      <Button variant="ghost" size="sm" disabled={busy} onClick={() => run(() => ctl.setAccess(channel, entry.account, null, entry.role))}>
-        Remove
-      </Button>
+    <ListRow
+      as="li"
+      class="chan-role-row"
+      title={entry.account}
+      trailing={<>
+        {entry.role ? (
+          <select
+            class="bds-input bds-input-sm chan-role-select" aria-label={`Role for ${entry.account}`} value={entry.role} disabled={busy}
+            onChange={(e) => {
+              const next = (e.target as HTMLSelectElement).value as ChanRole;
+              void run(() => ctl.setAccess(channel, entry.account, next, entry.role));
+            }}
+          >
+            {CHAN_ROLES.filter((r) => roles.includes(r)).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+          </select>
+        ) : (
+          <span class="chan-role-fixed" title="A custom access level, managed with ChanServ directly">{entry.raw}</span>
+        )}
+        <Button variant="ghost" size="sm" disabled={busy} onClick={() => run(() => ctl.setAccess(channel, entry.account, null, entry.role))}>
+          Remove
+        </Button>
+      </>}
+    >
       {result?.kind === 'error' && <span class="chan-role-error">{chanServErrorText(result.code)}</span>}
-    </li>
+    </ListRow>
   );
 }
 
@@ -343,13 +351,13 @@ function OptionRow({ channel, ctl, option, info }: {
   const known = info.options !== undefined;
   return (
     <div class="chan-mode-row">
-      <Toggle
+      <SwitchRow
+        title={option.label}
+        description={option.hint}
         checked={!!info.options?.[option.id]}
         disabled={busy || !known}
-        label={option.label}
         onChange={(next) => void run(() => ctl.setOption(channel, option.id, next))}
       />
-      <span class="chan-mode-hint">{option.hint}</span>
       {result?.kind === 'error' && <span class="chan-role-error">{chanServErrorText(result.code)}</span>}
     </div>
   );
@@ -420,7 +428,7 @@ function OwnershipSection({ channel, ctl, transfer, unregister, myAccount }: {
               <label class="chan-settings-note" for="cs-drop">Type <strong>{channel}</strong> to confirm.</label>
               <div class="chan-param-row">
                 <Input inputSize="sm" id="cs-drop" type="text" value={typed} autoComplete="off" onInput={(e) => setTyped((e.target as HTMLInputElement).value)} />
-                <Button size="sm" loading={dBusy} disabled={!sameName(typed.trim(), channel)} onClick={() => runDrop(() => ctl.unregister(channel))}>
+                <Button variant="danger" size="sm" loading={dBusy} disabled={!sameName(typed.trim(), channel)} onClick={() => runDrop(() => ctl.unregister(channel))}>
                   Unregister
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => { setConfirmDrop(false); setTyped(''); }}>Cancel</Button>

@@ -24,41 +24,6 @@
   overflow-y: auto;
 }
 
-.user-settings-menu-item {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  color: var(--fg-2);
-  transition: background var(--motion-fast) var(--ease-standard),
-              color var(--motion-fast) var(--ease-standard),
-              border-color var(--motion-fast) var(--ease-standard);
-}
-.user-settings-menu-item:hover { background: var(--surface-hover); color: var(--fg); }
-.user-settings-menu-item-active {
-  background: var(--surface-raised);
-  color: var(--fg);
-  border-color: var(--border);
-}
-.user-settings-menu-item-active .user-settings-menu-label { color: var(--accent); }
-
-.user-settings-menu-label {
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: 700;
-  letter-spacing: var(--tracking-display);
-}
-.user-settings-menu-desc {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-}
-
 .user-settings-body {
   flex: 1;
   min-width: 0;
@@ -135,13 +100,13 @@
   gap: var(--space-2);
 }
 .user-settings-error {
-  color: var(--danger, #ef4444);
+  color: var(--danger-fg);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   margin: 0;
 }
 .user-settings-warning {
-  color: var(--warn, #f59e0b);
+  color: var(--warn);
   font-size: var(--text-xs);
   line-height: 1.4;
   margin: 0;
@@ -153,7 +118,7 @@
   margin: 0;
 }
 .user-settings-saved {
-  color: var(--success, #10b981);
+  color: var(--success);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   /* Transient confirmation badge — appears, lingers ~1.5s (driven by
@@ -438,7 +403,7 @@
   line-height: 1.4;
   text-align: right;
 }
-.user-settings-update-error { color: var(--danger, #ef4444); }
+.user-settings-update-error { color: var(--danger-fg); }
 /* Why an update must be installed by hand (macOS translocation, a
    read-only folder, a copy too old to update in place): full width, under
    the version row. */
@@ -447,7 +412,7 @@
   padding: var(--space-2) 0;
   font-size: var(--text-xs);
   line-height: 1.5;
-  color: var(--warn, #f59e0b);
+  color: var(--warn);
 }
 /* The release's notes, shortened by the shell to plain-text lines. */
 .user-settings-update-notes {
@@ -480,8 +445,13 @@
     border-bottom: 1px solid var(--border-soft);
     gap: var(--space-1);
   }
-  .user-settings-menu-item { flex-shrink: 0; }
-  .user-settings-menu-desc { display: none; }
+  .user-settings-menu > .bds-row { flex-shrink: 0; }
+  .user-settings-menu .bds-row-sub { display: none; }
+  /* Across the top the selected entry's accent edge goes under it (as a
+     tab's), and each entry is a 44px touch target. */
+  .user-settings-menu > .bds-row-nav { border-left: 0; border-bottom: 2px solid transparent; }
+  .user-settings-menu > .bds-row-nav.bds-row-selected { border-bottom-color: var(--accent); }
+  .user-settings-menu .bds-row-main { min-height: var(--control-lg); padding-right: var(--space-4); }
   .user-settings-body { padding-left: 0; padding-top: var(--space-4); }
 }
 
@@ -491,78 +461,12 @@
 .user-settings-identities-title { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg); font-weight: 600; }
 .user-settings-identities-desc { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--fg-3); }
 .user-settings-identities-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
-.user-settings-identity {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) 0;
-  border-top: 1px solid var(--border-soft, var(--border));
-}
-.user-settings-identity-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.user-settings-identity-name { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg); }
-.user-settings-identity-meta {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ---------- Directories section ---------- */
-
-.directories-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.directories-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-1);
-}
-.directories-row + .directories-row { border-top: 1px solid var(--border-soft); }
-.directories-row-off .directories-row-titles { opacity: 0.55; }
-.directories-row-titles {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.directories-row-name {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--fg);
-}
-.directories-row-host {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--fg-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.directories-row-operator {
-  font-size: 12px;
-  color: var(--fg-3);
-}
-.directories-row-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-shrink: 0;
-}
-
-/* ---------- Network accounts section ---------- */
-
-.netauth-account + .netauth-account { border-top: 1px solid var(--border-soft); }
-.netauth-account-detail { padding: 0 var(--space-1) var(--space-3); margin: 0; }
+/* Rows of directories / network accounts (ListRow): a dimmed row when it's
+   off, a third line under the row, a network's linked sign-ins under it. */
+.settings-rows { list-style: none; margin: 0; padding: 0; }
+.settings-row-off .bds-row-text { opacity: 0.55; }
+.settings-row-note { font-size: var(--text-xs); color: var(--fg-3); }
+.settings-row-detail { padding: var(--space-2) 0 var(--space-1); margin: 0; }
 
 /* Content → image cache: what it holds, its cap, clear. */
 .user-settings-image-cache { gap: var(--space-3); }
@@ -582,10 +486,5 @@
   color: var(--fg-2);
 }
 
-/* Notifications: a switch per kind, each with what it does. */
-.user-settings-notify-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
-.user-settings-notify-row-off { opacity: .55; }
-.user-settings-notify-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.user-settings-notify-label { font: 600 13px var(--font-mono); color: var(--fg); }
-.user-settings-notify-hint { font-size: 12px; color: var(--fg-2); }
+/* Notifications: the per-channel note under the switches. */
 .user-settings-notify-note { margin: 0; font-size: 12px; color: var(--fg-3); }

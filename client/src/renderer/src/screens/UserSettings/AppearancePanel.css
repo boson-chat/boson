@@ -37,7 +37,7 @@
   padding: 8px 6px;
   border-right: 1px solid;
 }
-.appearance-swatch-side > span { height: 3px; border-radius: 2px; }
+.appearance-swatch-side > span { height: 3px; border-radius: var(--radius-sm); }
 .appearance-swatch-main {
   position: relative;
   flex: 1;
@@ -46,7 +46,7 @@
   gap: 6px;
   padding: 8px;
 }
-.appearance-swatch-main > span { height: 3px; border-radius: 2px; }
+.appearance-swatch-main > span { height: 3px; border-radius: var(--radius-sm); }
 .appearance-swatch-main > .appearance-swatch-input {
   position: absolute;
   left: 6px;
@@ -55,7 +55,7 @@
   width: auto;
   height: 9px;
   border: 1px solid;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .appearance-tile-label {
@@ -105,15 +105,14 @@
   color: var(--fg-2);
 }
 
-.appearance-base,
 .appearance-group {
   margin: 0;
   padding: 0;
   border: 0;
   min-width: 0;
 }
-.appearance-base { display: flex; gap: var(--space-3); font-family: var(--font-mono); font-size: var(--text-xs); }
-.appearance-base legend,
+.appearance-base { display: flex; flex-direction: column; gap: var(--space-2); }
+.appearance-legend,
 .appearance-group legend {
   padding: 0;
   margin-bottom: var(--space-2);
@@ -123,7 +122,8 @@
   text-transform: uppercase;
   color: var(--fg-3);
 }
-.appearance-base label { display: flex; align-items: center; gap: var(--space-1); color: var(--fg); }
+.appearance-legend { margin-bottom: 0; }
+.appearance-font { grid-column: 1 / -1; }
 
 .appearance-group {
   display: grid;

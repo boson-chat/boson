@@ -1,7 +1,8 @@
 import type { ComponentChildren } from 'preact';
 import './Badge.css';
 
-export type BadgeTone = 'ops' | 'mod' | 'verified' | 'info' | 'danger' | 'warn' | 'success';
+// accent: a state that's on / in force (data saver on, a channel's cap) · neutral: the same state when off.
+export type BadgeTone = 'ops' | 'mod' | 'verified' | 'info' | 'danger' | 'warn' | 'success' | 'accent' | 'neutral';
 
 interface BadgeProps {
   tone?: BadgeTone;

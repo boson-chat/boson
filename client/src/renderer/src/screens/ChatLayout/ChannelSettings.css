@@ -24,22 +24,23 @@
   letter-spacing: var(--tracking-wide, 0.08em);
 }
 
-/* Boolean modes: a DS Toggle + a muted hint on the same row. */
+/* Boolean modes: one SwitchRow each. */
 .chan-modes {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
 }
-.chan-mode-row {
+.chan-mode-row { min-width: 0; }
+/* Registration's choice options: label, picker, hint on one line. */
+.chan-option-choice {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-3);
   min-width: 0;
 }
-.chan-mode-row .bds-toggle { flex-shrink: 0; }
 .chan-mode-hint {
   font-size: var(--text-xs);
   color: var(--fg-3);
@@ -64,7 +65,7 @@
 .chan-topic {
   width: 100%;
   resize: vertical;
-  background: var(--surface-sunken, var(--surface));
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   color: var(--fg);
@@ -77,33 +78,14 @@
 .chan-topic:focus { outline: none; border-color: var(--accent); }
 .chan-topic:disabled { opacity: 0.6; cursor: not-allowed; }
 
-/* Ban list. */
+/* Ban list: ListRows. */
 .chan-bans {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
   max-height: 180px;
   overflow-y: auto;
 }
-.chan-ban-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--surface-sunken, var(--surface));
-}
-.chan-ban-mask {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-2);
-}
-.chan-ban-meta { font-size: var(--text-xs); color: var(--fg-3); }
+.chan-ban-mask { font: inherit; }
