@@ -82,6 +82,8 @@
    a page full screen with a back arrow (the conversation, its members,
    Friends, Calls). No drawers, no bottom bar. */
 .app-shell.is-narrow { position: relative; }
+/* One screen at a time: never wider than the phone, whatever a title says. */
+.app-shell.is-narrow > * { min-width: 0; max-width: 100%; }
 .app-shell.is-narrow .resize-handle { display: none; }
 .phone-screen {
   flex: 1 1 auto;

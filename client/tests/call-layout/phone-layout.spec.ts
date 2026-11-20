@@ -6,6 +6,16 @@ import { expect, test, type Page } from '@playwright/test';
 
 const PHONES = [[390, 844, 'iphone'], [360, 800, 'android']] as const;
 const shell = (page: Page) => page.locator('.app-shell');
+// Nothing wider than the phone: no sideways scroll, every screen inside it.
+async function fits(page: Page): Promise<void> {
+  const m = await page.evaluate(() => ({
+    scroll: document.documentElement.scrollWidth - innerWidth,
+    widest: Math.max(...[...document.querySelectorAll('.app-shell > *, .phone-screen > *, .phone-page, .mcall, .title-bar')].map((e) => e.getBoundingClientRect().right)),
+    vw: innerWidth,
+  }));
+  expect(m.scroll).toBeLessThanOrEqual(0);
+  expect(m.widest).toBeLessThanOrEqual(m.vw + 0.5);
+}
 
 for (const [w, h, phone] of PHONES) {
   test(`${phone} (${w}×${h}): top bar, slim rail and the channel list; channels open full screen`, async ({ page }) => {
@@ -37,12 +47,14 @@ for (const [w, h, phone] of PHONES) {
     // A compact server header, not the big banner.
     expect(m.head!.h).toBeLessThanOrEqual(64);
     await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible();
+    await fits(page);
     await page.screenshot({ path: test.info().outputPath(`home-${phone}.png`) });
 
     // A channel opens full screen, with a back arrow.
     await page.locator('.channel-item', { hasText: 'dev' }).click();
     await expect(shell(page)).toHaveClass(/\bphone-chat\b/);
     expect((await page.locator('.chat-area').boundingBox())!.width).toBeGreaterThan(w - 2);
+    await fits(page);
     await page.screenshot({ path: test.info().outputPath(`chat-${phone}.png`) });
     await page.getByRole('button', { name: /^Members \(/ }).click();
     await expect(shell(page)).toHaveClass(/\bphone-members\b/);
@@ -54,20 +66,24 @@ for (const [w, h, phone] of PHONES) {
     const rows = page.locator('.my-sidebar .my-row');
     await expect(rows.nth(0)).toHaveAccessibleName('Friends, 1 request');
     await expect(rows.nth(1)).toHaveAccessibleName('Calls, 1 missed');
+    await fits(page);
     await page.screenshot({ path: test.info().outputPath(`my-${phone}.png`) });
     await rows.nth(0).click();
     await expect(page.getByRole('main', { name: 'Friends' })).toBeVisible();
     await expect(shell(page)).toHaveClass(/\bphone-friends\b/);
+    await fits(page);
     await page.screenshot({ path: test.info().outputPath(`friends-${phone}.png`) });
     await page.getByRole('button', { name: 'Back to MY' }).click();
     await page.locator('.my-sidebar .my-row').nth(1).click();
     await expect(page.getByRole('main', { name: 'Calls' })).toBeVisible();
+    await fits(page);
     await page.getByRole('button', { name: 'Back to MY' }).click();
 
     // A DM opens full screen too.
     await page.getByRole('button', { name: /^mox/ }).click();
     await expect(shell(page)).toHaveClass(/\bphone-chat\b/);
     await expect(page.locator('.chat-header')).toContainText('mox');
+    await fits(page);
   });
 
   test(`${phone}: a voice channel's join sheet, the call screen and the minimized bar`, async ({ page }) => {
@@ -78,6 +94,12 @@ for (const [w, h, phone] of PHONES) {
     await page.getByRole('button', { name: 'Join call' }).click();
     await expect(page.locator('.mcall')).toBeVisible();
     await expect(shell(page)).toHaveClass(/\bphone-call\b/);
+    // A long title (a private call with someone's long nick) never widens it.
+    await page.locator('.mcall-title').evaluate((el) => { el.textContent = 'Call with TheLion-windows-desktop-machine'; });
+    const fit = await page.evaluate(() => ({ call: document.querySelector('.mcall')!.getBoundingClientRect().width, scroll: document.documentElement.scrollWidth - innerWidth }));
+    expect(fit.call).toBeLessThanOrEqual(w);
+    expect(fit.scroll).toBeLessThanOrEqual(0);
+    await fits(page);
     await page.screenshot({ path: test.info().outputPath(`call-${phone}.png`) });
     await page.getByRole('button', { name: /inimi/ }).first().click();
     await expect(page.locator('.mcall-mini')).toBeVisible();
