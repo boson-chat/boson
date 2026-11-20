@@ -71,3 +71,5 @@
 .nick-context-menu-item-danger:hover {
   background: color-mix(in oklab, var(--danger), transparent 88%);
 }
+/* A choice in a set (Notifications: All / Mentions / Nothing). */
+.menu-check { display: inline-block; width: 1.2em; color: var(--accent); }

@@ -217,8 +217,12 @@ async function installNotifications(): Promise<void> {
     }
   }
   NativeNotification.permission = (await Call.ByName(`${NOTIFY}.Permission`)) as NotificationPermission;
+  // A click (desktop) or a tap (iOS, Android): its id; Android's comes
+  // straight from the activity, possibly wrapped.
   Events.On('notification:click', (ev) => {
-    const n = byId.get(ev.data as string);
+    const d = ev.data as unknown;
+    const id = typeof d === 'string' ? d : Array.isArray(d) && typeof d[0] === 'string' ? d[0] : '';
+    const n = byId.get(id);
     n?.onclick?.call(n, new Event('click'));
   });
   (window as unknown as { Notification: unknown }).Notification = NativeNotification;

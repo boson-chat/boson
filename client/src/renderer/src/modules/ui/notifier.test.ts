@@ -181,3 +181,57 @@ describe('Notifier window tracking', () => {
     expect(n.isFocused()).toBe(true);
   });
 });
+
+describe('in-app toasts', () => {
+  beforeEach(async () => {
+    localStorage.clear();
+    __resetNotificationSettingsCache();
+    const { setNotificationFeed, NotificationFeed } = await import('../notifications/feed');
+    setNotificationFeed(new NotificationFeed());
+  });
+
+  it('a mention or DM elsewhere toasts, focused or not; the open conversation does not', async () => {
+    const { getNotificationFeed } = await import('../notifications/feed');
+    const n = new Notifier();
+    n.setFocusedForTest(true);
+    n.notify(ev({ kind: 'mention', channel: '#ops', serverName: 'Nebula' }));
+    n.notify(ev({ kind: 'dm', channel: 'mira', from: 'mira', text: 'psst' }));
+    n.notify(ev({ kind: 'mention', channel: '#dev', text: 'here', open: true }));
+    const t = getNotificationFeed().getSnapshot().toasts;
+    expect(t.map((x) => [x.kind, x.title, x.where])).toEqual([
+      ['dm', 'mira', 'direct message'],
+      ['mention', 'alice', '#ops · Nebula'],
+    ]);
+  });
+
+  it('the open conversation toasts while something else covers it', async () => {
+    const { getNotificationFeed } = await import('../notifications/feed');
+    const { setConversationShown } = await import('./notifier');
+    setConversationShown(() => false);
+    new Notifier().notify(ev({ kind: 'dm', channel: 'mira', from: 'mira', open: true }));
+    setConversationShown(null);
+    expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(1);
+  });
+
+  it('follows the switches and the channel level', async () => {
+    const { getNotificationFeed } = await import('../notifications/feed');
+    const { setChannelLevel } = await import('./notifications.store');
+    const n = new Notifier();
+    setNotificationSettings({ inApp: false });
+    n.notify(ev({ text: 'one' }));
+    expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(0);
+    setNotificationSettings({ inApp: true, mentions: false });
+    n.notify(ev({ text: 'two' }));
+    expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(0);
+    setNotificationSettings({ mentions: true });
+    // A plain message: only for a channel set to All.
+    n.notify(ev({ kind: 'message', text: 'three' }));
+    expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(0);
+    setChannelLevel('s1', '#general', 'all');
+    n.notify(ev({ kind: 'message', text: 'four' }));
+    expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(1);
+    setChannelLevel('s1', '#general', 'nothing');
+    n.notify(ev({ kind: 'mention', text: 'five' }));
+    expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(1);
+  });
+});

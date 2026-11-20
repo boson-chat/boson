@@ -18,11 +18,14 @@ import { LoginScreen } from './screens/LoginScreen';
 import { DirectoryScreen } from './screens/DirectoryScreen';
 import { TitleBar } from './screens/TitleBar/TitleBar';
 import { UserSettings } from './screens/UserSettings/UserSettings';
-import { Inbox } from './screens/Inbox/Inbox';
+import { NotificationsPanel, useUnreadNotes } from './screens/Notifications/NotificationsPanel';
+import { Toasts } from './screens/Notifications/Toasts';
+import { getNotificationFeed } from './modules/notifications/feed';
+import { useNarrow } from './shared/narrow';
+import { isMobile } from './shared/window-controls';
 import { NetworkSignInHost } from './screens/NetworkSignIn/NetworkSignIn';
 import { loadGuestSession, onGuestChange, type GuestSession } from './modules/guest/guest';
-import { getMemoStore, type Memo } from './modules/memos';
-import { publishOpenConversation, publishReadMemo } from './modules/inbox-nav/inbox-nav';
+import { getMemoStore } from './modules/memos';
 import { onOpenUserSettings } from './modules/ui/open-settings';
 import { useUpdateState } from './modules/updater/updater';
 import { CallOverlays } from './screens/Friends/CallOverlays';
@@ -53,7 +56,9 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
     setSettingsSection(section);
     setSettingsOpen(true);
   }), []);
-  const [inboxOpen, setInboxOpen] = useState(false);
+  // The notifications bell's list (it took over the Inbox).
+  const [notesOpen, setNotesOpen] = useState(false);
+  const narrow = useNarrow();
   // An update downloaded and ready: the title bar's "Update" pill opens
   // Settings → About, where "Restart to update" is.
   const update = useUpdateState();
@@ -65,13 +70,10 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
   useEffect(() => {
     const id = session?.user?.id ?? (guest ? '__guest__' : '');
     getMemoStore().setUserId(id);
+    getNotificationFeed().setUserId(id);
   }, [session?.user?.id, guest]);
-  // Subscribe to the global memo store for the title-bar unread badge.
-  // The store fires synchronously with the current list on subscribe,
-  // so the count is correct on first paint without a separate read.
-  const [memos, setMemos] = useState<ReadonlyArray<Memo>>(() => getMemoStore().list());
-  useEffect(() => getMemoStore().subscribe(setMemos), []);
-  const unreadCount = memos.reduce((n, m) => n + (m.read ? 0 : 1), 0);
+  // The bell's badge: unread mentions, DMs, memos, friend and call events.
+  const unreadCount = useUnreadNotes();
   // The signed-in user's Boson handle (their nick) and profile image, from
   // the backend profile (/me); refreshed when settings close, where both can
   // be changed. The session's metadata cache starts empty on every sign-in,
@@ -113,14 +115,9 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
         userLabel={userLabel}
         userMode={userMode}
         avatarUrl={userMode === 'account' ? authedAvatar : null}
-        onOpenInbox={() => {
-          // Mark every memo read the moment the inbox opens — this is
-          // the canonical "I've seen them" signal. The store still
-          // retains the entries for the modal to render.
-          getMemoStore().markAllRead();
-          setInboxOpen(true);
-        }}
-        inboxUnreadCount={unreadCount}
+        onOpenNotifications={() => setNotesOpen((o) => !o)}
+        notificationsCount={unreadCount}
+        notificationsOpen={notesOpen}
         updateReady={update.kind === 'ready' ? update.version : null}
         onOpenUpdate={() => { setSettingsSection('about'); setSettingsOpen(true); }}
       />
@@ -145,23 +142,15 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
       <CallOverlays />
       {/* "Sign in to <network>" (self-hosted networks' own accounts). */}
       <NetworkSignInHost />
-      <Inbox
-        open={inboxOpen}
-        memos={memos}
-        onClose={() => setInboxOpen(false)}
-        onOpen={(m) => {
-          setInboxOpen(false);
-          // DMs open the 1:1 conversation; mentions jump to the source
-          // channel; memos just focus the server.
-          const target = m.kind === 'dm' ? m.sender : m.kind === 'mention' ? (m.channel ?? null) : null;
-          publishOpenConversation({ serverId: m.serverId, target });
-        }}
-        onReadMemo={(m) => {
-          // Stay in the inbox; fetch the body in place. The store update
-          // re-renders this row with the fetched text.
-          if (m.memoIndex != null) publishReadMemo({ serverId: m.serverId, memoIndex: m.memoIndex });
-        }}
-      />
+      {/* In-app notifications, and the bell's list. */}
+      <Toasts />
+      {notesOpen && (
+        <NotificationsPanel
+          layout={narrow || isMobile() ? 'phone' : 'desktop'}
+          onClose={() => setNotesOpen(false)}
+          onOpenSettings={() => { setNotesOpen(false); setSettingsSection('notifications'); setSettingsOpen(true); }}
+        />
+      )}
     </div>
   );
 }

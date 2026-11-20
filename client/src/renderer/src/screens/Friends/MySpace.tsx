@@ -7,6 +7,7 @@ import { useVoice } from '../../modules/voice';
 import { getAvatar } from '../../modules/chat/avatar-cache';
 import { isPrivateCall, openCall } from '../ChatLayout/call-shared';
 import { MissedList } from './MissedCalls';
+import { IncomingCallsSetting } from '../Notifications/IncomingCalls';
 import { openUserSettings } from '../../modules/ui/open-settings';
 import { openMy, type MyView } from './friends-ui';
 import './MySpace.css';
@@ -198,6 +199,7 @@ export function CallsView({ layout, onJoin, serverNameFor, settings }: CallsView
       )}
       <div class="calls-view-body">
         {settings}
+        {snap.available && <IncomingCallsSetting layout={layout} />}
         {privateCall && (
           <section aria-labelledby="calls-now">
             <h2 id="calls-now" class="calls-sec">IN A CALL</h2>

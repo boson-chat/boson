@@ -1,3 +1,4 @@
+import { IncomingCallsSetting } from '../Notifications/IncomingCalls';
 import { Toggle } from '@boson/shared';
 import { useFriends, type CallPolicy, type RequestPolicy } from '../../modules/friends';
 import './PrivacyCalls.css';
@@ -59,6 +60,7 @@ export function PrivacyCalls({ layout }: { layout: 'desktop' | 'phone' }) {
           </span>
           <Toggle ariaLabel="Do not disturb" checked={p.doNotDisturb} onChange={(on) => { void friends.setPrivacy({ doNotDisturb: on }); }} />
         </div>
+        <IncomingCallsSetting layout="desktop" />
       </section>
       <section class="privacy-card">
         {phone ? <span class="privacy-label">FRIEND REQUESTS</span> : <span class="privacy-card-title">Friend requests</span>}

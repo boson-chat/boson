@@ -1,30 +1,3 @@
-.missed-pill-wrap { position: relative; display: flex; align-items: center; -webkit-app-region: no-drag; }
-.missed-pill {
-  height: 24px;
-  padding: 0 var(--space-2);
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: color-mix(in oklab, var(--danger), white 25%);
-  font: 500 var(--text-sm) var(--font-mono);
-  cursor: pointer;
-}
-.missed-pill:hover { background: var(--surface-hover); }
-.missed-pill:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.missed-pop {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  z-index: 1100;
-  width: 280px;
-  padding: var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, .6);
-}
-.missed-pop-title { padding: var(--space-1) var(--space-2) var(--space-2); font: 500 var(--text-xs) var(--font-mono); letter-spacing: .1em; color: var(--fg-3); }
-.missed-none { margin: var(--space-2); font-size: 13px; color: var(--fg-3); }
 .missed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .missed-row { display: flex; align-items: center; gap: 10px; padding: 6px var(--space-2); border-radius: var(--radius-md); }
 .missed-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }

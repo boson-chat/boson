@@ -154,14 +154,49 @@
 .call-toast-phone {
   left: 16px;
   right: 16px;
-  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
   transform: none;
   padding: var(--space-3) 14px;
   border-radius: 8px;
   text-align: center;
 }
 
+/* Desktop, "Incoming calls: Full screen": centred over the whole window. */
+.fcall-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: color-mix(in oklab, var(--bg), transparent 12%);
+  backdrop-filter: blur(6px);
+}
+.fcall {
+  width: 440px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+  padding: 56px 40px 40px;
+  border: 1px solid color-mix(in oklab, var(--success), transparent 50%);
+  border-radius: 16px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .6);
+  animation: callSlideUp .25s ease-out;
+}
+.fcall .pcall-av { border-radius: 14px; font-size: 42px; }
+.fcall .call-pulse { animation: callAvatarPulseLg 1.4s ease-out infinite; }
+.fcall-buttons { width: 100%; display: flex; justify-content: space-around; align-items: flex-end; }
+.fcall .call-answer { animation: callRingHaloLg 1.2s ease-out infinite; }
+.fcall .call-answer svg { animation: callRingWiggle 1.2s ease-in-out infinite; transform-origin: 50% 50%; }
+
 @media (prefers-reduced-motion: reduce) {
+  .fcall, .fcall .call-pulse, .fcall .call-answer, .fcall .call-answer svg { animation: none; }
+  .fcall .call-answer { box-shadow: 0 0 0 4px color-mix(in oklab, var(--success), transparent 65%); }
   .icall, .icall .call-pulse-sm, .icall .call-answer, .icall .call-answer svg,
   .pcall-in, .pcall .call-pulse, .pcall .call-answer, .pcall .call-answer svg { animation: none; }
   .icall { border-color: var(--success); }

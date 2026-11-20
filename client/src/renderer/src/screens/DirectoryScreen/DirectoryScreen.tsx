@@ -26,6 +26,8 @@ import { useNetworkThemeSync } from './network-theme-sync';
 import type { ServerRailTile } from '../ChatLayout/ServerRail';
 import type { MyDm } from '../Friends/MySpace';
 import { SERVICE_CHANNEL } from '../../modules/chat/services';
+import { startNotificationBridge, type VoiceScope } from '../../modules/notifications/bridge';
+import { joinVoice, openCalls, openFriends } from '../Notifications/navigate';
 import './DirectoryScreen.css';
 
 interface Props {
@@ -189,6 +191,19 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   }, [connectedHosts]);
   const active = activeConnection(state);
   const aggState = aggregateEngineState(state);
+  // Friend and call notifications (requests, missed calls, calls starting
+  // in voice channels you're in): which servers you're on, and where.
+  const scopeRef = useRef<VoiceScope[]>([]);
+  scopeRef.current = connections.filter((c) => c.engineState === 'connected').map((c) => ({
+    host: c.server.hostname,
+    serverId: c.serverId,
+    serverName: c.server.name,
+    channels: c.chat.getState().channels.filter((ch) => /^[#&]/.test(ch.name) && ch.joined).map((ch) => ch.name.toLowerCase()),
+  }));
+  useEffect(() => startNotificationBridge({
+    scope: () => scopeRef.current,
+    open: { friends: openFriends, calls: openCalls, voice: joinVoice },
+  }), []);
 
   // Network themes: the active server's applies (in chat and its settings);
   // each network's is looked up when it connects.

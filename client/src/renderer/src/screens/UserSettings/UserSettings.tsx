@@ -4,6 +4,7 @@ import { getUpdater, useUpdateState, type UpdateState } from '../../modules/upda
 import { Badge, Button, Card, Divider, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
 import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
+import { IncomingCallsSetting } from '../Notifications/IncomingCalls';
 import { getPrivacySettings, setPrivacySettings, type PrivacySettings } from '../../modules/ui/privacy.store';
 import { clearAllSeen } from '../../modules/seen';
 import {
@@ -582,23 +583,48 @@ function NotificationsSection() {
     setNotificationSettings(patch);
     setS(getNotificationSettings());
   };
+  const off = !s.inApp && !s.enabled;
   return (
     <SectionFrame
       title="Notifications"
-      description="Desktop alerts for new messages. Banners only appear when Boson is in the background — while it's focused, the in-app unread badges keep things quiet."
+      description="Toasts in the corner (a banner from the top on phones) for things happening somewhere you're not looking, and system notifications while Boson is in the background. Everything also collects under the bell."
     >
       <Card>
         <div class="user-settings-card-body">
-          <Toggle checked={s.enabled} label="Enable desktop notifications" onChange={(v) => update({ enabled: v })} />
+          <NotifySwitch label="In-app toasts" hint="A card in the corner when something happens elsewhere in Boson." checked={s.inApp} onChange={(v) => update({ inApp: v })} />
+          <NotifySwitch label="System notifications" hint="OS banners when Boson is in the background or minimised." checked={s.enabled} onChange={(v) => update({ enabled: v })} />
           <Divider />
-          <Toggle checked={s.mentions} disabled={!s.enabled} label="When someone mentions me" onChange={(v) => update({ mentions: v })} />
-          <Toggle checked={s.directMessages} disabled={!s.enabled} label="Direct messages" onChange={(v) => update({ directMessages: v })} />
-          <Toggle checked={s.allMessages} disabled={!s.enabled} label="Every channel message (noisy)" onChange={(v) => update({ allMessages: v })} />
+          <NotifySwitch label="Mentions" hint="Someone says your nick." checked={s.mentions} disabled={off} onChange={(v) => update({ mentions: v })} />
+          <NotifySwitch label="Direct messages" hint="Any 1:1 message." checked={s.directMessages} disabled={off} onChange={(v) => update({ directMessages: v })} />
+          <NotifySwitch label="Friends" hint="Requests and accepts." checked={s.friends} disabled={off} onChange={(v) => update({ friends: v })} />
+          <NotifySwitch label="Calls" hint="Missed calls, and calls starting in voice channels you're in." checked={s.calls} disabled={off} onChange={(v) => update({ calls: v })} />
+          <NotifySwitch label="Every channel message" hint="Noisy. Or pick channels: right-click one → Notifications → All messages." checked={s.allMessages} disabled={off} onChange={(v) => update({ allMessages: v })} />
           <Divider />
-          <Toggle checked={s.sound} disabled={!s.enabled} label="Play notification sound" onChange={(v) => update({ sound: v })} />
+          <NotifySwitch label="Sound" hint="A short chime with each one." checked={s.sound} disabled={off} onChange={(v) => update({ sound: v })} />
         </div>
       </Card>
+      <Card>
+        <div class="user-settings-card-body">
+          <IncomingCallsSetting />
+        </div>
+      </Card>
+      <p class="user-settings-notify-note">Per channel: right-click a channel (long-press on a phone) → Notifications: All messages, Mentions only or Nothing.</p>
     </SectionFrame>
+  );
+}
+
+// A switch with its label and a line saying what it does.
+function NotifySwitch({ label, hint, checked, disabled, onChange }: {
+  label: string; hint: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void;
+}) {
+  return (
+    <div class={`user-settings-notify-row${disabled ? ' user-settings-notify-row-off' : ''}`}>
+      <span class="user-settings-notify-text">
+        <span class="user-settings-notify-label">{label}</span>
+        <span class="user-settings-notify-hint">{hint}</span>
+      </span>
+      <Toggle checked={checked} disabled={disabled} ariaLabel={label} onChange={onChange} />
+    </div>
   );
 }
 

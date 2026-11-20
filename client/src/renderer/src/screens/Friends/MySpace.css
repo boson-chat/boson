@@ -185,3 +185,4 @@
 .calls-view-phone .calls-privacy { margin: var(--space-3) 18px 0; min-height: 44px; }
 @media (hover: hover) { .calls-privacy:hover { color: var(--fg); } }
 .calls-privacy:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.calls-view-desktop .incoming-calls { max-width: 360px; padding: 12px 4px 4px; }

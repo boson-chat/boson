@@ -1,0 +1,127 @@
+/* In-app notifications (prototype: Notify.dc.html, MobileC.dc.html). No
+   coloured edge: the avatar and the title say what it is. */
+@keyframes ntoastIn { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes ntoastDrop { from { transform: translateY(-110%); } to { transform: none; } }
+@keyframes ntoastBar { from { width: 100%; } to { width: 0; } }
+
+.ntoasts {
+  position: fixed;
+  top: 46px;
+  right: 16px;
+  z-index: 1250;
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.ntoasts-phone {
+  top: calc(env(safe-area-inset-top, 0px) + 8px);
+  left: 8px;
+  right: 8px;
+  width: auto;
+  max-width: none;
+}
+
+.ntoast {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 40px 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, .55);
+  overflow: hidden;
+  pointer-events: auto;
+  animation: ntoastIn .22s ease-out;
+}
+.ntoast-phone { border-radius: 12px; padding: 12px 40px 12px 14px; animation: ntoastDrop .25s ease-out; }
+.ntoast-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ntoast-phone .ntoast-main { align-items: center; }
+.ntoast-main:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+.ntoast-av { flex: none; }
+.ntoast-av-live { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; color: var(--success); font-family: var(--font-mono); }
+.ntoast-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ntoast-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ntoast-title { font: 700 13px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ntoast-phone .ntoast-title { font-size: 14px; }
+.ntoast-where { flex: none; max-width: 55%; font: 11px var(--font-mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ntoast-body {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.ntoast-body-ok { color: var(--success); }
+.ntoast-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 46px; }
+.ntoast-actions .call-btn { height: 28px; padding: 0 12px; }
+.ntoast-phone .ntoast-actions .call-btn { height: 40px; }
+.ntoast-x {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.ntoast-phone .ntoast-x { width: 36px; height: 36px; top: 4px; right: 4px; }
+@media (hover: hover) { .ntoast-x:hover { background: var(--surface-hover); color: var(--fg); } }
+.ntoast-x:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* The time left, along the bottom; it stops while hovered or focused. */
+.ntoast-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--fg-3);
+  opacity: .6;
+  animation-name: ntoastBar;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.ntoast-paused .ntoast-bar { animation-play-state: paused; }
+
+/* An incoming call as a banner: it glows while it rings; Accept pulses. */
+.ntoast-ring { padding-right: 14px; animation: ntoastIn .22s ease-out, callRingGlow 1.6s ease-in-out .25s infinite; }
+.ntoast-phone.ntoast-ring { gap: 12px; border-color: var(--success); animation: ntoastDrop .25s ease-out, callRingGlow 1.6s ease-in-out .25s infinite; }
+.ntoast-ring .call-pulse-sm { animation: callAvatarPulse 1.4s ease-out infinite; }
+.ntoast-ring .call-answer { animation: callRingHalo 1.2s ease-out infinite; }
+.ntoast-ring .call-answer svg { animation: callRingWiggle 1.2s ease-in-out infinite; transform-origin: 50% 50%; }
+.ntoast-round { display: flex; justify-content: flex-end; gap: 12px; }
+.ntoast-rbtn { width: 48px; height: 48px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ntoast, .ntoast-phone, .ntoast-ring, .ntoast-phone.ntoast-ring,
+  .ntoast-ring .call-pulse-sm, .ntoast-ring .call-answer, .ntoast-ring .call-answer svg { animation: none; }
+  .ntoast-bar { animation: none; width: 100%; }
+  .ntoast-ring { border-color: var(--success); }
+  .ntoast-ring .call-answer { box-shadow: 0 0 0 3px color-mix(in oklab, var(--success), transparent 65%); }
+}
+.bell-open .ntoasts { display: none; }

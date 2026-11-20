@@ -1,7 +1,7 @@
 // App shell and the desktop app's Go services: the title bar (on macOS the
 // native traffic lights replace the drawn buttons), the About panel's
 // update-state UI driven by real `updater:state` pushes (desktop/updater.go),
-// the Inbox empty state, the engine pill, the engine dying under the app,
+// the notifications' empty states, the engine pill, the engine dying under the app,
 // the secure store's on-disk format (derived-key mode, corrupt files) and
 // bridge validation, the API proxy's allowlist/redirect policy, and the
 // Spotify metadata fetcher.
@@ -52,7 +52,7 @@ test.describe('app shell', () => {
     await continueAsGuest(page, `tb${uid()}`);
     const bar = page.locator('.title-bar');
     await expect(bar.locator('.title-bar-title')).toHaveText('Boson');
-    await expect(bar.getByRole('button', { name: 'Inbox' })).toBeVisible();
+    await expect(bar.getByRole('button', { name: 'Notifications' })).toBeVisible();
     await expect(bar.getByRole('button', { name: 'User settings' })).toContainText('guest');
 
     if (process.platform === 'darwin') {
@@ -121,7 +121,7 @@ test.describe('app shell', () => {
       .bosonUpdater.getState())).toMatchObject({ kind: 'up-to-date' });
   });
 
-  test('Inbox empty states and the idle engine pill', async ({ launchApp }) => {
+  test('Notifications empty states and the idle engine pill', async ({ launchApp }) => {
     const { page } = await launchApp();
     await continueAsGuest(page, `ib${uid()}`);
     // Directory top bar: no servers yet → the engine pill is idle and inert.
@@ -130,11 +130,13 @@ test.describe('app shell', () => {
     await expect(pill).toBeDisabled();
     await expect(pill).toHaveAttribute('title', 'Engine: idle');
 
-    await page.getByRole('button', { name: 'Inbox', exact: true }).click();
-    const inbox = page.getByRole('dialog', { name: 'Inbox' });
-    await expect(inbox.getByText('No messages yet')).toBeVisible();
-    await inbox.getByRole('tab', { name: /Mentions/ }).click();
-    await expect(inbox.getByText('No mentions yet')).toBeVisible();
+    await page.getByRole('button', { name: 'Notifications', exact: true }).click();
+    const inbox = page.getByRole('dialog', { name: 'Notifications' });
+    await expect(inbox.getByText(/^Nothing yet/)).toBeVisible();
+    await inbox.getByRole('tab', { name: /^Messages/ }).click();
+    await expect(inbox.getByText(/^No messages/)).toBeVisible();
+    await inbox.getByRole('tab', { name: /^Mentions/ }).click();
+    await expect(inbox.getByText(/^No mentions/)).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(inbox).toBeHidden();
   });

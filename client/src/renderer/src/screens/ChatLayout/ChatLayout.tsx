@@ -32,6 +32,9 @@ import { useVoice } from '../../modules/voice';
 import { useFriends } from '../../modules/friends';
 import { getFriendsUi, setFriendsUi, useFriendsUi, type PhonePage as PhonePageId } from '../Friends/friends-ui';
 import { SETTLE_MS, useSwipeNav } from './useSwipeNav';
+import { setVoiceJoiner } from '../Notifications/navigate';
+import { setConversationShown } from '../../modules/ui/notifier';
+import { getMemoStore } from '../../modules/memos';
 import { FriendsView } from '../Friends/FriendsView';
 import { PhonePage } from '../Friends/FriendsNav';
 import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
@@ -308,6 +311,30 @@ export function ChatLayout({
     pendingJoin.current = view;
     onSelectServer(tile.serverId);
   };
+  // Whether the conversation is on screen: then a message in it gets no
+  // toast, and its mentions / DM in the bell's list count as read.
+  const chatShown = !!active && (narrow ? phonePage === 'chat' && !phoneCallOpen : !stageOpen && !prejoinOpen && (!myOpen || myView === 'chat'));
+  const shownRef = useRef(chatShown);
+  shownRef.current = chatShown;
+  useEffect(() => {
+    setConversationShown(() => shownRef.current);
+    return () => setConversationShown(null);
+  }, []);
+  const activeConv = active?.name ?? null;
+  useEffect(() => {
+    if (!chatShown || !activeConv || !activeServerId) return;
+    const store = getMemoStore();
+    const mark = (): void => store.markConversationRead(activeServerId, activeConv);
+    mark();
+    return store.subscribe(mark);
+  }, [chatShown, activeConv, activeServerId]);
+  // A notification's Join (a call started) goes the same way.
+  const joinRef = useRef(joinLive);
+  joinRef.current = joinLive;
+  useEffect(() => {
+    setVoiceJoiner((room) => joinRef.current(room.host, room.roomId, room.name));
+    return () => setVoiceJoiner(null);
+  }, []);
   const calls = (layout: 'desktop' | 'phone') => <CallsView layout={layout} onJoin={joinLive} serverNameFor={serverNameFor} />;
 
   const rail = (
@@ -369,6 +396,7 @@ export function ChatLayout({
           onJoin={(name) => chat.join(name, { byUser: true })}
           onPart={(name) => chat.part(name)}
           channelOrder={channelOrder}
+          serverId={activeServerId}
           onReorderChannels={onReorderChannels}
           onResetChannelOrder={onResetChannelOrder}
           channelDirectory={state.channelDirectory.entries}

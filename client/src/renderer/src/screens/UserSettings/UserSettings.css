@@ -581,3 +581,11 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
 }
+
+/* Notifications: a switch per kind, each with what it does. */
+.user-settings-notify-row { display: flex; align-items: center; gap: 12px; padding: 6px 0; }
+.user-settings-notify-row-off { opacity: .55; }
+.user-settings-notify-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.user-settings-notify-label { font: 600 13px var(--font-mono); color: var(--fg); }
+.user-settings-notify-hint { font-size: 12px; color: var(--fg-2); }
+.user-settings-notify-note { margin: 0; font-size: 12px; color: var(--fg-3); }

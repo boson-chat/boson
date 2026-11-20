@@ -7,6 +7,8 @@ export interface SheetAction {
   label: string;
   /** True ⇒ render with the danger colour (destructive ops). */
   danger?: boolean;
+  /** One of a set of choices (Notifications: All / Mentions / Nothing): shown ticked when true. */
+  checked?: boolean;
   onClick: () => void;
 }
 
@@ -160,10 +162,12 @@ export function BottomSheet({ label, header, children, actions, onClose }: Botto
               <button
                 key={a.label}
                 type="button"
-                role="menuitem"
+                role={a.checked === undefined ? 'menuitem' : 'menuitemradio'}
+          aria-checked={a.checked}
                 class={`bottom-sheet-action ${a.danger ? 'bottom-sheet-action-danger' : ''}`}
                 onClick={() => { a.onClick(); close(); }}
               >
+                {a.checked !== undefined && <span class="menu-check" aria-hidden="true">{a.checked ? '✓' : ''}</span>}
                 {a.label}
               </button>
             ))}

@@ -22,6 +22,19 @@ describe('LocalStorageMemoStore', () => {
     store = new LocalStorageMemoStore('u1', storage);
   });
 
+  it('marks one entry, or a conversation on screen, read', () => {
+    const dm = store.append({ serverId: 's1', serverName: 'N', sender: 'Mira', kind: 'dm', text: 'a', timestamp: 1 });
+    store.append({ serverId: 's1', serverName: 'N', sender: 'nova', kind: 'mention', channel: '#Ops', text: 'b', timestamp: 2 });
+    store.append({ serverId: 's2', serverName: 'P', sender: 'nova', kind: 'mention', channel: '#ops', text: 'c', timestamp: 3 });
+    const memo = store.append({ serverId: 's1', serverName: 'N', sender: 'MemoServ', kind: 'memo', text: 'd', timestamp: 4 });
+    store.markConversationRead('s1', '#ops');
+    store.markConversationRead('s1', 'mira');
+    expect(store.list().filter((m) => !m.read).map((m) => m.text)).toEqual(['c', 'd']);
+    store.markRead(memo);
+    expect(store.unreadCount()).toBe(1);
+    expect(dm).toBeTruthy();
+  });
+
   it('starts empty for a fresh user', () => {
     expect(store.list()).toEqual([]);
     expect(store.unreadCount()).toBe(0);
