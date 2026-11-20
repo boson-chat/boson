@@ -1,3 +1,4 @@
+import type { ComponentChildren } from 'preact';
 import { useState, useLayoutEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
@@ -55,6 +56,8 @@ interface ServerRailProps {
   onReorderServers?: (serverIds: string[]) => void;
   // "Use this network's theme" toggled for a tile's network.
   onToggleNetworkTheme?: (serverId: string, on: boolean) => void;
+  // Above the servers: the Friends tile (MY).
+  top?: ComponentChildren;
 }
 
 // Where a dragged tile will land: beside `serverId`, above it or below it.
@@ -75,7 +78,7 @@ export function reorderedIds(ids: readonly string[], dragged: string, target: Dr
 // view driven by `activeServerName` for legacy callers.
 export function ServerRail({
   servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings, onLeaveServer,
-  onBouncerConnect, onBouncerDisconnect, onReorderServers, onToggleNetworkTheme,
+  onBouncerConnect, onBouncerDisconnect, onReorderServers, onToggleNetworkTheme, top,
 }: ServerRailProps) {
   // Right-click context menu state. Anchored to the tile, positioned at the
   // event's client coords so the menu pops up under the cursor.
@@ -140,6 +143,7 @@ export function ServerRail({
       onDragOver={onRailDragOver}
       onDrop={onRailDrop}
     >
+      {top}
       {tiles.map((t) => {
         const isActive = (activeServerId ?? '__legacy') === t.serverId;
         // Icon when the owner set one; otherwise the initials tile. alt="" —

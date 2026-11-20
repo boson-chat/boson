@@ -462,7 +462,29 @@ export class VoiceController {
 
   // ---- the call ----
 
-  async join(rawHost: string, room: Pick<VoiceRoom, 'id' | 'name'>, serverName = ''): Promise<void> {
+  // The voice servers tied to authUrl (normalized) where we have an
+  // account (not guest voice): where a private call on that auth service's
+  // account can be joined. The first discovered one, or null.
+  hostForAccount(authUrl: string): string | null {
+    const want = normalizeAuthUrl(authUrl);
+    for (const [host, view] of Object.entries(this.servers)) {
+      if (view.discovery === 'available' && !view.guest && this.authFor(host) === want) return host;
+    }
+    return null;
+  }
+
+  // The auth service host's voice uses, once discovered ('' before; null
+  // without voice).
+  authOf(rawHost: string): string | null {
+    const host = rawHost.trim().toLowerCase();
+    const v = this.servers[host];
+    if (!v || v.discovery !== 'available') return v?.discovery === 'none' ? null : '';
+    return v.guest ? null : this.authFor(host);
+  }
+
+  // token: where the join's token comes from instead of the auth service's
+  // voice token endpoint (a private call's, from the calls API).
+  async join(rawHost: string, room: Pick<VoiceRoom, 'id' | 'name'>, serverName = '', token?: () => Promise<string>): Promise<void> {
     const host = rawHost.trim().toLowerCase();
     if (!this.bridge) return;
     if (this.call.status === 'connected' && this.call.host === host && this.call.room === room.id) return;
@@ -472,15 +494,15 @@ export class VoiceController {
       ...this.call, status: 'connecting', host, room: room.id, roomName: room.name,
       error: undefined, errorKind: undefined, participants: this.call.host === host && this.call.room === room.id ? this.call.participants : [],
     });
-    let token: string;
+    let tok: string;
     try {
-      token = (await this.voiceTokenFor(host, [room.id])).token;
+      tok = token ? await token() : (await this.voiceTokenFor(host, [room.id])).token;
     } catch (err) {
       this.setCall({ ...this.call, status: 'error', error: tokenErrorText(err), errorKind: 'token' });
       return;
     }
     try {
-      this.setCall(await this.bridge.join({ host, room: room.id, roomName: room.name, token }));
+      this.setCall(await this.bridge.join({ host, room: room.id, roomName: room.name, token: tok }));
     } catch (err) {
       this.setCall({ ...this.call, status: 'error', error: errText(err), errorKind: 'server' });
     }

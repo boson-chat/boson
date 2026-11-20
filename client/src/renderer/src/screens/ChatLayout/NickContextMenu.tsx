@@ -1,5 +1,6 @@
 import { useLayoutEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
+import { PersonMenu, usePersonRelation } from '../Friends/PersonMenu';
 import './NickContextMenu.css';
 
 export interface NickContextAction {
@@ -19,6 +20,8 @@ interface NickContextMenuProps {
   title: string;
   /** Ordered list of action buttons. Empty list ⇒ no menu rendered. */
   actions: readonly NickContextAction[];
+  /** The nick's account, when known (friend and call actions). */
+  account?: string;
 }
 
 // Right-click context menu rendered via portal at document.body so it
@@ -31,7 +34,7 @@ interface NickContextMenuProps {
 //   - Escape keypress
 //   - any action's onClick (the caller's onClick is invoked first, then
 //     onClose so the action sees the menu's state before it goes away).
-export function NickContextMenu({ x, y, onClose, title, actions }: NickContextMenuProps) {
+export function NickContextMenu({ x, y, onClose, title, actions, account }: NickContextMenuProps) {
   // Layout effect: the listeners are in place before the menu is painted,
   // so an Escape or outside click right after it appears isn't missed.
   useLayoutEffect(() => {
@@ -51,6 +54,8 @@ export function NickContextMenu({ x, y, onClose, title, actions }: NickContextMe
     };
   }, [onClose]);
 
+  // Room for the friend and call actions too (up to six more rows).
+  const person = usePersonRelation(title, account);
   if (actions.length === 0) return null;
 
   // Clamp inside viewport. Rough min-width of 180px so we don't end up
@@ -58,7 +63,8 @@ export function NickContextMenu({ x, y, onClose, title, actions }: NickContextMe
   const MIN_WIDTH = 180;
   const MAX_HEIGHT_PER_ITEM = 32;
   const clampedX = Math.min(x, window.innerWidth - MIN_WIDTH - 8);
-  const clampedY = Math.min(y, window.innerHeight - actions.length * MAX_HEIGHT_PER_ITEM - 60);
+  const rows = actions.length + (person ? 6 : 0);
+  const clampedY = Math.max(8, Math.min(y, window.innerHeight - rows * MAX_HEIGHT_PER_ITEM - 60));
 
   return createPortal(
     <div
@@ -67,6 +73,7 @@ export function NickContextMenu({ x, y, onClose, title, actions }: NickContextMe
       style={`top: ${clampedY}px; left: ${clampedX}px;`}
     >
       <div class="nick-context-menu-title">{title}</div>
+      <PersonMenu nick={title} account={account} variant="menu" onDone={onClose} />
       {actions.map((a) => (
         <button
           key={a.label}

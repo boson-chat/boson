@@ -1,6 +1,7 @@
 import type { ChatMember } from '../../modules/chat';
 import { BottomSheet, type SheetAction } from './BottomSheet';
 import type { NickProfiles } from './nick-actions';
+import { PersonMenu } from '../Friends/PersonMenu';
 import { NickProfileDetails, NickProfileHead, useWhois, type LineIdentity } from './nick-profile';
 
 interface NickSheetProps {
@@ -28,6 +29,7 @@ export function NickSheet({ nick, member, avatarUrl, actions, profiles, line, on
       onClose={onClose}
       header={<NickProfileHead nick={nick} member={member} avatarUrl={avatarUrl} size={44} />}
     >
+      <PersonMenu nick={nick} account={member?.account ?? whois?.account} variant="sheet" onDone={onClose} />
       <NickProfileDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />
     </BottomSheet>
   );

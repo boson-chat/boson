@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import { Headphones, HeadphoneOff, LayoutGrid, Mic, MicOff, PanelLeft, PhoneOff, Volume2 } from 'lucide-preact';
+import { Headphones, HeadphoneOff, LayoutGrid, Lock, Mic, MicOff, PanelLeft, PhoneOff, Volume2 } from 'lucide-preact';
 import { getVideoController, useTrackNotice, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { CallVideoButtons } from './CallControls';
-import { callTiles, closeCall, gridShape, useCallClock, type CallTileInfo } from './call-shared';
+import { callTiles, closeCall, gridShape, isPrivateCall, useCallClock, type CallTileInfo } from './call-shared';
 import { SharingBar } from './ScreenPicker';
 import { GuestBadge } from './GuestBadge';
 import { ShareSound } from './ShareSound';
@@ -69,9 +69,11 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
   return (
     <main class="stage" aria-label={`Call in ${call.roomName || call.room}`}>
       <header class="stage-head">
-        <Volume2 size={20} class="stage-head-icon" aria-hidden="true" />
+        {isPrivateCall(call.room)
+          ? <Lock size={16} class="stage-head-icon stage-head-icon-private" aria-hidden="true" />
+          : <Volume2 size={20} class="stage-head-icon" aria-hidden="true" />}
         <span class="stage-title">{call.roomName || call.room}</span>
-        <span class="stage-meta">{[`${call.participants.length} in call`, rtt, clock].filter(Boolean).join(' · ')}</span>
+        <span class="stage-meta">{[isPrivateCall(call.room) ? 'private · 1:1' : `${call.participants.length} in call`, rtt, clock].filter(Boolean).join(' · ')}</span>
         <span class="stage-spacer" />
         <div role="group" aria-label="Layout" class="stage-layout">
           <button type="button" class="stage-btn" data-sel={mode === 'focus' || undefined} aria-pressed={mode === 'focus'} aria-label="Focus layout" title="Focus" onClick={() => setMode('focus')}>

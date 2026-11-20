@@ -174,6 +174,7 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
           x={menu.x}
           y={menu.y}
           title={menu.nick}
+          account={channel?.members.find((m) => m.nick === menu.nick)?.account}
           actions={buildNickContextActions(menu.nick, nickActions)}
           onClose={() => setMenu(null)}
         />

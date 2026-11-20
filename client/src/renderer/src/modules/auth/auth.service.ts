@@ -241,6 +241,12 @@ export class AuthService {
     await this.authed('DELETE', `/v1/me/identities/${encodeURIComponent(id)}`);
   }
 
+  // An authenticated request to this auth service's API (friends, calls):
+  // throws AuthError, 'signed_out' without a session.
+  request<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    return this.authed<T>(method, path, body);
+  }
+
   // A call with the access token, retried once after a refresh on 401.
   private async authed<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
     let token = await this.getToken();

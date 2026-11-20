@@ -28,6 +28,11 @@ export function formatClock(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${String(m).padStart(2, '0')}:${ss}`;
 }
 
+/** A private 1:1 call's room (friends' calls), not a voice channel. */
+export function isPrivateCall(room: string | undefined | null): boolean {
+  return !!room && room.startsWith('call:');
+}
+
 /** Show the call you're in (its voice channel's view). */
 export function openCall(): void {
   const voice = getVoiceController();

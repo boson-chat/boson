@@ -4,6 +4,7 @@ import { describeSeen, formatMask, type ChatMember, type ChatMessage, type Whois
 import { seenMask, type SeenRecord } from '../../modules/seen/seen.store';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import type { NickContextAction } from './NickContextMenu';
+import { PersonMenu } from '../Friends/PersonMenu';
 import type { NickProfiles } from './nick-actions';
 import './nick-profile.css';
 
@@ -385,6 +386,7 @@ export function NickProfileCard({ nick, member, avatarUrl, anchor, side = 'below
     >
       <NickProfileHead nick={nick} member={member} avatarUrl={avatarUrl} size={40} />
       <NickProfileDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />
+      <div class="nick-profile-card-person"><PersonMenu nick={nick} account={member?.account ?? whois?.account} variant="menu" onDone={onClose} /></div>
       {actions.length > 0 && (
         <div class="nick-profile-card-actions" role="menu">
           {actions.map((a) => (

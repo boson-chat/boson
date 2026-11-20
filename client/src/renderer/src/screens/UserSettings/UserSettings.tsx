@@ -36,6 +36,8 @@ import { formatBytes } from '../../modules/files';
 // scripts/sync-version.cjs, so this matches what the GitHub release
 // page advertises for the installer the user is running.
 import pkg from '../../../../../package.json';
+import { getFriendsController } from '../../modules/friends';
+import { PrivacyCalls } from '../Friends/PrivacyCalls';
 import './UserSettings.css';
 
 const APP_VERSION = pkg.version;
@@ -51,7 +53,7 @@ const APP_VERSION = pkg.version;
 // Sections are surfaced via a left menu (matching the Server settings page
 // pattern) with a scrolling body to the right.
 
-type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'voice' | 'account' | 'networks' | 'directories' | 'bouncer' | 'about';
+type SectionId = 'identity' | 'appearance' | 'content' | 'notifications' | 'voice' | 'privacy' | 'account' | 'networks' | 'directories' | 'bouncer' | 'about';
 
 const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }> = [
   { id: 'identity',      label: 'Identity',      description: 'Display nick + handle' },
@@ -59,6 +61,7 @@ const MENU: ReadonlyArray<{ id: SectionId; label: string; description: string }>
   { id: 'content',       label: 'Content',       description: 'Link previews / embeds, remembered hosts' },
   { id: 'notifications', label: 'Notifications', description: 'Desktop alerts' },
   { id: 'voice',         label: 'Voice',         description: 'Mic, speakers, push to talk' },
+  { id: 'privacy',       label: 'Privacy & calls', description: 'Who can call you, friend requests' },
   { id: 'account',    label: 'Account',    description: 'Sign in / out' },
   { id: 'networks',   label: 'Network accounts', description: 'Self-hosted networks' },
   { id: 'directories', label: 'Directories', description: 'Where servers are listed' },
@@ -90,7 +93,9 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
   const [section, setSection] = useState<SectionId>('identity');
   // Voice settings only where there's voice (the desktop app).
   const hasVoice = getVoiceController() !== null;
-  const menu = MENU.filter((m) => m.id !== 'voice' || hasVoice);
+  // Privacy & calls with an account (friends and calls are on it).
+  const hasFriends = getFriendsController()?.getSnapshot().available === true;
+  const menu = MENU.filter((m) => (m.id !== 'voice' || hasVoice) && (m.id !== 'privacy' || hasFriends));
   useEffect(() => {
     if (open && initialSection && menu.some((m) => m.id === initialSection)) setSection(initialSection as SectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,6 +136,11 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
           {section === 'content' && <ContentSection />}
           {section === 'notifications' && <NotificationsSection />}
           {section === 'voice' && hasVoice && <VoiceSettingsSection open={open} />}
+          {section === 'privacy' && (
+            <SectionFrame title="Privacy & calls" description="Who can call you and send you friend requests. Calls ring while Boson is open.">
+              <PrivacyCalls layout="desktop" />
+            </SectionFrame>
+          )}
           {section === 'account' && (
             <AccountSection
               mode={mode}
