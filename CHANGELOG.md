@@ -1,3 +1,9 @@
+## [0.81.0](https://github.com/boson-chat/boson/compare/v0.80.0...v0.81.0) (2026-11-20)
+
+### Features
+
+* voice quality, camera quality and data saver settings ([#108](https://github.com/boson-chat/boson/issues/108)) ([22e448a](https://github.com/boson-chat/boson/commit/22e448a386c151662a2d37806da12f5cc5d1c708))
+
 ## [0.80.0](https://github.com/boson-chat/boson/compare/v0.79.0...v0.80.0) (2026-11-20)
 
 ### Features
