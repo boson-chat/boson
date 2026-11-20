@@ -73,8 +73,9 @@
 .prejoin-bar {
   flex: none;
   display: flex;
+  flex-wrap: wrap; /* narrow window: the buttons drop to their own row */
   align-items: center;
-  gap: 20px;
+  gap: 16px 20px;
   padding: 18px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -114,8 +115,10 @@
   text-align: center;
   padding: 0 var(--space-2);
 }
-.prejoin-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.prejoin-join-title { font: 700 15px var(--font-mono); color: var(--fg); }
+/* Never squeezed to a word per line: below ~220px it wraps under the preview. */
+.prejoin-text { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.prejoin-join-title { font: 700 15px var(--font-mono); color: var(--fg); overflow-wrap: anywhere; }
+.prejoin-actions { flex: none; display: flex; align-items: center; gap: 12px; margin-left: auto; }
 .prejoin-here { font-size: 13px; color: var(--fg-2); }
 .prejoin-btn, .joinsheet-tog {
   border: 1px solid var(--border);

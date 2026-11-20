@@ -130,6 +130,7 @@ export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (n
             <span class="prejoin-join-title">Join {j.room.name}</span>
             <span class="prejoin-here">{hereText(people.map((p) => p.name))} Pick how you join; you can change it any time.</span>
           </div>
+          <div class="prejoin-actions">
           <button type="button" class="prejoin-btn" data-off={!j.micOn || undefined} aria-pressed={!j.micOn}
             aria-label={j.micOn ? 'Mute' : 'Unmute'} title={j.micOn ? 'Join with your mic on (click to mute)' : 'Join muted (click to unmute)'} onClick={j.toggleMic}>
             {j.micOn ? <Mic size={20} aria-hidden="true" /> : <MicOff size={20} aria-hidden="true" />}
@@ -139,6 +140,7 @@ export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (n
             {j.camOn ? <Video size={20} aria-hidden="true" /> : <VideoOff size={20} aria-hidden="true" />}
           </button>
           <button type="button" class="prejoin-join" onClick={j.join}>Join call</button>
+          </div>
         </div>
       </div>
     </main>
