@@ -5,19 +5,23 @@ import { useEffect, useState } from 'preact/hooks';
 // column shows (the Friends page, the Calls page, or the conversation).
 export type MyView = 'friends' | 'calls' | 'chat';
 
-// Where the friends UI is: MY and its page, the phone's bottom tab, and the
+// Phones show one screen at a time: the rail with the channel list (null),
+// or one of these full screen, with a back arrow.
+export type PhonePage = 'chat' | 'members' | 'friends' | 'calls' | 'notifications';
+
+// Where the friends UI is: MY and its page, the phone's screen, and the
 // IRC server whose member names the person menus are for.
 export interface FriendsUi {
   // MY is selected in the rail (in place of a server).
   my: boolean;
   myView: MyView;
-  // Phones: the bottom bar's tab.
-  tab: 'chats' | 'friends' | 'calls';
+  // Phones: the full-screen page showing (null: the channel list).
+  phone: PhonePage | null;
   // The active IRC server's host (ChatLayout sets it).
   host: string | null;
 }
 
-let ui: FriendsUi = { my: false, myView: 'friends', tab: 'chats', host: null };
+let ui: FriendsUi = { my: false, myView: 'friends', phone: null, host: null };
 const listeners = new Set<(u: FriendsUi) => void>();
 
 export function getFriendsUi(): FriendsUi {
@@ -26,14 +30,14 @@ export function getFriendsUi(): FriendsUi {
 
 export function setFriendsUi(patch: Partial<FriendsUi>): void {
   const next = { ...ui, ...patch };
-  if (next.my === ui.my && next.myView === ui.myView && next.tab === ui.tab && next.host === ui.host) return;
+  if (next.my === ui.my && next.myView === ui.myView && next.phone === ui.phone && next.host === ui.host) return;
   ui = next;
   listeners.forEach((fn) => fn(ui));
 }
 
-// MY, showing `view`.
+// MY, showing `view` (a phone opens it full screen).
 export function openMy(view: MyView = getFriendsUi().myView): void {
-  setFriendsUi({ my: true, myView: view });
+  setFriendsUi({ my: true, myView: view, ...(view !== 'chat' ? { phone: view } : {}) });
 }
 
 export function useFriendsUi(): FriendsUi {

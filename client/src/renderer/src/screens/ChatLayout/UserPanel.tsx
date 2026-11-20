@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { AtomLoader } from '@boson/shared';
-import { ChevronLeft } from 'lucide-preact';
+import { ArrowLeft } from 'lucide-preact';
 import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu } from './NickContextMenu';
@@ -94,7 +94,7 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
       <div class="user-panel-header">
         {onBack && (
           <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Back to chat">
-            <ChevronLeft size={20} aria-hidden="true" />
+            <ArrowLeft size={20} aria-hidden="true" />
           </button>
         )}
         <div class="user-panel-title">

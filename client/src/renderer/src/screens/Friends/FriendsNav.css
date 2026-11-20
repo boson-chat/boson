@@ -1,91 +1,39 @@
-/* Desktop rail: MY (Friends). */
-.friends-rail-tile { position: relative; flex: none; padding: 0; font: 600 var(--text-sm) var(--font-mono); color: var(--fg-2); cursor: pointer; }
-.friends-rail-tile-active { border-color: var(--accent); }
-.friends-rail-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: var(--accent-on);
-  font: 700 10px/18px var(--font-mono);
-}
-
-/* Phones: the bottom bar and the pages above it. */
-.phone-tabs {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 30;
-  height: calc(64px + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  display: flex;
-  border-top: 1px solid var(--border-soft);
-  background: var(--surface);
-}
-html.kb-open .phone-tabs { display: none; }
-.phone-tab {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  height: 64px;
-  border: 0;
-  background: transparent;
-  color: var(--fg-3);
-  font: 500 var(--text-xs) var(--font-mono);
-  cursor: pointer;
-}
-.phone-tab-on { color: var(--warn); }
-.phone-tab:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.phone-tab-badge {
-  position: absolute;
-  top: 6px;
-  left: 55%;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  font: 700 10px/18px var(--font-mono);
-}
-.phone-tab-badge-pending { background: var(--accent); color: var(--accent-on); }
-.phone-tab-badge-missed { background: var(--danger); color: #fff; }
-
-.app-shell.has-tabs .mobile-under,
-.app-shell.has-tabs .mobile-main { bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
-html.kb-open .app-shell.has-tabs .mobile-under,
-html.kb-open .app-shell.has-tabs .mobile-main { bottom: 0; }
+/* Phones: a full-screen page (Friends, Calls, Notifications) with a back
+   arrow, under the top bar. */
 .phone-page {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
-  z-index: 20;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg);
 }
-html.kb-open .phone-page { bottom: 0; }
-
-.calls-page { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-4); display: flex; flex-direction: column; gap: 14px; }
-.calls-page-title { margin: 0; font: 700 18px var(--font-display); }
-.calls-page-missed {
+.phone-page-head {
+  height: 54px;
+  flex: none;
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: var(--space-3) var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface);
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
 }
-.calls-page-label { padding: 0 var(--space-2); font: 500 var(--text-sm) var(--font-mono); letter-spacing: .1em; color: var(--fg-3); }
-.calls-page .missed-row { min-height: 52px; }
-.calls-page .missed-call { width: 44px; height: 44px; border-radius: var(--radius-lg); }
+.phone-page-back {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.phone-page-back:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+.phone-page-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.phone-page-title { margin: 0; font: 700 16px var(--font-mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-page-sub { font: 400 11px var(--font-mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-page-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
+.phone-page-body > .friends,
+.phone-page-body > .calls-view { flex: 1 1 auto; }

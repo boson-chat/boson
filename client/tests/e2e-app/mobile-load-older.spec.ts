@@ -71,11 +71,12 @@ async function rowY(page: Page, text: string): Promise<number | null> {
   }, text);
 }
 
-// Join, and wait for the chat to have slid back over the drawers.
+// Join (from the channel list), and wait for the chat to show full screen.
 async function openChannel(page: Page, ch: string): Promise<void> {
+  const back = page.getByRole('button', { name: 'Back to channels' });
+  if (await back.isVisible()) await back.click();
   await joinChannel(page, ch);
-  await expect(page.locator('.app-shell')).toHaveClass(/\bdrawer-none\b/);
-  await expect.poll(async () => (await page.locator('.mobile-main').boundingBox())!.x).toBeLessThan(1);
+  await expect(page.locator('.app-shell')).toHaveClass(/\bphone-chat\b/);
 }
 
 const history = (n: number) => {

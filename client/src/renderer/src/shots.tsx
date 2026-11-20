@@ -34,6 +34,7 @@ import { getVideoController } from './modules/video';
 import { openCall } from './screens/ChatLayout/call-shared';
 import { setFriendsUi } from './screens/Friends/friends-ui';
 import { CallOverlays } from './screens/Friends/CallOverlays';
+import { TitleBar } from './screens/TitleBar/TitleBar';
 import { configureDirectorySources } from './modules/directory/sources';
 import { fakeDirectory, fakeTransport, type FakeNetwork } from './modules/directory/test-directory-server';
 
@@ -587,7 +588,8 @@ function installFriends(): void {
   (globalThis as unknown as { __friends: unknown }).__friends = { api, ctl };
   if (q.get('fpage')) setFriendsUi({ my: true, myView: q.get('fpage') === 'calls' ? 'calls' : 'friends' });
   const tab = q.get('tab');
-  if (tab === 'friends' || tab === 'calls') setFriendsUi({ tab });
+  // (After the chat opens its channel, which a phone shows.)
+  if (tab === 'friends' || tab === 'calls') setTimeout(() => setFriendsUi({ my: true, myView: tab, phone: tab }), 300);
   const ring = q.get('ring');
   if (ring) setTimeout(() => api.ring('kestrel', ring === 'video'), 600);
   const calling = q.get('calling');
@@ -635,6 +637,9 @@ function installBrand(): void {
 }
 
 function chatView(): void {
+  // ?platform=ios|android: a phone app (no window controls).
+  const platform = q0.get('platform');
+  if (platform) (window as { bosonPlatform?: string }).bosonPlatform = platform;
   installFiles();
   installBrand();
   installVoice();
@@ -686,7 +691,16 @@ function chatView(): void {
     );
   };
   const layout = <Layout />;
-  const withCalls = <>{layout}{friendsMode && <CallOverlays />}</>;
+  // &frame=1: inside the app frame, under the title bar (the phone's top bar).
+  const framed = q0.get('frame') === '1'
+    ? (
+      <div class="app-frame">
+        <TitleBar userLabel={NICK} userMode="account" onOpenSettings={() => {}} onOpenInbox={() => {}} inboxUnreadCount={2} />
+        <div class="app-frame-body">{layout}</div>
+      </div>
+    )
+    : layout;
+  const withCalls = <>{framed}{friendsMode && <CallOverlays />}</>;
   render(
     voiceMode || filesMode || brandMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{withCalls}</AuthProvider> : withCalls,
     document.getElementById('app')!,

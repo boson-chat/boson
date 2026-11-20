@@ -16,10 +16,10 @@ const order = (page: Page): Promise<string[]> =>
 const shell = (page: Page): Locator => page.locator('.app-shell');
 
 async function openChannels(page: Page): Promise<void> {
-  if (!/\bdrawer-nav\b/.test((await shell(page).getAttribute('class')) ?? '')) {
-    await page.getByRole('button', { name: 'Channels' }).click();
+  if (!/\bphone-home\b/.test((await shell(page).getAttribute('class')) ?? '')) {
+    await page.getByRole('button', { name: 'Back to channels' }).click();
   }
-  await expect(shell(page)).toHaveClass(/\bdrawer-nav\b/);
+  await expect(shell(page)).toHaveClass(/\bphone-home\b/);
   await expect(page.getByRole('button', { name: 'Add channel' })).toBeVisible();
 }
 
@@ -41,7 +41,7 @@ test('press and hold, then drag a channel; the order survives a reload', async (
   await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
   const [a, b, c] = [randomChannel('pa'), randomChannel('pb'), randomChannel('pc')];
   for (const ch of [a, b, c]) {
-    // Joining shows the chat; the channel list is the drawer under it.
+    // Joining shows the chat; back shows the channel list.
     await openChannels(page);
     await joinChannel(page, ch);
   }
@@ -72,13 +72,14 @@ test('press and hold, then drag a channel; the order survives a reload', async (
   await page.screenshot({ path: test.info().outputPath('touch-drag.png'), animations: 'disabled' });
   await touch(cdp, 'touchEnd');
   await expect.poll(() => order(page)).toEqual([c, a, b]);
-  // The drawer stayed open (the drag wasn't taken for a swipe) and the
-  // release didn't open the channel.
-  await expect(shell(page)).toHaveClass(/\bdrawer-nav\b/);
+  // The list stayed (the release didn't open the channel).
+  await expect(shell(page)).toHaveClass(/\bphone-home\b/);
   await cdp.detach();
 
   await page.reload();
-  await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
+  // A launch opens onto the last channel; back for the list.
+  await expect(shell(page)).toHaveClass(/\bphone-chat\b/, { timeout: 30_000 });
   await openChannels(page);
+  await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
   await expect.poll(() => order(page), { timeout: 20_000 }).toEqual([c, a, b]);
 });

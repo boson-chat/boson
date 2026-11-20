@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { Menu, PlugZap, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
+import { ArrowLeft, PlugZap, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
 import { BarLoader } from '@boson/shared';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
@@ -115,8 +115,8 @@ interface ChatAreaProps {
   // (serverInfo.bouncerCert). Without them the strip shows no buttons.
   onTrustBouncerCert?: () => void;
   onRejectBouncerCert?: () => void;
-  // Phone layout: reveal the server rail + channels drawer, or the member
-  // list drawer (both also open with a swipe). Absent on wide layouts.
+  // Phone layout: back to the rail and channel list, or the member list
+  // full screen. Absent on wide layouts.
   onBack?: () => void;
   onShowMembers?: () => void;
   // The active server's IRC host: file uploads go to its network's files
@@ -127,13 +127,12 @@ interface ChatAreaProps {
   onSendTo?: (channel: string, message: string) => void;
 }
 
-// The phone layout's channels drawer (servers + channels), at the start of
-// a header — what a swipe to the right shows too.
+// Phones: the back arrow at the start of the header, to the channel list.
 function PaneBackButton({ onBack }: { onBack?: () => void }) {
   if (!onBack) return null;
   return (
-    <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Channels">
-      <Menu size={20} aria-hidden="true" />
+    <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Back to channels">
+      <ArrowLeft size={20} aria-hidden="true" />
     </button>
   );
 }

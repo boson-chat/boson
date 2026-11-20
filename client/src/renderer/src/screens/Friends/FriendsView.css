@@ -107,6 +107,7 @@
 .friends-btn-ghost { border-color: transparent; background: transparent; color: var(--fg-2); }
 .friends-ib:focus-visible, .friends-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 
+.friends-phone .friends-note { margin: var(--space-4); }
 .friends-note { margin: var(--space-4) 6px 0; font-size: var(--text-sm); line-height: 1.5; color: var(--fg-3); }
 .friends-empty { margin: var(--space-4) 6px; font-size: 13px; line-height: 1.5; color: var(--fg-3); }
 .friends-signin { margin: var(--space-10) auto; max-width: 420px; text-align: center; }
@@ -128,3 +129,6 @@
 .friends-row-anytime { display: flex; align-items: center; gap: var(--space-3); padding-left: 52px; }
 .friends-anytime-label { flex: 1; font-size: 13px; color: var(--fg-2); }
 .friends-phone .friends-add .bds-btn { padding: 0 var(--space-4); font-size: 14px; }
+/* Phones: Remove friend, under the switch. */
+.friends-row-remove { display: flex; padding-left: 52px; margin: -10px 0 -8px; }
+.friends-phone .friends-remove { height: 44px; padding: 0; font: 500 13px var(--font-mono); color: color-mix(in oklab, var(--danger), white 25%); }
