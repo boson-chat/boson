@@ -146,10 +146,11 @@ type engineClient struct {
 // to actually close (QUIT sent, socket shut) before confirming it.
 const disconnectWait = 5 * time.Second
 
-// probeTimeout bounds CmdProbe's wait for a PONG: long enough for a slow
-// mobile network, short enough that a dead connection is noticed while the
-// user is looking.
-const probeTimeout = 5 * time.Second
+// probeTimeout is CmdProbe's wait per PING (irc.Client.Probe retries twice
+// more before dropping): long enough for a phone's radio to wake and a
+// backlog to drain on a slow mobile link, short enough that a dead
+// connection is noticed within about half a minute of coming back.
+const probeTimeout = 10 * time.Second
 
 type session struct {
 	t Transport
