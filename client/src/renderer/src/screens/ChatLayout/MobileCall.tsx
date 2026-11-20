@@ -3,7 +3,7 @@ import {
   ChevronDown, ChevronUp, Ear, Headphones, HeadphoneOff, MessageSquare, Mic, MicOff, MonitorUp, MoreHorizontal, PhoneOff,
   RotateCw, SwitchCamera, Users, Video, VideoOff, Volume2, X,
 } from 'lucide-preact';
-import { useVideo, type VideoCamera } from '../../modules/video';
+import { getVideoController, useTrackNotice, useVideo, type VideoCamera } from '../../modules/video';
 import { useVoice, type VoiceController, type VoiceState } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { BottomSheet } from './BottomSheet';
@@ -138,6 +138,7 @@ function MTile({ tile, cls, avatar, label, ariaLabel, onClick, onSize, canvasRef
     report();
     return () => ro.disconnect();
   }, [el, tile.key]);
+  const notice = useTrackNotice(getVideoController(), tile.track?.trackId);
   const body = (
     <>
       {tile.track ? (
@@ -145,6 +146,7 @@ function MTile({ tile, cls, avatar, label, ariaLabel, onClick, onSize, canvasRef
       ) : (
         <span class="mcall-avatar" data-speaking={tile.speaking || undefined}><Avatar nick={tile.name} url={avatar} size={52} /></span>
       )}
+      {tile.track && notice && <span class="video-notice" role="status">{notice}</span>}
       <span class="mcall-tag">
         {tile.screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
         {label}

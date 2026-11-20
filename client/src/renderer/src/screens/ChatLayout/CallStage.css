@@ -164,3 +164,23 @@ button.stage-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); 
   color: #fff;
 }
 .stage-dock .stage-leave:hover { background: var(--danger, #ef4444); filter: brightness(1.1); }
+
+/* A received video with no picture yet says why (video-notice), in the
+ * middle of its tile, so a blank tile is never a mystery. Shared by the
+ * desktop stage and the phone call screen. */
+.video-notice {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(7, 7, 9, 0.8);
+  font: 500 12px var(--font-mono);
+  color: var(--fg-2, #9898a8);
+  text-align: center;
+  line-height: 1.4;
+  pointer-events: none;
+}
+.stage-tile[data-size='strip'] .video-notice { font-size: 10px; padding: 4px 6px; }

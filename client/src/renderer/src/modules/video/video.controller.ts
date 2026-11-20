@@ -31,7 +31,20 @@ export interface TrackStats {
   // picture came after its sound.
   lastSkewMs: number | null;
   synced: boolean; // an audio offset is known
+  // What the tile should say when there's no picture: 'waiting' (nothing
+  // decoded yet), 'stalled' (no new picture for STALL_MS), 'error' (this
+  // device can't decode it; reason says why), 'playing'.
+  status: TrackStatus;
+  reason?: string;
 }
+
+export type TrackStatus = 'waiting' | 'playing' | 'stalled' | 'error';
+
+// A tile that had pictures says "no picture" after this long without one.
+const STALL_MS = 5000;
+// Decoder errors in a row (with no picture between them) before the tile
+// says this device can't play the video.
+const ERROR_STREAK = 3;
 
 // Seams for tests: the browser's WebSocket and WebCodecs, the clock and
 // the frame scheduler.
@@ -82,7 +95,14 @@ class TrackPlayer {
   screen = false;
   pace = false;
   private lags: number[] = [];
-  stats: TrackStats = { decoded: 0, shown: 0, dropped: 0, lastSkewMs: null, synced: false };
+  stats: TrackStats = { decoded: 0, shown: 0, dropped: 0, lastSkewMs: null, synced: false, status: 'waiting' };
+  // (stats.status is filled in by VideoController.stats(); see status().)
+  private lastShownMs = 0;
+  private errorStreak = 0;
+  private lastError = '';
+  private codec = '';
+  // Called once when the track turns 'error' (to log the reason).
+  onError: ((reason: string) => void) | null = null;
 
   constructor(
     private env: VideoEnv,
@@ -117,6 +137,7 @@ class TrackPlayer {
     const dec = new this.env.VideoDecoder({
       output: (frame) => {
         this.stats.decoded++;
+        this.errorStreak = 0;
         const arrivedMs = this.env.now();
         if (this.screen && this.pace) {
           this.lags.push(arrivedMs - frame.timestamp / 1000);
@@ -124,12 +145,45 @@ class TrackPlayer {
         }
         this.queue.push({ frame, captureUS: frame.timestamp, arrivedMs });
       },
-      error: () => this.reset(),
+      error: (e) => this.decodeFailed(e),
     });
-    dec.configure({ codec: codecFromDesc(desc), description: desc, optimizeForLatency: true });
+    const codec = codecFromDesc(desc);
+    this.codec = codec;
+    const cfg = { codec, description: desc, optimizeForLatency: true };
+    // Say so up front when this device can't decode the stream at all
+    // (the iOS simulator can't, for big screen shares), rather than a
+    // tile that stays blank.
+    const check = this.env.VideoDecoder.isConfigSupported?.(cfg);
+    void check?.then((r) => { if (r && r.supported === false) this.markError(`this device can't play ${codec} video`, true); }, () => {});
+    dec.configure(cfg);
     this.dec = dec;
     this.descKey = key;
     this.waitingForKey = true;
+  }
+
+  // A decoder error: count it, then start again from the next keyframe.
+  private decodeFailed(e: unknown): void {
+    this.errorStreak++;
+    this.lastError = e instanceof Error ? e.message || e.name : String(e);
+    if (this.errorStreak >= ERROR_STREAK) this.markError(`can't play this video here (${this.codec}${this.lastError ? `: ${this.lastError}` : ''})`);
+    this.reset();
+  }
+
+  // unsupported: the decoder says it can't play this stream at all.
+  private unsupported = false;
+
+  private markError(reason: string, unsupported = false): void {
+    if (unsupported) this.unsupported = true;
+    if (this.stats.reason === reason) return;
+    this.stats.reason = reason;
+    this.onError?.(reason);
+  }
+
+  /** The tile's status at nowMs (see TrackStats.status). */
+  status(nowMs: number): TrackStatus {
+    if (this.unsupported || this.errorStreak >= ERROR_STREAK) return 'error';
+    if (this.stats.shown === 0) return 'waiting';
+    return nowMs - this.lastShownMs > STALL_MS ? 'stalled' : 'playing';
   }
 
   // A decoder error: start again from the next keyframe.
@@ -177,6 +231,7 @@ class TrackPlayer {
     if (offsetUS !== undefined) this.stats.lastSkewMs = nowMs - (p.captureUS + offsetUS) / 1000;
     this.draw(p.frame);
     this.stats.shown++;
+    this.lastShownMs = nowMs;
     p.frame.close();
   }
 
@@ -417,7 +472,11 @@ export class VideoController {
 
   stats(): Record<number, TrackStats> {
     const out: Record<number, TrackStats> = {};
-    for (const [id, p] of this.players) out[id] = { ...p.stats };
+    const now = this.env.now();
+    for (const [id, p] of this.players) {
+      const status = p.status(now);
+      out[id] = { ...p.stats, status, reason: status === 'error' ? p.stats.reason : undefined };
+    }
     return out;
   }
 
@@ -427,6 +486,7 @@ export class VideoController {
       p = new TrackPlayer(this.env, trackId, (id) => this.askKeyframe(id));
       p.screen = this.snapshot.state.tracks.find((t) => t.trackId === trackId)?.kind === 'screen';
       p.pace = getVoiceSettings().screenPacing;
+      p.onError = (reason) => this.reportError(`track ${trackId}`, new Error(reason));
       this.players.set(trackId, p);
     }
     return p;
