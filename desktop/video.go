@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/base64"
@@ -62,11 +63,15 @@ type VideoService struct {
 	hub     atomic.Pointer[frameHub] // set once, on first use
 	hubErr  error
 
-	mu    sync.Mutex
-	seq   int // bumped by every voice join/leave; a superseded start gives up
-	sess  *videoSession
-	st    videoStatus
-	dirty bool
+	mu   sync.Mutex
+	seq  int // bumped by every voice join/leave; a superseded start gives up
+	sess *videoSession
+	st   videoStatus
+	// metered: on a metered network (video_network.go). camQuality: the
+	// camera's ladder (SetCameraQuality; "" = auto).
+	metered    bool
+	camQuality string
+	dirty      bool
 	// Lip sync: the offsets last sent to the page, per user, and how late
 	// each person's video arrives against them (adaptive audio delay).
 	userOffsets map[string]int64
@@ -242,6 +247,11 @@ type VideoState struct {
 	Preview VideoShareState `json:"preview"`
 	Screen  VideoShareState `json:"screen"`
 	Tracks  []VideoTrack    `json:"tracks"`
+	// Metered: the phone is on a metered network (cellular, a hotspot, Low
+	// Data Mode); the renderer's data saver turns on in Auto. CameraQuality:
+	// what the camera sends (SetCameraQuality).
+	Metered       bool   `json:"metered"`
+	CameraQuality string `json:"cameraQuality"`
 }
 
 const (
@@ -301,6 +311,7 @@ type avAdapt struct {
 
 func (v *VideoService) ServiceStartup(context.Context, application.ServiceOptions) error {
 	v.watchResume(application.Get())
+	v.watchNetwork(application.Get())
 	go v.loop()
 	return nil
 }
@@ -1249,7 +1260,10 @@ func (v *VideoService) runShare(camera bool, gen int, sess *videoSession, id str
 	var share videoShare
 	var err error
 	if camera {
-		share, err = v.media.StartCamera(ctx, sess.client, id, v.preview, onEnd)
+		v.mu.Lock()
+		q := cmp.Or(v.camQuality, CameraQualityAuto)
+		v.mu.Unlock()
+		share, err = v.media.StartCamera(ctx, sess.client, id, q, v.preview, onEnd)
 	} else {
 		v.mu.Lock()
 		mode, sound := v.st.screenMode, v.st.screenSound && sess.canSound
@@ -1329,6 +1343,7 @@ func (v *VideoService) State() VideoState {
 		Camera:        share(v.st.camera), Screen: share(v.st.screen),
 		Preview: VideoShareState{On: v.pv.on, Starting: v.pv.starting, ID: v.pv.id, Facing: v.pv.facing, Error: v.pv.err},
 		Tracks:  []VideoTrack{},
+		Metered: v.metered, CameraQuality: cmp.Or(v.camQuality, CameraQualityAuto),
 	}
 	if st.Screen.On || st.Screen.Starting {
 		st.Screen.Mode = v.st.screenMode

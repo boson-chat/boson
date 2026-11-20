@@ -113,6 +113,11 @@ export function createFakeVoiceBridge(opts: FakeVoiceOptions = {}): FakeVoiceBri
     async setInputMode(mode) { log('setInputMode', mode); set({ pushToTalk: mode === 'ptt' }); },
     async ptt(down) { log('ptt', down); },
     async setVADThreshold(db) { log('setVADThreshold', db); },
+    async setVoiceQuality(q) {
+      log('setVoiceQuality', q);
+      const bps = q === 'music' ? 128000 : q === 'high' ? 64000 : 32000;
+      return set({ voiceQuality: q as VoiceState['voiceQuality'], bitrate: Math.min(bps, fake.current.maxBitrate || bps) });
+    },
     async setUserVolume(userId, percent) { log('setUserVolume', userId, percent); },
     async devices() {
       log('devices');

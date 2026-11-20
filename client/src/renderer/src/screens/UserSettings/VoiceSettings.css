@@ -99,3 +99,39 @@
   font-size: var(--text-sm);
   color: var(--fg-3);
 }
+
+/* Quality: the channel-cap note and data saver's live state. */
+.voice-settings-cap {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: calc(-1 * var(--space-1)) 0 0;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+.voice-settings-cap-tag,
+.voice-settings-saver-state {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+.voice-settings-cap-tag {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.voice-settings-saver {
+  display: grid;
+  gap: var(--space-2);
+}
+.voice-settings-saver-state { justify-self: start; }
+.voice-settings-saver-state[data-on] {
+  color: var(--accent);
+  border-color: var(--accent);
+}

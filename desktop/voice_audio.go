@@ -3,6 +3,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -70,10 +71,24 @@ type quicvoiceAudio struct {
 	delays                        map[uint16]time.Duration // lip-sync audio delays
 	sender                        voiceSender
 	threshold                     float32
+	// bitrate and music: the encoder quality (SetQuality); 0 = voiceBitrate.
+	bitrate int
+	music   bool
 }
 
 func (q *quicvoiceAudio) newEngine() (*voice.Engine, error) {
-	return voice.NewEngine(voice.Options{Bitrate: voiceBitrate, VADThreshold: max(q.threshold, 0.001)})
+	return voice.NewEngine(voice.Options{Bitrate: cmp.Or(q.bitrate, voiceBitrate), Music: q.music, VADThreshold: max(q.threshold, 0.001)})
+}
+
+// SetQuality implements qualitySetter: the Opus bitrate (bit/s) and music
+// mode, live; kept for a new engine (a VAD threshold change).
+func (q *quicvoiceAudio) SetQuality(bitrate int, music bool) {
+	q.mu.Lock()
+	q.bitrate, q.music = bitrate, music
+	q.mu.Unlock()
+	e := q.eng.Load()
+	e.SetBitrate(bitrate)
+	e.SetMusic(music)
 }
 
 func (q *quicvoiceAudio) Start(in, out string) error {

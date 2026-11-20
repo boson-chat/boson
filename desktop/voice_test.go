@@ -315,6 +315,27 @@ type fakeAudio struct {
 	volumes                        map[uint16]float32
 	removed                        []uint16
 	speaking                       map[uint16]bool
+	qualities                      []fakeQuality
+}
+
+type fakeQuality struct {
+	bps   int
+	music bool
+}
+
+func (a *fakeAudio) SetQuality(bps int, music bool) {
+	a.mu.Lock()
+	a.qualities = append(a.qualities, fakeQuality{bps, music})
+	a.mu.Unlock()
+}
+
+func (a *fakeAudio) lastQuality() fakeQuality {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.qualities) == 0 {
+		return fakeQuality{}
+	}
+	return a.qualities[len(a.qualities)-1]
 }
 
 func (a *fakeAudio) Start(string, string) error {
@@ -370,6 +391,8 @@ type voiceHarness struct {
 	conns []*fakeConn
 	dials []client.Config
 	mic   micAccess
+	// roomCap: the joined room's MaxBitrate.
+	roomCap uint32
 }
 
 func newVoiceHarness(t *testing.T) *voiceHarness {
@@ -382,7 +405,7 @@ func newVoiceHarness(t *testing.T) *voiceHarness {
 	s.dial = func(_ context.Context, cfg client.Config) (voiceConn, error) {
 		h.dials = append(h.dials, cfg)
 		c := &fakeConn{done: make(chan struct{}), onCtl: cfg.OnControl, state: &controlpb.RoomState{
-			Room: "general", YourSessionId: 5,
+			Room: "general", YourSessionId: 5, MaxBitrate: h.roomCap,
 			Participants: []*controlpb.Participant{
 				{SessionId: 5, UserId: "usr_me", DisplayName: "me"},
 				{SessionId: 7, UserId: "usr_alice", DisplayName: "alice", SelfMuted: true},
@@ -637,5 +660,65 @@ func TestVoiceKeepsScreenAwake(t *testing.T) {
 	_ = h.svc.ServiceShutdown()
 	if c := calls(); !slices.Equal(c[4:], []bool{true, false}) {
 		t.Fatalf("shutdown: %v", c)
+	}
+}
+
+func TestVoiceQuality(t *testing.T) {
+	h := newVoiceHarness(t)
+	h.svc.Devices() // opens the backend
+	// Default: Standard, the platform's bitrate, speech mode.
+	if q := h.audio.lastQuality(); q != (fakeQuality{voiceBitrate, false}) {
+		t.Fatalf("default quality %+v", q)
+	}
+	if st := h.svc.State(); st.VoiceQuality != "standard" || st.Bitrate != voiceBitrate || st.MaxBitrate != 0 {
+		t.Fatalf("state %+v", st)
+	}
+	h.svc.SetVoiceQuality("music")
+	if q := h.audio.lastQuality(); q != (fakeQuality{128000, true}) {
+		t.Fatalf("music %+v", q)
+	}
+	// A capped room: min(setting, cap), still music mode.
+	h.roomCap = 48000
+	st := h.svc.Join(VoiceJoinRequest{Host: "irc.boson.chat", Room: "general", Token: "tok"})
+	if q := h.audio.lastQuality(); q != (fakeQuality{48000, true}) || st.Bitrate != 48000 || st.MaxBitrate != 48000 {
+		t.Fatalf("capped %+v %+v", q, st)
+	}
+	// The cap changes live (a config reload).
+	h.conns[0].onCtl(&controlpb.ControlMessage{Msg: &controlpb.ControlMessage_RoomSettings{
+		RoomSettings: &controlpb.RoomSettings{Room: "general", MaxBitrate: 96000}}})
+	if q := h.audio.lastQuality(); q.bps != 96000 {
+		t.Fatalf("after RoomSettings %+v", q)
+	}
+	h.svc.SetVoiceQuality("high")
+	if q := h.audio.lastQuality(); q != (fakeQuality{64000, false}) {
+		t.Fatalf("high under a 96k cap %+v", q)
+	}
+	// Leaving lifts the cap; an unknown value is Standard.
+	h.svc.Leave()
+	if q := h.audio.lastQuality(); q.bps != 64000 {
+		t.Fatalf("after leave %+v", q)
+	}
+	if st := h.svc.SetVoiceQuality("ultra"); st.VoiceQuality != "standard" || h.audio.lastQuality().bps != voiceBitrate {
+		t.Fatalf("unknown quality %+v", st)
+	}
+}
+
+func TestVoiceSendBitrate(t *testing.T) {
+	for _, c := range []struct {
+		q     string
+		cap   int
+		bps   int
+		music bool
+	}{
+		{"standard", 0, voiceBitrate, false},
+		{"high", 0, 64000, false},
+		{"music", 0, 128000, true},
+		{"music", 64000, 64000, true},
+		{"standard", 128000, voiceBitrate, false},
+		{"high", 16000, 16000, false},
+	} {
+		if bps, music := voiceSendBitrate(c.q, c.cap); bps != c.bps || music != c.music {
+			t.Errorf("%s cap %d = %d %v", c.q, c.cap, bps, music)
+		}
 	}
 }

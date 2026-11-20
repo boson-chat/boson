@@ -4,6 +4,7 @@ import { VoiceController, getVoiceSettings, setVoiceController } from '../../mod
 import { createFakeVoiceBridge, type FakeVoiceBridge } from '../../modules/voice/voice.fake';
 import { __resetVoiceSettings } from '../../modules/voice/voice.settings';
 import { VoiceSettingsSection } from './VoiceSettings';
+import { VideoController, setVideoController, EMPTY_VIDEO_STATE, type VideoState } from '../../modules/video';
 
 let bridge: FakeVoiceBridge;
 
@@ -85,5 +86,44 @@ describe('Settings → Voice', () => {
     const toggle = await screen.findByRole('switch', { name: 'Smoother screen shares' }).catch(() => screen.getByLabelText('Smoother screen shares'));
     fireEvent.click(toggle);
     await waitFor(() => expect(getVoiceSettings().screenPacing).toBe(true));
+  });
+
+  it('voice quality: sent to the app, and a channel cap is explained', async () => {
+    const { rerender } = render(<VoiceSettingsSection open />);
+    expect(bridge.calls).toContainEqual({ method: 'setVoiceQuality', args: ['standard'] });
+    expect(screen.getByText(/32 kbps\. Clear speech/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Music' }));
+    expect(getVoiceSettings().voiceQuality).toBe('music');
+    expect(bridge.calls).toContainEqual({ method: 'setVoiceQuality', args: ['music'] });
+    expect(screen.getByText(/tuned for music/)).toBeTruthy();
+    // In a channel capped at 48 kbps.
+    bridge.push({ status: 'connected', maxBitrate: 48000, bitrate: 48000 });
+    rerender(<VoiceSettingsSection open />);
+    expect(await screen.findByText(/This channel allows 48 kbps/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Standard' }));
+    await waitFor(() => expect(screen.queryByText(/This channel allows/)).toBeNull());
+  });
+
+  it('camera quality and, on a phone, data saver', async () => {
+    const vstate: VideoState = { ...EMPTY_VIDEO_STATE, metered: true };
+    setVideoController(new VideoController({
+      state: async () => vstate, onState: () => () => {}, subscribe: async () => {}, unsubscribe: async () => {},
+      cameras: async () => [], screenSources: async () => [], setCamera: async () => vstate, setScreen: async () => vstate,
+    }));
+    window.bosonPlatform = 'android';
+    try {
+      render(<VoiceSettingsSection open />);
+      fireEvent.click(screen.getAllByRole('tab', { name: 'High' })[1]);
+      expect(getVoiceSettings().cameraQuality).toBe('high');
+      // On mobile data with Auto: data saver is on.
+      expect(await screen.findByText('On · mobile data')).toBeTruthy();
+      expect(screen.getByText(/your camera sends at most 360p/)).toBeTruthy();
+      fireEvent.click(screen.getByRole('tab', { name: 'Off' }));
+      expect(getVoiceSettings().dataSaver).toBe('off');
+      expect(await screen.findByText('Off now')).toBeTruthy();
+    } finally {
+      delete window.bosonPlatform;
+      setVideoController(null);
+    }
   });
 });

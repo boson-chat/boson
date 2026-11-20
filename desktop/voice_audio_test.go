@@ -95,3 +95,20 @@ func (plainDevice) Stop()                                     {}
 func (plainDevice) Close()                                    {}
 func (plainDevice) Inputs() ([]voice.DeviceInfo, error)       { return nil, nil }
 func (plainDevice) Outputs() ([]voice.DeviceInfo, error)      { return nil, nil }
+
+// The voice quality applies to the running engine and survives a new
+// engine (a VAD threshold change).
+func TestQuicvoiceAudioQuality(t *testing.T) {
+	q := newTestAudio(t, plainDevice{})
+	if b := q.eng.Load().Bitrate(); b != voiceBitrate {
+		t.Fatalf("default bitrate %d", b)
+	}
+	q.SetQuality(128000, true)
+	if b := q.eng.Load().Bitrate(); b != 128000 {
+		t.Fatalf("bitrate %d", b)
+	}
+	q.SetVADThreshold(0.5)
+	if b := q.eng.Load().Bitrate(); b != 128000 {
+		t.Fatalf("new engine lost the quality: %d", b)
+	}
+}

@@ -4,7 +4,8 @@ import { VideoController, type VideoEnv } from './video.controller';
 import type { VideoBridge } from './video.bridge';
 import { EMPTY_VIDEO_STATE, type VideoState } from './video.types';
 import { codecFromDesc, parseBinary, parseText } from './video.frames';
-import { layerForTile } from './video.layout';
+import { layerFor, layerForTile } from './video.layout';
+import { dataSaverOn } from './video.controller';
 import { trackNotice } from './use-video';
 
 // ---- fakes ----
@@ -91,6 +92,7 @@ function setup(state: Partial<VideoState> = {}) {
     setCamera: vi.fn(async () => full),
     setScreen: vi.fn(async () => full),
     resumeCamera: vi.fn(async () => full),
+    setCameraQuality: vi.fn(async () => full),
   };
   let now = 1_000_000;
   const env: Partial<VideoEnv> = {
@@ -445,5 +447,59 @@ describe('tile status: a blank tile always says why', () => {
     } finally {
       (FakeDecoder as unknown as { isConfigSupported?: unknown }).isConfigSupported = orig;
     }
+  });
+});
+
+const SCREEN = {
+  trackId: 11, userId: 'usr_bob', name: 'bob', kind: 'screen' as const, self: false,
+  layers: [{ id: 0, width: 1280, height: 720, fps: 15 }, { id: 1, width: 1920, height: 1080, fps: 30 }],
+};
+
+describe('data saver', () => {
+  afterEach(() => { setVoiceSettings({ dataSaver: 'auto', cameraQuality: 'auto' }); });
+
+  it('is on when always, or in auto on a metered network', () => {
+    expect(dataSaverOn('always', false)).toBe(true);
+    expect(dataSaverOn('auto', true)).toBe(true);
+    expect(dataSaverOn('auto', undefined)).toBe(false);
+    expect(dataSaverOn('off', true)).toBe(false);
+  });
+
+  it('caps cameras at 360p and takes screen shares\' low layer', () => {
+    expect(layerFor('camera', TRACK.layers, 1920, 1080, true, false)).toBe(2);
+    expect(layerFor('camera', TRACK.layers, 1920, 1080, true, true)).toBe(1);
+    expect(layerFor('camera', TRACK.layers, 300, 170, true, true)).toBe(0);
+    expect(layerFor('screen', SCREEN.layers, 390, 220, true, false)).toBe(1);
+    expect(layerFor('screen', SCREEN.layers, 1920, 1080, true, true)).toBe(0);
+    expect(layerFor('camera', TRACK.layers, 640, 360, false, true)).toBeNull();
+    // A sender with nothing that small: its smallest layer.
+    expect(layerFor('camera', [{ id: 0, width: 1280, height: 720, fps: 30 }, { id: 1, width: 1920, height: 1080, fps: 30 }], 1920, 1080, true, true)).toBe(0);
+  });
+
+  it('follows the network: re-subscribes and sends the camera at data saver', async () => {
+    setVoiceSettings({ dataSaver: 'auto', cameraQuality: 'high' });
+    const { c, bridge, push, full } = setup({ tracks: [TRACK, SCREEN] });
+    await flush();
+    expect(bridge.setCameraQuality).toHaveBeenLastCalledWith('high');
+    c.setOpen(true);
+    c.tiles([{ trackId: 10, width: 1920, height: 1080, visible: true }, { trackId: 11, width: 1920, height: 1080, visible: true }]);
+    expect(bridge.subscribe).toHaveBeenCalledWith(10, 2);
+    expect(bridge.subscribe).toHaveBeenCalledWith(11, 1);
+
+    push({ ...full, tracks: [TRACK, SCREEN], metered: true });
+    expect(c.getSnapshot().dataSaver).toBe(true);
+    expect(bridge.subscribe).toHaveBeenLastCalledWith(11, 0);
+    expect(bridge.subscribe).toHaveBeenCalledWith(10, 1);
+    expect(bridge.setCameraQuality).toHaveBeenLastCalledWith('saver');
+
+    // Off: back to the camera setting and full layers, even on mobile data.
+    setVoiceSettings({ dataSaver: 'off' });
+    expect(c.getSnapshot().dataSaver).toBe(false);
+    expect(bridge.setCameraQuality).toHaveBeenLastCalledWith('high');
+    expect(bridge.subscribe).toHaveBeenCalledWith(10, 2);
+    const calls = (bridge.setCameraQuality as ReturnType<typeof vi.fn>).mock.calls.length;
+    push({ ...full, tracks: [TRACK, SCREEN], metered: true });
+    expect((bridge.setCameraQuality as ReturnType<typeof vi.fn>).mock.calls.length).toBe(calls); // unchanged: not resent
+    c.dispose();
   });
 });

@@ -137,6 +137,11 @@ export interface VoiceState {
   speaker: boolean;
   route?: VoiceRoute;
   interrupted?: boolean;
+  // What we send: the Voice quality setting, the bitrate (bit/s) after the
+  // channel's cap, and that cap (absent/0 = none). Absent on older shells.
+  voiceQuality?: 'standard' | 'high' | 'music';
+  bitrate?: number;
+  maxBitrate?: number;
 }
 
 export type VoiceRoute = 'speaker' | 'earpiece' | 'headphones' | 'bluetooth' | 'other';

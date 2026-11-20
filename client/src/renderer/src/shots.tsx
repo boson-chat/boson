@@ -136,6 +136,7 @@ const CHAN = '#dev';
 // ?voice=none|rooms|connected|error: the chat view on a server with (or
 // without) voice channels, driven by an in-memory voice bridge.
 const voiceMode = new URLSearchParams(location.search).get('voice');
+const capKbps = Number(new URLSearchParams(location.search).get('cap') ?? 0);
 function installVoice(): void {
   if (!voiceMode) return;
   if (new URLSearchParams(location.search).get('ptt')) setVoiceSettings({ mode: 'ptt', pttCode: 'Backquote' });
@@ -197,6 +198,8 @@ function installVoice(): void {
       : {
         ...prev, status: 'connected', host: req.host, room: req.room, roomName: req.roomName, rttMs: 34, quality: 'good',
         transmitting: true, micLevel: 0.7,
+        // ?cap=48: the channel caps voice at 48 kbit/s.
+        ...(capKbps ? { maxBitrate: capKbps * 1000, bitrate: capKbps * 1000 } : {}),
         participants: callPeople(),
       },
   });
@@ -651,6 +654,24 @@ function settingsView(): void {
   installApi(true);
   multiDirectoryNetworks();
   installVoice();
+  // Settings → Voice's quality card: ?platform=ios (a phone), ?metered=1
+  // (on mobile data), ?vq=music&cq=high&ds=always (the settings).
+  const q = new URLSearchParams(location.search);
+  const platform = q.get('platform');
+  if (platform) (window as { bosonPlatform?: string }).bosonPlatform = platform;
+  if (q.get('vq') || q.get('cq') || q.get('ds')) {
+    setVoiceSettings({
+      ...(q.get('vq') ? { voiceQuality: q.get('vq') as 'standard' } : {}),
+      ...(q.get('cq') ? { cameraQuality: q.get('cq') as 'auto' } : {}),
+      ...(q.get('ds') ? { dataSaver: q.get('ds') as 'auto' } : {}),
+    });
+  }
+  const vstate: VideoState = { ...EMPTY_VIDEO_STATE, metered: q.get('metered') === '1' };
+  setVideoController(new VideoController({
+    state: async () => vstate, onState: () => () => {}, subscribe: async () => {}, unsubscribe: async () => {},
+    cameras: async () => [], screenSources: async () => [], setCamera: async () => vstate, setScreen: async () => vstate,
+    setCameraQuality: async () => vstate,
+  }));
   render(
     <AuthProvider service={makeAuth(true)}>
       <UserSettings
