@@ -24,7 +24,7 @@ import { VoiceController, setVoiceController, setVoiceSettings, type VoiceRoom }
 import { createFakeVoiceBridge } from './modules/voice/voice.fake';
 import { VideoController, setVideoController, EMPTY_VIDEO_STATE, type VideoState } from './modules/video';
 import { NetworkDirectories } from './modules/directory/networks';
-import { FriendsController, setFriendsController } from './modules/friends';
+import { FriendsController, HttpFriendsApi, setFriendsController } from './modules/friends';
 import { FakeFriendsApi } from './modules/friends/friends.fake';
 import { getVoiceController } from './modules/voice';
 import { getVideoController } from './modules/video';
@@ -433,8 +433,19 @@ function installFriends(): void {
     missed: Array.from({ length: missed }, (_, i) => ({ from: i % 2 ? 'mox' : 'kestrel', video: i % 2 === 0, minutesAgo: 5 + i * 40 })),
     answerAfter: q.get('answer') ? Number(q.get('answer')) : undefined,
   });
+  // &live=<auth URL>&tok=<access token>: the real auth service instead.
+  const live = q.get('live');
+  const liveApi = live ? new HttpFriendsApi({
+    request: async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
+      const r = await fetch(live + path, { method, headers: { Authorization: `Bearer ${q.get('tok')}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const text = await r.text();
+      const parsed = text ? JSON.parse(text) : null;
+      if (!r.ok) throw Object.assign(new Error(parsed?.message ?? r.statusText), { code: parsed?.error, status: r.status });
+      return parsed as T;
+    },
+  }) : null;
   const ctl = new FriendsController({
-    api, authUrl: 'https://auth.boson.chat', signedIn: () => true, me: () => NICK,
+    api: liveApi ?? api, authUrl: 'https://auth.boson.chat', signedIn: () => true, me: () => NICK,
     onAccessChange: () => () => {}, voice: getVoiceController, video: getVideoController, openCall,
   });
   setFriendsController(ctl);
