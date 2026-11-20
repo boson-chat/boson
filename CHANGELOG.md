@@ -1,3 +1,9 @@
+## [0.82.1](https://github.com/boson-chat/boson/compare/v0.82.0...v0.82.1) (2026-11-20)
+
+### Bug Fixes
+
+* no join screen for a private call, and the join bar wraps instead of squashing ([#112](https://github.com/boson-chat/boson/issues/112)) ([65ce8f7](https://github.com/boson-chat/boson/commit/65ce8f75f068d0b23de173dd0b124b469ddfb003))
+
 ## [0.82.0](https://github.com/boson-chat/boson/compare/v0.81.1...v0.82.0) (2026-11-20)
 
 ### Features
