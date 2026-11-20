@@ -19,7 +19,9 @@ import { UserSettings } from './screens/UserSettings/UserSettings';
 import { Inbox } from './screens/Inbox/Inbox';
 import type { Memo } from './modules/memos';
 import { ServerSettings } from './screens/ChatLayout/ServerSettings';
-import { getThemeStore } from './modules/ui/theme';
+import { getThemeStore, NetworkThemes, setNetworkThemes, getNetworkThemes } from './modules/ui/theme';
+import { FilesController, setFiles } from './modules/files/files.service';
+import type { FilesBridge } from './modules/files/files-bridge';
 import { VoiceController, setVoiceController, setVoiceSettings, type VoiceRoom } from './modules/voice';
 import { createFakeVoiceBridge } from './modules/voice/voice.fake';
 import { VideoController, setVideoController, EMPTY_VIDEO_STATE, type VideoState } from './modules/video';
@@ -236,7 +238,7 @@ function installVoice(): void {
 const EXTRA = ['orbit', 'mox', 'quill', 'ember', 'sage', 'ash', 'bix', 'cora', 'dune', 'eli', 'fern', 'gage', 'hale', 'iris', 'jett', 'kai', 'lux', 'moss', 'opal', 'pike', 'rook', 'tove', 'vale', 'wren'];
 function callPeople() {
   const all = [
-    { sessionId: 1, userId: 'usr_ada', name: NICK, self: true, muted: false, deafened: false, speaking: true, volume: 100 },
+    { sessionId: 1, userId: 'usr_ada', name: NICK, self: true, muted: false, deafened: false, speaking: !look, volume: 100 },
     { sessionId: 3, userId: 'usr_nova', name: 'nova', self: false, muted: false, deafened: false, speaking: true, volume: 100 },
     { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', self: false, muted: true, deafened: false, speaking: false, volume: 100 },
     { sessionId: 5, userId: 'usr_pixel', name: 'pixel', self: false, muted: false, deafened: true, speaking: false, volume: 80 },
@@ -300,6 +302,123 @@ function installLiveVideo(): void {
   setTimeout(() => c.setOpen(true), 400);
 }
 
+
+// ?look=1 (with ?video=…): marketing-style frames instead of labelled test
+// patterns: a drawn head-and-shoulders figure per camera (no real faces)
+// and a code editor for a screen share.
+const q0 = new URLSearchParams(location.search);
+const look = q0.get('look') === '1';
+const portrait = q0.get('portrait') === '1';
+const LOOKS: Record<number, { wall: [string, string]; shirt: string; skin: string; hair: string; long?: boolean }> = {
+  0: { wall: ['#3b4a5e', '#1f2733'], shirt: '#d9822b', skin: '#e0b48f', hair: '#2b1d14', long: true },
+  10: { wall: ['#2f4f5f', '#18262e'], shirt: '#3d6fb6', skin: '#c58c64', hair: '#1c1410', long: true },
+  12: { wall: ['#5a4a3a', '#2a221a'], shirt: '#5a8f5a', skin: '#f0c9a8', hair: '#a8652f' },
+  14: { wall: ['#4a3f5c', '#211b2b'], shirt: '#b84a5a', skin: '#8d5a3b', hair: '#121010' },
+  16: { wall: ['#3f5a4a', '#1b2a22'], shirt: '#c9b458', skin: '#e8b996', hair: '#5a3a22', long: true },
+  18: { wall: ['#5c4a4a', '#2b1f1f'], shirt: '#4a7a9a', skin: '#d4a07a', hair: '#2a2a2a' },
+};
+function paintPerson(c: OffscreenCanvas | HTMLCanvasElement, track: number): void {
+  const g = c.getContext('2d') as CanvasRenderingContext2D;
+  const { width: w, height: h } = c;
+  const L = LOOKS[track] ?? LOOKS[18]!;
+  const bg = g.createLinearGradient(0, 0, w * 0.4, h);
+  bg.addColorStop(0, L.wall[0]); bg.addColorStop(1, L.wall[1]);
+  g.fillStyle = bg; g.fillRect(0, 0, w, h);
+  // a window's soft light and a shelf, for depth
+  const glow = g.createRadialGradient(w * 0.85, h * 0.2, 0, w * 0.85, h * 0.2, Math.max(w, h) * 0.6);
+  glow.addColorStop(0, 'rgba(255,240,220,0.22)'); glow.addColorStop(1, 'rgba(255,240,220,0)');
+  g.fillStyle = glow; g.fillRect(0, 0, w, h);
+  g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, h * 0.34, w * 0.22, h * 0.02);
+  const s = Math.min(w, h * 0.9);
+  const cx = w * 0.5;
+  const headR = s * 0.15;
+  const shouldersTop = h - s * 0.3;
+  const headY = shouldersTop - headR * 1.55;
+  // neck, then shoulders over its base
+  g.fillStyle = L.skin;
+  g.fillRect(cx - headR * 0.36, headY + headR * 0.6, headR * 0.72, shouldersTop - headY);
+  g.fillStyle = L.shirt;
+  g.beginPath();
+  g.ellipse(cx, h + s * 0.12, s * 0.44, s * 0.42, 0, Math.PI, 0);
+  g.fill();
+  // long hair behind the head
+  g.fillStyle = L.hair;
+  if (L.long) { g.beginPath(); g.ellipse(cx, headY + headR * 0.55, headR * 1.12, headR * 1.45, 0, 0, Math.PI * 2); g.fill(); }
+  // head
+  g.fillStyle = L.skin;
+  g.beginPath(); g.ellipse(cx, headY, headR * 0.86, headR * 1.05, 0, 0, Math.PI * 2); g.fill();
+  // hair on top
+  g.save();
+  g.beginPath(); g.ellipse(cx, headY, headR * 0.92, headR * 1.1, 0, 0, Math.PI * 2); g.clip();
+  g.fillStyle = L.hair;
+  g.beginPath(); g.ellipse(cx, headY - headR * 0.95, headR * 1.3, headR * 0.85, 0, 0, Math.PI * 2); g.fill();
+  g.restore();
+  // soft vignette
+  const v = g.createRadialGradient(cx, h * 0.5, Math.min(w, h) * 0.3, cx, h * 0.5, Math.max(w, h) * 0.75);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.35)');
+  g.fillStyle = v; g.fillRect(0, 0, w, h);
+}
+const CODE = [
+  ['k', 'func '], ['f', 'joinCall'], ['p', '(ctx context.Context, room string) error {'],
+  null,
+  ['p', '  ticket, err := voice.'], ['f', 'Ticket'], ['p', '(ctx, room)'],
+  null,
+  ['p', '  '], ['k', 'if '], ['p', 'err != nil {'],
+  null,
+  ['p', '    '], ['k', 'return '], ['p', 'fmt.'], ['f', 'Errorf'], ['p', '('], ['s', '"ticket: %w"'], ['p', ', err)'],
+  null,
+  ['p', '  }'],
+  null,
+  ['c', '  // video waits for its sound: lip sync'],
+  null,
+  ['p', '  sync := media.'], ['f', 'NewLipSync'], ['p', '(150 * time.Millisecond)'],
+  null,
+  ['p', '  conn, err := quic.'], ['f', 'DialAddr'], ['p', '(ctx, ticket.Addr, tlsConf, nil)'],
+  null,
+  ['p', '  '], ['k', 'if '], ['p', 'err != nil {'],
+  null,
+  ['p', '    '], ['k', 'return '], ['p', 'err'],
+  null,
+  ['p', '  }'],
+  null,
+  ['k', '  return '], ['p', 'publish(ctx, conn, sync)'],
+  null,
+  ['p', '}'],
+] as const;
+function paintScreen(c: OffscreenCanvas): void {
+  const g = c.getContext('2d') as OffscreenCanvasRenderingContext2D;
+  const { width: w, height: h } = c;
+  g.fillStyle = '#1b1d23'; g.fillRect(0, 0, w, h);
+  g.fillStyle = '#25282f'; g.fillRect(0, 0, w, 44);
+  for (const [i, col] of ['#ff5f57', '#febc2e', '#28c840'].entries()) { g.fillStyle = col; g.beginPath(); g.arc(22 + i * 22, 22, 7, 0, Math.PI * 2); g.fill(); }
+  g.fillStyle = '#9aa0ab'; g.font = '18px ui-monospace, Menlo, monospace'; g.fillText('call.go — quicvideo', w / 2 - 90, 28);
+  g.fillStyle = '#20232a'; g.fillRect(0, 44, 240, h - 44);
+  const files = ['client/', '  media/', '  call.go', '  lipsync.go', '  publish.go', 'server/', 'docs/', '  design.md'];
+  g.font = '17px ui-monospace, Menlo, monospace';
+  files.forEach((f, i) => { g.fillStyle = f.trim() === 'call.go' ? '#e8eaf0' : '#7d8390'; if (f.trim() === 'call.go') { g.fillStyle = '#2f3440'; g.fillRect(0, 72 + i * 34 - 22, 240, 32); g.fillStyle = '#e8eaf0'; } g.fillText(f, 20, 72 + i * 34); });
+  const tone: Record<string, string> = { k: '#c678dd', f: '#61afef', p: '#d7dae0', s: '#98c379', c: '#6f7682' };
+  g.font = '21px ui-monospace, Menlo, monospace';
+  let x = 300; let y = 100; let line = 1;
+  g.fillStyle = '#4b5263'; g.fillText(String(line), 262, y);
+  for (const tok of CODE) {
+    if (!tok) { y += 34; x = 300; line++; g.fillStyle = '#4b5263'; g.fillText(String(line).padStart(2), 256, y); continue; }
+    g.fillStyle = tone[tok[0]]!; g.fillText(tok[1], x, y); x += g.measureText(tok[1]).width;
+  }
+  g.fillStyle = 'rgba(97,175,239,0.10)'; g.fillRect(240, 100 + 34 * 7 - 24, w - 240, 32);
+}
+// Our self-view as a preview frame (2, u16 width, u16 height, RGBA).
+function lookPreview(w: number, h: number): Uint8Array {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  paintPerson(c, 0);
+  const px = (c.getContext('2d') as CanvasRenderingContext2D).getImageData(0, 0, w, h).data;
+  const out = new Uint8Array(5 + w * h * 4);
+  const v = new DataView(out.buffer);
+  out[0] = 2; v.setUint16(1, w); v.setUint16(3, h);
+  out.set(px, 5);
+  return out;
+}
+
 // ?video=call: the call view, with tiles drawn from painted test frames
 // through the real controller (a fake socket sends keyframes; a fake
 // decoder paints a labelled pattern per track). call: everyone else's
@@ -309,8 +428,11 @@ const videoMode = new URLSearchParams(location.search).get('video');
 function installVideo(): void {
   if (!videoMode) return;
   if (videoMode === 'live') return installLiveVideo();
+  // &portrait=1: the others' cameras are portrait, as phones send.
+  const camW = portrait ? 360 : 640;
+  const camH = portrait ? 640 : 360;
   const cam = (id: number, userId: string, name: string) => ({
-    trackId: id, userId, name, kind: 'camera' as const, self: false, layers: [{ id: 0, width: 640, height: 360, fps: 30 }],
+    trackId: id, userId, name, kind: 'camera' as const, self: false, layers: [{ id: 0, width: camW, height: camH, fps: 30 }],
   });
   const others = callPeople().filter((p) => !p.self);
   const oneCam = new URLSearchParams(location.search).get('cams') === 'one';
@@ -329,11 +451,13 @@ function installVideo(): void {
   };
   const colours: Record<number, string> = { 10: '#3a6ea5', 11: '#2d2f36', 12: '#7a4fa3', 14: '#2f8a6a', 16: '#a3643a', 18: '#3a8aa3', 20: '#8a3a5e', 22: '#5e7a2f', 24: '#4f5aa3' };
   // Our camera's self-view: a portrait picture, as a phone sends.
-  const preview = new Uint8Array(5 + 90 * 120 * 4);
-  preview[0] = 2; preview[2] = 90; preview[4] = 120;
-  for (let y = 0; y < 120; y++) for (let x = 0; x < 90; x++) {
-    const o = 5 + (y * 90 + x) * 4;
-    preview[o] = 200 - y; preview[o + 1] = 120 + x; preview[o + 2] = 90; preview[o + 3] = 255;
+  const preview = look ? lookPreview(270, 360) : new Uint8Array(5 + 90 * 120 * 4);
+  if (!look) {
+    preview[0] = 2; preview[2] = 90; preview[4] = 120;
+    for (let y = 0; y < 120; y++) for (let x = 0; x < 90; x++) {
+      const o = 5 + (y * 90 + x) * 4;
+      preview[o] = 200 - y; preview[o + 1] = 120 + x; preview[o + 2] = 90; preview[o + 3] = 255;
+    }
   }
   class FakeSocket {
     binaryType = '';
@@ -365,6 +489,15 @@ function installVideo(): void {
     constructor(private init: { output: (f: VideoFrame) => void }) {}
     configure() { this.state = 'configured'; }
     decode(chunk: { timestamp: number }) {
+      if (look) {
+        const tr = state.tracks.find((t) => t.trackId === this.track);
+        const w = tr?.layers[0]?.width ?? 640;
+        const h = tr?.layers[0]?.height ?? 360;
+        const lc = new OffscreenCanvas(this.track === 11 ? 1280 : w, this.track === 11 ? 720 : h);
+        if (this.track === 11) paintScreen(lc); else paintPerson(lc, this.track);
+        this.init.output(new VideoFrame(lc, { timestamp: chunk.timestamp }));
+        return;
+      }
       const c = new OffscreenCanvas(640, 360);
       const g = c.getContext('2d')!;
       const tr = [...state.tracks].find((t) => colours[t.trackId]) ?? state.tracks[0];
@@ -460,7 +593,49 @@ function installFriends(): void {
   if (calling) setTimeout(() => { void ctl.call(calling, q.get('video') === '1'); }, 600);
 }
 
+// ?files=1: the network has a files host, so the composer offers uploads
+// (a fake bridge; drop files on the chat to open the upload sheet).
+const filesMode = q0.get('files') === '1';
+function installFiles(): void {
+  if (!filesMode) return;
+  const json = (b: unknown) => ({ status: 200, body: JSON.stringify(b) });
+  const bridge: FilesBridge = {
+    discover: async (host) => ({ host, filesUrl: 'https://files.nebula.example', source: 'well-known' }),
+    request: async (call) => call.path === '/v1/config'
+      ? json({ enabled: true, guest_enabled: true, limits: { account: { quota_bytes: 500 * 1024 * 1024, window_seconds: 86400, max_file_bytes: 50 * 1024 * 1024 } }, retention_seconds: 30 * 86400 })
+      : call.path === '/v1/me/usage' ? json({ used: 38 * 1024 * 1024, quota: 500 * 1024 * 1024, window_seconds: 86400, max_file: 50 * 1024 * 1024 }) : json({ token: 'g' }),
+    beginUpload: async () => ({ id: 'u1', path: '/_boson/files/upload/u1' }),
+    cancelUpload: async () => {},
+    onProgress: () => () => {},
+  };
+  setFiles(new FilesController({ bridge, signedIn: () => true, accountToken: async () => 'jwt' }));
+}
+
+// ?brand=1: Nebula has a network theme (colours, its own accent and a
+// messages-pane picture), as its boson.json / directory listing would give.
+const brandMode = q0.get('brand') === '1';
+function installBrand(): void {
+  if (!brandMode) return;
+  const store = new Map<string, string>();
+  const n = new NetworkThemes({
+    storage: { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => { store.set(k, v); }, removeItem: (k) => { store.delete(k); } },
+    apply: (overlay) => getThemeStore().setNetworkOverlay(overlay),
+  });
+  setNetworkThemes(n);
+  n.setListingTheme('irc.nebula.example', {
+    version: 1, base: 'dark', radius: 8, font: 'system',
+    colors: {
+      bg: '#0d0b1a', surface: '#141127', 'surface-raised': '#1c1836', 'surface-hover': '#241f44', border: '#2e2852', 'border-soft': '#221d3f',
+      fg: '#ece9ff', 'fg-2': '#b3acd9', 'fg-3': '#8a83b3', accent: '#8b7cff', 'accent-on': '#0d0b1a',
+    },
+    panes: { messages: { image: 'https://picsum.photos/seed/boson-nebula/1600/1000', dim: 0.8, blur: 2, position: 'center' } },
+  });
+  getNetworkThemes().setActive('irc.nebula.example');
+}
+
 function chatView(): void {
+  installFiles();
+  installBrand();
   installVoice();
   installVideo();
   installFriends();
@@ -489,7 +664,7 @@ function chatView(): void {
     <ChatLayout
       chat={chat}
       serverName="Nebula"
-      serverHost={voiceMode ? 'irc.nebula.example' : undefined}
+      serverHost={voiceMode || filesMode || brandMode ? 'irc.nebula.example' : undefined}
       myNick={NICK}
       servers={[
         { serverId: 's1', name: 'Nebula', engineState: 'connected' },
@@ -503,7 +678,7 @@ function chatView(): void {
   );
   const withCalls = <>{layout}{friendsMode && <CallOverlays />}</>;
   render(
-    voiceMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{withCalls}</AuthProvider> : withCalls,
+    voiceMode || filesMode || brandMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{withCalls}</AuthProvider> : withCalls,
     document.getElementById('app')!,
   );
 
