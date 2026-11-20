@@ -29,7 +29,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   window.matchMedia = matchMedia;
-  document.body.querySelectorAll('.bottom-sheet-backdrop').forEach((n) => n.remove());
+  document.body.querySelectorAll('.bds-sheet-backdrop').forEach((n) => n.remove());
 });
 
 describe('MessageRow long press (phone)', () => {
@@ -40,7 +40,7 @@ describe('MessageRow long press (phone)', () => {
     render(<MessageRow msg={makeMsg()} myNick="me" members={[]} nickActions={{ onMention, onSendMessage }} />);
     longPress(document.querySelector('.message-row')!);
 
-    const sheet = document.querySelector('.bottom-sheet')!;
+    const sheet = document.querySelector('.bds-sheet')!;
     expect(sheet).not.toBeNull();
     expect(sheet.textContent).toContain('hello there');
     const labels = screen.getAllByRole('menuitem').map((b) => b.textContent);
@@ -78,13 +78,13 @@ describe('MessageRow long press (phone)', () => {
     fireEvent.touchStart(row, { touches: [{ clientX: 10, clientY: 10 }] });
     fireEvent.touchMove(row, { touches: [{ clientX: 10, clientY: 60 }] });
     act(() => { vi.advanceTimersByTime(600); });
-    expect(document.querySelector('.bottom-sheet')).toBeNull();
+    expect(document.querySelector('.bds-sheet')).toBeNull();
   });
 
   it('does nothing on a desktop-width window', () => {
     phoneWidth(false);
     render(<MessageRow msg={makeMsg()} myNick="me" members={[]} />);
     longPress(document.querySelector('.message-row')!);
-    expect(document.querySelector('.bottom-sheet')).toBeNull();
+    expect(document.querySelector('.bds-sheet')).toBeNull();
   });
 });

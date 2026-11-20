@@ -1,4 +1,5 @@
 import { X } from 'lucide-preact';
+import { Button } from '@boson/shared';
 import { formatBytes, type Upload } from '../../modules/files';
 import './Uploads.css';
 
@@ -18,9 +19,9 @@ export function UploadProgress({ uploads, onCancel, onDismiss, onCancelAll }: {
       {pending > 1 && onCancelAll && (
         <li class="upload-progress-head">
           <span>{pending} uploads to go</span>
-          <button type="button" class="upload-progress-btn upload-progress-cancel-all" onClick={onCancelAll}>
+          <Button variant="ghost" size="sm" class="upload-progress-btn upload-progress-cancel-all" onClick={onCancelAll}>
             Cancel all
-          </button>
+          </Button>
         </li>
       )}
       {uploads.map((u) => {
@@ -30,9 +31,8 @@ export function UploadProgress({ uploads, onCancel, onDismiss, onCancelAll }: {
             <li key={u.id} class="upload-progress-row upload-progress-error" data-testid="upload-row">
               <span class="upload-progress-name">{u.name}</span>
               <span class="upload-progress-msg" role="alert">{u.error}</span>
-              <button type="button" class="upload-progress-btn" aria-label={`Dismiss ${u.name}`} onClick={() => onDismiss(u.id)}>
-                <X size={14} aria-hidden="true" />
-              </button>
+              <Button variant="ghost" size="sm" class="upload-progress-btn" aria-label={`Dismiss ${u.name}`} onClick={() => onDismiss(u.id)}
+                icon={<X aria-hidden="true" />} />
             </li>
           );
         }
@@ -55,9 +55,9 @@ export function UploadProgress({ uploads, onCancel, onDismiss, onCancelAll }: {
               {done ? 'Sent' : queued ? `Queued · ${formatBytes(u.size)}` : `${formatBytes(u.sent)} of ${formatBytes(u.size)}`}
             </span>
             {!done && (
-              <button type="button" class="upload-progress-btn upload-progress-cancel" aria-label={`Cancel ${u.name}`} onClick={() => onCancel(u.id)}>
+              <Button variant="ghost" size="sm" class="upload-progress-btn upload-progress-cancel" aria-label={`Cancel ${u.name}`} onClick={() => onCancel(u.id)}>
                 Cancel
-              </button>
+              </Button>
             )}
           </li>
         );

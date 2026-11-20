@@ -53,6 +53,8 @@ interface MenuItemProps {
   danger?: boolean;
   /** One of a set of choices: ticked when true. */
   checked?: boolean;
+  /** With `checked`: an on/off item of its own (menuitemcheckbox), not one of a set. */
+  checkbox?: boolean;
   disabled?: boolean;
   /** md 32px (menus) · lg 44px (sheets). */
   size?: 'md' | 'lg';
@@ -60,10 +62,10 @@ interface MenuItemProps {
   class?: string;
 }
 
-export function MenuItem({ children, onClick, icon, iconTone, danger = false, checked, disabled, size = 'md', ariaLabel, class: extra }: MenuItemProps) {
+export function MenuItem({ children, onClick, icon, iconTone, danger = false, checked, checkbox = false, disabled, size = 'md', ariaLabel, class: extra }: MenuItemProps) {
   const cls = ['bds-menu-item', `bds-menu-item-${size}`, danger ? 'bds-menu-item-danger' : '', extra ?? ''].filter(Boolean).join(' ');
   return (
-    <button type="button" class={cls} role={checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={checked}
+    <button type="button" class={cls} role={checked === undefined ? 'menuitem' : checkbox ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={checked}
       aria-label={ariaLabel} disabled={disabled} onClick={onClick}>
       {checked !== undefined && <span class="bds-menu-check" aria-hidden="true">{checked ? '✓' : ''}</span>}
       {icon != null && <span class={`bds-menu-icon${iconTone ? ` bds-menu-icon-${iconTone}` : ''}`} aria-hidden="true">{icon}</span>}

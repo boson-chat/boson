@@ -55,27 +55,9 @@
 }
 
 /* Kick / Kick+Ban reason modal. */
-.kick-modal { display: flex; flex-direction: column; gap: var(--space-3, 12px); min-width: 320px; }
-.kick-modal-label { display: flex; flex-direction: column; gap: var(--space-1, 4px); font-size: var(--text-sm, 13px); color: var(--fg-2, #aaa); }
-.kick-modal-input {
-  background: var(--surface, #1a1a1a);
-  border: 1px solid var(--border, #333);
-  border-radius: var(--radius-sm, 4px);
-  color: var(--fg, #eee);
-  padding: var(--space-2, 8px);
-  font: inherit;
-}
-.kick-modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2, 8px); }
-.kick-modal-actions button {
-  border: 1px solid var(--border, #333);
-  border-radius: var(--radius-sm, 4px);
-  padding: var(--space-1, 4px) var(--space-3, 12px);
-  cursor: pointer;
-  background: var(--surface, #1a1a1a);
-  color: var(--fg-2, #ccc);
-}
-.kick-modal-confirm { color: var(--danger, #f85149); border-color: var(--danger, #f85149); }
-.kick-modal-confirm:hover { opacity: 0.85; }
+.kick-modal { display: flex; flex-direction: column; gap: var(--space-3); min-width: 320px; }
+.kick-modal-label { display: flex; flex-direction: column; gap: var(--space-1); font-size: var(--text-sm); color: var(--fg-2); }
+.kick-modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
 
 /* Phone layout (shared/narrow.ts, ≤ 700px), the desktop's columns one at
    a time: the slim rail beside a full-width channel list (.phone-home), or
@@ -115,7 +97,6 @@
   background: linear-gradient(90deg, color-mix(in oklab, var(--accent), var(--surface) 92%), var(--surface));
 }
 .app-shell.is-narrow .channel-sidebar-title { font-size: 17px; }
-.app-shell.is-narrow .channel-sidebar-header .channel-sidebar-settings { width: 44px; height: 44px; }
 .app-shell.is-narrow .my-top .my-row,
 .app-shell.is-narrow .my-row { min-height: 48px; font-size: 15px; }
 .app-shell.is-narrow .user-panel-header { display: flex; align-items: center; }
@@ -126,18 +107,15 @@
 
 /* Phone layout: everything you tap is at least 44px tall (Apple's and
    Material's minimum), without changing what it looks like. */
-.app-shell.is-narrow .chat-icon-btn { width: 44px; height: 44px; }
 .app-shell.is-narrow .channel-item { min-height: 44px; }
 .app-shell.is-narrow .voice-faces { height: 44px; min-width: 44px; margin-right: var(--space-1); padding: 0 4px 0 10px; gap: 3px; }
 .app-shell.is-narrow .voice-face { margin-left: -9px; }
-.app-shell.is-narrow .user-panel-item { min-height: 44px; }
-.app-shell.is-narrow .channel-add { width: 44px; height: 44px; margin: -11px -11px -11px 0; }
+.app-shell.is-narrow .channel-add { margin: -11px -11px -11px 0; }
 .app-shell.is-narrow .voice-bar-btn { min-width: 44px; min-height: 44px; }
 
 /* Dialogs are full-screen sheets on a phone: their content fits its width. */
 @media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
   .kick-modal { min-width: 0; }
-  .kick-modal-actions button { min-height: 44px; }
   .help-modal-row { grid-template-columns: 1fr; gap: var(--space-1); }
 }
 

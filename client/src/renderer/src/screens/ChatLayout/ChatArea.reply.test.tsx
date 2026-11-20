@@ -49,7 +49,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   window.matchMedia = matchMedia;
-  document.body.querySelectorAll('.bottom-sheet-backdrop').forEach((n) => n.remove());
+  document.body.querySelectorAll('.bds-sheet-backdrop').forEach((n) => n.remove());
 });
 
 describe('ChatArea — Reply', () => {
