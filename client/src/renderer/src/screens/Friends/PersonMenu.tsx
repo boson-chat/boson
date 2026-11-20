@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Ban, Phone, PhoneOff, UserPlus, Video } from 'lucide-preact';
+import { Button, MenuItem, MenuSeparator } from '@boson/shared';
 import { useFriends, type Relation } from '../../modules/friends';
 import { useFriendsUi } from './friends-ui';
 import './PersonMenu.css';
@@ -74,24 +75,24 @@ export function PersonMenu({ nick, account, variant, onDone }: Props) {
     else void friends.block(name);
   });
 
+  const friendIcon = <UserPlus />;
+  const blockIcon = <Ban />;
   if (variant === 'sheet') {
     return (
       <div class="person-sheet">
         <div class="person-sheet-relation">{RELATION_TEXT[r]}</div>
         {canCall ? (
           <div class="person-sheet-calls">
-            <button type="button" class="person-sheet-call person-sheet-call-voice" onClick={call(false)}>
-              <Phone size={18} aria-hidden="true" />Call
-            </button>
-            <button type="button" class="person-sheet-call person-sheet-call-video" onClick={call(true)}>
-              <Video size={18} aria-hidden="true" />Video call
-            </button>
+            <Button variant="success" size="lg" fullWidth icon={<Phone />} onClick={call(false)}>Call</Button>
+            <Button variant="secondary" tone="success" size="lg" fullWidth icon={<Video />} onClick={call(true)}>Video call</Button>
           </div>
         ) : (
           <p class="person-sheet-why">{whyNoCall(rel, true)}</p>
         )}
-        <button type="button" class="person-sheet-opt person-sheet-opt-friend" onClick={friendAction}>{FRIEND_LABEL[r]}</button>
-        <button type="button" class="person-sheet-opt person-sheet-opt-danger" onClick={blockAction}>{r === 'blocked' ? 'Unblock' : 'Block'}</button>
+        <div class="person-sheet-opts" role="menu" aria-label={`${name}: ${RELATION_TEXT[r]}`}>
+          <MenuItem size="lg" icon={friendIcon} iconTone="accent" onClick={friendAction}>{FRIEND_LABEL[r]}</MenuItem>
+          <MenuItem size="lg" icon={blockIcon} danger onClick={blockAction}>{r === 'blocked' ? 'Unblock' : 'Block'}</MenuItem>
+        </div>
       </div>
     );
   }
@@ -100,12 +101,8 @@ export function PersonMenu({ nick, account, variant, onDone }: Props) {
       <div class="person-menu-relation">{RELATION_TEXT[r]}</div>
       {canCall ? (
         <>
-          <button type="button" role="menuitem" class="person-menu-item" onClick={call(false)}>
-            <Phone size={15} class="person-menu-icon-call" aria-hidden="true" />Call
-          </button>
-          <button type="button" role="menuitem" class="person-menu-item" onClick={call(true)}>
-            <Video size={15} class="person-menu-icon-call" aria-hidden="true" />Video call
-          </button>
+          <MenuItem class="person-menu-item" icon={<Phone />} iconTone="success" onClick={call(false)}>Call</MenuItem>
+          <MenuItem class="person-menu-item" icon={<Video />} iconTone="success" onClick={call(true)}>Video call</MenuItem>
         </>
       ) : (
         <div class="person-menu-why">
@@ -113,14 +110,10 @@ export function PersonMenu({ nick, account, variant, onDone }: Props) {
           {whyNoCall(rel)}
         </div>
       )}
-      <div class="person-menu-sep" role="separator" />
-      <button type="button" role="menuitem" class="person-menu-item" onClick={friendAction}>
-        <UserPlus size={15} class="person-menu-icon-friend" aria-hidden="true" />{FRIEND_LABEL[r]}
-      </button>
-      <button type="button" role="menuitem" class="person-menu-item person-menu-item-danger" onClick={blockAction}>
-        <Ban size={15} aria-hidden="true" />{r === 'blocked' ? 'Unblock' : 'Block'}
-      </button>
-      <div class="person-menu-sep" role="separator" />
+      <MenuSeparator />
+      <MenuItem class="person-menu-item" icon={friendIcon} iconTone="accent" onClick={friendAction}>{FRIEND_LABEL[r]}</MenuItem>
+      <MenuItem class="person-menu-item" icon={blockIcon} danger onClick={blockAction}>{r === 'blocked' ? 'Unblock' : 'Block'}</MenuItem>
+      <MenuSeparator />
     </div>
   );
 }

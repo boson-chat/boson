@@ -1,4 +1,5 @@
 import { Phone, Video } from 'lucide-preact';
+import { Button, ListRow } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { useFriends, type CallInfo } from '../../modules/friends';
 import './MissedCalls.css';
@@ -15,23 +16,28 @@ function when(ms: number): string {
   return d.toDateString() === today.toDateString() ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
 }
 
-// The missed calls, newest first, each with Call back.
-export function MissedList({ calls, onCall }: { calls: readonly CallInfo[]; onCall?: () => void }) {
+// The missed calls, newest first, each with Call back. Phones: 44px rows
+// and buttons.
+export function MissedList({ calls, onCall, layout = 'desktop' }: { calls: readonly CallInfo[]; onCall?: () => void; layout?: 'desktop' | 'phone' }) {
   const { friends } = useFriends();
+  const size = layout === 'phone' ? 'lg' : 'md';
   return (
     <ul class="missed-list">
       {calls.map((c) => (
-        <li key={c.id} class="missed-row">
-          <Avatar nick={c.peer.username} accountUrl={c.peer.avatarUrl} size={28} />
-          <span class="missed-who">
-            <span class="missed-name">{c.peer.username}</span>
-            <span class="missed-when">{c.video ? 'Video call' : 'Call'} · {when(c.createdAt)}</span>
-          </span>
-          <button type="button" class="missed-call" aria-label={`Call ${c.peer.username} back`}
-            onClick={() => { void friends?.call(c.peer.username, c.video); onCall?.(); }}>
-            {c.video ? <Video size={15} aria-hidden="true" /> : <Phone size={15} aria-hidden="true" />}
-          </button>
-        </li>
+        <ListRow
+          key={c.id}
+          as="li"
+          size={size}
+          leading={<Avatar nick={c.peer.username} accountUrl={c.peer.avatarUrl} size={28} />}
+          title={c.peer.username}
+          titleTone="danger"
+          subtitle={`${c.video ? 'Video call' : 'Call'} · ${when(c.createdAt)}`}
+          trailing={(
+            <Button variant="secondary" tone="success" size={size} icon={c.video ? <Video /> : <Phone />}
+              aria-label={`Call ${c.peer.username} back`}
+              onClick={() => { void friends?.call(c.peer.username, c.video); onCall?.(); }} />
+          )}
+        />
       ))}
     </ul>
   );
