@@ -77,7 +77,9 @@ test('press and hold, then drag a channel; the order survives a reload', async (
   await cdp.detach();
 
   await page.reload();
-  await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
+  // A launch opens onto the last channel; back for the list.
+  await expect(shell(page)).toHaveClass(/\bphone-chat\b/, { timeout: 30_000 });
   await openChannels(page);
+  await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 30_000 });
   await expect.poll(() => order(page), { timeout: 20_000 }).toEqual([c, a, b]);
 });
