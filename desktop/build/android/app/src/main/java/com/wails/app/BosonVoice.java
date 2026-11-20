@@ -1,5 +1,6 @@
 package com.wails.app;
 
+import android.view.WindowManager;
 import android.view.OrientationEventListener;
 import android.Manifest;
 import android.app.Activity;
@@ -312,6 +313,23 @@ public final class BosonVoice {
         if (am == null || !audioOn) return 0;
         int mode = am.getMode();
         return focusLost || mode == AudioManager.MODE_IN_CALL || mode == AudioManager.MODE_RINGTONE ? 1 : 0;
+    }
+
+    // ---- the screen stays on during a call ----
+
+    /** FLAG_KEEP_SCREEN_ON on the activity's window while in a call (1),
+     * cleared after (0): the screen doesn't dim or lock mid-call. */
+    public static void keepScreenOn(int on) {
+        final Activity a = activity;
+        if (a == null) return;
+        a.runOnUiThread(() -> {
+            if (on != 0) {
+                a.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            } else {
+                a.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            }
+            Log.i(TAG, "keep screen on: " + (on != 0));
+        });
     }
 
     // ---- the call: foreground service + notification ----
