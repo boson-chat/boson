@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { Headphones, HeadphoneOff, LayoutGrid, Mic, MicOff, PanelLeft, PhoneOff, Volume2 } from 'lucide-preact';
-import { useVideo } from '../../modules/video';
+import { getVideoController, useTrackNotice, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { CallVideoButtons } from './CallControls';
@@ -131,6 +131,7 @@ function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef }: {
     return () => ro.disconnect();
   }, [el, tile.key]);
   const video = !!tile.track || tile.selfCamera;
+  const notice = useTrackNotice(getVideoController(), tile.track?.trackId);
   const body = (
     <>
       {video ? (
@@ -138,6 +139,7 @@ function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef }: {
       ) : (
         <span class="stage-avatar" data-size={size}><Avatar nick={tile.name} url={avatar} size={size === 'big' ? 110 : size === 'strip' ? 46 : 76} /></span>
       )}
+      {tile.track && notice && <span class="video-notice" role="status">{notice}</span>}
       <span class="stage-tag">
         {tile.screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
         {tile.label}

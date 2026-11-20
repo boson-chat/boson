@@ -5,6 +5,7 @@ import type { VideoBridge } from './video.bridge';
 import { EMPTY_VIDEO_STATE, type VideoState } from './video.types';
 import { codecFromDesc, parseBinary, parseText } from './video.frames';
 import { layerForTile } from './video.layout';
+import { trackNotice } from './use-video';
 
 // ---- fakes ----
 
@@ -32,6 +33,7 @@ class FakeFrame {
 
 class FakeDecoder {
   static all: FakeDecoder[] = [];
+  static noOutput = false; // a decoder that never produces a picture
   state: 'unconfigured' | 'configured' | 'closed' = 'unconfigured';
   config: { codec: string; description: Uint8Array } | null = null;
   decoded: { type: string; timestamp: number }[] = [];
@@ -39,7 +41,7 @@ class FakeDecoder {
   configure(c: { codec: string; description: Uint8Array }) { this.config = c; this.state = 'configured'; }
   decode(chunk: { type: string; timestamp: number }) {
     this.decoded.push(chunk);
-    this.init.output(new FakeFrame(chunk.timestamp)); // decodes at once
+    if (!FakeDecoder.noOutput) this.init.output(new FakeFrame(chunk.timestamp)); // decodes at once
   }
   fail() { this.init.error(new Error('boom')); }
   close() { this.state = 'closed'; }
@@ -381,5 +383,67 @@ describe('screen shares: "Smoother screen shares" (experimental)', () => {
     expect(shown.length).toBeGreaterThanOrEqual(9);
     const gaps = shown.slice(1).map((t, k) => t - shown[k]);
     for (const g of gaps) expect(Math.abs(g - 33)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('tile status: a blank tile always says why', () => {
+  it('waiting → playing → stalled, and back to playing on the next picture', async () => {
+    const { c, setNow } = setup();
+    await flush();
+    c.setOpen(true);
+    const ws = FakeSocket.last!;
+    setNow(1_000_000);
+    ws.recv(frameMsg(10, 1, {})); // no keyframe yet: nothing decoded
+    expect(c.stats()[10].status).toBe('waiting');
+    expect(trackNotice(c.stats()[10])).toMatch(/Waiting for the first picture/);
+    ws.recv(frameMsg(10, 2, { key: true, desc: DESC }));
+    c.renderFrame();
+    expect(c.stats()[10].status).toBe('playing');
+    expect(trackNotice(c.stats()[10])).toBeNull();
+    setNow(1_000_000 + 6000);
+    expect(c.stats()[10].status).toBe('stalled');
+    ws.recv(frameMsg(10, 3, {}));
+    c.renderFrame();
+    expect(c.stats()[10].status).toBe('playing');
+  });
+
+  it('says it can’t play the video after repeated decoder errors, and reports it once', async () => {
+    const { c } = setup();
+    await flush();
+    c.setOpen(true);
+    const ws = FakeSocket.last!;
+    FakeDecoder.noOutput = true;
+    for (let i = 0; i < 3; i++) {
+      ws.recv(frameMsg(10, 10 + i, { key: true, desc: DESC }));
+      FakeDecoder.all[FakeDecoder.all.length - 1].fail();
+    }
+    const st = c.stats()[10];
+    expect(st.status).toBe('error');
+    expect(st.reason).toMatch(/can't play this video here \(avc1\.42c01e: boom\)/);
+    expect(trackNotice(st)).toMatch(/^Can’t show this video:/);
+    const logs = ws.sent.filter((m) => m.includes('"type":"log"'));
+    expect(logs).toHaveLength(1);
+    // A picture decodes again: the error clears.
+    FakeDecoder.noOutput = false;
+    ws.recv(frameMsg(10, 20, { key: true, desc: DESC }));
+    c.renderFrame();
+    expect(c.stats()[10].status).toBe('playing');
+  });
+
+  it('says so up front when the decoder doesn’t support the stream', async () => {
+    const orig = (FakeDecoder as unknown as { isConfigSupported?: unknown }).isConfigSupported;
+    (FakeDecoder as unknown as { isConfigSupported: (c: unknown) => Promise<{ supported: boolean }> }).isConfigSupported = async () => ({ supported: false });
+    try {
+      const { c } = setup();
+      await flush();
+      c.setOpen(true);
+      FakeSocket.last!.recv(frameMsg(10, 1, { key: true, desc: DESC }));
+      await flush();
+      const st = c.stats()[10];
+      expect(st.status).toBe('error');
+      expect(st.reason).toBe("this device can't play avc1.42c01e video");
+    } finally {
+      (FakeDecoder as unknown as { isConfigSupported?: unknown }).isConfigSupported = orig;
+    }
   });
 });
