@@ -457,6 +457,30 @@ func TestNew_NegotiatesChathistoryCaps(t *testing.T) {
 	}
 }
 
+func TestNew_BouncerNetworksCapOnlyWhenAsked(t *testing.T) {
+	plain, err := New(Config{Hostname: "bnc.example.org", Port: 6697, Nick: "me"})
+	require.NoError(t, err)
+	_, ok := plain.girc.Config.SupportedCaps["soju.im/bouncer-networks"]
+	assert.False(t, ok, "chat connections must not ask for bouncer-networks (a soju-style bouncer would bind them to no network)")
+
+	probe, err := New(Config{Hostname: "bnc.example.org", Port: 6697, Nick: "me", BouncerNetworks: true})
+	require.NoError(t, err)
+	_, ok = probe.girc.Config.SupportedCaps["soju.im/bouncer-networks"]
+	assert.True(t, ok)
+}
+
+func TestTranslate_BouncerNetworkForwardsParams(t *testing.T) {
+	got := translate(girc.Event{
+		Command: "BOUNCER",
+		Source:  &girc.Source{Name: "evrd"},
+		Tags:    girc.Tags{"batch": "1"},
+		Params:  []string{"NETWORK", "42", "name=Libera;host=irc.libera.chat;state=connected"},
+	})
+	assert.Equal(t, "BOUNCER", got.Kind)
+	assert.Equal(t, []string{"NETWORK", "42", "name=Libera;host=irc.libera.chat;state=connected"}, got.Args)
+	assert.Equal(t, "1", got.Tags["batch"])
+}
+
 func TestTranslate_BatchForwardsParams(t *testing.T) {
 	start := translate(girc.Event{
 		Command: "BATCH",

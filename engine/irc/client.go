@@ -58,6 +58,12 @@ type Config struct {
 	// bouncer, so lines to it go out unpaced (the bouncer still applies its
 	// own flood control upstream). Direct connections are always paced.
 	BouncerNoFloodControl bool
+	// BouncerNetworks requests soju.im/bouncer-networks when the server
+	// offers it (soju, evrd), so the connection can send BOUNCER
+	// LISTNETWORKS. Off for chat connections: with the cap and no network
+	// named, such a bouncer binds the client to no network. The renderer's
+	// network-discovery probe turns it on.
+	BouncerNetworks bool
 }
 
 type SASLPlain struct {
@@ -248,6 +254,9 @@ func New(cfg Config) (*Client, error) {
 			"znc.in/playback": nil,
 		},
 	})
+	if cfg.BouncerNetworks {
+		gc.Config.SupportedCaps[bouncerNetworksCap] = nil
+	}
 
 	c := &Client{
 		cfg:           cfg,
@@ -1050,6 +1059,12 @@ func translate(e girc.Event) Event {
 		// target; individual messages inside carry the `batch` tag (already
 		// forwarded via Tags). The engine doesn't interpret the framing.
 		out.Args = append([]string(nil), e.Params...)
+	case "BOUNCER":
+		// soju.im/bouncer-networks: BOUNCER NETWORK <netid> <attributes>
+		// (the LISTNETWORKS reply, and notifications) and the other
+		// subcommands' answers. Forwarded whole; the renderer decodes the
+		// attributes.
+		out.Args = append([]string(nil), e.Params...)
 	case "CHATHISTORY":
 		// CHATHISTORY TARGETS <target> <timestamp>, inside a
 		// chathistory-targets batch: the conversations with recent
@@ -1281,6 +1296,10 @@ func isUpstreamEvidence(e girc.Event, self string) bool {
 func isZncHost(h string) bool {
 	return strings.EqualFold(h, zncServerName) || strings.EqualFold(h, zncStatusHost)
 }
+
+// bouncerNetworksCap is soju's bouncer-networks extension:
+// https://codeberg.org/emersion/soju/src/branch/master/doc/ext/bouncer-networks.md
+const bouncerNetworksCap = "soju.im/bouncer-networks"
 
 // isSojuCapLS reports a `CAP * LS` line offering a soju.im/ capability: a
 // bouncer speaking soju's protocol (soju itself, or one like evrd).

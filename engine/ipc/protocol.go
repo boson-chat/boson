@@ -49,6 +49,10 @@ type ConnectParams struct {
 	BouncerAutoConnect bool `json:"bouncerAutoConnect,omitempty"`
 	// BouncerNoFloodControl: send to the bouncer unpaced (user setting).
 	BouncerNoFloodControl bool `json:"bouncerNoFloodControl,omitempty"`
+	// BouncerNetworks: also request soju.im/bouncer-networks, so the
+	// renderer can send BOUNCER LISTNETWORKS (the bouncer network-discovery
+	// probe; see irc.Config.BouncerNetworks).
+	BouncerNetworks bool `json:"bouncerNetworks,omitempty"`
 }
 
 type SASLPlain struct {
