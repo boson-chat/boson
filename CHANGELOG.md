@@ -1,3 +1,9 @@
+## [0.84.0](https://github.com/boson-chat/boson/compare/v0.83.0...v0.84.0) (2026-11-20)
+
+### Features
+
+* the phone layout matches the desktop's, without the bottom bar ([#114](https://github.com/boson-chat/boson/issues/114)) ([c3e6ac1](https://github.com/boson-chat/boson/commit/c3e6ac142e270cfc2c1c7faddaf204945f8bb824))
+
 ## [0.83.0](https://github.com/boson-chat/boson/compare/v0.82.1...v0.83.0) (2026-11-20)
 
 ### Features
