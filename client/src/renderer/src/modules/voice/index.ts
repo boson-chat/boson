@@ -1,5 +1,5 @@
 export {
-  VoiceController, VoiceRoomError, getVoiceController, setVoiceController, normalizeAuthUrl, movePlan, roomsUnder, VOICE_POLL_MS,
+  VoiceController, VoiceRoomError, getVoiceController, setVoiceController, normalizeAuthUrl, movePlan, roomsUnder, tokenErrorText, VOICE_POLL_MS,
   type VoiceSnapshot, type VoiceServerView, type VoiceControllerOptions,
 } from './voice.controller';
 export { voiceBridge, type VoiceBridge } from './voice.bridge';
@@ -9,3 +9,4 @@ export {
 } from './voice.settings';
 export { useVoice } from './use-voice';
 export * from './voice.types';
+export { guestVoiceId, isGuestParticipant } from './guest-id';

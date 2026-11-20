@@ -19,6 +19,9 @@ export interface VoiceRoomParticipant {
   muted: boolean;
   deafened: boolean;
   speaking: boolean;
+  // Joined as a guest (no account; the name is their unverified IRC nick).
+  // Guests' user ids are "guest:<id>" (isGuestParticipant).
+  guest?: boolean;
 }
 
 // IRC channel privilege levels, lowest first: what a voice channel can be

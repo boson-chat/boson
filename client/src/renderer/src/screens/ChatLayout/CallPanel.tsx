@@ -6,6 +6,8 @@ import { useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { roomPeople } from './VoiceRooms';
+import { isGuestParticipant } from '../../modules/voice/guest-id';
+import { GuestBadge } from './GuestBadge';
 import './CallPanel.css';
 
 // The right panel on the voice channel you're in (desktop), in place of
@@ -35,9 +37,10 @@ export function CallPanel({ chat, avatarFor, width }: {
   const quiet = people.filter((x) => !x.p.speaking);
   const row = (x: typeof people[number]) => (
     <li key={`${x.p.sessionId}:${x.p.userId}`} class="callpanel-person" data-speaking={x.p.speaking || undefined} data-self={x.self || undefined}
-      aria-label={`${x.p.name}${x.self ? ' (you)' : ''}${x.p.speaking ? ', speaking' : ''}${x.screen ? ', sharing their screen' : ''}${x.camera ? ', camera on' : ''}${x.p.muted || x.p.deafened ? ', muted' : ''}`}>
+      aria-label={`${x.p.name}${x.self ? ' (you)' : ''}${isGuestParticipant(x.p) ? ', guest' : ''}${x.p.speaking ? ', speaking' : ''}${x.screen ? ', sharing their screen' : ''}${x.camera ? ', camera on' : ''}${x.p.muted || x.p.deafened ? ', muted' : ''}`}>
       <span class="callpanel-face"><Avatar nick={x.p.name} url={avatarFor?.(x.p.name)} size={24} /></span>
       <span class="callpanel-name">{x.p.name}</span>
+      {isGuestParticipant(x.p) && <GuestBadge />}
       {x.screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
       {x.camera && <Video size={13} class="callpanel-cam" aria-hidden="true" />}
       {(x.p.muted || x.p.deafened) && <MicOff size={13} class="callpanel-muted" aria-hidden="true" />}

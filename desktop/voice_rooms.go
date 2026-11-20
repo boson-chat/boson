@@ -57,6 +57,9 @@ type VoiceRoomParticipant struct {
 	Muted     bool   `json:"muted"`
 	Deafened  bool   `json:"deafened"`
 	Speaking  bool   `json:"speaking"`
+	// Guest: joined without an account (a guest voice token); Name is
+	// their unverified IRC nick.
+	Guest bool `json:"guest,omitempty"`
 }
 
 // VoiceRoomPermissions: whether (and where) the caller may make rooms.
@@ -103,6 +106,7 @@ type roomWire struct {
 		Muted     bool   `json:"muted"`
 		Deafened  bool   `json:"deafened"`
 		Speaking  bool   `json:"speaking"`
+		Guest     bool   `json:"guest"`
 	} `json:"participants"`
 }
 
@@ -145,6 +149,7 @@ func (r roomWire) room() VoiceRoom {
 		room.Participants = append(room.Participants, VoiceRoomParticipant{
 			SessionID: p.SessionID, UserID: p.UserID, Name: p.Name,
 			Muted: p.Muted, Deafened: p.Deafened, Speaking: p.Speaking,
+			Guest: p.Guest || strings.HasPrefix(p.UserID, "guest:"),
 		})
 	}
 	return room

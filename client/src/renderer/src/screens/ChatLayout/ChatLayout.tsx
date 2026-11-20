@@ -304,6 +304,7 @@ export function ChatLayout({
               engineState={engineState}
               avatarFor={avatarFor}
               channels={state.channels.map((c) => c.name)}
+              nick={state.myNick || myNick}
             />
           ) : undefined}
           channelVoice={serverHost ? (name) => (

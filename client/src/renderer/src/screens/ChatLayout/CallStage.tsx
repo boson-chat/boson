@@ -6,6 +6,7 @@ import { Avatar } from '../../shared/Avatar/Avatar';
 import { CallVideoButtons } from './CallControls';
 import { callTiles, closeCall, gridShape, useCallClock, type CallTileInfo } from './call-shared';
 import { SharingBar } from './ScreenPicker';
+import { GuestBadge } from './GuestBadge';
 import { ShareSound } from './ShareSound';
 import './CallStage.css';
 
@@ -141,6 +142,7 @@ function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef }: {
       <span class="stage-tag">
         {tile.screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
         {tile.label}
+        {tile.guest && <GuestBadge />}
         {tile.muted && <MicOff size={12} class="stage-muted" aria-label="muted" />}
       </span>
     </>

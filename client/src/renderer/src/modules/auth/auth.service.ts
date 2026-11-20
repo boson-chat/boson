@@ -75,6 +75,10 @@ export interface AuthConfig {
   // Whether people may use the network's IRC without an account (guests).
   // Absent on older servers: treat as true (guestAccessAllowed).
   guest_access?: boolean;
+  // Whether guests (no account) may join voice and video with their IRC
+  // nick (POST /v1/voice/guest-token). True only when guest_access is on
+  // too; absent on older servers: no guest voice.
+  guest_voice?: boolean;
   // The network's name, for "Sign in to <network>" (newer servers).
   site_name?: string;
   network_name?: string;
@@ -342,6 +346,17 @@ export class AuthService {
       if (!token) throw new AuthError('signed_out', 'Sign in to use voice.', 401);
       return this.voiceTokenWith(token, body);
     }
+  }
+
+  // A guest voice token (POST /v1/voice/guest-token, no account): the voice
+  // server shows `nick` with a guest badge. guestId is the app's random id
+  // for this auth service (guestVoiceId). Throws AuthError: 403
+  // guest_voice_disabled, 400 invalid, 409 nick_registered, 429.
+  async guestVoiceToken(nick: string, guestId: string, rooms?: string[]): Promise<VoiceToken> {
+    const body = { nick, guest_id: guestId, ...(rooms && rooms.length > 0 ? { rooms } : {}) };
+    const r = await this.call<{ token?: string; expires_in?: number }>('POST', '/v1/voice/guest-token', body);
+    if (!r?.token) throw new AuthError('invalid_response', 'The sign-in service sent no voice token.', 200);
+    return { token: r.token, expiresAt: this.now() + (r.expires_in ?? 300) * 1000 };
   }
 
   private async voiceTokenWith(accessToken: string, body: unknown): Promise<VoiceToken> {

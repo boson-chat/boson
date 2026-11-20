@@ -60,6 +60,13 @@ class FakeAuthApi {
         if (!auth.startsWith('Bearer ') || this.rejectedAccess.has(auth.slice(7))) return err(401, 'invalid_token');
         return ok(200, { token: `vt:${JSON.stringify(body['rooms'] ?? null)}`, expires_in: 300, audience: 'quicvoice' });
       }
+      case '/v1/voice/guest-token': {
+        this.voiceAuth.push(req.headers?.['Authorization'] ?? '');
+        const nick = String(body['nick']);
+        if (nick === 'taken') return err(409, 'nick_registered');
+        if (nick === 'bad nick') return { status: 400, ok: false, statusText: 'err', text: JSON.stringify({ error: 'invalid_request', field: 'nick', message: 'invalid nick' }) };
+        return ok(200, { token: `gt:${nick}:${String(body['guest_id'])}:${JSON.stringify(body['rooms'] ?? null)}`, expires_in: 120, audience: 'quicvoice' });
+      }
       case '/v1/email/resend':
       case '/v1/password/forgot':
         return ok(202, {});
@@ -144,6 +151,18 @@ describe('AuthService', () => {
   it('no voice token when signed out', async () => {
     await svc.init();
     await expect(svc.voiceToken()).rejects.toMatchObject({ code: 'signed_out' });
+  });
+
+  it('gets a guest voice token without a session', async () => {
+    const t = await svc.guestVoiceToken('kit', 'gid_0123456789abcdef', ['general']);
+    expect(t).toEqual({ token: 'gt:kit:gid_0123456789abcdef:["general"]', expiresAt: now + 120_000 });
+    // No bearer: guests have no account.
+    expect(api.voiceAuth.at(-1)).toBe('');
+    expect(api.calls.at(-1)).toEqual({ path: '/v1/voice/guest-token', body: { nick: 'kit', guest_id: 'gid_0123456789abcdef', rooms: ['general'] } });
+    await svc.guestVoiceToken('kit', 'gid_0123456789abcdef');
+    expect(api.calls.at(-1)!.body).toEqual({ nick: 'kit', guest_id: 'gid_0123456789abcdef' });
+    await expect(svc.guestVoiceToken('taken', 'gid_0123456789abcdef')).rejects.toMatchObject({ code: 'nick_registered', status: 409 });
+    await expect(svc.guestVoiceToken('bad nick', 'gid_0123456789abcdef')).rejects.toMatchObject({ code: 'invalid_request', status: 400 });
   });
 
   it('signs in with username or email; maps errors', async () => {

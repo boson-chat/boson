@@ -55,6 +55,18 @@ describe('call-shared', () => {
   });
 });
 
+describe('guest badges in the call', () => {
+  it('marks guests on the stage and in the people list', async () => {
+    await setup(3, []);
+    act(() => bridge.push({ participants: [...crowd(3), { sessionId: 9, userId: 'guest:abcdefabcdefabcd', name: 'kit', self: false, muted: false, deafened: false, speaking: false, volume: 100 }] }));
+    render(<><CallStage /><CallPanel /></>);
+    const tile = await screen.findByLabelText('Focus kit');
+    expect(tile.querySelector('.guest-badge')).toBeTruthy();
+    expect(screen.getByLabelText('Focus mira').querySelector('.guest-badge')).toBeNull();
+    expect(screen.getByLabelText('kit, guest')).toBeTruthy();
+  });
+});
+
 describe('the call stage (desktop)', () => {
   it('focuses the screen share, puts everyone else in the strip, and pins a clicked tile', async () => {
     await setup(4);

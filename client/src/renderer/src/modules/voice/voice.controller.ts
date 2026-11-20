@@ -10,6 +10,12 @@
 // the network's own (a self-hosted network the user added) — since its
 // tokens are what the voice server accepts. Tokens come from that service's
 // session, never another's. Other servers show no voice UI.
+//
+// Guests: without an account on that auth service, voice is still offered
+// when its /v1/config says guest_voice. Tokens then come from its
+// guest-token endpoint, under the user's current IRC nick on that server
+// (setNick) and a random per-service guest id; the voice server shows them
+// with a guest badge and never lets them make or manage channels.
 
 import type { VoiceBridge } from './voice.bridge';
 import {
@@ -33,6 +39,9 @@ export interface VoiceServerView {
   permissions: VoiceRoomPermissions;
   roomsError: string | null;
   roomsErrorKind: VoiceRoomsErrorKind | null;
+  // Voice here is as a guest (no account on its auth service; the service
+  // allows guest voice): guest tokens, no channel management.
+  guest: boolean;
 }
 
 export interface VoiceSnapshot {
@@ -59,6 +68,14 @@ export interface VoiceControllerOptions {
   // Whether authUrl is a self-hosted network's auth service the app knows
   // (NetworkAccounts); its voice is then offered with that account.
   knowsAuth?: (authUrl: string) => boolean;
+  // Whether the user has an account session with the auth service at
+  // authUrl (normalized). Absent: always (account voice only, no guests).
+  hasAccount?: (authUrl: string) => boolean;
+  // Whether that auth service lets guests into voice (/v1/config
+  // guest_voice). Cached here for a few minutes.
+  guestVoice?: (authUrl: string) => Promise<boolean>;
+  // A guest voice token from that auth service for `nick`.
+  guestVoiceToken?: (authUrl: string, nick: string, rooms?: string[]) => Promise<VoiceToken>;
   // Room list poll interval while a server's panel is open.
   pollMs?: number;
   now?: () => number;
@@ -71,6 +88,8 @@ export const VOICE_POLL_MS = 5_000;
 const REDISCOVER_MS = 24 * 3600_000;
 // A list token is reused until this long before it expires.
 const TOKEN_MARGIN_MS = 60_000;
+// How long an auth service's guest_voice answer is trusted.
+const GUEST_CONFIG_TTL_MS = 5 * 60_000;
 
 export function normalizeAuthUrl(u: string | undefined | null): string {
   if (!u) return '';
@@ -98,6 +117,10 @@ export class VoiceController {
   private listTokens = new Map<string, VoiceToken>();
   // Which auth service each host's voice uses.
   private hostAuth: Record<string, string> = {};
+  // The user's current IRC nick per host (a guest's voice name).
+  private nicks: Record<string, string> = {};
+  // guest_voice per auth service, with when it was asked.
+  private guestCfg = new Map<string, { at: number; on: Promise<boolean> }>();
   private pttDown = false;
   private offs: Array<() => void> = [];
   private settings: VoiceSettings;
@@ -180,7 +203,7 @@ export class VoiceController {
 
   private patchServer(host: string, patch: Partial<VoiceServerView>): void {
     const prev = this.servers[host] ?? {
-      host, discovery: 'unknown', audio: false, rooms: null, permissions: NO_ROOM_PERMISSIONS, roomsError: null, roomsErrorKind: null,
+      host, discovery: 'unknown', audio: false, rooms: null, permissions: NO_ROOM_PERMISSIONS, roomsError: null, roomsErrorKind: null, guest: false,
     };
     this.servers = { ...this.servers, [host]: { ...prev, ...patch } };
     this.emit();
@@ -206,10 +229,13 @@ export class VoiceController {
         const ours = info.available && (auth === normalizeAuthUrl(this.opts.authUrl) || !!(auth && this.opts.knowsAuth?.(auth)));
         if (ours) this.hostAuth[host] = auth;
         this.discoveredAt[host] = this.now();
+        const guest = ours ? await this.guestHere(auth) : false;
         this.patchServer(host, {
           discovery: ours ? 'available' : 'none',
           audio: ours && info.audio,
           audioError: info.audioError,
+          guest,
+          ...(guest ? { permissions: NO_ROOM_PERMISSIONS } : {}),
         });
         if (ours && this.watchers.get(host)?.count) void this.refreshRooms(host);
       } catch {
@@ -220,6 +246,48 @@ export class VoiceController {
     })();
     this.discovering.set(host, p);
     return p;
+  }
+
+  // ---- guests ----
+
+  // The user's IRC nick on host (what a guest is called in voice).
+  setNick(rawHost: string, nick: string | null | undefined): void {
+    const host = rawHost.trim().toLowerCase();
+    if (!host) return;
+    if (nick && nick.trim()) this.nicks[host] = nick.trim();
+    else delete this.nicks[host];
+  }
+
+  // Whether voice on auth is as a guest: no account there, and the
+  // service allows guest voice.
+  private async guestHere(auth: string): Promise<boolean> {
+    const o = this.opts;
+    if (!o.hasAccount || !o.guestVoice || !o.guestVoiceToken) return false;
+    if (o.hasAccount(auth)) return false;
+    const hit = this.guestCfg.get(auth);
+    let on: Promise<boolean>;
+    if (hit && this.now() - hit.at < GUEST_CONFIG_TTL_MS) {
+      on = hit.on;
+    } else {
+      on = o.guestVoice(auth).then((v) => v === true, () => false);
+      this.guestCfg.set(auth, { at: this.now(), on });
+    }
+    return on;
+  }
+
+  // Sign-in state changed (an account signed in or out, guest mode on or
+  // off): re-decides account vs guest voice for every server with voice.
+  // A call in progress carries on as it joined.
+  async accessChanged(): Promise<void> {
+    const hosts = Object.keys(this.servers).filter((h) => this.servers[h]?.discovery === 'available');
+    await Promise.all(hosts.map(async (host) => {
+      const guest = await this.guestHere(this.authFor(host));
+      const cur = this.servers[host];
+      if (!cur || cur.discovery !== 'available' || cur.guest === guest) return;
+      this.listTokens.delete(this.tokenKey(host, cur.guest));
+      this.patchServer(host, { guest, rooms: null, roomsError: null, roomsErrorKind: null, permissions: NO_ROOM_PERMISSIONS });
+      if (this.watchers.get(host)?.count) void this.refreshRooms(host, true);
+    }));
   }
 
   // ---- room lists ----
@@ -272,14 +340,16 @@ export class VoiceController {
       this.patchServer(host, { roomsError: errText(err), roomsErrorKind: 'server' });
       return;
     }
-    if (r.errorKind === 'token') this.listTokens.delete(this.authFor(host));
+    if (r.errorKind === 'token') this.listTokens.delete(this.tokenKey(host));
     if (r.error) {
       this.patchServer(host, { roomsError: r.error, roomsErrorKind: r.errorKind ?? 'server' });
       return;
     }
+    // Guests never make or manage channels, whatever the server says.
+    const guest = !!this.servers[host]?.guest;
     this.patchServer(host, {
-      rooms: r.rooms ?? [],
-      permissions: normalizePermissions(r.permissions),
+      rooms: guest ? (r.rooms ?? []).map((room) => ({ ...room, canManage: false })) : r.rooms ?? [],
+      permissions: guest ? NO_ROOM_PERMISSIONS : normalizePermissions(r.permissions),
       roomsError: null,
       roomsErrorKind: null,
     });
@@ -327,6 +397,7 @@ export class VoiceController {
   ): Promise<VoiceRoomChange> {
     const host = rawHost.trim().toLowerCase();
     if (!this.bridge) throw new VoiceRoomError('unavailable_voice', 'Voice needs the Boson app.');
+    if (this.servers[host]?.guest) throw new VoiceRoomError('forbidden', 'Sign in to make or change voice channels.');
     let token: string;
     try {
       token = await this.listVoiceToken(host);
@@ -339,7 +410,7 @@ export class VoiceController {
     } catch (err) {
       throw new VoiceRoomError('server', errText(err));
     }
-    if (r.code === 'unauthorized') this.listTokens.delete(this.authFor(host));
+    if (r.code === 'unauthorized') this.listTokens.delete(this.tokenKey(host));
     if (r.error || r.code) throw new VoiceRoomError(r.code ?? 'server', roomErrorText(r), r.retryAfter);
     if (refresh) void this.refreshRooms(host, true);
     return r;
@@ -348,12 +419,17 @@ export class VoiceController {
   // A token for listing rooms (any room), reused while it's good for
   // another minute. Joining always gets its own, for that room.
   private async listVoiceToken(host: string): Promise<string> {
-    const auth = this.authFor(host);
-    const cached = this.listTokens.get(auth);
+    const key = this.tokenKey(host);
+    const cached = this.listTokens.get(key);
     if (cached && cached.expiresAt - TOKEN_MARGIN_MS > this.now()) return cached.token;
     const t = await this.voiceTokenFor(host);
-    this.listTokens.set(auth, t);
+    this.listTokens.set(key, t);
     return t.token;
+  }
+
+  // List tokens are cached per auth service and per kind (account / guest).
+  private tokenKey(host: string, guest = !!this.servers[host]?.guest): string {
+    return `${guest ? 'guest' : 'account'}:${this.authFor(host)}`;
   }
 
   // The auth service host's voice uses ('' until discovered: the main one).
@@ -363,6 +439,15 @@ export class VoiceController {
 
   private voiceTokenFor(host: string, rooms?: string[]): Promise<VoiceToken> {
     const auth = this.authFor(host);
+    if (this.servers[host]?.guest && this.opts.guestVoiceToken) {
+      const nick = this.nicks[host];
+      if (!nick) return Promise.reject(Object.assign(new Error('no IRC nick yet'), { code: 'no_nick' }));
+      return this.opts.guestVoiceToken(auth, nick, rooms).catch((err: unknown) => {
+        // Turned off since we asked: ask again next time.
+        if ((err as { code?: string } | null)?.code === 'guest_voice_disabled') this.guestCfg.delete(auth);
+        throw err;
+      });
+    }
     const main = auth === normalizeAuthUrl(this.opts.authUrl);
     return main ? this.opts.voiceToken(rooms) : this.opts.voiceToken(rooms, auth);
   }
@@ -604,10 +689,18 @@ function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function tokenErrorText(err: unknown): string {
-  const code = (err as { code?: string } | null)?.code;
+export function tokenErrorText(err: unknown): string {
+  const e = err as { code?: string; status?: number } | null;
+  const code = e?.code;
   if (code === 'signed_out') return 'Sign in to your Boson account to use voice.';
   if (code === 'network') return "Couldn't reach the sign-in service for a voice token.";
+  // Guest tokens (POST /v1/voice/guest-token).
+  if (code === 'nick_registered' || e?.status === 409) return 'That name belongs to an account — sign in to use voice.';
+  if (code === 'guest_voice_disabled') return "This server doesn't let guests use voice. Sign in to use voice.";
+  // 400 invalid_request (field nick / guest_id): in practice the nick.
+  if (code === 'invalid' || code === 'invalid_request' || e?.status === 400) return "Your nick can't be used for voice. Change it and try again.";
+  if (code === 'rate_limited' || e?.status === 429) return 'Too many voice requests. Wait a minute and try again.';
+  if (code === 'no_nick') return 'Connect to the server first to use voice as a guest.';
   return `Couldn't get a voice token: ${errText(err)}`;
 }
 

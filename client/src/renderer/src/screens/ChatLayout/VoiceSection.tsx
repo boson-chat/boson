@@ -6,6 +6,7 @@ import {
   VoiceRoomMenu, VoiceRoomRow, VoiceUserMenu, canCreateUnder, setVoiceUi, useVoiceServer, useVoiceUi,
 } from './VoiceRooms';
 import { VoiceRoomDialog, voiceRoomOf } from './VoiceRoomDialog';
+import { GuestBadge } from './GuestBadge';
 import './NickContextMenu.css';
 import './VoiceSection.css';
 
@@ -18,6 +19,8 @@ interface VoiceSectionProps {
   // The IRC channels you're in. Their voice channels show under them in
   // the channel list (ChannelVoiceRooms); the rest show here.
   channels?: readonly string[];
+  // Your current IRC nick on this server: your name in voice as a guest.
+  nick?: string;
 }
 
 // The VOICE section under CHANNELS, Discord style: the server's voice
@@ -27,25 +30,32 @@ interface VoiceSectionProps {
 // across servers); right-click one you manage to edit, move or delete it;
 // right-click someone for their volume. It also owns discovery, the room
 // list poll and the create/edit dialog for the whole server. Nothing at all
-// for a server without voice, for guests, and outside the app (a browser).
-export function VoiceSection({ host, serverName, engineState, avatarFor, channels = [] }: VoiceSectionProps) {
+// for a server without voice, outside the app (a browser), and for guests
+// unless the server's auth service allows guest voice (server.guest).
+export function VoiceSection({ host, serverName, engineState, avatarFor, channels = [], nick }: VoiceSectionProps) {
   const { voice, snap, key, server } = useVoiceServer(host);
   const { session } = useAuthState();
   const signedIn = !!session;
-  const available = !!voice && signedIn && server?.discovery === 'available';
+  const guest = !!server?.guest;
+  const available = !!voice && (signedIn || guest) && server?.discovery === 'available';
   const ui = useVoiceUi();
+
+  // A guest's voice name is their IRC nick here (set before any token).
+  useEffect(() => {
+    if (voice && key) voice.setNick(key, nick);
+  }, [voice, key, nick]);
 
   // Discover once per server; again (re-check) on every reconnect.
   const wasConnected = useRef(engineState === 'connected');
   useEffect(() => {
-    if (!voice || !signedIn || !key) return;
+    if (!voice || !key) return;
     void voice.discover(key);
-  }, [voice, signedIn, key]);
+  }, [voice, key]);
   useEffect(() => {
     const connected = engineState === 'connected';
-    if (connected && !wasConnected.current && voice && signedIn && key) void voice.discover(key, true);
+    if (connected && !wasConnected.current && voice && key) void voice.discover(key, true);
     wasConnected.current = connected;
-  }, [engineState, voice, signedIn, key]);
+  }, [engineState, voice, key]);
 
   // Poll the room list while this panel shows it.
   useEffect(() => {
@@ -83,15 +93,18 @@ export function VoiceSection({ host, serverName, engineState, avatarFor, channel
   // "+" here: top level, or (founders) a founded channel that isn't joined.
   const canAddHere = canCreateUnder(perms, '')
     || (perms.createScope === 'founded_channels' && (perms.foundedChannels ?? []).length > 0);
-  const isAdmin = session?.user.role === 'admin' || session?.user.role === 'moderator';
+  const isAdmin = !guest && (session?.user.role === 'admin' || session?.user.role === 'moderator');
 
   const menuRoom = ui.roomMenu && ui.roomMenu.host === key ? voiceRoomOf(server, ui.roomMenu.roomId) : null;
 
   return (
     <section class="voice-section" aria-label="Voice channels">
       <div class="channel-section-header">
-        <div class="channel-section">Voice</div>
-        {canAddHere && (
+        <div class="channel-section">
+          Voice
+          {guest && <span class="voice-section-guest"><GuestBadge title="You're in voice as a guest, under your IRC nick. Sign in to make voice channels." /></span>}
+        </div>
+        {canAddHere && !guest && (
           <button
             type="button"
             class="channel-add"
@@ -132,7 +145,7 @@ export function VoiceSection({ host, serverName, engineState, avatarFor, channel
           ))}
         </div>
       ))}
-      {ui.dialog && ui.dialog.host === key && (
+      {ui.dialog && ui.dialog.host === key && !guest && (
         <VoiceRoomDialog
           key={ui.dialog.kind === 'edit' ? `edit:${ui.dialog.roomId}:${ui.dialog.confirmDelete ? 'd' : ''}` : `create:${ui.dialog.parent ?? ''}`}
           voice={voice}
@@ -143,7 +156,7 @@ export function VoiceSection({ host, serverName, engineState, avatarFor, channel
           onClose={closeDialog}
         />
       )}
-      {ui.roomMenu && menuRoom && (
+      {ui.roomMenu && menuRoom && !guest && (
         <VoiceRoomMenu voice={voice} host={key} room={menuRoom} x={ui.roomMenu.x} y={ui.roomMenu.y} onClose={closeRoomMenu} />
       )}
       {ui.userMenu && (
