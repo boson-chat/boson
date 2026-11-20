@@ -1,3 +1,9 @@
+## [0.80.0](https://github.com/boson-chat/boson/compare/v0.79.0...v0.80.0) (2026-11-20)
+
+### Features
+
+* keep the phone's screen on during a voice call ([#107](https://github.com/boson-chat/boson/issues/107)) ([c4af252](https://github.com/boson-chat/boson/commit/c4af2525b6207c249ab6c1a1568f9e72ccc814da))
+
 ## [0.79.0](https://github.com/boson-chat/boson/compare/v0.78.4...v0.79.0) (2026-11-20)
 
 ### Features
