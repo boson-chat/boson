@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { getVideoController, type VideoState, type VideoTrack } from '../../modules/video';
 import { getVoiceController, type VoiceParticipant } from '../../modules/voice';
+import { isGuestParticipant } from '../../modules/voice/guest-id';
 import { setVoiceUi } from './VoiceRooms';
 
 // What the call's views share: the call clock, opening the call from
@@ -50,6 +51,7 @@ export interface CallTileInfo {
   key: string;
   name: string; // the person (a screen's is its sharer)
   label: string; // what the tile says: "mira", "you", "kestrel's screen"
+  guest: boolean; // the person joined as a guest (a "guest" badge)
   self: boolean;
   speaking: boolean;
   muted: boolean;
@@ -70,7 +72,7 @@ export function callTiles(participants: readonly VoiceParticipant[], video: Vide
   const out: CallTileInfo[] = [];
   for (const t of video.tracks) {
     if (t.kind === 'screen' && !t.self) {
-      out.push({ key: `t${t.trackId}`, name: t.name, label: `${t.name}’s screen`, self: false, speaking: false, muted: false, screen: true, track: t, selfCamera: false, aspect: aspectOf(t) });
+      out.push({ key: `t${t.trackId}`, name: t.name, label: `${t.name}’s screen`, guest: isGuestParticipant(t), self: false, speaking: false, muted: false, screen: true, track: t, selfCamera: false, aspect: aspectOf(t) });
     }
   }
   for (const p of participants) {
@@ -79,6 +81,7 @@ export function callTiles(participants: readonly VoiceParticipant[], video: Vide
       key: cam ? `t${cam.trackId}` : `p${p.sessionId}`,
       name: p.name,
       label: p.self ? 'you' : p.name,
+      guest: isGuestParticipant(p),
       self: p.self,
       speaking: p.speaking,
       muted: p.muted || p.deafened,

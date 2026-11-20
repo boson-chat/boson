@@ -8,6 +8,8 @@ import {
   type VoiceRoomParticipant, type VoiceRoomPermissions, type VoiceServerView,
 } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
+import { isGuestParticipant } from '../../modules/voice/guest-id';
+import { GuestBadge } from './GuestBadge';
 import './NickContextMenu.css';
 import './VoiceSection.css';
 
@@ -282,7 +284,8 @@ function VoiceParticipantRow({ p, self, listener, screen, camera, url, onMenu }:
   url?: string;
   onMenu: (x: number, y: number) => void;
 }) {
-  const state = [p.speaking ? 'speaking' : '', screen ? 'sharing their screen' : '', camera ? 'camera on' : '', listener ? 'listening' : p.muted ? 'muted' : '', p.deafened ? 'deafened' : ''].filter(Boolean).join(', ');
+  const guest = isGuestParticipant(p);
+  const state = [guest ? 'guest' : '', p.speaking ? 'speaking' : '', screen ? 'sharing their screen' : '', camera ? 'camera on' : '', listener ? 'listening' : p.muted ? 'muted' : '', p.deafened ? 'deafened' : ''].filter(Boolean).join(', ');
   return (
     <li
       class={`voice-participant ${p.speaking ? 'voice-participant-speaking' : ''} ${self ? 'voice-participant-self' : ''}`}
@@ -298,6 +301,7 @@ function VoiceParticipantRow({ p, self, listener, screen, camera, url, onMenu }:
         <Avatar nick={p.name} url={url} size={20} />
       </span>
       <span class="voice-participant-name">{p.name}</span>
+      {guest && <GuestBadge />}
       {screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
       {camera && <Video size={12} class="voice-participant-cam" aria-hidden="true" />}
       {p.deafened ? (

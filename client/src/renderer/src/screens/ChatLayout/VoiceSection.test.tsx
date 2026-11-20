@@ -87,11 +87,52 @@ describe('VoiceSection', () => {
     expect(screen.queryByText('Voice')).toBeNull();
   });
 
-  it('shows nothing for a guest', async () => {
+  it("shows nothing for a guest when the server doesn't allow guest voice", async () => {
     const { container } = mount('irc.boson.chat', false);
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     expect(container.querySelector('.voice-section')).toBeNull();
-    expect(bridge.calls.some((c) => c.method === 'discover')).toBe(false);
+  });
+
+  it('lets a guest join under their IRC nick when the server allows guest voice, without create or manage', async () => {
+    const guestVoiceToken = vi.fn(async (_auth: string, nick: string, rooms?: string[]) => ({ token: `g:${nick}:${rooms?.join(',') ?? ''}`, expiresAt: Date.now() + 300_000 }));
+    bridge = createFakeVoiceBridge({
+      servers: { 'irc.boson.chat': {} },
+      rooms: { 'irc.boson.chat': [{ ...ROOMS[0]!, canManage: true, participants: [
+        ...ROOMS[0]!.participants,
+        { sessionId: 9, userId: 'guest:abcdefabcdefabcd', name: 'kit', muted: false, deafened: false, speaking: false, guest: true },
+      ] }, ROOMS[1]!] },
+      permissions: { 'irc.boson.chat': { canCreate: true, createScope: 'any', foundedChannels: [] } },
+    });
+    controller = new VoiceController(bridge, {
+      authUrl: 'https://auth.boson.chat',
+      voiceToken: async () => { throw new Error('no account token for guests'); },
+      hasAccount: () => false,
+      guestVoice: async () => true,
+      guestVoiceToken,
+      pollMs: 60_000,
+      keyTarget: null,
+    });
+    setVoiceController(controller);
+    render(
+      <AuthProvider service={fakeAuth(false)}>
+        <VoiceSection host="irc.boson.chat" serverName="boson" engineState="connected" nick="Wren" />
+        <VoiceBar />
+        <VoicePreJoin self="Wren" />
+      </AuthProvider>,
+    );
+    await screen.findByText('General');
+    // "VOICE  guest", and no "+" or edit gear.
+    expect(document.querySelector('.voice-section-guest .guest-badge')).toBeTruthy();
+    expect(screen.queryByLabelText('Create a voice channel')).toBeNull();
+    expect(screen.queryByLabelText('Edit voice channel General')).toBeNull();
+    // Guests in the room get the badge.
+    fireEvent.click(screen.getByRole('button', { name: /3 in call: show who's in General/ }));
+    const kit = screen.getByLabelText('kit: guest');
+    expect(kit.querySelector('.guest-badge')?.textContent).toBe('guest');
+    expect(screen.getByLabelText('alice: speaking').querySelector('.guest-badge')).toBeNull();
+    await joinRoom('Music');
+    await waitFor(() => expect(guestVoiceToken).toHaveBeenCalledWith('https://auth.boson.chat', 'Wren', ['music']));
+    expect(bridge.calls.find((c) => c.method === 'join')!.args[0]).toMatchObject({ token: 'g:Wren:music' });
   });
 
   it('joins on click and shows the connected bar', async () => {

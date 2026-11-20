@@ -2,6 +2,7 @@ import { useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { openCall } from './call-shared';
+import { isGuestParticipant } from '../../modules/voice/guest-id';
 import './CallPanel.css';
 
 const FACES = 8;
@@ -27,7 +28,7 @@ export function InCallStrip({ avatarFor }: { avatarFor?: (nick: string) => strin
       </span>
       <span class="incall-faces">
         {people.slice(0, FACES).map((p) => (
-          <span key={`${p.sessionId}:${p.userId}`} class="incall-face" data-speaking={p.speaking || undefined} title={p.name}>
+          <span key={`${p.sessionId}:${p.userId}`} class="incall-face" data-speaking={p.speaking || undefined} title={isGuestParticipant(p) ? `${p.name} (guest)` : p.name}>
             <Avatar nick={p.name} url={avatarFor?.(p.name)} size={22} />
           </span>
         ))}

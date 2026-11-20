@@ -131,6 +131,8 @@ function chanservReplies(target: string, body: string): string[] | null {
 const NICK = 'ada';
 const CHAN = '#dev';
 
+// ?voice=guest: as a guest (no account) on a server that allows guest
+// voice, in a call with another guest.
 // ?voice=none|rooms|connected|error: the chat view on a server with (or
 // without) voice channels, driven by an in-memory voice bridge.
 const voiceMode = new URLSearchParams(location.search).get('voice');
@@ -172,6 +174,7 @@ function installVoice(): void {
             { sessionId: 3, userId: 'usr_nova', name: 'nova', muted: false, deafened: false, speaking: true },
             { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', muted: true, deafened: false, speaking: false },
             { sessionId: 5, userId: 'usr_pixel', name: 'pixel', muted: false, deafened: true, speaking: false },
+            ...(voiceMode === 'guest' ? [{ sessionId: 6, userId: 'guest:k3d9sQvB0aXw2LmN', name: 'wren', muted: false, deafened: false, speaking: false, guest: true }] : []),
           ] },
         { id: 'pairing', name: 'Pairing', participants: [
           { sessionId: 8, userId: 'usr_orbit', name: 'orbit', muted: false, deafened: false, speaking: false },
@@ -201,9 +204,14 @@ function installVoice(): void {
     authUrl: 'https://auth.boson.chat',
     voiceToken: async () => ({ token: 't', expiresAt: Date.now() + 300_000 }),
     pollMs: 3_600_000,
+    ...(voiceMode === 'guest' ? {
+      hasAccount: () => false,
+      guestVoice: async () => true,
+      guestVoiceToken: async () => ({ token: 'g', expiresAt: Date.now() + 300_000 }),
+    } : {}),
   });
   setVoiceController(voice);
-  if (voiceMode === 'connected' || voiceMode === 'error') {
+  if (voiceMode === 'connected' || voiceMode === 'error' || voiceMode === 'guest') {
     setTimeout(() => { void voice.join('irc.nebula.example', { id: 'general', name: 'General' }, 'Nebula'); }, 100);
   }
   if (voiceMode === 'listener') {
@@ -222,6 +230,7 @@ function callPeople() {
     { sessionId: 3, userId: 'usr_nova', name: 'nova', self: false, muted: false, deafened: false, speaking: true, volume: 100 },
     { sessionId: 4, userId: 'usr_kestrel', name: 'kestrel', self: false, muted: true, deafened: false, speaking: false, volume: 100 },
     { sessionId: 5, userId: 'usr_pixel', name: 'pixel', self: false, muted: false, deafened: true, speaking: false, volume: 80 },
+    ...(voiceMode === 'guest' ? [{ sessionId: 6, userId: 'guest:k3d9sQvB0aXw2LmN', name: 'wren', self: false, muted: false, deafened: false, speaking: false, volume: 100 }] : []),
     ...EXTRA.map((n, i) => ({ sessionId: 20 + i, userId: `usr_${n}`, name: n, self: false, muted: i % 4 === 1, deafened: false, speaking: false, volume: 100 })),
   ];
   const n = Number(new URLSearchParams(location.search).get('people') ?? 4);
@@ -433,7 +442,7 @@ function chatView(): void {
     />
   );
   render(
-    voiceMode ? <AuthProvider service={makeAuth(true)}>{layout}</AuthProvider> : layout,
+    voiceMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{layout}</AuthProvider> : layout,
     document.getElementById('app')!,
   );
 

@@ -225,7 +225,7 @@ func TestFetchVoiceRooms(t *testing.T) {
 		}
 		switch r.Header.Get("Authorization") {
 		case "Bearer good":
-			_, _ = w.Write([]byte(`{"rooms":[{"id":"general","name":"General","participants":[{"session_id":3,"user_id":"usr_1","name":"alice","muted":true,"deafened":false,"speaking":true}]},{"id":"afk","participants":[]},{"name":"no id"}]}`))
+			_, _ = w.Write([]byte(`{"rooms":[{"id":"general","name":"General","participants":[{"session_id":3,"user_id":"usr_1","name":"alice","muted":true,"deafened":false,"speaking":true},{"session_id":4,"user_id":"guest:abc","name":"kit","guest":true},{"session_id":5,"user_id":"guest:def","name":"old"}]},{"id":"afk","participants":[]},{"name":"no id"}]}`))
 		default:
 			w.WriteHeader(http.StatusUnauthorized)
 		}
@@ -236,11 +236,15 @@ func TestFetchVoiceRooms(t *testing.T) {
 		t.Fatalf("rooms: %+v", r)
 	}
 	g := r.Rooms[0]
-	if g.ID != "general" || g.Name != "General" || len(g.Participants) != 1 {
+	if g.ID != "general" || g.Name != "General" || len(g.Participants) != 3 {
 		t.Fatalf("general: %+v", g)
 	}
 	if p := g.Participants[0]; p.SessionID != 3 || p.UserID != "usr_1" || p.Name != "alice" || !p.Muted || !p.Speaking {
 		t.Errorf("participant: %+v", p)
+	}
+	// Guests: the server's flag, or a guest user id from an older server.
+	if g.Participants[0].Guest || !g.Participants[1].Guest || !g.Participants[2].Guest {
+		t.Errorf("guest flags: %+v", g.Participants)
 	}
 	if r.Rooms[1].Name != "afk" {
 		t.Errorf("unnamed room takes its id: %+v", r.Rooms[1])

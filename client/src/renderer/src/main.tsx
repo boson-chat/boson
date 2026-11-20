@@ -6,10 +6,10 @@ import { initDeepLinkBridge } from './modules/deep-link/deep-link';
 import { installDropGuard } from './shared/drop-guard';
 import { trackVisualViewport } from './shared/visual-viewport';
 import { NetworkThemes, getThemeStore, setNetworkThemes } from './modules/ui/theme';
-import { VoiceController, getVoiceController, setVoiceController, voiceBridge } from './modules/voice';
+import { VoiceController, getVoiceController, guestVoiceId, normalizeAuthUrl, setVoiceController, voiceBridge } from './modules/voice';
 import { VideoController, setVideoController, videoBridge } from './modules/video';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
-import { loadGuestSession } from './modules/guest/guest';
+import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
 import { windowSecureStorage } from './shared/secure-storage';
 import './styles.css';
@@ -125,13 +125,38 @@ void (async () => {
   // absent in a browser).
   const bridge = voiceBridge();
   if (bridge) {
+    const mainAuth = normalizeAuthUrl(authUrl);
+    const authFor = (a: string) => (netAccounts ? netAccounts.service(a) : props.auth);
     setVoiceController(new VoiceController(bridge, {
       authUrl,
       // A network's voice takes that network's tokens, never boson.chat's.
       voiceToken: (rooms, net) => (net && netAccounts ? netAccounts.service(net).voiceToken(rooms) : props.auth.voiceToken(rooms)),
       knowsAuth: (net) => netAccounts?.getSnapshot().known.some((k) => k.authUrl === net) ?? false,
+      // Guests (no account with that network's auth service) join voice
+      // under their IRC nick when the service allows it.
+      hasAccount: (a) => (a === mainAuth
+        ? loadGuestSession() === null && !!props.auth.getState().session
+        : !!netAccounts?.sessionFor({ host: '', authUrl: a, main: false })),
+      guestVoice: async (a) => (await (netAccounts ? netAccounts.config(a) : props.auth.config())).guest_voice === true,
+      guestVoiceToken: (a, nick, rooms) => authFor(a).guestVoiceToken(nick, guestVoiceId(a), rooms),
     }));
     netAccounts?.onLinked((link) => { void getVoiceController()?.recheck(link.host); });
+    // Signing in or out anywhere (or into / out of guest mode) can switch a
+    // server's voice between account and guest.
+    const accessChanged = (): void => { void getVoiceController()?.accessChanged(); };
+    let signedIn = !!props.auth.getState().session;
+    props.auth.subscribe((st) => {
+      if (st.loading || !!st.session === signedIn) return;
+      signedIn = !!st.session;
+      accessChanged();
+    });
+    let netSessions = netAccounts?.getSnapshot().sessions;
+    netAccounts?.subscribe((snap) => {
+      if (snap.sessions === netSessions) return;
+      netSessions = snap.sessions;
+      accessChanged();
+    });
+    onGuestChange(accessChanged);
     // Video in voice channels (desktop/video.go): hidden until a call's
     // server offers it.
     const vb = videoBridge();

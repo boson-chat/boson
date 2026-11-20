@@ -5,6 +5,8 @@ import type { VoiceRoom, VoiceRoomParticipant } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { BottomSheet } from './BottomSheet';
 import { setVoiceUi, useVoiceServer, useVoiceUi, type VoiceView } from './VoiceRooms';
+import { isGuestParticipant } from '../../modules/voice/guest-id';
+import { GuestBadge } from './GuestBadge';
 import './PreJoin.css';
 
 // Before joining a voice channel: who's there, your camera preview (or
@@ -113,6 +115,7 @@ export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (n
               <Avatar nick={p.name} url={avatarFor?.(p.name)} size={72} />
               <span class="prejoin-tag">
                 {p.name}
+                {isGuestParticipant(p) && <GuestBadge />}
                 {(p.muted || p.deafened) && <MicOff size={12} class="prejoin-muted" aria-label="muted" />}
               </span>
             </div>
@@ -173,7 +176,7 @@ export function VoiceJoinSheet({ self, avatarFor }: { self: string; avatarFor?: 
               <div key={`${p.sessionId}:${p.userId}`} class="joinsheet-person">
                 <span class="joinsheet-face" data-speaking={p.speaking || undefined}><Avatar nick={p.name} url={avatarFor?.(p.name)} size={28} /></span>
                 <span class="joinsheet-who">
-                  <span class="joinsheet-name">{p.name}</span>
+                  <span class="joinsheet-name">{p.name}{isGuestParticipant(p) && <> <GuestBadge /></>}</span>
                   <span class="joinsheet-state" data-tone={st.tone}>{st.text}</span>
                 </span>
                 {(p.muted || p.deafened) && <MicOff size={16} class="joinsheet-muted" aria-label="muted" />}

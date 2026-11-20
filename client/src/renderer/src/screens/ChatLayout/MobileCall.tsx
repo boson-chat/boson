@@ -10,6 +10,7 @@ import { BottomSheet } from './BottomSheet';
 import { HoldToTalk, VoicePanel } from './MobileVoice';
 import { callTiles, closeCall, openCall, type CallTileInfo } from './call-shared';
 import { ShareSound } from './ShareSound';
+import { GuestBadge } from './GuestBadge';
 import './MobileCall.css';
 
 // The call on a phone: the call screen (header, stage, your own video as a
@@ -150,6 +151,7 @@ function MTile({ tile, cls, avatar, label, ariaLabel, onClick, onSize, canvasRef
       <span class="mcall-tag">
         {tile.screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
         {label}
+        {tile.guest && <GuestBadge />}
         {tile.muted && <MicOff size={12} class="mcall-muted" aria-label="muted" />}
       </span>
     </>

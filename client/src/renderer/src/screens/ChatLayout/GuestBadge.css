@@ -1,0 +1,14 @@
+/* Inherits the colour of the row or tag it sits in (light on the dark
+   stage tags, muted in the sidebar). */
+.guest-badge {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font: 600 9px/13px var(--font-mono);
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  white-space: nowrap;
+}

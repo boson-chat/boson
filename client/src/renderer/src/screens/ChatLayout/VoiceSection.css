@@ -421,3 +421,12 @@
 }
 .voice-panel-controls .call-cam-btn[data-live] { color: var(--fg); }
 .voice-panel-controls .call-screen-btn[data-live] { background: var(--accent); border-color: var(--accent); color: var(--bg, #070709); }
+
+/* "VOICE  guest": you're in voice here as a guest. */
+.voice-section-guest {
+  display: inline-flex;
+  margin-left: 6px;
+  vertical-align: 1px;
+  text-transform: none;
+  letter-spacing: 0;
+}
