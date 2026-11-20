@@ -20,7 +20,7 @@ import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { isNarrow, useNarrow } from '../../shared/narrow';
 import { MobileCallScreen, MobileMiniBar } from './MobileCall';
-import { closeCall } from './call-shared';
+import { closeCall, isPrivateCall } from './call-shared';
 import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
 import { CallStage } from './CallStage';
 import { CallPanel, type CallChat } from './CallPanel';
@@ -260,7 +260,12 @@ export function ChatLayout({
   const friendsOn = friendsSnap.available;
   const friendsPage = friendsOn && friendsUi.page && !narrow && !stageOpen;
   const phoneTabs = friendsOn && narrow && !phoneCallOpen;
-  const prejoinOpen = !!voiceView && !(call.host === voiceView.host && call.room === voiceView.roomId && call.status !== 'idle' && call.status !== 'error');
+  const inViewedRoom = !!voiceView && call.host === voiceView.host && call.room === voiceView.roomId && call.status !== 'idle' && call.status !== 'error';
+  // A private 1:1 call (friends) has no join screen: you're in it from the
+  // moment you answer, and once it ends its room is gone. Its view closes.
+  const privateView = !!voiceView && isPrivateCall(voiceView.roomId);
+  useEffect(() => { if (privateView && !inViewedRoom) setVoiceUi({ view: null }); }, [privateView, inViewedRoom]);
+  const prejoinOpen = !!voiceView && !privateView && !inViewedRoom;
 
   const rail = (
         <ServerRail
