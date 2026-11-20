@@ -25,11 +25,11 @@ describe('Settings → Voice', () => {
       render(<VoiceSettingsSection open />);
       expect(screen.queryByLabelText('Input device')).toBeNull();
       expect(screen.getByText(/Your phone cancels echo/)).toBeTruthy();
-      fireEvent.click(screen.getByRole('tab', { name: 'Push to talk' }));
+      fireEvent.click(screen.getByRole('radio', { name: 'Push to talk' }));
       expect(getVoiceSettings().mode).toBe('ptt');
       expect(await screen.findByText(/Hold the talk button while you speak/)).toBeTruthy();
       expect(screen.queryByText('Choose a key')).toBeNull();
-      expect(screen.getByRole('tab', { name: 'Open mic' })).toBeTruthy();
+      expect(screen.getByRole('radio', { name: 'Open mic' })).toBeTruthy();
     } finally {
       delete window.bosonPlatform;
     }
@@ -45,7 +45,7 @@ describe('Settings → Voice', () => {
 
   it('push to talk: choose a key', async () => {
     render(<VoiceSettingsSection open />);
-    fireEvent.click(screen.getByRole('tab', { name: 'Push to talk' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Push to talk' }));
     expect(getVoiceSettings().mode).toBe('ptt');
     fireEvent.click(await screen.findByText('Choose a key'));
     expect(screen.getByText('Press a key…')).toBeTruthy();
@@ -92,7 +92,7 @@ describe('Settings → Voice', () => {
     const { rerender } = render(<VoiceSettingsSection open />);
     expect(bridge.calls).toContainEqual({ method: 'setVoiceQuality', args: ['standard'] });
     expect(screen.getByText(/32 kbps\. Clear speech/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: 'Music' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Music' }));
     expect(getVoiceSettings().voiceQuality).toBe('music');
     expect(bridge.calls).toContainEqual({ method: 'setVoiceQuality', args: ['music'] });
     expect(screen.getByText(/tuned for music/)).toBeTruthy();
@@ -100,7 +100,7 @@ describe('Settings → Voice', () => {
     bridge.push({ status: 'connected', maxBitrate: 48000, bitrate: 48000 });
     rerender(<VoiceSettingsSection open />);
     expect(await screen.findByText(/This channel allows 48 kbps/)).toBeTruthy();
-    fireEvent.click(screen.getByRole('tab', { name: 'Standard' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Standard' }));
     await waitFor(() => expect(screen.queryByText(/This channel allows/)).toBeNull());
   });
 
@@ -113,12 +113,12 @@ describe('Settings → Voice', () => {
     window.bosonPlatform = 'android';
     try {
       render(<VoiceSettingsSection open />);
-      fireEvent.click(screen.getAllByRole('tab', { name: 'High' })[1]);
+      fireEvent.click(screen.getAllByRole('radio', { name: 'High' })[1]);
       expect(getVoiceSettings().cameraQuality).toBe('high');
       // On mobile data with Auto: data saver is on.
       expect(await screen.findByText('On · mobile data')).toBeTruthy();
       expect(screen.getByText(/your camera sends at most 360p/)).toBeTruthy();
-      fireEvent.click(screen.getByRole('tab', { name: 'Off' }));
+      fireEvent.click(screen.getByRole('radio', { name: 'Off' }));
       expect(getVoiceSettings().dataSaver).toBe('off');
       expect(await screen.findByText('Off now')).toBeTruthy();
     } finally {

@@ -31,15 +31,18 @@ describe('ServerSettings header', () => {
     const onClose = vi.fn();
     render(<ServerSettings {...props(onClose)} />);
     const back = screen.getByRole('button', { name: 'Close settings' });
-    expect(back.classList.contains('chat-pane-back')).toBe(true);
-    expect(screen.queryByText('×')).toBeNull();
+    // The page header's back button leads; there's no corner close.
+    expect(back.classList.contains('bds-page-back')).toBe(true);
+    expect(screen.getAllByRole('button', { name: 'Close settings' })).toHaveLength(1);
     fireEvent.click(back);
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('keeps the corner × on a wide window', () => {
+  it('keeps the corner close on a wide window', () => {
     phoneWidth(false);
     render(<ServerSettings {...props()} />);
-    expect(screen.getByRole('button', { name: 'Close settings' }).textContent).toBe('×');
+    const close = screen.getByRole('button', { name: 'Close settings' });
+    expect(close.classList.contains('bds-page-back')).toBe(false);
+    expect(close.closest('.bds-page-actions')).not.toBeNull();
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Card, Divider, Field, Tabs, Toggle, WarningBanner } from '@boson/shared';
+import { Badge, Button, Card, Divider, Field, Segmented, Toggle, WarningBanner } from '@boson/shared';
 import {
   VAD_MAX_DB, VAD_MIN_DB, getVoiceSettings, keyLabel, onVoiceSettingsChange, setVoiceSettings, useVoice,
   type VoiceDevices, type VoiceSettings,
@@ -102,10 +102,13 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
             </div>}
             {!phone && <Divider />}
             <Field label="Input mode">
-              <Tabs
-                tabs={[{ id: 'vad', label: phone ? 'Open mic' : 'Voice activity' }, { id: 'ptt', label: 'Push to talk' }]}
-                active={s.mode}
-                onChange={(id) => setVoiceSettings({ mode: id === 'ptt' ? 'ptt' : 'vad' })}
+              <Segmented
+                label="Input mode"
+                fill={false}
+                size={phone ? 'lg' : 'md'}
+                options={[{ id: 'vad', label: phone ? 'Open mic' : 'Voice activity' }, { id: 'ptt', label: 'Push to talk' }]}
+                value={s.mode}
+                onChange={(id) => setVoiceSettings({ mode: id })}
               />
             </Field>
             {s.mode === 'ptt' && phone ? (
@@ -220,25 +223,31 @@ function QualityCard({ s, phone, call, hasVideo, metered }: {
     <Card>
       <div class="user-settings-card-body user-settings-form">
         <Field label="Voice quality" hint={voiceHint}>
-          <Tabs
-            tabs={[{ id: 'standard', label: 'Standard' }, { id: 'high', label: 'High' }, { id: 'music', label: 'Music' }]}
-            active={s.voiceQuality}
-            onChange={(id) => setVoiceSettings({ voiceQuality: id as VoiceSettings['voiceQuality'] })}
+          <Segmented
+            label="Voice quality"
+            fill={false}
+            size={phone ? 'lg' : 'md'}
+            options={[{ id: 'standard', label: 'Standard' }, { id: 'high', label: 'High' }, { id: 'music', label: 'Music' }]}
+            value={s.voiceQuality}
+            onChange={(id) => setVoiceSettings({ voiceQuality: id })}
           />
         </Field>
         {capped && (
           <p class="voice-settings-cap" role="status">
-            <span class="voice-settings-cap-tag">Channel cap</span>
+            <Badge tone="accent">Channel cap</Badge>
             This channel allows {kbps(call.maxBitrate!)}, so you send {kbps(call.maxBitrate!)}.
           </p>
         )}
         {hasVideo && <>
           <Divider />
           <Field label="Camera quality" hint={cameraHint}>
-            <Tabs
-              tabs={[{ id: 'auto', label: 'Auto' }, { id: 'saver', label: 'Data saver' }, { id: 'high', label: 'High' }]}
-              active={s.cameraQuality}
-              onChange={(id) => setVoiceSettings({ cameraQuality: id as VoiceSettings['cameraQuality'] })}
+            <Segmented
+              label="Camera quality"
+              fill={false}
+              size={phone ? 'lg' : 'md'}
+              options={[{ id: 'auto', label: 'Auto' }, { id: 'saver', label: 'Data saver' }, { id: 'high', label: 'High' }]}
+              value={s.cameraQuality}
+              onChange={(id) => setVoiceSettings({ cameraQuality: id })}
             />
           </Field>
           {phone && <>
@@ -248,13 +257,18 @@ function QualityCard({ s, phone, call, hasVideo, metered }: {
               hint="Receives cameras at 360p and screen shares at their low quality, and sends your camera at 360p. Auto: on mobile data, a hotspot or Low Data Mode."
             >
               <div class="voice-settings-saver">
-                <Tabs
-                  tabs={[{ id: 'auto', label: 'Auto' }, { id: 'always', label: 'Always' }, { id: 'off', label: 'Off' }]}
-                  active={s.dataSaver}
-                  onChange={(id) => setVoiceSettings({ dataSaver: id as VoiceSettings['dataSaver'] })}
+                <Segmented
+                  label="Data saver"
+                  fill={false}
+                  size="lg"
+                  options={[{ id: 'auto', label: 'Auto' }, { id: 'always', label: 'Always' }, { id: 'off', label: 'Off' }]}
+                  value={s.dataSaver}
+                  onChange={(id) => setVoiceSettings({ dataSaver: id })}
                 />
-                <span class="voice-settings-saver-state" data-on={saver || undefined}>
-                  {saver ? (s.dataSaver === 'always' ? 'On' : 'On · mobile data') : 'Off now'}
+                <span class="voice-settings-saver-state">
+                  <Badge tone={saver ? 'accent' : 'neutral'}>
+                    {saver ? (s.dataSaver === 'always' ? 'On' : 'On · mobile data') : 'Off now'}
+                  </Badge>
                 </span>
               </div>
             </Field>

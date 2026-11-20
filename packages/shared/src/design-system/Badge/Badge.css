@@ -18,3 +18,4 @@
 .bds-badge-warn     { background: color-mix(in oklab, var(--warn),    transparent 85%); color: var(--warn); }
 .bds-badge-success  { background: color-mix(in oklab, var(--success), transparent 85%); color: var(--success); }
 .bds-badge-neutral  { background: var(--surface-hover); color: var(--fg-3); }
+.bds-badge-accent   { background: var(--accent-dim); color: var(--accent); }

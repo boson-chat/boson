@@ -22,6 +22,12 @@ describe('ListRow', () => {
     expect(onClick).toHaveBeenCalledOnce();
     expect(act).toHaveBeenCalledOnce();
   });
+  it('mainProps go on the body button (a settings menu tab)', () => {
+    render(<ListRow variant="nav" title="About" subtitle="Version" onClick={() => {}} mainProps={{ role: 'tab', 'aria-selected': true }} />);
+    const tab = screen.getByRole('tab', { name: /About/ });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(tab.className).toContain('bds-row-main');
+  });
   it('nav variant marks the selected entry current; li when asked', () => {
     const { container } = render(<ul><ListRow as="li" variant="nav" selected title="Friends" /></ul>);
     const li = container.querySelector('li')!;

@@ -1,8 +1,8 @@
 import type { ComponentChildren } from 'preact';
 import './Badge.css';
 
-// neutral: a quiet grey label (GUEST, "listen only").
-export type BadgeTone = 'ops' | 'mod' | 'verified' | 'info' | 'danger' | 'warn' | 'success' | 'neutral';
+// neutral: a quiet grey label (GUEST, "listen only", a state that's off) · accent: a state that's on / in force, an op's role.
+export type BadgeTone = 'ops' | 'mod' | 'verified' | 'info' | 'danger' | 'warn' | 'success' | 'accent' | 'neutral';
 
 interface BadgeProps {
   tone?: BadgeTone;

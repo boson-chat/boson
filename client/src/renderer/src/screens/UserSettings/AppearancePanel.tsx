@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, Input, Toggle, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, Input, Segmented, Toggle, useTransientFlag } from '@boson/shared';
 import {
   MAX_RADIUS, THEME_TOKENS, getThemeStore, isThemeColor, parseTheme, serializeTheme,
   useNetworkThemes,
@@ -291,20 +291,17 @@ function ThemeEditor({ editing, onCancel, onSaved }: { editing: Editing; onCance
                 invalid={!name}
               />
             </label>
-            <fieldset class="appearance-base">
-              <legend>Base</legend>
-              {(['dark', 'light'] as const).map((b) => (
-                <label key={b}>
-                  <input
-                    type="radio"
-                    name="theme-base"
-                    checked={draft.base === b}
-                    onChange={() => setDraft((d) => ({ ...d, base: b }))}
-                  />
-                  {b === 'dark' ? 'Dark' : 'Light'}
-                </label>
-              ))}
-            </fieldset>
+            <div class="appearance-base">
+              <span class="appearance-legend" id="theme-base-label">Base</span>
+              <Segmented
+                labelledBy="theme-base-label"
+                fill={false}
+                size="md"
+                options={[{ id: 'dark', label: 'Dark' }, { id: 'light', label: 'Light' }]}
+                value={draft.base}
+                onChange={(b) => setDraft((d) => ({ ...d, base: b }))}
+              />
+            </div>
           </div>
 
           {GROUPS.map((group) => (
@@ -352,19 +349,14 @@ function ThemeEditor({ editing, onCancel, onSaved }: { editing: Editing; onCance
               />
               <span class="appearance-range-value">{draft.radius}px</span>
             </label>
-            <div class="appearance-base" role="radiogroup" aria-label="Font">
-              {(['boson', 'system'] as const).map((f) => (
-                <label key={f}>
-                  <input
-                    type="radio"
-                    name="theme-font"
-                    checked={draft.font === f}
-                    onChange={() => setDraft((d) => ({ ...d, font: f }))}
-                  />
-                  {f === 'boson' ? 'Boson (Inter + JetBrains Mono)' : 'System font'}
-                </label>
-              ))}
-            </div>
+            <Segmented
+              label="Font"
+              fill={false}
+              class="appearance-font"
+              options={[{ id: 'boson', label: 'Boson (Inter + JetBrains Mono)' }, { id: 'system', label: 'System font' }]}
+              value={draft.font}
+              onChange={(f) => setDraft((d) => ({ ...d, font: f }))}
+            />
           </fieldset>
 
           <fieldset class="appearance-group">

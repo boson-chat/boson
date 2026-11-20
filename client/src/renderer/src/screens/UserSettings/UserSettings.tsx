@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { getUpdater, useUpdateState, type UpdateState } from '../../modules/updater/updater';
-import { Badge, Button, Card, Divider, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, Divider, Field, Input, ListRow, Modal, SwitchRow, Toggle, useTransientFlag } from '@boson/shared';
 import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
 import { IncomingCallsSetting } from '../Notifications/IncomingCalls';
@@ -109,17 +109,16 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
       <div class="user-settings">
         <nav class="user-settings-menu" aria-label="Settings sections">
           {menu.map((m) => (
-            <button
+            <ListRow
               key={m.id}
-              type="button"
-              role="tab"
-              aria-selected={section === m.id}
-              class={`user-settings-menu-item ${section === m.id ? 'user-settings-menu-item-active' : ''}`}
+              variant="nav"
+              title={m.label}
+              subtitle={m.description}
+              subtitleLines={2}
+              selected={section === m.id}
               onClick={() => setSection(m.id)}
-            >
-              <span class="user-settings-menu-label">{m.label}</span>
-              <span class="user-settings-menu-desc">{m.description}</span>
-            </button>
+              mainProps={{ role: 'tab', 'aria-selected': section === m.id }}
+            />
           ))}
         </nav>
         <div class="user-settings-body" role="tabpanel">
@@ -591,16 +590,16 @@ function NotificationsSection() {
     >
       <Card>
         <div class="user-settings-card-body">
-          <NotifySwitch label="In-app toasts" hint="A card in the corner when something happens elsewhere in Boson." checked={s.inApp} onChange={(v) => update({ inApp: v })} />
-          <NotifySwitch label="System notifications" hint="OS banners when Boson is in the background or minimised." checked={s.enabled} onChange={(v) => update({ enabled: v })} />
+          <SwitchRow title="In-app toasts" description="A card in the corner when something happens elsewhere in Boson." checked={s.inApp} onChange={(v) => update({ inApp: v })} />
+          <SwitchRow title="System notifications" description="OS banners when Boson is in the background or minimised." checked={s.enabled} onChange={(v) => update({ enabled: v })} />
           <Divider />
-          <NotifySwitch label="Mentions" hint="Someone says your nick." checked={s.mentions} disabled={off} onChange={(v) => update({ mentions: v })} />
-          <NotifySwitch label="Direct messages" hint="Any 1:1 message." checked={s.directMessages} disabled={off} onChange={(v) => update({ directMessages: v })} />
-          <NotifySwitch label="Friends" hint="Requests and accepts." checked={s.friends} disabled={off} onChange={(v) => update({ friends: v })} />
-          <NotifySwitch label="Calls" hint="Missed calls, and calls starting in voice channels you're in." checked={s.calls} disabled={off} onChange={(v) => update({ calls: v })} />
-          <NotifySwitch label="Every channel message" hint="Noisy. Or pick channels: right-click one → Notifications → All messages." checked={s.allMessages} disabled={off} onChange={(v) => update({ allMessages: v })} />
+          <SwitchRow title="Mentions" description="Someone says your nick." checked={s.mentions} disabled={off} onChange={(v) => update({ mentions: v })} />
+          <SwitchRow title="Direct messages" description="Any 1:1 message." checked={s.directMessages} disabled={off} onChange={(v) => update({ directMessages: v })} />
+          <SwitchRow title="Friends" description="Requests and accepts." checked={s.friends} disabled={off} onChange={(v) => update({ friends: v })} />
+          <SwitchRow title="Calls" description="Missed calls, and calls starting in voice channels you're in." checked={s.calls} disabled={off} onChange={(v) => update({ calls: v })} />
+          <SwitchRow title="Every channel message" description="Noisy. Or pick channels: right-click one → Notifications → All messages." checked={s.allMessages} disabled={off} onChange={(v) => update({ allMessages: v })} />
           <Divider />
-          <NotifySwitch label="Sound" hint="A short chime with each one." checked={s.sound} disabled={off} onChange={(v) => update({ sound: v })} />
+          <SwitchRow title="Sound" description="A short chime with each one." checked={s.sound} disabled={off} onChange={(v) => update({ sound: v })} />
         </div>
       </Card>
       <Card>
@@ -610,21 +609,6 @@ function NotificationsSection() {
       </Card>
       <p class="user-settings-notify-note">Per channel: right-click a channel (long-press on a phone) → Notifications: All messages, Mentions only or Nothing.</p>
     </SectionFrame>
-  );
-}
-
-// A switch with its label and a line saying what it does.
-function NotifySwitch({ label, hint, checked, disabled, onChange }: {
-  label: string; hint: string; checked: boolean; disabled?: boolean; onChange: (v: boolean) => void;
-}) {
-  return (
-    <div class={`user-settings-notify-row${disabled ? ' user-settings-notify-row-off' : ''}`}>
-      <span class="user-settings-notify-text">
-        <span class="user-settings-notify-label">{label}</span>
-        <span class="user-settings-notify-hint">{hint}</span>
-      </span>
-      <Toggle checked={checked} disabled={disabled} ariaLabel={label} onChange={onChange} />
-    </div>
   );
 }
 
@@ -833,26 +817,28 @@ function LinkedSignIns({ auth, open }: { auth: AuthService; open: boolean }) {
         </div>
         <ul class="user-settings-identities-list">
           {data.identities.map((i) => (
-            <li key={i.id} class="user-settings-identity">
-              <span class="user-settings-identity-main">
-                <span class="user-settings-identity-name">{i.provider_display_name || i.provider_slug}</span>
-                <span class="user-settings-identity-meta">
-                  {i.email ?? i.subject}
-                  {i.last_login_at ? `, last used ${new Date(i.last_login_at).toLocaleDateString()}` : ''}
-                </span>
-              </span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={busy !== null || only}
-                loading={busy === i.id}
-                title={only ? "It's the only way to sign in to this account" : undefined}
-                onClick={() => { void unlink(i.id); }}
-              >
-                Unlink
-              </Button>
-            </li>
+            <ListRow
+              key={i.id}
+              as="li"
+              title={i.provider_display_name || i.provider_slug}
+              subtitle={<>
+                {i.email ?? i.subject}
+                {i.last_login_at ? `, last used ${new Date(i.last_login_at).toLocaleDateString()}` : ''}
+              </>}
+              trailing={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busy !== null || only}
+                  loading={busy === i.id}
+                  title={only ? "It's the only way to sign in to this account" : undefined}
+                  onClick={() => { void unlink(i.id); }}
+                >
+                  Unlink
+                </Button>
+              }
+            />
           ))}
         </ul>
         {error && <div class="user-settings-error" role="alert">{error}</div>}
