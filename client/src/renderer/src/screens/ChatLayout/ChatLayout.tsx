@@ -30,7 +30,8 @@ import { setVoiceUi, useVoiceUi } from './VoiceRooms';
 import { getVideoController, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { useFriends } from '../../modules/friends';
-import { getFriendsUi, setFriendsUi, useFriendsUi } from '../Friends/friends-ui';
+import { getFriendsUi, setFriendsUi, useFriendsUi, type PhonePage as PhonePageId } from '../Friends/friends-ui';
+import { SETTLE_MS, useSwipeNav } from './useSwipeNav';
 import { FriendsView } from '../Friends/FriendsView';
 import { PhonePage } from '../Friends/FriendsNav';
 import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
@@ -153,6 +154,7 @@ export function ChatLayout({
   // full screen with a back arrow (the conversation, its members, Friends,
   // Calls). friends-ui's `phone` is the page.
   const narrow = useNarrow();
+  const phoneRef = useRef<HTMLDivElement>(null);
   // A conversation that becomes active on this server — picked, joined, or
   // opened from elsewhere — is what the user wants to see (switching
   // servers shows that server's channels). A launch opens onto the last
@@ -469,6 +471,32 @@ export function ChatLayout({
         />
   );
 
+  // Phones: each screen, the ones a swipe leads to (back to the channel
+  // list, forward to the conversation or its members), and the swipe.
+  const phoneScreen = (p: PhonePageId | null) => p === null ? (
+    <div class="phone-home">
+      {rail}
+      {friendsUi.my ? mySidebar : sidebar}
+    </div>
+  ) : p === 'chat' ? chatArea
+    : p === 'members' ? userPanel
+      : p === 'friends' ? (
+        <PhonePage title="Friends" sub={friendsSub(friendsSnap)} backLabel="Back to MY" onBack={() => setFriendsUi({ phone: null })}>
+          <FriendsView layout="phone" />
+        </PhonePage>
+      ) : p === 'calls' ? (
+        <PhonePage title="Calls" sub="live · recent" backLabel="Back to MY" onBack={() => setFriendsUi({ phone: null })}>
+          {calls('phone')}
+        </PhonePage>
+      ) : null;
+  const phoneBack: PhonePageId | null | undefined = phonePage === null ? undefined : phonePage === 'members' ? 'chat' : null;
+  const phoneForward: PhonePageId | undefined = phonePage === null ? (active && !friendsUi.my ? 'chat' : undefined)
+    : phonePage === 'chat' && isChannel ? 'members' : undefined;
+  const swipe = useSwipeNav(phoneRef, narrow && !phoneCallOpen, phoneBack !== undefined, phoneForward !== undefined,
+    (dir) => setFriendsUi({ phone: dir === 'back' ? phoneBack ?? null : phoneForward ?? null }));
+  const phoneUnder = swipe.dir === 'back' ? phoneBack : swipe.dir === 'forward' ? phoneForward : undefined;
+  const phoneLayers: Array<PhonePageId | null> = phoneUnder === undefined ? [phonePage] : [phoneUnder, phonePage];
+
   return (
     <div
       class={`app-shell${narrow ? ` is-narrow phone-${phoneCallOpen ? 'call' : phonePage ?? 'home'}` : ''}`}
@@ -480,22 +508,20 @@ export function ChatLayout({
               onChat={chatChannel ? () => { closeCall(); chat.setActive(chatChannel.name); setFriendsUi({ my: false, phone: 'chat' }); } : undefined} />
           ) : (
             <div class="phone-screen">
-              {phonePage === null ? (
-                <div class="phone-home">
-                  {rail}
-                  {friendsUi.my ? mySidebar : sidebar}
-                </div>
-              ) : phonePage === 'chat' ? chatArea
-                : phonePage === 'members' ? userPanel
-                  : phonePage === 'friends' ? (
-                    <PhonePage title="Friends" sub={friendsSub(friendsSnap)} backLabel="Back to MY" onBack={() => setFriendsUi({ phone: null })}>
-                      <FriendsView layout="phone" />
-                    </PhonePage>
-                  ) : phonePage === 'calls' ? (
-                    <PhonePage title="Calls" sub="live · recent" backLabel="Back to MY" onBack={() => setFriendsUi({ phone: null })}>
-                      {calls('phone')}
-                    </PhonePage>
-                  ) : null}
+              <div class="phone-stack" ref={phoneRef}>
+                {phoneLayers.map((p) => {
+                  const cur = p === phonePage;
+                  const style = cur && swipe.dx !== null
+                    ? { transform: `translateX(${swipe.dx}px)`, transition: swipe.settling ? `transform ${SETTLE_MS}ms ease-out` : 'none' }
+                    : undefined;
+                  return (
+                    <div key={p ?? 'home'} class={`phone-layer${cur ? ' phone-layer-cur' : ' phone-layer-under'}`}
+                      style={style} inert={!cur} aria-hidden={cur ? undefined : true}>
+                      {phoneScreen(p)}
+                    </div>
+                  );
+                })}
+              </div>
               {/* In a voice call: minimized, at the bottom of every screen. */}
               <MobileMiniBar />
             </div>

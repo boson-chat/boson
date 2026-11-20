@@ -1,7 +1,8 @@
 // The phone layout (the mobile project: an iPhone's viewport, with touch).
 // Below 700px the desktop's columns show one at a time: the slim rail
 // beside the full-width channel list, or a page full screen with a back
-// arrow (a conversation, its members); no drawers and no bottom bar.
+// arrow (a conversation, its members), and swipes between them; no
+// bottom bar.
 // Dialogs are full-screen sheets. The e2e app runs in Chromium, so this
 // checks the responsive layout; WebKit and the native shells are checked
 // by hand.
@@ -13,6 +14,18 @@ const screenIs = (page: Page, d: 'home' | 'chat' | 'members') =>
   expect(shell(page)).toHaveClass(new RegExp(`\\bphone-${d}\\b`));
 // Nothing makes the page wider than the screen (WebKit would let it pan).
 const fitsWidth = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+
+// A one-finger drag, as real touch events (Playwright's touchscreen only taps).
+async function swipe(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, steps = 8): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
+  for (let i = 1; i <= steps; i++) {
+    const p = { x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps };
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [p] });
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await cdp.detach();
+}
 
 async function connectGuestPhone(page: Page): Promise<string> {
   await continueAsGuest(page, `mb${uid()}`);
@@ -63,6 +76,23 @@ test.describe('phone layout', () => {
     await screenIs(page, 'members');
     await expect(page.locator('.user-panel')).toBeVisible();
     await page.getByRole('button', { name: 'Back to chat' }).click();
+    await screenIs(page, 'chat');
+
+    // Swipes: right for the channels, left back to the chat, left for the
+    // members, right back; a short slow drag and a vertical one stay put.
+    const { height } = page.viewportSize()!;
+    const y = Math.round(height / 2);
+    await swipe(page, { x: 40, y }, { x: width - 40, y });
+    await screenIs(page, 'home');
+    await swipe(page, { x: width - 40, y }, { x: 40, y });
+    await screenIs(page, 'chat');
+    await swipe(page, { x: width - 40, y }, { x: 40, y });
+    await screenIs(page, 'members');
+    await swipe(page, { x: 40, y }, { x: width - 40, y });
+    await screenIs(page, 'chat');
+    await swipe(page, { x: 40, y }, { x: 90, y }, 20);
+    await screenIs(page, 'chat');
+    await swipe(page, { x: width / 2, y: height - 200 }, { x: width / 2 + 20, y: 150 });
     await screenIs(page, 'chat');
 
     // MY: Friends and Calls above the direct messages.
