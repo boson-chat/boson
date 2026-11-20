@@ -1,0 +1,58 @@
+.bds-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.45);
+  /* `backwards` fill only: once the entrance ends, the inline opacity /
+     transform the drag and close set must win over the animation. */
+  animation: bds-sheet-fade var(--motion-medium) var(--ease-out) backwards;
+}
+
+.bds-sheet {
+  max-height: 80vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-2) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  background: var(--surface-raised);
+  border-top: 1px solid var(--border);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+  /* The browser would scroll or bounce the page under a drag instead of
+     handing the pointer moves to the swipe. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  will-change: transform;
+  animation: bds-sheet-rise var(--motion-medium) var(--ease-out) backwards;
+}
+/* Taller than the screen: the body scrolls, and only the handle drags. */
+.bds-sheet-scrolls { touch-action: pan-y; }
+.bds-sheet-handle { touch-action: none; }
+
+@keyframes bds-sheet-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes bds-sheet-rise {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+.bds-sheet-grip {
+  width: 36px;
+  height: 4px;
+  margin: 0 auto var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--border);
+}
+
+.bds-sheet-actions {
+  margin-top: var(--space-4);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+}

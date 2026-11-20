@@ -20,7 +20,7 @@
 .bds-modal {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   /* Stable size — modal width is the same whichever section the user is
      looking at. Caps at the viewport so it never clips on tiny screens.
      Height grows to content but never exceeds the viewport; inner sections
@@ -81,7 +81,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   transition:
     background-color var(--motion-instant) var(--ease-standard),
     color var(--motion-instant) var(--ease-standard),

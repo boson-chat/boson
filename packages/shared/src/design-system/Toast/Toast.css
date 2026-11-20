@@ -1,0 +1,105 @@
+/* Toasts, banners and status pop-ups: one card (radius-lg, 1px border,
+   the toast shadow). Positioning is the stack's job, not the card's. */
+@keyframes bds-toast-in { from { transform: translateX(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bds-toast-drop { from { transform: translateY(-110%); } to { transform: none; } }
+@keyframes bds-toast-rise { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes bds-toast-bar { from { width: 100%; } to { width: 0; } }
+@keyframes bds-toast-ring {
+  0%, 100% { border-color: color-mix(in oklab, var(--success), transparent 65%); box-shadow: var(--shadow-toast), 0 0 0 0 transparent; }
+  50% { border-color: color-mix(in oklab, var(--success), transparent 10%); box-shadow: var(--shadow-toast), 0 0 24px 2px color-mix(in oklab, var(--success), transparent 75%); }
+}
+
+.bds-toast {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: var(--space-3) 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow-toast);
+  overflow: hidden;
+  pointer-events: auto;
+  animation: bds-toast-in var(--motion-medium) var(--ease-out);
+}
+.bds-toast-phone { animation-name: bds-toast-drop; }
+.bds-toast-dismissable { padding-right: 40px; }
+.bds-toast-phone.bds-toast-dismissable { padding-right: 44px; }
+
+.bds-toast-main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.bds-toast-main { cursor: pointer; }
+button.bds-toast-main:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+.bds-toast-phone .bds-toast-main { align-items: center; }
+.bds-toast-lead { flex: none; display: inline-flex; }
+.bds-toast-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.bds-toast-head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.bds-toast-title { min-width: 0; font: 700 13px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bds-toast-phone .bds-toast-title { font-size: 14px; }
+.bds-toast-meta { flex: none; max-width: 55%; font: 400 var(--text-xs) var(--font-mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bds-toast-body {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+.bds-toast-body-success { color: var(--success); }
+
+/* Stacked: the buttons under the text, lined up with it. */
+.bds-toast-stack .bds-toast-actions { display: flex; flex-wrap: wrap; gap: 6px; padding-left: 46px; }
+.bds-toast-stack:not(:has(.bds-toast-lead)) .bds-toast-actions { padding-left: 0; }
+/* One row: the text takes what's left, the buttons sit at the end. */
+.bds-toast-row { flex-direction: row; align-items: center; gap: var(--space-2); padding: 10px 10px 10px 14px; }
+.bds-toast-row .bds-toast-main { flex: 1; align-items: center; }
+.bds-toast-row .bds-toast-head { flex-direction: column; align-items: flex-start; gap: 2px; }
+.bds-toast-row .bds-toast-meta { max-width: 100%; font: 400 var(--text-sm) var(--font-body); }
+.bds-toast-row .bds-toast-actions { flex: none; display: flex; gap: var(--space-2); }
+
+.bds-toast-x { position: absolute; top: 6px; right: 6px; }
+.bds-toast-phone .bds-toast-x { top: 4px; right: 4px; }
+
+/* The time left, along the bottom; it stops while hovered or focused. */
+.bds-toast-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--fg-3);
+  opacity: 0.6;
+  animation-name: bds-toast-bar;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.bds-toast-paused .bds-toast-bar { animation-play-state: paused; }
+
+/* Ringing: the edge glows green. */
+.bds-toast-ringing { animation: bds-toast-in var(--motion-medium) var(--ease-out), bds-toast-ring 1.6s ease-in-out 0.25s infinite; }
+.bds-toast-phone.bds-toast-ringing { animation: bds-toast-drop var(--motion-medium) var(--ease-out), bds-toast-ring 1.6s ease-in-out 0.25s infinite; }
+
+/* A status line: centred text, nothing else. */
+.bds-toast-status { padding: 10px var(--space-4); background: var(--surface-raised); animation-name: bds-toast-rise; }
+.bds-toast-status .bds-toast-main { justify-content: center; text-align: center; }
+.bds-toast-status .bds-toast-title { font: 500 13px var(--font-mono); white-space: normal; }
+
+@media (prefers-reduced-motion: reduce) {
+  .bds-toast, .bds-toast-ringing, .bds-toast-phone.bds-toast-ringing { animation: none; }
+  .bds-toast-bar { animation: none; width: 100%; }
+  .bds-toast-ringing { border-color: var(--success); }
+}

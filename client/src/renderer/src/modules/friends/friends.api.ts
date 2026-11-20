@@ -5,7 +5,10 @@ import type {
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- wire JSON */
 
-const person = (p: any): Person => ({ userId: p?.user_id ?? '', username: p?.username ?? '', displayName: p?.display_name ?? '' });
+const person = (p: any): Person => ({
+  userId: p?.user_id ?? '', username: p?.username ?? '', displayName: p?.display_name ?? '',
+  ...(typeof p?.avatar_url === 'string' && p.avatar_url ? { avatarUrl: p.avatar_url } : {}),
+});
 const friend = (p: any): Friend => ({ ...person(p), canCallAnytime: !!p?.can_call_anytime, since: p?.since ?? '' });
 const list = (x: any): Friend[] => (Array.isArray(x) ? x.map(friend) : []);
 const time = (s: unknown): number => (typeof s === 'string' ? Date.parse(s) || 0 : 0);

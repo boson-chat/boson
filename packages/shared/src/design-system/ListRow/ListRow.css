@@ -1,0 +1,85 @@
+/* List rows. item: avatar · title (+ meta) / subtitle · actions, a hairline
+   under each. nav: a sidebar entry (the channel list's look). */
+.bds-row {
+  --bds-row-pad-x: var(--space-1);
+  --bds-row-gap: var(--space-3);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  list-style: none;
+}
+.bds-row-line { display: flex; align-items: center; gap: var(--bds-row-gap); min-width: 0; }
+.bds-row-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--bds-row-gap);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+button.bds-row-main { cursor: pointer; }
+button.bds-row-main:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }
+.bds-row-lead { flex: none; display: inline-flex; align-items: center; justify-content: center; }
+.bds-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.bds-row-head { display: flex; align-items: baseline; gap: var(--space-2); min-width: 0; }
+.bds-row-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bds-row-meta, .bds-row-aside { flex: 0 1 auto; min-width: 0; font: 400 var(--text-xs) var(--font-mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bds-row-aside { flex: none; margin-left: auto; }
+.bds-row-sub { color: var(--fg-2); overflow: hidden; overflow-wrap: anywhere; }
+.bds-row-sub-1 { text-overflow: ellipsis; white-space: nowrap; }
+.bds-row-sub-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.bds-row-title-danger { color: var(--danger-fg); }
+.bds-row-title-success { color: var(--success); }
+.bds-row-trail { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+
+/* item */
+.bds-row-item { padding: var(--space-2) var(--bds-row-pad-x); border-bottom: 1px solid var(--border-soft); }
+.bds-row-item .bds-row-line { min-height: 40px; }
+.bds-row-item .bds-row-title { font: 700 13px var(--font-mono); color: var(--fg); }
+.bds-row-item .bds-row-title-danger { color: var(--danger-fg); }
+.bds-row-item .bds-row-title-success { color: var(--success); }
+.bds-row-item .bds-row-sub { font-size: var(--text-sm); line-height: 1.4; }
+.bds-row-item.bds-row-lg { --bds-row-pad-x: var(--space-4); padding-top: 10px; padding-bottom: 10px; }
+.bds-row-item.bds-row-lg .bds-row-line { min-height: var(--control-lg); }
+.bds-row-item.bds-row-lg .bds-row-title { font-size: 14px; }
+.bds-row-item.bds-row-lg .bds-row-sub { font-size: 13px; }
+.bds-row-item.bds-row-unread { background: color-mix(in oklab, var(--accent), transparent 95%); }
+@media (hover: hover) {
+  .bds-row-item.bds-row-clickable:hover { background: var(--surface-hover); }
+}
+
+/* nav */
+.bds-row-nav {
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-4);
+  border-left: 2px solid transparent;
+  color: var(--fg-3);
+  font: 400 var(--text-sm) var(--font-mono);
+  --bds-row-gap: var(--space-2);
+  transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+.bds-row-nav .bds-row-line { min-height: 24px; }
+.bds-row-nav .bds-row-lead { width: 24px; color: var(--muted); }
+.bds-row-nav.bds-row-lg .bds-row-line { min-height: 36px; }
+.bds-row-nav.bds-row-lg { font-size: 14px; }
+.bds-row-nav .bds-row-title { color: inherit; }
+.bds-row-nav .bds-row-sub { font-size: var(--text-xs); color: var(--fg-3); }
+.bds-row-nav.bds-row-clickable { padding: 0; }
+.bds-row-nav.bds-row-clickable .bds-row-main { padding: var(--space-1) 0 var(--space-1) var(--space-4); align-self: stretch; }
+.bds-row-nav.bds-row-clickable .bds-row-trail { padding-right: var(--space-3); }
+.bds-row-nav.bds-row-clickable button.bds-row-main:focus-visible { box-shadow: inset var(--focus-ring); border-radius: 0; }
+@media (hover: hover) {
+  .bds-row-nav:hover { background: var(--surface-hover); color: var(--fg-2); }
+}
+.bds-row-nav.bds-row-unread { color: var(--fg); font-weight: 600; }
+.bds-row-nav.bds-row-selected, .bds-row-nav.bds-row-selected:hover {
+  color: var(--fg);
+  background: var(--surface-raised);
+  border-left-color: var(--accent);
+  font-weight: 600;
+}

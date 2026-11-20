@@ -1,71 +1,133 @@
+/* The one button. Variants: primary · secondary · ghost · danger · success.
+   Sizes: sm 28 · md 34 · lg 44 (phones) · xl 72 (the full-screen call).
+   See design-systems/boson/DESIGN.md. */
 .bds-btn {
+  --bds-btn-h: var(--control-md);
+  --bds-btn-icon: 16px;
+  --bds-btn-attention: var(--success);
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  /* Tightened from var(--space-3) var(--space-6) — earlier proportions
-     felt huge next to the rest of the chat chrome. 4/8 grid still
-     respected; matches the design mockup spacing. */
-  padding: var(--space-2) var(--space-4);
+  flex: none;
+  height: var(--bds-btn-h);
+  min-width: 0;
+  padding: 0 var(--space-4);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: 600;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--motion-fast) var(--ease-standard);
+  line-height: 1;
   letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--fg);
+  cursor: pointer;
   user-select: none;
+  -webkit-user-select: none;
   white-space: nowrap;
+  transition:
+    background var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-fast) var(--ease-standard),
+    color var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-fast) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .bds-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .bds-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-/* Universal press cue — every variant gets the same subtle scale-down
-   on click. Tactile feedback at low cost; ignored for disabled buttons
-   so a click on a disabled control doesn't lie about being received. */
+/* The same press cue on every variant; never on a disabled button, so a
+   click on one doesn't look received. */
 .bds-btn:not(:disabled):active { transform: scale(0.97); }
 
-.bds-btn-primary {
-  background: var(--accent);
-  color: var(--accent-on);
-}
-.bds-btn-primary:hover:not(:disabled) { opacity: 0.9; }
+.bds-btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.bds-btn-icon { display: inline-flex; flex: none; }
+.bds-btn-icon > svg { width: var(--bds-btn-icon); height: var(--bds-btn-icon); }
 
-.bds-btn-secondary {
-  background: var(--surface);
-  border-color: var(--border);
-  color: var(--fg-2);
-}
-.bds-btn-secondary:hover:not(:disabled) { border-color: var(--fg-3); color: var(--fg); }
+/* Variants. */
+.bds-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-on); }
+.bds-btn-secondary { background: var(--surface-raised); border-color: var(--border); color: var(--fg); }
+.bds-btn-ghost { background: transparent; color: var(--fg-2); }
+.bds-btn-danger { background: var(--danger); border-color: var(--danger); color: var(--on-danger); }
+.bds-btn-success { background: var(--success); border-color: var(--success); color: var(--on-success); font-weight: 700; }
 
-.bds-btn-ghost {
-  background: transparent;
-  color: var(--fg-3);
-  padding: var(--space-1) var(--space-3);
+@media (hover: hover) {
+  .bds-btn-primary:hover:not(:disabled) { opacity: 0.9; }
+  .bds-btn-secondary:hover:not(:disabled) { background: var(--surface-hover); border-color: var(--fg-3); }
+  .bds-btn-ghost:hover:not(:disabled) { background: var(--surface-hover); color: var(--fg); }
+  .bds-btn-danger:hover:not(:disabled) { background: color-mix(in oklab, var(--danger), white 8%); }
+  .bds-btn-success:hover:not(:disabled) { background: color-mix(in oklab, var(--success), white 10%); }
 }
-.bds-btn-ghost:hover:not(:disabled) { color: var(--fg); background: var(--surface-hover); }
+
+/* Tones colour the label / icon of a neutral button. */
+.bds-btn-tone-success { color: var(--success); }
+.bds-btn-tone-danger { color: var(--danger-fg); }
+.bds-btn-tone-accent { color: var(--accent); }
+@media (hover: hover) {
+  .bds-btn-ghost.bds-btn-tone-success:hover:not(:disabled) { color: var(--success); }
+  .bds-btn-ghost.bds-btn-tone-danger:hover:not(:disabled) { color: var(--danger-fg); }
+  .bds-btn-ghost.bds-btn-tone-accent:hover:not(:disabled) { color: var(--accent); }
+}
+
+/* A toggle that's on (muted, camera on): the accent, quietly. */
+.bds-btn-pressed {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+@media (hover: hover) {
+  .bds-btn-pressed:hover:not(:disabled) { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+}
+
+/* Sizes — applied after the variants so they win. */
+.bds-btn-size-sm { --bds-btn-h: var(--control-sm); --bds-btn-icon: 14px; padding: 0 var(--space-3); font-size: var(--text-xs); gap: 6px; }
+.bds-btn-size-lg { --bds-btn-h: var(--control-lg); --bds-btn-icon: 18px; padding: 0 var(--space-4); font-size: var(--text-base); }
+.bds-btn-size-xl { --bds-btn-h: var(--control-xl); --bds-btn-icon: 28px; padding: 0 var(--space-6); font-size: var(--text-lg); border-radius: var(--radius-lg); }
+
+/* Icon-only: as wide as it is tall. */
+.bds-btn-icon-only { width: var(--bds-btn-h); padding: 0; }
+.bds-btn-round { border-radius: 50%; }
 
 .bds-btn-fullwidth { width: 100%; }
 
-/* Size override — applied LAST so it wins over the variant-specific padding
-   bumps (.bds-btn-primary, .bds-btn-secondary, .bds-btn-ghost). Use 'sm'
-   for inline contexts: card footers, list-row actions, modal toolbars. */
-.bds-btn-size-sm {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
+/* "Press me" (Accept on a ringing call): a halo in the button's colour. */
+@keyframes bds-btn-attention {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--bds-btn-attention), transparent 40%); }
+  70% { box-shadow: 0 0 0 10px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
+.bds-btn-danger { --bds-btn-attention: var(--danger); }
+.bds-btn-primary { --bds-btn-attention: var(--accent); }
+.bds-btn-attention { animation: bds-btn-attention 1.2s ease-out infinite; }
+.bds-btn-size-xl.bds-btn-attention { animation-name: bds-btn-attention-lg; }
+@keyframes bds-btn-attention-lg {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--bds-btn-attention), transparent 40%); }
+  70% { box-shadow: 0 0 0 18px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.bds-btn-attention:focus-visible { animation: none; box-shadow: var(--focus-ring); }
 
 .bds-btn-spinner {
   width: 12px;
   height: 12px;
   border: 2px solid currentColor;
   border-right-color: transparent;
+  /* A spinner turns: the one non-dot circle. */
   border-radius: 50%;
   display: inline-block;
+  flex: none;
   animation: bds-btn-spin 700ms linear infinite;
 }
 
 @keyframes bds-btn-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .bds-btn:not(:disabled):active { transform: none; }
+  /* Static: a steady ring says the same without the movement. */
+  .bds-btn-attention,
+  .bds-btn-size-xl.bds-btn-attention {
+    animation: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--bds-btn-attention), transparent 65%);
+  }
+}

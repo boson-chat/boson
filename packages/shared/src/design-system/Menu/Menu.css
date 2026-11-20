@@ -1,0 +1,61 @@
+/* Menus (popover) and their items; a Sheet's actions are the same items, 44px tall. */
+@keyframes bds-menu-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.bds-menu {
+  z-index: 200;
+  min-width: 180px;
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-menu);
+  transform-origin: top center;
+  animation: bds-menu-in var(--motion-base) var(--ease-out) both;
+}
+.bds-menu-label {
+  margin-bottom: var(--space-1);
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  border-bottom: 1px solid var(--border-soft);
+  font: 400 var(--text-xs) var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg);
+  font: 400 var(--text-sm) var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-instant) var(--ease-standard);
+}
+.bds-menu-item-lg { min-height: var(--control-lg); padding: 0 var(--space-2); font-size: 13px; }
+.bds-menu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+@media (hover: hover) { .bds-menu-item:hover:not(:disabled) { background: var(--surface-hover); } }
+.bds-menu-item:active:not(:disabled) { background: var(--surface-hover); }
+.bds-menu-item:focus-visible { outline: none; background: var(--surface-hover); box-shadow: var(--focus-ring); }
+.bds-menu-item-danger { color: var(--danger-fg); }
+@media (hover: hover) { .bds-menu-item-danger:hover:not(:disabled) { background: color-mix(in oklab, var(--danger), transparent 88%); } }
+.bds-menu-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bds-menu-icon { flex: none; display: inline-flex; color: var(--fg-2); }
+.bds-menu-icon > svg { width: 16px; height: 16px; }
+.bds-menu-icon-success { color: var(--success); }
+.bds-menu-icon-accent { color: var(--accent); }
+.bds-menu-check { flex: none; display: inline-block; width: 1.2em; color: var(--accent); }
+.bds-menu-sep { height: 1px; margin: var(--space-1) 0; background: var(--border-soft); }

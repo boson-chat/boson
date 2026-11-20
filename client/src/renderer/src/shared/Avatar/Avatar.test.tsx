@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { render } from '@testing-library/preact';
+import { act, render } from '@testing-library/preact';
+import { setAvatar } from '../../modules/chat/avatar-cache';
 import { Avatar } from './Avatar';
 
 describe('Avatar', () => {
@@ -23,5 +24,31 @@ describe('Avatar', () => {
   it('strips a status sigil for the initial', () => {
     const { container } = render(<Avatar nick="@bob" size={24} />);
     expect((container.querySelector('.bds-avatar') as HTMLElement).textContent).toBe('B');
+  });
+
+  it('without a url, finds the picture itself and updates when the cache fills', () => {
+    const { container } = render(<Avatar nick="kestrel" size={36} />);
+    expect(container.querySelector('img')).toBeNull();
+    act(() => setAvatar('srv-1', 'Kestrel', 'https://cdn.boson.chat/avatars/k.png'));
+    expect(container.querySelector('.bds-avatar-has-image')).not.toBeNull();
+    act(() => setAvatar('srv-1', 'Kestrel', null));
+  });
+
+  it('prefers the account picture, and the given server', () => {
+    setAvatar('srv-a', 'mira', 'https://x/a.png');
+    setAvatar('srv-b', 'mira', 'https://x/b.png');
+    const one = render(<Avatar nick="mira" serverId="srv-b" />);
+    expect(one.container.querySelector('img')!.getAttribute('src')).toBe('https://x/b.png');
+    const two = render(<Avatar nick="mira" accountUrl="https://x/acct.png" />);
+    expect(two.container.querySelector('img')!.getAttribute('src')).toBe('https://x/acct.png');
+    setAvatar('srv-a', 'mira', null);
+    setAvatar('srv-b', 'mira', null);
+  });
+
+  it('a url prop, even undefined, is the answer: no lookup', () => {
+    setAvatar('srv-a', 'juno', 'https://x/j.png');
+    const { container } = render(<Avatar nick="juno" url={undefined} />);
+    expect(container.querySelector('img')).toBeNull();
+    setAvatar('srv-a', 'juno', null);
   });
 });
