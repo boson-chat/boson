@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
 import { Phone, Video, X } from 'lucide-preact';
-import { Button, Toggle } from '@boson/shared';
+import { Button, EmptyState, Input, ListRow, PageHeader, Tabs, Toggle } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { useFriends, type Friend } from '../../modules/friends';
 import './FriendsView.css';
@@ -24,10 +24,12 @@ export function FriendsView({ layout }: Props) {
   if (!friends || !snap.available) {
     return (
       <main class={`friends friends-${layout}`}>
-        <p class="friends-empty friends-signin">Sign in to your Boson account to add friends and call them.</p>
+        <EmptyState>Sign in to your Boson account to add friends and call them.</EmptyState>
       </main>
     );
   }
+  const size = phone ? 'lg' : 'md';
+  const avatar = phone ? 40 : 36;
   const pending = [...snap.incoming.map((f) => ({ f, incoming: true })), ...snap.outgoing.map((f) => ({ f, incoming: false }))];
   const send = async (e: Event): Promise<void> => {
     e.preventDefault();
@@ -44,29 +46,25 @@ export function FriendsView({ layout }: Props) {
     { id: 'blocked', label: phone ? 'BLOCKED' : `BLOCKED · ${snap.blocked.length}` },
   ];
   const tabList = (
-    <div class="friends-tabs" role="tablist" aria-label="Friends">
-      {tabs.map((t) => (
-        <button key={t.id} type="button" role="tab" aria-selected={tab === t.id}
-          class={`friends-tab${tab === t.id ? ' friends-tab-on' : ''}`} onClick={() => setTab(t.id)}>
-          {t.label}
-        </button>
-      ))}
+    <div class="friends-tabs">
+      <Tabs tabs={tabs} active={tab} onChange={(id) => setTab(id as Tab)} label="Friends" />
     </div>
   );
   const add = (
     <form class="friends-add" onSubmit={send}>
       <label for={`friends-add-${layout}`} class="friends-sr">Add a friend by handle</label>
-      <input
-        id={`friends-add-${layout}`}
-        class="friends-add-input"
-        placeholder="Add a friend by handle"
-        autocomplete="off"
-        autocapitalize="off"
-        spellcheck={false}
-        value={handle}
-        onInput={(e) => setHandle((e.target as HTMLInputElement).value)}
-      />
-      <Button type="submit" variant="primary" size="sm" loading={sending}>
+      <span class="friends-add-field">
+        <Input
+          id={`friends-add-${layout}`}
+          placeholder="Add a friend by handle"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck={false}
+          value={handle}
+          onInput={(e) => setHandle((e.target as HTMLInputElement).value)}
+        />
+      </span>
+      <Button type="submit" variant="primary" size={phone ? 'lg' : 'sm'} loading={sending}>
         {phone ? 'Add' : 'Send request'}
       </Button>
     </form>
@@ -76,19 +74,14 @@ export function FriendsView({ layout }: Props) {
       {phone ? (
         <>{add}{tabList}</>
       ) : (
-        <header class="friends-head">
-          <h1 class="friends-title">Friends</h1>
-          {tabList}
-          <div class="friends-head-fill" />
-          {add}
-        </header>
+        <PageHeader title="Friends" actions={add} class="friends-head">{tabList}</PageHeader>
       )}
       <div class="friends-list" role="tabpanel">
         {tab === 'all' && (
           <>
             {snap.friends.map((f) => <FriendRow key={f.userId} f={f} phone={phone} />)}
             {snap.loaded && snap.friends.length === 0 && (
-              <p class="friends-empty">No friends yet. Add someone by their handle, or {phone ? 'tap' : 'right-click'} a name in Members.</p>
+              <EmptyState>No friends yet. Add someone by their handle, or {phone ? 'tap' : 'right-click'} a name in Members.</EmptyState>
             )}
             {snap.friends.length > 0 && (
               <p class="friends-note">“Can call me anytime” lets that friend through even when you're on Do not disturb or calls are set to Nobody. Off, they can call you when your settings allow it (by default, friends can). To stop someone calling, remove or block them.</p>
@@ -98,47 +91,46 @@ export function FriendsView({ layout }: Props) {
         {tab === 'pending' && (
           <>
             {pending.map(({ f, incoming }) => (
-              <div key={f.userId} class="friends-row">
-                <Avatar nick={f.username} accountUrl={f.avatarUrl} size={phone ? 40 : 36} class="friends-av" />
-                <div class="friends-who">
-                  <span class="friends-name">{f.username}</span>
-                  <span class="friends-sub">{incoming ? 'wants to be your friend' : phone ? 'request sent' : 'request sent, waiting'}</span>
-                </div>
-                {incoming ? (
+              <ListRow
+                key={f.userId}
+                size={size}
+                leading={<Avatar nick={f.username} accountUrl={f.avatarUrl} size={avatar} />}
+                title={f.username}
+                subtitle={incoming ? 'wants to be your friend' : phone ? 'request sent' : 'request sent, waiting'}
+                trailing={incoming ? (
                   phone ? (
-                    <div class="friends-actions">
-                      <button type="button" class="friends-ib friends-ib-danger" aria-label={`Decline ${f.username}`} onClick={() => { void friends.deleteRequest(f); }}>
-                        <X size={18} aria-hidden="true" />
-                      </button>
-                      <button type="button" class="friends-btn friends-btn-ok" onClick={() => { void friends.acceptRequest(f); }}>Accept</button>
-                    </div>
+                    <>
+                      <Button variant="secondary" tone="danger" size="lg" icon={<X />} aria-label={`Decline ${f.username}`}
+                        onClick={() => { void friends.deleteRequest(f); }} />
+                      <Button variant="success" size="lg" onClick={() => { void friends.acceptRequest(f); }}>Accept</Button>
+                    </>
                   ) : (
-                    <div class="friends-actions">
-                      <button type="button" class="friends-btn friends-btn-ok" onClick={() => { void friends.acceptRequest(f); }}>Accept</button>
-                      <button type="button" class="friends-btn" onClick={() => { void friends.deleteRequest(f); }}>Decline</button>
-                    </div>
+                    <>
+                      <Button variant="success" onClick={() => { void friends.acceptRequest(f); }}>Accept</Button>
+                      <Button variant="secondary" onClick={() => { void friends.deleteRequest(f); }}>Decline</Button>
+                    </>
                   )
                 ) : (
-                  <button type="button" class="friends-btn" onClick={() => { void friends.deleteRequest(f); }}>Cancel</button>
+                  <Button variant="secondary" size={size} onClick={() => { void friends.deleteRequest(f); }}>Cancel</Button>
                 )}
-              </div>
+              />
             ))}
-            {pending.length === 0 && <p class="friends-empty">No pending requests.</p>}
+            {pending.length === 0 && <EmptyState>No pending requests.</EmptyState>}
           </>
         )}
         {tab === 'blocked' && (
           <>
             {snap.blocked.map((f) => (
-              <div key={f.userId} class="friends-row">
-                <Avatar nick={f.username} accountUrl={f.avatarUrl} size={phone ? 40 : 36} class="friends-av friends-av-dim" />
-                <div class="friends-who">
-                  <span class="friends-name">{f.username}</span>
-                  {!phone && <span class="friends-sub friends-sub-dim">Can't call you or send you friend requests. They aren't told.</span>}
-                </div>
-                <button type="button" class="friends-btn" onClick={() => { void friends.unblock(f); }}>Unblock</button>
-              </div>
+              <ListRow
+                key={f.userId}
+                size={size}
+                leading={<Avatar nick={f.username} accountUrl={f.avatarUrl} size={avatar} dim />}
+                title={f.username}
+                subtitle={phone ? undefined : "Can't call you or send you friend requests. They aren't told."}
+                trailing={<Button variant="secondary" size={size} onClick={() => { void friends.unblock(f); }}>Unblock</Button>}
+              />
             ))}
-            {snap.blocked.length === 0 && <p class="friends-empty">Nobody blocked.</p>}
+            {snap.blocked.length === 0 && <EmptyState>Nobody blocked.</EmptyState>}
           </>
         )}
       </div>
@@ -149,54 +141,48 @@ export function FriendsView({ layout }: Props) {
 function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
   const { friends } = useFriends();
   if (!friends) return null;
+  const size = phone ? 'lg' : 'md';
   const sw = (
     <Toggle checked={f.canCallAnytime} onChange={(on) => { void friends.setAnytime(f, on); }}
       label={phone ? undefined : 'Can call me anytime'} ariaLabel={`${f.username} can call me anytime`} />
   );
   const calls = (
     <>
-      <button type="button" class="friends-ib friends-ib-ok" aria-label={`Call ${f.username}`} onClick={() => { void friends.call(f.username, false); }}>
-        <Phone size={phone ? 18 : 16} aria-hidden="true" />
-      </button>
-      <button type="button" class="friends-ib friends-ib-ok" aria-label={`Video call ${f.username}`} onClick={() => { void friends.call(f.username, true); }}>
-        <Video size={phone ? 18 : 16} aria-hidden="true" />
-      </button>
+      <Button variant="secondary" tone="success" size={size} icon={<Phone />} aria-label={`Call ${f.username}`}
+        onClick={() => { void friends.call(f.username, false); }} />
+      <Button variant="secondary" tone="success" size={size} icon={<Video />} aria-label={`Video call ${f.username}`}
+        onClick={() => { void friends.call(f.username, true); }} />
     </>
   );
   const sub = f.displayName && f.displayName !== f.username ? f.displayName : 'Friend';
+  const avatar = <Avatar nick={f.username} accountUrl={f.avatarUrl} size={phone ? 40 : 36} />;
   if (phone) {
     return (
-      <div class="friends-row friends-row-phone">
-        <div class="friends-row-top">
-          <Avatar nick={f.username} accountUrl={f.avatarUrl} size={40} class="friends-av" />
-          <div class="friends-who">
-            <span class="friends-name">{f.username}</span>
-            <span class="friends-sub">{sub}</span>
-          </div>
-          {calls}
-        </div>
+      <ListRow size="lg" leading={avatar} title={f.username} subtitle={sub} trailing={calls}>
         <div class="friends-row-anytime">
           <span class="friends-anytime-label" aria-hidden="true">Can call me anytime</span>
           {sw}
         </div>
         <div class="friends-row-remove">
-          <button type="button" class="friends-btn friends-btn-ghost friends-remove" aria-label={`Remove ${f.username} from friends`}
-            onClick={() => { void friends.removeFriend(f); }}>Remove friend</button>
+          <Button variant="ghost" tone="danger" size="lg" class="friends-remove" aria-label={`Remove ${f.username} from friends`}
+            onClick={() => { void friends.removeFriend(f); }}>Remove friend</Button>
         </div>
-      </div>
+      </ListRow>
     );
   }
   return (
-    <div class="friends-row">
-      <Avatar nick={f.username} accountUrl={f.avatarUrl} size={36} class="friends-av" />
-      <div class="friends-who">
-        <span class="friends-name">{f.username}</span>
-        <span class="friends-sub">{sub}</span>
-      </div>
-      <span class="friends-anytime">{sw}</span>
-      {calls}
-      <button type="button" class="friends-btn friends-btn-ghost" aria-label={`Remove ${f.username} from friends`}
-        onClick={() => { void friends.removeFriend(f); }}>Remove</button>
-    </div>
+    <ListRow
+      leading={avatar}
+      title={f.username}
+      subtitle={sub}
+      trailing={(
+        <>
+          <span class="friends-anytime">{sw}</span>
+          {calls}
+          <Button variant="ghost" aria-label={`Remove ${f.username} from friends`}
+            onClick={() => { void friends.removeFriend(f); }}>Remove</Button>
+        </>
+      )}
+    />
   );
 }

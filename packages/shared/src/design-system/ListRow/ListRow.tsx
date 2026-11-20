@@ -59,11 +59,14 @@ export function ListRow({
     </>
   );
   const Tag = as;
+  // A selected nav entry is the current page: said on the body button when
+  // there is one (that's what a screen reader lands on), else on the row.
+  const current = variant === 'nav' && selected ? 'page' : undefined;
   return (
-    <Tag {...(rowProps as unknown as JSX.HTMLAttributes<HTMLDivElement> & JSX.HTMLAttributes<HTMLLIElement>)} class={cls} aria-current={variant === 'nav' && selected ? 'page' : undefined}>
+    <Tag {...(rowProps as unknown as JSX.HTMLAttributes<HTMLDivElement> & JSX.HTMLAttributes<HTMLLIElement>)} class={cls} aria-current={onClick ? undefined : current}>
       <span class="bds-row-line">
         {onClick
-          ? <button type="button" class="bds-row-main" aria-label={ariaLabel} onClick={onClick}>{body}</button>
+          ? <button type="button" class="bds-row-main" aria-label={ariaLabel} aria-current={current} onClick={onClick}>{body}</button>
           : <span class="bds-row-main">{body}</span>}
         {trailing != null && <span class="bds-row-trail">{trailing}</span>}
       </span>

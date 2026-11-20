@@ -15,38 +15,16 @@
   background: transparent;
   cursor: pointer;
 }
-.my-tile .my-tile-av { border-radius: var(--radius-sm); }
 @media (hover: hover) {
   .my-tile:hover { border-color: var(--fg-3); }
 }
 .my-tile-active { border: 2px solid var(--accent); background: var(--accent-dim); }
 .my-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); }
 .my-tile:not(.my-tile-active):active { transform: scale(0.95); }
-.my-tile-dot {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--success);
-  box-shadow: 0 0 0 3px var(--pane-servers-bg, var(--surface));
-}
-.my-tile-dot[data-presence='dnd'] { background: var(--danger); }
-.my-tile-dot[data-presence='offline'] { background: var(--fg-3); }
-.my-tile-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: var(--accent-on);
-  font: 700 10px/18px var(--font-mono);
-  text-align: center;
-}
+/* Presence on the avatar's corner, the count on the tile's: rings in the rail's colour. */
+.my-tile { --dot-ring: var(--pane-servers-bg, var(--surface)); --count-ring: var(--pane-servers-bg, var(--surface)); }
+.my-tile-dot { position: absolute; right: -3px; bottom: -3px; }
+.my-tile-badge { position: absolute; top: -6px; right: -6px; }
 
 .rail-divider {
   flex: none;
@@ -56,13 +34,10 @@
   gap: 4px;
   margin: 4px 0 2px;
 }
-.rail-divider-bar { width: 32px; height: 2px; border-radius: 1px; background: var(--border); }
+.rail-divider-bar { width: 32px; height: 2px; background: var(--border); }
 .rail-divider-label { font: 500 8px var(--font-mono); letter-spacing: .12em; color: var(--muted); }
 
-/* The sidebar. */
-.my-sidebar-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); flex: none; }
-.my-sidebar-dot[data-presence='dnd'] { background: var(--danger); }
-.my-sidebar-dot[data-presence='offline'] { background: var(--fg-3); }
+/* The sidebar: Friends and Calls, then the direct messages (nav rows). */
 .my-list { display: flex; flex-direction: column; }
 .my-top {
   display: flex;
@@ -72,58 +47,15 @@
   margin-bottom: var(--space-1);
   border-bottom: 1px solid var(--border-soft);
 }
-.my-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 32px;
-  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-4);
-  border: 0;
-  border-left: 2px solid transparent;
-  background: transparent;
-  color: var(--fg-3);
-  font: 400 var(--text-sm) var(--font-mono);
-  text-align: left;
-  cursor: pointer;
-}
-.my-top .my-row { min-height: 38px; color: var(--fg); }
-@media (hover: hover) {
-  .my-row:hover { background: var(--surface-hover); color: var(--fg-2); }
-  .my-top .my-row:hover { color: var(--fg); }
-}
-.my-row:focus-visible { outline: none; box-shadow: inset var(--focus-ring); }
-.my-row-on { color: var(--fg); background: var(--surface-raised); border-left-color: var(--accent); font-weight: 600; }
-.my-row-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.my-dm-unread { color: var(--fg); font-weight: 600; }
-.my-dm-server { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--muted); }
-.my-count {
-  flex: none;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--accent);
-  color: var(--accent-on);
-  font: 700 10px/18px var(--font-mono);
-  text-align: center;
-}
-.my-count-missed { background: var(--danger); color: #fff; }
+.my-top .my-row { min-height: 38px; }
+/* The row's line fills a taller row (phones), so all of it is the button. */
+.my-row > .bds-row-line { flex: 1; }
+/* No count after it: keep the server name off the sidebar's edge. */
+.my-row .bds-row-main:last-child { padding-right: var(--space-3); }
 .my-empty { padding: var(--space-1) var(--space-4); }
 
 /* The Calls page. */
 .calls-view { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--bg); }
-.calls-view-head {
-  height: 64px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 0 22px;
-  border-bottom: 1px solid var(--border);
-}
-.calls-view-title { margin: 0; font: 700 20px var(--font-mono); color: var(--fg); }
-.calls-view-sub { font: 400 12px var(--font-mono); color: var(--fg-2); }
 .calls-view-body { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 22px 24px; display: flex; flex-direction: column; gap: 6px; max-width: 760px; }
 .calls-view-phone .calls-view-body { padding: 6px 0 24px; max-width: none; }
 .calls-sec {
@@ -137,52 +69,10 @@
   color: var(--fg-3);
 }
 .calls-view-phone .calls-sec { padding: 0 18px; }
-.calls-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 58px;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.calls-view-phone .calls-row { padding: 8px 16px; }
-.calls-live-dot { width: 36px; text-align: center; color: var(--success); font-family: var(--font-mono); flex: none; }
-.calls-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.calls-name { font: 700 13px var(--font-mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.calls-name-live { color: var(--success); }
-.calls-sub { font-size: var(--text-sm); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.calls-btn {
-  flex: none;
-  min-height: 32px;
-  padding: 0 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--fg);
-  font: 600 12px var(--font-mono);
-  cursor: pointer;
-}
-.calls-btn-live { border-color: color-mix(in oklab, var(--success), transparent 50%); color: var(--success); }
-@media (hover: hover) { .calls-btn-live:hover { background: color-mix(in oklab, var(--success), transparent 88%); } }
-.calls-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.calls-view-phone .calls-btn { min-height: 44px; }
-.calls-empty { margin: 0; padding: 6px 4px 10px; font-size: 13px; color: var(--fg-3); }
-.calls-view-phone .calls-empty { padding: 6px 18px 10px; }
-.calls-view .missed-row { min-height: 52px; padding: 8px 4px; border-bottom: 1px solid var(--border-soft); border-radius: 0; }
-.calls-view-phone .missed-row { padding: 8px 16px; }
-.calls-view-phone .missed-call { width: 44px; height: 44px; border-radius: var(--radius-lg); }
-.calls-privacy {
-  align-self: flex-start;
-  margin-top: var(--space-3);
-  padding: var(--space-2) 4px;
-  border: 0;
-  background: transparent;
-  color: var(--fg-2);
-  font: 500 12px var(--font-mono);
-  text-align: left;
-  cursor: pointer;
-}
-.calls-view-phone .calls-privacy { margin: var(--space-3) 18px 0; min-height: 44px; }
-@media (hover: hover) { .calls-privacy:hover { color: var(--fg); } }
-.calls-privacy:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* The live dot takes an avatar's width, so names line up with missed calls'. */
+.calls-live-lead { width: 28px; display: inline-flex; justify-content: center; }
+.calls-privacy { align-self: flex-start; margin-top: var(--space-3); }
+.calls-view-phone .calls-privacy { margin: var(--space-3) 2px 0; }
+/* The link wraps on a narrow screen rather than cutting off. */
+.calls-privacy.bds-btn { height: auto; min-height: var(--bds-btn-h); padding-top: var(--space-1); padding-bottom: var(--space-1); white-space: normal; text-align: left; line-height: 1.4; }
 .calls-view-desktop .incoming-calls { max-width: 360px; padding: 12px 4px 4px; }

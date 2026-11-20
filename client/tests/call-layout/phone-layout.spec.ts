@@ -63,7 +63,7 @@ for (const [w, h, phone] of PHONES) {
 
     // MY: Friends and Calls above the direct messages; each full screen.
     await page.getByRole('button', { name: /^You: friends, calls and messages/ }).click();
-    const rows = page.locator('.my-sidebar .my-row');
+    const rows = page.locator('.my-sidebar .my-row').getByRole('button');
     await expect(rows.nth(0)).toHaveAccessibleName('Friends, 1 request');
     await expect(rows.nth(1)).toHaveAccessibleName('Calls, 1 missed');
     await fits(page);
@@ -74,7 +74,7 @@ for (const [w, h, phone] of PHONES) {
     await fits(page);
     await page.screenshot({ path: test.info().outputPath(`friends-${phone}.png`) });
     await page.getByRole('button', { name: 'Back to MY' }).click();
-    await page.locator('.my-sidebar .my-row').nth(1).click();
+    await page.locator('.my-sidebar .my-row').getByRole('button').nth(1).click();
     await expect(page.getByRole('main', { name: 'Calls' })).toBeVisible();
     await fits(page);
     await page.getByRole('button', { name: 'Back to MY' }).click();

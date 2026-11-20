@@ -1,3 +1,5 @@
+/* Friends: layout only; the header, tabs, rows, buttons and the field are
+   the design system's. */
 .friends {
   flex: 1;
   min-width: 0;
@@ -9,126 +11,30 @@
 }
 .friends-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* Desktop header: title, tabs, then the add field on the right. */
-.friends-head {
-  height: 64px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: 0 22px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.friends-title { margin: 0; font: 700 20px var(--font-display); letter-spacing: var(--tracking-display); }
-.friends-head-fill { flex: 1; }
-.friends-tabs { display: flex; align-self: flex-end; }
-.friends-tab {
-  height: 40px;
-  padding: 0 14px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: var(--fg-3);
-  font: 500 var(--text-sm) var(--font-mono);
-  letter-spacing: .08em;
-  cursor: pointer;
-  transition: color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
-}
-.friends-tab:hover { color: var(--fg-2); }
-.friends-tab-on, .friends-tab-on:hover { color: var(--fg); border-bottom-color: var(--accent); }
-.friends-tab:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+/* Desktop header: title, tabs on its bottom edge, the add field on the right. */
+.friends-head .friends-tabs { align-self: flex-end; margin-bottom: -1px; }
+.friends-head .bds-tab { flex: none; height: 40px; padding: 0 14px; }
 
 .friends-add { display: flex; align-items: center; gap: var(--space-2); }
-.friends-add-input {
-  width: 240px;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--fg);
-  font: 13px var(--font-mono);
-}
-.friends-add-input::placeholder { color: var(--fg-3); }
-.friends-add-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--focus-ring); }
+.friends-add-field { display: flex; width: 240px; }
+.friends-add-field .bds-input { height: var(--control-md); padding-top: 0; padding-bottom: 0; }
 
 .friends-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-3) 22px; display: flex; flex-direction: column; }
-.friends-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: var(--space-3) 6px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.friends-av { flex: none; }
-.friends-av-dim { opacity: .5; }
-.friends-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.friends-name { font: 700 14px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.friends-sub { font-size: var(--text-sm); color: var(--fg-2); }
-.friends-sub-dim { color: var(--fg-3); }
-.friends-anytime { display: flex; align-items: center; font-size: var(--text-sm); color: var(--fg-2); }
+.friends-anytime { display: flex; align-items: center; margin-right: var(--space-2); }
 .friends-anytime .bds-toggle { flex-direction: row-reverse; gap: 10px; }
-.friends-anytime .bds-toggle-label { font-size: var(--text-sm); color: var(--fg-2); }
-.friends-actions { display: flex; gap: var(--space-2); }
 
-.friends-ib {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  padding: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  color: var(--fg);
-  cursor: pointer;
-}
-.friends-ib:hover { background: var(--surface-hover); }
-.friends-ib-ok { color: var(--success); }
-.friends-ib-danger { color: color-mix(in oklab, var(--danger), white 25%); }
-.friends-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 34px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
-  color: var(--fg);
-  font: 600 var(--text-sm) var(--font-mono);
-  cursor: pointer;
-}
-.friends-btn:hover { background: var(--surface-hover); }
-.friends-btn-ok { border-color: var(--success); background: var(--success); color: var(--bg); font-weight: 700; }
-.friends-btn-ok:hover { background: color-mix(in oklab, var(--success), white 10%); }
-.friends-btn-ghost { border-color: transparent; background: transparent; color: var(--fg-2); }
-.friends-ib:focus-visible, .friends-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-
-.friends-phone .friends-note { margin: var(--space-4); }
 .friends-note { margin: var(--space-4) 6px 0; font-size: var(--text-sm); line-height: 1.5; color: var(--fg-3); }
-.friends-empty { margin: var(--space-4) 6px; font-size: 13px; line-height: 1.5; color: var(--fg-3); }
-.friends-signin { margin: var(--space-10) auto; max-width: 420px; text-align: center; }
 
 /* Phone: add field on top, full-width tabs, bigger rows. */
 .friends-phone .friends-add { padding: var(--space-3) var(--space-3) 0; }
-.friends-phone .friends-add-input { flex: 1; min-width: 0; width: auto; height: 44px; padding: 0 var(--space-3); border-radius: var(--radius-lg); font-size: 15px; }
-.friends-phone .friends-add .bds-btn { height: 44px; }
-.friends-phone .friends-tabs { align-self: stretch; margin-top: var(--space-2); border-bottom: 1px solid var(--border-soft); }
-.friends-phone .friends-tab { flex: 1; height: 44px; padding: 0; font-weight: 600; letter-spacing: .06em; }
+.friends-phone .friends-add-field { flex: 1; min-width: 0; width: auto; }
+.friends-phone .friends-add-field .bds-input { height: var(--control-lg); }
+.friends-phone .friends-tabs { margin-top: var(--space-2); }
+.friends-phone .bds-tab { min-height: var(--control-lg); }
 .friends-phone .friends-list { padding: 0; }
-.friends-phone .friends-row { padding: var(--space-3) 14px; gap: var(--space-3); }
-.friends-phone .friends-ib { width: 44px; height: 44px; border-radius: var(--radius-lg); }
-.friends-phone .friends-btn { height: 44px; border-radius: var(--radius-lg); font-size: 14px; }
-.friends-phone .friends-name { font-size: 15px; }
-.friends-phone .friends-empty { margin: 18px var(--space-4); font-size: 14px; }
-.friends-row-phone { flex-direction: column; align-items: stretch; gap: 10px; }
-.friends-row-top { display: flex; align-items: center; gap: var(--space-3); }
-.friends-row-anytime { display: flex; align-items: center; gap: var(--space-3); padding-left: 52px; }
+.friends-phone .friends-note { margin: var(--space-4); }
+.friends-row-anytime { display: flex; align-items: center; gap: var(--space-3); padding-left: 52px; margin-top: 10px; }
 .friends-anytime-label { flex: 1; font-size: 13px; color: var(--fg-2); }
-.friends-phone .friends-add .bds-btn { padding: 0 var(--space-4); font-size: 14px; }
-/* Phones: Remove friend, under the switch. */
-.friends-row-remove { display: flex; padding-left: 52px; margin: -10px 0 -8px; }
-.friends-phone .friends-remove { height: 44px; padding: 0; font: 500 13px var(--font-mono); color: color-mix(in oklab, var(--danger), white 25%); }
+/* Phones: Remove friend, under the switch, its text in line with the name. */
+.friends-row-remove { display: flex; padding-left: 52px; margin-bottom: -8px; }
+.friends-row-remove .friends-remove { margin-left: calc(-1 * var(--space-4)); }

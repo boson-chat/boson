@@ -28,6 +28,11 @@ describe('ListRow', () => {
     expect(li.className).toContain('bds-row-nav');
     expect(li.getAttribute('aria-current')).toBe('page');
   });
+  it('a clickable selected nav entry marks its button current, not the row', () => {
+    const { container } = render(<ListRow variant="nav" selected title="Calls" onClick={() => {}} ariaLabel="Calls" />);
+    expect(screen.getByRole('button', { name: 'Calls' }).getAttribute('aria-current')).toBe('page');
+    expect(container.querySelector('.bds-row')!.hasAttribute('aria-current')).toBe(false);
+  });
   it('title tone and size classes', () => {
     const { container } = render(<ListRow title="x" titleTone="danger" size="lg" unread />);
     expect(container.querySelector('.bds-row-title-danger')).toBeTruthy();

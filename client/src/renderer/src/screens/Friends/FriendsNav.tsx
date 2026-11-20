@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { ArrowLeft } from 'lucide-preact';
+import { PageHeader } from '@boson/shared';
 import './FriendsNav.css';
 
 interface PageProps {
@@ -16,15 +17,7 @@ interface PageProps {
 export function PhonePage({ title, sub, onBack, backLabel = 'Back', children }: PageProps) {
   return (
     <section class="phone-page" aria-label={title}>
-      <header class="phone-page-head">
-        <button type="button" class="phone-page-back" onClick={onBack} aria-label={backLabel}>
-          <ArrowLeft size={22} aria-hidden="true" />
-        </button>
-        <span class="phone-page-titles">
-          <h1 class="phone-page-title">{title}</h1>
-          {sub && <span class="phone-page-sub">{sub}</span>}
-        </span>
-      </header>
+      <PageHeader layout="phone" title={title} sub={sub} onBack={onBack} backLabel={backLabel} backIcon={<ArrowLeft />} />
       <div class="phone-page-body">{children}</div>
     </section>
   );
