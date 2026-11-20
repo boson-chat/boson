@@ -45,6 +45,10 @@ public final class BosonVoice {
     private static final String TAG = "BosonVoice";
     static final int MIC_PERMISSION_REQUEST = 7020;
     static final int CAMERA_PERMISSION_REQUEST = 7021;
+    static final int NOTIFY_PERMISSION_REQUEST = 7022;
+    /** The extra on the activity intent a tapped notification opens. */
+    static final String NOTIFY_EXTRA = "boson.notification";
+    private static final String NOTIFY_CHANNEL = "boson_messages";
     private static final String PREFS = "boson_voice";
 
     private static volatile Activity activity;
@@ -123,9 +127,79 @@ public final class BosonVoice {
         return permGranted ? 1 : 0;
     }
 
+    // ---- notifications (desktop/notify_android.go) ----
+
+    /**
+     * POST_NOTIFICATIONS (Android 13+; before that, whether they're on):
+     * answers like micPermission.
+     */
+    public static int notifyPermission(int request) {
+        Context c = app;
+        if (c == null) return 0;
+        if (Build.VERSION.SDK_INT < 33) {
+            return androidx.core.app.NotificationManagerCompat.from(c).areNotificationsEnabled() ? 1 : 0;
+        }
+        return permission("android.permission.POST_NOTIFICATIONS", "notify_asked", NOTIFY_PERMISSION_REQUEST, request);
+    }
+
+    /**
+     * Shows a notification now. head: "id\ntitle\nsilent" (silent 1/0);
+     * the same id replaces an earlier one. Tapping it opens the app with
+     * the id (MainActivity → "notification:click").
+     */
+    public static void notify(String head, String body) {
+        final Context c = app;
+        if (c == null) return;
+        String[] h = head.split("\n", 3);
+        final String id = h.length > 0 ? h[0] : "";
+        final String title = h.length > 1 ? h[1] : "";
+        final boolean silent = h.length > 2 && "1".equals(h[2]);
+        main.post(() -> {
+            try {
+                android.app.NotificationManager nm = (android.app.NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm == null) return;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(NOTIFY_CHANNEL) == null) {
+                    android.app.NotificationChannel ch = new android.app.NotificationChannel(
+                            NOTIFY_CHANNEL, "Messages and calls", android.app.NotificationManager.IMPORTANCE_HIGH);
+                    ch.setDescription("Mentions, direct messages, friend requests and missed calls");
+                    nm.createNotificationChannel(ch);
+                }
+                Intent open = new Intent(c, MainActivity.class)
+                        .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        .putExtra(NOTIFY_EXTRA, id);
+                android.app.PendingIntent pi = android.app.PendingIntent.getActivity(c, id.hashCode(), open,
+                        android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+                androidx.core.app.NotificationCompat.Builder b = new androidx.core.app.NotificationCompat.Builder(c, NOTIFY_CHANNEL)
+                        .setSmallIcon(android.R.drawable.stat_notify_chat)
+                        .setContentTitle(title)
+                        .setContentText(body)
+                        .setStyle(new androidx.core.app.NotificationCompat.BigTextStyle().bigText(body))
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                        .setCategory(androidx.core.app.NotificationCompat.CATEGORY_MESSAGE)
+                        .setContentIntent(pi)
+                        .setAutoCancel(true)
+                        .setSilent(silent);
+                nm.notify(id, 1, b.build());
+            } catch (Exception e) {
+                Log.w(TAG, "notification failed", e);
+            }
+        });
+    }
+
+    /** Removes a notification shown with notify (by its id). */
+    public static void cancelNotify(String id, String unused) {
+        final Context c = app;
+        if (c == null) return;
+        main.post(() -> {
+            android.app.NotificationManager nm = (android.app.NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(id, 1);
+        });
+    }
+
     /** MainActivity.onRequestPermissionsResult; true when it was ours. */
     public static boolean onPermissionResult(int requestCode, int[] grantResults) {
-        if (requestCode != MIC_PERMISSION_REQUEST && requestCode != CAMERA_PERMISSION_REQUEST) return false;
+        if (requestCode != MIC_PERMISSION_REQUEST && requestCode != CAMERA_PERMISSION_REQUEST
+                && requestCode != NOTIFY_PERMISSION_REQUEST) return false;
         synchronized (permLock) {
             if (requestCode != permCode) return true;
             permGranted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;

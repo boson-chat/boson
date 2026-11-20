@@ -229,6 +229,8 @@ export class FriendsController {
     // No longer ringing here (answered on another device, cancelled, missed).
     if (c.state !== 'ringing' && this.snap.ringing.some((r) => r.id === c.id)) {
       this.set({ ringing: this.snap.ringing.filter((r) => r.id !== c.id) });
+      // Not answered or declined anywhere: a missed call.
+      if (c.state === 'missed' || c.state === 'ended') this.ringMissed(c);
     }
     const out = this.snap.calling;
     if (out?.call?.id === c.id && out.status === 'calling') {
@@ -470,6 +472,17 @@ export class FriendsController {
     }
   }
 
+  // A call that rang here stopped without being answered or declined (it
+  // timed out, or the caller gave up): the in-app missed-call toast.
+  private missedListeners = new Set<(c: CallInfo) => void>();
+  onRingMissed(fn: (c: CallInfo) => void): () => void {
+    this.missedListeners.add(fn);
+    return () => { this.missedListeners.delete(fn); };
+  }
+  private ringMissed(c: CallInfo): void {
+    for (const fn of this.missedListeners) { try { fn(c); } catch { /* isolate */ } }
+  }
+
   async decline(id: string): Promise<void> {
     const c = this.snap.ringing.find((r) => r.id === id);
     this.set({ ringing: this.snap.ringing.filter((r) => r.id !== id) });
@@ -553,7 +566,9 @@ export class FriendsController {
     this.ringTimer = setTimeout(() => {
       const now = Date.now();
       const left = this.snap.ringing.filter((c) => c.expiresAt + 3_000 > now);
+      const gone = this.snap.ringing.filter((c) => !left.includes(c));
       if (left.length !== this.snap.ringing.length) this.set({ ringing: left });
+      for (const c of gone) this.ringMissed(c);
       this.armRingTimer();
     }, Math.max(1_000, next - Date.now() + 3_000));
   }

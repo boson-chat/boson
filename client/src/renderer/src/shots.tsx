@@ -17,8 +17,16 @@ import { HttpClient } from './shared/http/http.client';
 import { DirectoryScreen } from './screens/DirectoryScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { UserSettings } from './screens/UserSettings/UserSettings';
-import { Inbox } from './screens/Inbox/Inbox';
+import { NotificationsPanel, useUnreadNotes } from './screens/Notifications/NotificationsPanel';
+import { Toasts } from './screens/Notifications/Toasts';
+import { getNotificationFeed } from './modules/notifications/feed';
+import { startNotificationBridge } from './modules/notifications/bridge';
+import { joinVoice, openCalls, openFriends } from './screens/Notifications/navigate';
+import { getNotifier } from './modules/ui/notifier';
+import { getMemoStore } from './modules/memos';
+import { useNarrow } from './shared/narrow';
 import type { Memo } from './modules/memos';
+import type preact from 'preact';
 import { ServerSettings } from './screens/ChatLayout/ServerSettings';
 import { getThemeStore, NetworkThemes, setNetworkThemes, getNetworkThemes } from './modules/ui/theme';
 import { FilesController, setFiles } from './modules/files/files.service';
@@ -692,15 +700,14 @@ function chatView(): void {
   };
   const layout = <Layout />;
   // &frame=1: inside the app frame, under the title bar (the phone's top bar).
-  const framed = q0.get('frame') === '1'
-    ? (
-      <div class="app-frame">
-        <TitleBar userLabel={NICK} userMode="account" onOpenSettings={() => {}} onOpenInbox={() => {}} inboxUnreadCount={2} />
-        <div class="app-frame-body">{layout}</div>
-      </div>
-    )
-    : layout;
-  const withCalls = <>{framed}{friendsMode && <CallOverlays />}</>;
+  const framed = q0.get('frame') === '1' ? <ShotFrame>{layout}</ShotFrame> : layout;
+  const withCalls = <>{framed}{friendsMode && <CallOverlays />}{q0.get('frame') === '1' && <Toasts />}</>;
+  // Mentions and DMs elsewhere raise toasts (and the bell lists them).
+  chat.setNotifier((ev) => getNotifier().notify(ev));
+  startNotificationBridge({
+    scope: () => [{ host: 'irc.nebula.example', serverId: 's1', serverName: 'Nebula', channels: ['#dev'] }],
+    open: { friends: openFriends, calls: openCalls, voice: joinVoice },
+  });
   render(
     voiceMode || filesMode || brandMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{withCalls}</AuthProvider> : withCalls,
     document.getElementById('app')!,
@@ -739,6 +746,29 @@ function chatView(): void {
     session.emit({ Kind: 'PRIVMSG', From: 'kestrel', Target: NICK, Message: 'the relay test passed', Tags: { time: min(4) }, Raw: '' });
   }
   chat.setActive(CHAN);
+  // &notify=mention,dm,friend,accepted,missed,started,ring: those arrive
+  // (after the page settles), as toasts and in the bell.
+  const notify = (q0.get('notify') ?? '').split(',').filter(Boolean);
+  if (notify.length) {
+    setTimeout(() => {
+      const f = (globalThis as unknown as { __friends?: { api: FakeFriendsApi; ctl: FriendsController } }).__friends;
+      for (const n of notify) {
+        if (n === 'mention') {
+          session.emit({ Kind: 'JOIN', From: NICK, Target: '#ops', Message: '', Raw: '' });
+          session.emit({ Kind: 'PRIVMSG', From: 'kestrel', Target: '#ops', Message: `${NICK}: the relay test passed, want to look?`, Tags: { time: min(0) }, Raw: '' });
+          chat.setActive(CHAN);
+        }
+        if (n === 'dm') session.emit({ Kind: 'PRIVMSG', From: 'mox', Target: NICK, Message: 'are you around for a call in 10?', Tags: { time: min(0) }, Raw: '' });
+        if (n === 'friend') f?.api.requestFrom('juno');
+        if (n === 'accepted') f?.api.acceptedBy('pixel');
+        if (n === 'missed' && f) { const c = f.api.ring('kestrel', true); setTimeout(() => f.api.missRing(c.id), 200); }
+        if (n === 'ring') f?.api.ring('kestrel', true);
+        if (n === 'started') {
+          getNotificationFeed().toast({ kind: 'started', title: 'Call started', where: 'General · Nebula', body: 'nova, kestrel and pixel are in General', nick: 'nova', room: { host: 'irc.nebula.example', roomId: 'general', name: 'General', serverName: 'Nebula' } });
+        }
+      }
+    }, 900);
+  }
   // Expose the emitter so the screenshot driver can inject extra events (e.g.
   // finalize an empty ban list when the Channel Settings modal is open).
   (window as W & { __emit?: (e: IrcEvent) => void }).__emit = (e) => session.emit(e);
@@ -749,6 +779,22 @@ function chatView(): void {
   };
   setTimeout(pin, 400);
   setTimeout(pin, 1200);
+}
+
+// The app frame for &frame=1: the title bar (bell, avatar) above the layout,
+// the bell's list, and the memos it holds (?memos=1).
+function ShotFrame({ children }: { children: preact.ComponentChildren }) {
+  const [open, setOpen] = useState(q0.get('bell') === '1');
+  const unread = useUnreadNotes();
+  const narrow = useNarrow();
+  return (
+    <div class="app-frame">
+      <TitleBar userLabel={NICK} userMode="account" onOpenSettings={() => {}}
+        onOpenNotifications={() => setOpen((o) => !o)} notificationsCount={unread} notificationsOpen={open} />
+      <div class="app-frame-body">{children}</div>
+      {open && <NotificationsPanel layout={narrow || q0.get('platform') ? 'phone' : 'desktop'} onClose={() => setOpen(false)} onOpenSettings={() => {}} />}
+    </div>
+  );
 }
 
 // ---- Mock backend API (HttpClient routes through window.bosonApi) ----
@@ -966,7 +1012,8 @@ const MEMOS: Memo[] = [
     timestamp: Date.now() - 3 * 3600_000, memoIndex: 2, bodyFetched: true } as Memo,
 ];
 function inboxView(): void {
-  render(<Inbox open memos={MEMOS} onClose={() => {}} />, app());
+  for (const m of MEMOS) getMemoStore().append({ ...m });
+  render(<NotificationsPanel layout="desktop" onClose={() => {}} />, app());
 }
 
 function servicesView(): void {

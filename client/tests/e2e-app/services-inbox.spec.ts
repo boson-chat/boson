@@ -1,4 +1,5 @@
-// The cross-server Inbox (title bar): MemoServ memos, DMs and mentions.
+// The notifications bell (title bar), which took over the cross-server
+// Inbox: MemoServ memos, DMs and mentions (with friend and call events).
 //
 // Ergo has no MemoServ (and refuses *Serv nicks), so the memo flow runs
 // against MemoNet (helpers/services.ts): a minimal in-process IRC server whose
@@ -13,12 +14,12 @@ import { IrcPeer } from './irc-peer';
 import { MemoNet, guestOnErgo, openServerSettings, servicesBadge } from './helpers/services';
 
 function inboxButton(page: Page) {
-  return page.locator('button.title-bar-inbox');
+  return page.locator('button.title-bar-bell');
 }
 
 async function openInbox(page: Page) {
   await inboxButton(page).click();
-  const dialog = page.getByRole('dialog', { name: 'Inbox' });
+  const dialog = page.getByRole('dialog', { name: 'Notifications' });
   await expect(dialog).toBeVisible();
   return dialog;
 }
@@ -35,37 +36,43 @@ test('MemoServ memos: listed on login, body fetched on open, dismissed, deleted 
     const serverName = `MemoNet ${uid(4)}`;
     await guestOnErgo(page, nick, { host: memoNet.host, port: memoNet.port, name: serverName });
     await memoNet.waitForClient(nick);
-    await expect(inboxButton(page)).toHaveAccessibleName('Inbox');
+    await expect(inboxButton(page)).toHaveAccessibleName('Notifications');
 
     // Login-time "You have 1 new memo." → the app LISTs (it doesn't READ).
     memoNet.announce(nick);
     await memoNet.waitForCommand(/^LIST$/);
-    await expect(inboxButton(page)).toHaveAccessibleName('Inbox (1 unread)');
+    await expect(inboxButton(page)).toHaveAccessibleName('Notifications, 1 unread');
     expect(memoNet.memoCommands).toEqual(['LIST']);
 
     const inbox = await openInbox(page);
-    // Opening marks everything read locally (badge clears) — not on the server.
-    await expect(inboxButton(page)).toHaveAccessibleName('Inbox');
-    const rows = inbox.locator('li.inbox-row');
+    const rows = inbox.locator('li.notes-item');
     await expect(rows).toHaveCount(2);
     const alice = rows.filter({ hasText: 'alice' });
-    await expect(alice.locator('.inbox-row-kind')).toHaveText('memo');
-    await expect(alice.locator('.inbox-row-time')).toHaveText('Oct 10 12:00:00 2026 UTC');
+    await expect(alice.locator('.notes-row-title')).toHaveText('Memo from alice');
+    await expect(alice.locator('.notes-time')).toHaveText('Oct 10 12:00:00 2026 UTC');
     await expect(alice.getByText('Click to read →')).toBeVisible();
+    // Unread first, with a dot.
+    await expect(rows.first()).toContainText('alice');
+    await expect(alice.locator('.notes-dot')).toBeVisible();
     // Attributed to the server's display name (guests get it via the chat
     // service's server scope, not only the 005 NETWORK= name).
-    await expect(alice.locator('.inbox-row-server')).toHaveText(serverName);
+    await expect(alice.locator('.notes-row-where')).toHaveText(serverName);
     expect(memoNet.memoCommands).toEqual(['LIST']);
 
     // Opening the memo fetches its body in place: READ 1.
-    await expect(alice.locator('button.inbox-row-open')).toHaveAttribute('title', 'Read memo from alice');
-    await alice.locator('button.inbox-row-open').click();
+    const openAlice = alice.locator('button.notes-open');
+    await expect(openAlice).toHaveAccessibleName(/Read memo$/);
+    await openAlice.click();
     await memoNet.waitForCommand(/^READ 1$/);
-    await expect(alice.locator('.inbox-row-text')).toHaveText(body1);
+    await expect(alice.locator('.notes-row-body')).toHaveText(body1);
     await expect(alice.getByText('Click to read →')).toBeHidden();
 
-    // Dismiss is local only.
-    await alice.getByRole('button', { name: 'Dismiss' }).click();
+    // Mark all read clears the badge (locally, not on the server).
+    await inbox.getByRole('button', { name: 'Mark all read' }).click();
+    await expect(inboxButton(page)).toHaveAccessibleName('Notifications');
+
+    // Removing one is local only.
+    await alice.getByRole('button', { name: 'Remove Memo from alice' }).click();
     await expect(rows).toHaveCount(1);
     expect(memoNet.memoCommands.filter((c) => c.startsWith('DEL'))).toEqual([]);
     await page.keyboard.press('Escape');
@@ -104,26 +111,29 @@ test('DMs and mentions land in the Inbox and open their conversation', async ({ 
     peer.privmsg(nick, dm);
     const mention = `hey ${nick}, look ${uid()}`;
     peer.privmsg(channel, mention);
-    await expect(inboxButton(page)).toHaveAccessibleName('Inbox (2 unread)');
+    // The mention is in the channel on screen: listed, but already read.
+    // The DM arrived while you were in the channel: unread, and a toast.
+    await expect(inboxButton(page)).toHaveAccessibleName('Notifications, 1 unread');
+    await expect(page.locator('.ntoast').filter({ hasText: dm })).toBeVisible();
 
-    // Messages tab: the DM.
+    // Messages: the DM.
     let inbox = await openInbox(page);
-    const messagesTab = inbox.getByRole('tab', { name: /Messages/ });
-    const mentionsTab = inbox.getByRole('tab', { name: /Mentions/ });
-    await expect(messagesTab).toHaveAttribute('aria-selected', 'true');
-    const dmRow = inbox.locator('li.inbox-row').filter({ hasText: dm });
-    await expect(dmRow.locator('.inbox-row-kind')).toHaveText('DM');
-    await expect(dmRow.locator('.inbox-row-sender')).toHaveText(peer.nick);
-
-    // Mentions tab: the channel line, with its channel.
-    await mentionsTab.click();
-    const mRow = inbox.locator('li.inbox-row').filter({ hasText: mention });
-    await expect(mRow.locator('.inbox-row-channel')).toHaveText(channel);
-
-    // Open the DM from the Inbox → the 1:1 conversation.
+    const messagesTab = inbox.getByRole('tab', { name: /^Messages/ });
+    const mentionsTab = inbox.getByRole('tab', { name: /^Mentions/ });
+    await expect(inbox.getByRole('tab', { name: /^All/ })).toHaveAttribute('aria-selected', 'true');
     await messagesTab.click();
-    const openDm = dmRow.locator('button.inbox-row-open');
-    await expect(openDm).toHaveAttribute('title', `Open chat with ${peer.nick}`);
+    const dmRow = inbox.locator('li.notes-item').filter({ hasText: dm });
+    await expect(dmRow.locator('.notes-row-where')).toContainText('direct message');
+    await expect(dmRow.locator('.notes-row-title')).toHaveText(peer.nick);
+
+    // Mentions: the channel line, with its channel.
+    await mentionsTab.click();
+    const mRow = inbox.locator('li.notes-item').filter({ hasText: mention });
+    await expect(mRow.locator('.notes-row-where')).toContainText(channel);
+
+    // Open the DM from the list → the 1:1 conversation.
+    await messagesTab.click();
+    const openDm = dmRow.locator('button.notes-open');
     await openDm.click();
     await expect(inbox).toBeHidden();
     await expect(page.getByPlaceholder(`Message @${peer.nick}`)).toBeVisible();
@@ -131,19 +141,20 @@ test('DMs and mentions land in the Inbox and open their conversation', async ({ 
 
     // Open the mention → back in the channel.
     inbox = await openInbox(page);
-    await inbox.getByRole('tab', { name: /Mentions/ }).click();
-    const openMention = inbox.locator('li.inbox-row').filter({ hasText: mention }).locator('button.inbox-row-open');
-    await expect(openMention).toHaveAttribute('title', `Go to ${channel}`);
+    await inbox.getByRole('tab', { name: /^Mentions/ }).click();
+    const openMention = inbox.locator('li.notes-item').filter({ hasText: mention }).locator('button.notes-open');
     await openMention.click();
     await expect(composer(page, channel)).toBeVisible();
+    // Both opened: read.
+    await expect(inboxButton(page)).toHaveAccessibleName('Notifications');
 
-    // Clear empties the active tab only.
+    // Clear empties the active filter only.
     inbox = await openInbox(page);
-    await inbox.getByRole('tab', { name: /Mentions/ }).click();
+    await inbox.getByRole('tab', { name: /^Mentions/ }).click();
     await inbox.getByRole('button', { name: 'Clear' }).click();
-    await expect(inbox.getByText('No mentions yet')).toBeVisible();
-    await inbox.getByRole('tab', { name: /Messages/ }).click();
-    await expect(inbox.locator('li.inbox-row').filter({ hasText: dm })).toBeVisible();
+    await expect(inbox.getByText(/^No mentions/)).toBeVisible();
+    await inbox.getByRole('tab', { name: /^Messages/ }).click();
+    await expect(inbox.locator('li.notes-item').filter({ hasText: dm })).toBeVisible();
   } finally {
     await peer.quit();
   }

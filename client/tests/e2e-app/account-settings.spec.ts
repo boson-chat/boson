@@ -232,20 +232,30 @@ test('content and notification preferences persist across a relaunch', async ({ 
   await expect(box(dialog, 'Images')).toBeEnabled();
 
   await dialog.getByRole('tab', { name: /^Notifications/ }).click();
-  await expect(box(dialog, 'Enable desktop notifications')).toBeChecked();
-  await flip(dialog, 'Every channel message (noisy)');
-  await flip(dialog, 'Play notification sound');
-  const soundBefore = await box(dialog, 'Play notification sound').isChecked();
-  const allBefore = await box(dialog, 'Every channel message (noisy)').isChecked();
-  await flip(dialog, 'Enable desktop notifications');
+  // (The notification switches are named by their label beside them.)
+  const toggle = async (d: Locator, label: string) => { await box(d, label).dispatchEvent('click'); };
+  await expect(box(dialog, 'System notifications')).toBeChecked();
+  await expect(box(dialog, 'In-app toasts')).toBeChecked();
+  await toggle(dialog, 'Every channel message');
+  await toggle(dialog, 'Sound');
+  const soundBefore = await box(dialog, 'Sound').isChecked();
+  const allBefore = await box(dialog, 'Every channel message').isChecked();
+  await toggle(dialog, 'System notifications');
+  await expect(box(dialog, 'Direct messages')).toBeEnabled();
+  // With toasts off too, there's nothing left to pick.
+  await toggle(dialog, 'In-app toasts');
   await expect(box(dialog, 'Direct messages')).toBeDisabled();
+  await toggle(dialog, 'In-app toasts');
+  // Incoming calls: a banner on desktop unless set.
+  await expect(dialog.getByRole('radio', { name: 'Banner' })).toHaveAttribute('aria-checked', 'true');
+  await dialog.getByRole('radio', { name: 'Full screen' }).click();
 
   const stored = await first.page.evaluate(() => ({
     embeds: JSON.parse(localStorage.getItem('boson:embeds:v1') ?? 'null'),
     notifications: JSON.parse(localStorage.getItem('boson:notifications:v1') ?? 'null'),
   }));
   expect(stored.embeds).toMatchObject({ enabled: true, loadMode: 'click', youtube: false, images: true });
-  expect(stored.notifications).toMatchObject({ enabled: false, allMessages: allBefore, sound: soundBefore });
+  expect(stored.notifications).toMatchObject({ enabled: false, inApp: true, allMessages: allBefore, sound: soundBefore, incomingCalls: 'full' });
   await first.app.close();
 
   // Relaunch (signed-in session restores) → the same values are shown.
@@ -256,9 +266,10 @@ test('content and notification preferences persist across a relaunch', async ({ 
   await expect(box(dialog, 'YouTube')).not.toBeChecked();
   await expect(box(dialog, 'Spotify')).toBeChecked();
   await dialog.getByRole('tab', { name: /^Notifications/ }).click();
-  await expect(box(dialog, 'Enable desktop notifications')).not.toBeChecked();
-  await expect(box(dialog, 'Play notification sound')).toBeChecked({ checked: soundBefore });
-  await expect(box(dialog, 'Every channel message (noisy)')).toBeChecked({ checked: allBefore });
+  await expect(box(dialog, 'System notifications')).not.toBeChecked();
+  await expect(box(dialog, 'Sound')).toBeChecked({ checked: soundBefore });
+  await expect(box(dialog, 'Every channel message')).toBeChecked({ checked: allBefore });
+  await expect(dialog.getByRole('radio', { name: 'Full screen' })).toHaveAttribute('aria-checked', 'true');
 });
 
 test('appearance and about: theme picker, version, update check and the source link', async ({ launchApp }) => {

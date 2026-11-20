@@ -7,6 +7,8 @@ import { FakeFriendsApi } from '../../modules/friends/friends.fake';
 import { PersonMenu } from './PersonMenu';
 import { FriendsView } from './FriendsView';
 import { CallOverlays } from './CallOverlays';
+import { Toasts } from '../Notifications/Toasts';
+import { setNotificationSettings, __resetNotificationSettingsCache } from '../../modules/ui/notifications.store';
 import { PrivacyCalls } from './PrivacyCalls';
 import { PhonePage } from './FriendsNav';
 import { CallsView, MyRailTile, MySidebar } from './MySpace';
@@ -51,6 +53,8 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  localStorage.clear();
+  __resetNotificationSettingsCache();
   setFriendsController(null);
   setVoiceController(null);
   setFriendsUi({ host: null });
@@ -129,22 +133,25 @@ describe('FriendsView', () => {
 });
 
 describe('CallOverlays', () => {
-  it('rings with Decline, Voice only and Accept; Voice only answers without camera', async () => {
+  it('full screen: rings with Decline, Voice only and Accept; Voice only answers without camera', async () => {
+    setNotificationSettings({ incomingCalls: 'full' });
     render(<CallOverlays />);
     act(() => { api.ring('kestrel', true); });
     const card = await screen.findByRole('alertdialog', { name: 'kestrel is calling' });
     expect(card.textContent).toContain('is calling you · video');
-    fireEvent.click(screen.getByRole('button', { name: 'Voice only' }));
+    expect(card.closest('.fcall-backdrop')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept with voice only' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
     await waitFor(() => expect(voice.getSnapshot().call.room).toMatch(/^call:/));
   });
 
-  it('a voice call has no Voice only; Decline', async () => {
-    render(<CallOverlays />);
+  it('banner (desktop default): a voice call has no Voice only; Decline', async () => {
+    render(<><CallOverlays /><Toasts /></>);
     act(() => { api.ring('kestrel', false); });
-    await screen.findByRole('alertdialog');
-    expect(screen.queryByRole('button', { name: 'Voice only' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Decline' }));
+    const card = await screen.findByRole('alertdialog', { name: 'kestrel is calling' });
+    expect(card.classList.contains('ntoast-ring')).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Accept with voice only' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Decline call' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull());
   });
 

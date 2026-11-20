@@ -14,7 +14,6 @@ import (
 
 	"github.com/boson-chat/boson/desktop/internal/selfupdate"
 	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
@@ -123,8 +122,7 @@ func main() {
 			f.Close()
 		}
 	}
-	native := notifications.New()
-	notify := NewNotifyService(native)
+	notify := NewNotifyService(newPlatformNotifier())
 	// One running app: a second launch (a boson:// click on Windows/Linux)
 	// hands its args over and exits. Its args are untrusted input — parsed
 	// strictly by the renderer (deep-link.ts). Off for e2e runs,

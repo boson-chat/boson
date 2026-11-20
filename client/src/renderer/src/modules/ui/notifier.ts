@@ -14,9 +14,13 @@
 // Clicking a banner focuses the window and switches to the originating
 // server + channel.
 import {
+  getChannelLevel,
   getNotificationSettings,
+  type ChannelLevel,
   type NotificationSettings,
 } from './notifications.store';
+import { getNotificationFeed } from '../notifications/feed';
+import { chime } from '../notifications/chime';
 import { getWindowBridge, type WindowAttention } from '../../shared/window-controls';
 
 export type NotifyKind = 'mention' | 'dm' | 'message';
@@ -34,13 +38,28 @@ export interface NotifyEvent {
 }
 
 // Pure decision: should this event raise an OS notification right now?
-export function shouldNotify(ev: NotifyEvent, s: NotificationSettings, att: WindowAttention): boolean {
+// Whether this kind of message is wanted at all: the type switches and the
+// conversation's own level (All / Mentions / Nothing).
+function wanted(ev: NotifyEvent, s: NotificationSettings, level: ChannelLevel): boolean {
+  if (level === 'nothing') return false;
+  if (ev.kind === 'dm') return s.directMessages;
+  if (ev.kind === 'mention') return s.mentions;
+  return s.allMessages || level === 'all';
+}
+
+// A system notification (OS banner): only while Boson isn't focused.
+export function shouldNotify(ev: NotifyEvent, s: NotificationSettings, att: WindowAttention, level: ChannelLevel = 'mentions'): boolean {
   if (!s.enabled) return false;
   if (att.focused) return false; // you're looking — the badge is enough
   if (ev.open && att.visible) return false; // it's on screen in front of you
-  if (ev.kind === 'dm') return s.directMessages;
-  if (ev.kind === 'mention') return s.mentions;
-  return s.allMessages;
+  return wanted(ev, s, level);
+}
+
+// An in-app toast: for anything somewhere you're not looking.
+export function shouldToast(ev: NotifyEvent, s: NotificationSettings, level: ChannelLevel = 'mentions'): boolean {
+  if (!s.inApp) return false;
+  if (ev.open) return false; // the conversation you're looking at
+  return wanted(ev, s, level);
 }
 
 // Strip IRC formatting / control codes (bold, color, etc.) and collapse runs of
@@ -53,6 +72,14 @@ function clean(s: string, n: number): string {
 // The same line arriving over two connections (the same network added twice,
 // or direct + via a bouncer) raises one banner, not two.
 const DUPLICATE_WINDOW_MS = 10_000;
+
+// Whether the active conversation is on screen right now (ChatLayout: not
+// while MY's Friends page or a phone's channel list covers it). A message
+// there gets no toast only while it shows.
+let conversationShown: () => boolean = () => true;
+export function setConversationShown(fn: (() => boolean) | null): void {
+  conversationShown = fn ?? (() => true);
+}
 
 export class Notifier {
   // DOM view of the window; `native` replaces it when the shell reports one.
@@ -119,10 +146,31 @@ export class Notifier {
 
   notify(ev: NotifyEvent): void {
     const settings = getNotificationSettings();
-    if (!shouldNotify(ev, settings, this.attention())) return;
+    const level = getChannelLevel(ev.serverId, ev.channel);
+    const att = this.attention();
+    // The same line over two connections (a bouncer and a direct link)
+    // shows once, as a toast and as a banner each.
+    const toast = shouldToast(ev.open && !conversationShown() ? { ...ev, open: false } : ev, settings, level) && !this.isDuplicate(ev, 'toast');
+    const os = shouldNotify(ev, settings, att, level) && !this.isDuplicate(ev, 'os');
+    if (toast) {
+      getNotificationFeed().toast({
+        kind: ev.kind,
+        title: ev.from,
+        where: ev.kind === 'dm' ? `direct message${ev.serverName ? ` · ${ev.serverName}` : ''}` : `${ev.channel}${ev.serverName ? ` · ${ev.serverName}` : ''}`,
+        body: clean(ev.text, 180),
+        nick: ev.from,
+        serverId: ev.serverId,
+        channel: ev.channel,
+      });
+      // The OS plays its own sound with a banner.
+      if (settings.sound && !os) chime();
+    }
+    if (os) this.showSystem(ev, settings);
+  }
+
+  private showSystem(ev: NotifyEvent, settings: NotificationSettings): void {
     if (typeof Notification === 'undefined') return;
     if (Notification.permission !== 'granted') return;
-    if (this.isDuplicate(ev)) return;
 
     const where = ev.kind === 'dm' ? ev.from : `${ev.from} · ${ev.channel}`;
     const title = ev.serverName ? `${where} · ${ev.serverName}` : where;
@@ -139,10 +187,30 @@ export class Notifier {
     } catch { /* OS refused / no display */ }
   }
 
-  private isDuplicate(ev: NotifyEvent): boolean {
+  /**
+   * A system notification for something that isn't a message (a friend
+   * request, a missed call): only while Boson isn't focused, as for
+   * messages. Returns whether one was shown.
+   */
+  notifyOther(n: { title: string; body: string; tag: string; onClick?: () => void }): boolean {
+    const settings = getNotificationSettings();
+    if (!settings.enabled || this.attention().focused) return false;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false;
+    try {
+      const sys = new Notification(n.title, { body: clean(n.body, 180), tag: n.tag, silent: !settings.sound });
+      sys.onclick = (): void => {
+        void getWindowBridge()?.show?.();
+        n.onClick?.();
+        sys.close();
+      };
+      return true;
+    } catch { return false; }
+  }
+
+  private isDuplicate(ev: NotifyEvent, what: 'toast' | 'os'): boolean {
     const now = Date.now();
     for (const [k, at] of this.recent) if (now - at > DUPLICATE_WINDOW_MS) this.recent.delete(k);
-    const key = [ev.kind, ev.from.toLowerCase(), ev.channel.toLowerCase(), ev.text].join('\0');
+    const key = [what, ev.kind, ev.from.toLowerCase(), ev.channel.toLowerCase(), ev.text].join('\0');
     if (this.recent.has(key)) return true;
     this.recent.set(key, now);
     return false;

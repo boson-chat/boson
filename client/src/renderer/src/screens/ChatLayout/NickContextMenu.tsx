@@ -7,6 +7,8 @@ export interface NickContextAction {
   label: string;
   /** True ⇒ render with the danger colour (used for destructive ops). */
   danger?: boolean;
+  /** One of a set of choices (Notifications: All / Mentions / Nothing): shown ticked when true. */
+  checked?: boolean;
   onClick: () => void;
 }
 
@@ -78,10 +80,12 @@ export function NickContextMenu({ x, y, onClose, title, actions, account }: Nick
         <button
           key={a.label}
           type="button"
-          role="menuitem"
+          role={a.checked === undefined ? 'menuitem' : 'menuitemradio'}
+          aria-checked={a.checked}
           class={`nick-context-menu-item ${a.danger ? 'nick-context-menu-item-danger' : ''}`}
           onClick={() => { a.onClick(); onClose(); }}
         >
+          {a.checked !== undefined && <span class="menu-check" aria-hidden="true">{a.checked ? '✓' : ''}</span>}
           {a.label}
         </button>
       ))}

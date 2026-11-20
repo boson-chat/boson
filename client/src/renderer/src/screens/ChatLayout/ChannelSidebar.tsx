@@ -11,6 +11,7 @@ import {
 } from './ChannelSidebarBloc';
 import { useChannelReorder, type ReorderSection } from './channel-reorder';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
+import { getChannelLevel, setChannelLevel, type ChannelLevel } from '../../modules/ui/notifications.store';
 import { BottomSheet } from './BottomSheet';
 import { isNarrow } from '../../shared/narrow';
 import './ChannelSidebar.css';
@@ -35,6 +36,9 @@ interface ChannelSidebarProps {
   // A section was reordered (drag, Alt+Up/Down, Move up / down): its names,
   // top to bottom. Without it the rows don't reorder.
   onReorderChannels?: (names: string[]) => void;
+  // The server's id: each channel's Notifications (All / Mentions /
+  // Nothing) in its menu are kept per server.
+  serverId?: string | null;
   // "Reset order": back to the default order.
   onResetChannelOrder?: () => void;
   // Server-advertised channel directory (from RPL_LIST). Powers the Join
@@ -74,6 +78,7 @@ export function ChannelSidebar({
   onPart,
   channelOrder,
   onReorderChannels,
+  serverId,
   onResetChannelOrder,
   channelDirectory,
   onOpenSettings,
@@ -145,7 +150,24 @@ export function ChannelSidebar({
     if (i > 0) actions.push({ label: 'Move up', onClick: () => reorder.step(name, section, -1) });
     if (i !== -1 && i < names.length - 1) actions.push({ label: 'Move down', onClick: () => reorder.step(name, section, 1) });
     if (customOrder && onResetChannelOrder) actions.push({ label: 'Reset order', onClick: onResetChannelOrder });
+    if (serverId) {
+      const level = getChannelLevel(serverId, name);
+      const pick = (l: ChannelLevel) => () => setChannelLevel(serverId, name, l);
+      actions.push(
+        { label: 'Notifications: All messages', checked: level === 'all', onClick: pick('all') },
+        { label: 'Notifications: Mentions only', checked: level === 'mentions', onClick: pick('mentions') },
+        { label: 'Notifications: Nothing', checked: level === 'nothing', onClick: pick('nothing') },
+      );
+    }
     return actions;
+  };
+  // Right-click a row (desktop): its menu. Phones get it from the long
+  // press (the reorder sheet), or a plain long press without reordering.
+  const rowMenu_ = (name: string, section: ReorderSection) => (e: MouseEvent): void => {
+    if ((e as PointerEvent).pointerType === 'touch' || isNarrow()) { if (onReorderChannels) e.preventDefault(); return; }
+    if (rowMenuActions(name, section).length === 0) return;
+    e.preventDefault();
+    setRowMenu({ name, section, at: { x: e.clientX, y: e.clientY } });
   };
   const rowReorder = (name: string, section: ReorderSection): RowReorder | undefined => {
     if (!onReorderChannels) return undefined;
@@ -269,6 +291,7 @@ export function ChannelSidebar({
               prefix="#"
               action={channelAction?.(c.name)}
               reorder={rowReorder(c.name, 'channels')}
+              onMenu={rowMenu_(c.name, 'channels')}
             />
             {channelVoice?.(c.name)}
           </Fragment>
@@ -288,6 +311,7 @@ export function ChannelSidebar({
                 onPart={onPart}
                 prefix="[DM]"
                 reorder={rowReorder(c.name, 'dms')}
+                onMenu={rowMenu_(c.name, 'dms')}
               />
             ))}
           </>
@@ -362,6 +386,8 @@ interface ChannelRowProps {
   onPart: (name: string) => void;
   action?: ComponentChildren;
   reorder?: RowReorder;
+  // Right-click: the row's menu.
+  onMenu?: (e: MouseEvent) => void;
 }
 
 // A row's part in reordering: its drag attributes / handlers, whether it's
@@ -395,7 +421,7 @@ const SYNC_TITLE: Record<ChannelSync, string | undefined> = {
   ready: undefined,
 };
 
-function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder }: ChannelRowProps) {
+function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder, onMenu }: ChannelRowProps) {
   const display = channel.name.replace(/^[#&]/, '');
   const sync = channelSync(channel);
   // Unread badge: hidden when active (counters get cleared anyway) or when
@@ -418,7 +444,7 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder
       aria-busy={sync === 'ready' || sync === 'failed' ? undefined : true}
       aria-keyshortcuts={onReorderKey ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
       onClick={() => onSelect(channel.name)}
-      onContextMenu={reorder?.onMenu}
+      onContextMenu={onMenu ?? reorder?.onMenu}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {

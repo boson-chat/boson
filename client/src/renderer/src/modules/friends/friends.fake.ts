@@ -91,6 +91,31 @@ export class FakeFriendsApi implements FriendsApi {
     return c;
   }
 
+  // The caller gives up / it times out: a missed call.
+  missRing(id: string): void {
+    const c = this.calls.get(id);
+    if (!c) return;
+    const missed = { ...c, state: 'missed' as const };
+    this.calls.set(id, missed);
+    this.missedCalls = [missed, ...this.missedCalls];
+    this.push({ type: 'call.update', call: missed });
+    this.push({ type: 'missed', count: this.missedCalls.length });
+  }
+
+  // Someone sends me a friend request; someone accepts mine.
+  requestFrom(username: string): void {
+    const p = this.people.get(username.toLowerCase());
+    if (p) p.rel = 'incoming';
+    else this.people.set(username.toLowerCase(), { username, rel: 'incoming', id: `usr_${username}` });
+    this.push({ type: 'friends' });
+  }
+  acceptedBy(username: string): void {
+    const p = this.people.get(username.toLowerCase());
+    if (!p) return;
+    p.rel = 'friend';
+    this.push({ type: 'friends' });
+  }
+
   async lists(): Promise<FriendLists> {
     const all = [...this.people.values()];
     const f = (k: RelationKind): Friend[] => all.filter((p) => (p.rel ?? 'none') === k)

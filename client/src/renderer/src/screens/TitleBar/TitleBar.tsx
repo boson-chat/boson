@@ -5,7 +5,7 @@ import { getWindowBridge, isDarwin, isMobile } from '../../shared/window-control
 import { useVoice } from '../../modules/voice';
 import { useNarrow } from '../../shared/narrow';
 import { openCall, useCallClock } from '../ChatLayout/call-shared';
-import { MissedCallsPill } from '../Friends/MissedCalls';
+import { Bell } from 'lucide-preact';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -20,11 +20,11 @@ interface TitleBarProps {
   // Signed-in user's profile-image URL; shown as a small avatar before the
   // name. Falls back to the nick-colored initial when absent.
   avatarUrl?: string | null;
-  // Inbox affordance — when wired, renders an envelope icon between the
-  // user label and the gear with a small unread-count badge. Click
-  // fires the parent's open-inbox handler.
-  onOpenInbox?: () => void;
-  inboxUnreadCount?: number;
+  // The notifications bell (mentions, DMs, memos, friends, calls) with
+  // its unread count; `notificationsOpen` while its list shows.
+  onOpenNotifications?: () => void;
+  notificationsCount?: number;
+  notificationsOpen?: boolean;
   // An update is downloaded and ready (its version): a small "Update" pill
   // before the inbox, which fires onOpenUpdate (Settings → About).
   updateReady?: string | null;
@@ -43,7 +43,7 @@ interface TitleBarProps {
 // button overrides to `no-drag` so clicks register.
 
 export function TitleBar({
-  onOpenSettings, userLabel, userMode, avatarUrl, onOpenInbox, inboxUnreadCount = 0,
+  onOpenSettings, userLabel, userMode, avatarUrl, onOpenNotifications, notificationsCount = 0, notificationsOpen = false,
   updateReady, onOpenUpdate,
 }: TitleBarProps = {}) {
   const darwin = isDarwin();
@@ -71,9 +71,8 @@ export function TitleBar({
         <BosonGlyph size={phone ? 20 : 16} class="title-bar-mark" />
         <span class="title-bar-title">Boson</span>
       </div>
-      {(onOpenSettings || onOpenInbox || (updateReady && onOpenUpdate)) && (
+      {(onOpenSettings || onOpenNotifications || (updateReady && onOpenUpdate)) && (
         <div class="title-bar-controls">
-          {!phone && <MissedCallsPill />}
           <CallPill />
           {updateReady && onOpenUpdate && (
             <button
@@ -87,18 +86,20 @@ export function TitleBar({
               <span class="title-bar-update-label">Update</span>
             </button>
           )}
-          {onOpenInbox && (
+          {onOpenNotifications && (
             <button
               type="button"
-              class="title-bar-inbox"
-              aria-label={inboxUnreadCount > 0 ? `Inbox (${inboxUnreadCount} unread)` : 'Inbox'}
-              title={inboxUnreadCount > 0 ? `Inbox — ${inboxUnreadCount} unread` : 'Inbox'}
-              onClick={onOpenInbox}
+              class={`title-bar-inbox title-bar-bell${notificationsOpen ? ' title-bar-bell-on' : ''}`}
+              aria-label={notificationsCount > 0 ? `Notifications, ${notificationsCount} unread` : 'Notifications'}
+              aria-haspopup="dialog"
+              aria-expanded={notificationsOpen}
+              title="Notifications"
+              onClick={onOpenNotifications}
             >
-              <InboxIcon />
-              {inboxUnreadCount > 0 && (
+              <Bell size={phone ? 18 : 13} aria-hidden="true" />
+              {notificationsCount > 0 && (
                 <span class="title-bar-inbox-badge" aria-hidden="true">
-                  {inboxUnreadCount > 99 ? '99+' : inboxUnreadCount}
+                  {notificationsCount > 99 ? '99+' : notificationsCount}
                 </span>
               )}
             </button>
@@ -205,17 +206,6 @@ function GearIcon() {
         stroke-width="1"
         stroke-linecap="square"
       />
-    </svg>
-  );
-}
-
-function InboxIcon() {
-  // Open-envelope glyph. 12×12 to match the gear next to it. Single
-  // stroke, no fill — the badge does the colour work.
-  return (
-    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-      <rect x="1.5" y="2.5" width="9" height="7" fill="none" stroke="currentColor" stroke-width="1" />
-      <path d="M1.5 2.5 L6 6.5 L10.5 2.5" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="miter" />
     </svg>
   );
 }

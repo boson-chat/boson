@@ -251,6 +251,23 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
+    // A tapped notification (BosonVoice.notify) opens the app with its id:
+    // the renderer goes where it points.
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        deliverNotificationTap(intent);
+    }
+
+    private void deliverNotificationTap(@Nullable Intent intent) {
+        if (intent == null || bridge == null) return;
+        String id = intent.getStringExtra(BosonVoice.NOTIFY_EXTRA);
+        if (id == null) return;
+        intent.removeExtra(BosonVoice.NOTIFY_EXTRA);
+        bridge.emitEvent("notification:click", org.json.JSONObject.quote(id));
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);

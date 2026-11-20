@@ -45,6 +45,11 @@ export interface MemoStore {
   // Mark every memo as read. Called from the Inbox UI on open. No-op
   // if nothing was unread.
   markAllRead(): void;
+  // Mark one entry read (opened from the notifications list).
+  markRead(id: string): void;
+  // Mark a conversation's entries read (it's on screen): a DM's from that
+  // nick, a channel's mentions.
+  markConversationRead(serverId: string, conversation: string): void;
   // Wipe the store, or just the given kinds. Called on sign-out (no
   // args → everything) and from the Inbox "Clear" button (the active
   // tab's kinds). No-op if nothing matched.
@@ -170,6 +175,34 @@ export class LocalStorageMemoStore implements MemoStore {
     let changed = false;
     this.memos = this.memos.map((m) => {
       if (m.read) return m;
+      changed = true;
+      return { ...m, read: true };
+    });
+    if (!changed) return;
+    this.save();
+    this.emit();
+  }
+
+  markRead(id: string): void {
+    let changed = false;
+    this.memos = this.memos.map((m) => {
+      if (m.id !== id || m.read) return m;
+      changed = true;
+      return { ...m, read: true };
+    });
+    if (!changed) return;
+    this.save();
+    this.emit();
+  }
+
+  markConversationRead(serverId: string, conversation: string): void {
+    const c = conversation.toLowerCase();
+    const channel = /^[#&]/.test(c);
+    let changed = false;
+    this.memos = this.memos.map((m) => {
+      if (m.read || m.serverId !== serverId) return m;
+      const hit = channel ? m.kind === 'mention' && m.channel?.toLowerCase() === c : m.kind === 'dm' && m.sender.toLowerCase() === c;
+      if (!hit) return m;
       changed = true;
       return { ...m, read: true };
     });
