@@ -1,3 +1,9 @@
+## [0.78.3](https://github.com/boson-chat/boson/compare/v0.78.2...v0.78.3) (2026-11-20)
+
+### Bug Fixes
+
+* keep mobile IRC connections alive on cellular instead of dropping them ([#104](https://github.com/boson-chat/boson/issues/104)) ([68ac65f](https://github.com/boson-chat/boson/commit/68ac65f590241245653083a89fd206a3e0150824))
+
 ## [0.78.2](https://github.com/boson-chat/boson/compare/v0.78.1...v0.78.2) (2026-11-17)
 
 ### Bug Fixes
