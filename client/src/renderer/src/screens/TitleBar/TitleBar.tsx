@@ -48,6 +48,10 @@ export function TitleBar({
 }: TitleBarProps = {}) {
   const darwin = isDarwin();
   const mobile = isMobile();
+  // Phones (and narrow windows): the phone's top bar, the same bar as the
+  // desktop's, taller, with your avatar in place of your name.
+  const narrow = useNarrow();
+  const phone = mobile || narrow;
   const bridge = getWindowBridge();
   const [maximized, setMaximized] = useState(false);
 
@@ -62,14 +66,14 @@ export function TitleBar({
   }, [bridge]);
 
   return (
-    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''} ${mobile ? 'title-bar-mobile' : ''}`}>
+    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''} ${mobile ? 'title-bar-mobile' : ''} ${phone ? 'title-bar-phone' : ''}`}>
       <div class="title-bar-drag">
-        <BosonGlyph size={16} class="title-bar-mark" />
+        <BosonGlyph size={phone ? 20 : 16} class="title-bar-mark" />
         <span class="title-bar-title">Boson</span>
       </div>
       {(onOpenSettings || onOpenInbox || (updateReady && onOpenUpdate)) && (
         <div class="title-bar-controls">
-          {!mobile && <MissedCallsPill />}
+          {!phone && <MissedCallsPill />}
           <CallPill />
           {updateReady && onOpenUpdate && (
             <button
@@ -107,7 +111,9 @@ export function TitleBar({
               title="User settings"
               onClick={onOpenSettings}
             >
-              {userLabel ? (
+              {phone ? (
+                userLabel ? <Avatar nick={userLabel} url={userMode === 'account' ? avatarUrl : null} size={28} class="title-bar-user-avatar" /> : <GearIcon />
+              ) : userLabel ? (
                 <>
                   {userMode === 'account' && (
                     <Avatar nick={userLabel} url={avatarUrl} size={18} class="title-bar-user-avatar" />
@@ -120,7 +126,7 @@ export function TitleBar({
               ) : (
                 <span class="title-bar-user-name">Settings</span>
               )}
-              <GearIcon />
+              {!phone && <GearIcon />}
             </button>
           )}
         </div>

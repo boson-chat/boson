@@ -1,30 +1,18 @@
 // The phone layout (the mobile project: an iPhone's viewport, with touch).
-// Below 700px the chat fills the screen, Discord style: the server rail with
-// the channel list and the member list are drawers under it, revealed by
-// swiping the chat aside (or from the chat header); dialogs are full-screen
-// sheets. The e2e app runs in Chromium, so this checks the responsive
-// layout and the touch handling; WebKit and the native shells are checked
+// Below 700px the desktop's columns show one at a time: the slim rail
+// beside the full-width channel list, or a page full screen with a back
+// arrow (a conversation, its members); no drawers and no bottom bar.
+// Dialogs are full-screen sheets. The e2e app runs in Chromium, so this
+// checks the responsive layout; WebKit and the native shells are checked
 // by hand.
 import type { Page } from '@playwright/test';
 import { test, expect, uid, IRC_HOST, IRC_PORT, continueAsGuest, addServerManually, serverCard, joinChannel } from './fixtures';
 
 const shell = (page: Page) => page.locator('.app-shell');
-const drawer = (page: Page, d: 'none' | 'nav' | 'members') =>
-  expect(shell(page)).toHaveClass(new RegExp(`\\bdrawer-${d}\\b`));
+const screenIs = (page: Page, d: 'home' | 'chat' | 'members') =>
+  expect(shell(page)).toHaveClass(new RegExp(`\\bphone-${d}\\b`));
 // Nothing makes the page wider than the screen (WebKit would let it pan).
 const fitsWidth = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
-
-// A one-finger drag, as real touch events (Playwright's touchscreen only taps).
-async function swipe(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, steps = 8): Promise<void> {
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [from] });
-  for (let i = 1; i <= steps; i++) {
-    const p = { x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps };
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [p] });
-  }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await cdp.detach();
-}
 
 async function connectGuestPhone(page: Page): Promise<string> {
   await continueAsGuest(page, `mb${uid()}`);
@@ -36,59 +24,55 @@ async function connectGuestPhone(page: Page): Promise<string> {
 }
 
 test.describe('phone layout', () => {
-  test('the chat fills the screen; swipes reveal the channels and the members', async ({ launchApp }) => {
+  test('the rail and channel list, then a channel full screen with a back arrow', async ({ launchApp }) => {
     const { page } = await launchApp();
     await connectGuestPhone(page);
-    const { width, height } = page.viewportSize()!;
-    const mid = { y: Math.round(height / 2) };
+    const { width } = page.viewportSize()!;
 
-    // No channel yet: the channels show.
-    await drawer(page, 'nav');
-    await expect(page.locator('.channel-sidebar')).toBeVisible();
+    // No channel yet: the slim rail (MY, SERVERS, the server) beside the
+    // channel list, which takes the rest of the width.
+    await screenIs(page, 'home');
+    const rail = (await page.locator('.server-rail').boundingBox())!;
+    const list = (await page.locator('.channel-sidebar').boundingBox())!;
+    expect(rail.width).toBeLessThanOrEqual(64);
+    expect(list.x).toBeGreaterThanOrEqual(rail.x + rail.width - 1);
+    expect(list.x + list.width).toBeGreaterThan(width - 2);
+    await expect(page.getByRole('button', { name: /^You: friends, calls and messages/ })).toBeVisible();
+    await expect(page.locator('.rail-divider-label')).toHaveText('SERVERS');
+    // No bottom bar, no peek strip of a chat.
+    await expect(page.locator('.phone-tabs')).toHaveCount(0);
+    await expect(page.locator('.chat-area')).toHaveCount(0);
     expect(await fitsWidth(page)).toBe(true);
 
     // A channel: its chat, full screen.
     const channel = `#phone-${uid(6)}`;
     await joinChannel(page, channel);
-    await drawer(page, 'none');
-    // (Once the slide back has finished.)
-    await expect.poll(async () => (await page.locator('.mobile-main').boundingBox())!.x).toBeLessThan(1);
-    expect((await page.locator('.mobile-main').boundingBox())!.width).toBeGreaterThan(width - 2);
+    await screenIs(page, 'chat');
+    expect((await page.locator('.chat-area').boundingBox())!.width).toBeGreaterThan(width - 2);
+    await expect(page.locator('.server-rail')).toHaveCount(0);
     expect(await fitsWidth(page)).toBe(true);
 
-    // Swipe right: the chat slides aside to the channels, leaving a sliver.
-    await swipe(page, { x: 40, y: mid.y }, { x: width - 40, y: mid.y });
-    await drawer(page, 'nav');
-    await expect(page.locator('.channel-sidebar')).toBeVisible();
-    await expect.poll(async () => (await page.locator('.mobile-main').boundingBox())!.x).toBeGreaterThan(width - 80);
-    // Tapping the sliver brings the chat back.
-    await page.getByRole('button', { name: 'Back to chat' }).click();
-    await drawer(page, 'none');
-
-    // Swipe left: the members; swipe back right: the chat.
-    await swipe(page, { x: width - 40, y: mid.y }, { x: 40, y: mid.y });
-    await drawer(page, 'members');
-    await expect(page.locator('.user-panel')).toBeVisible();
-    await swipe(page, { x: 20, y: mid.y }, { x: width - 20, y: mid.y });
-    await drawer(page, 'none');
-
-    // A short, slow drag springs back.
-    await swipe(page, { x: 40, y: mid.y }, { x: 90, y: mid.y }, 20);
-    await drawer(page, 'none');
-
-    // A vertical drag is the message list's scroll, not a drawer.
-    await swipe(page, { x: width / 2, y: height - 200 }, { x: width / 2 + 20, y: 150 });
-    await drawer(page, 'none');
-
-    // The header buttons do the same: channels, then pick the channel.
-    await page.getByRole('button', { name: 'Channels' }).click();
-    await drawer(page, 'nav');
+    // Back: the channel list; picking the channel opens it again.
+    await page.getByRole('button', { name: 'Back to channels' }).click();
+    await screenIs(page, 'home');
     await page.locator('.channel-sidebar').getByText(channel.slice(1), { exact: true }).click();
-    await drawer(page, 'none');
+    await screenIs(page, 'chat');
+
+    // Members, full screen; back to the chat.
     await page.getByRole('button', { name: /^Members \(/ }).click();
-    await drawer(page, 'members');
-    await page.getByRole('button', { name: 'Back to chat' }).first().click();
-    await drawer(page, 'none');
+    await screenIs(page, 'members');
+    await expect(page.locator('.user-panel')).toBeVisible();
+    await page.getByRole('button', { name: 'Back to chat' }).click();
+    await screenIs(page, 'chat');
+
+    // MY: Friends and Calls above the direct messages.
+    await page.getByRole('button', { name: 'Back to channels' }).click();
+    await page.getByRole('button', { name: /^You: friends, calls and messages/ }).click();
+    await expect(page.locator('.my-sidebar .my-row').first()).toHaveAccessibleName(/^Friends/);
+    await page.getByRole('button', { name: /^Calls/ }).click();
+    await expect(page.getByRole('main', { name: 'Calls' })).toBeVisible();
+    await page.getByRole('button', { name: 'Back to MY' }).click();
+    await screenIs(page, 'home');
   });
 
   test('a relaunch opens straight onto the last channel', async ({ launchApp }) => {
@@ -100,7 +84,7 @@ test.describe('phone layout', () => {
 
     const { page } = await launchApp();
     await expect(page.locator('.chat-channel-label')).toHaveText(channel.slice(1), { timeout: 30_000 });
-    await drawer(page, 'none');
+    await screenIs(page, 'chat');
   });
 
   test('dialogs are full-screen sheets', async ({ launchApp }) => {

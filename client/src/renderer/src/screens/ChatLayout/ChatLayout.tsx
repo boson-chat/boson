@@ -29,11 +29,10 @@ import { ScreenPicker } from './ScreenPicker';
 import { setVoiceUi, useVoiceUi } from './VoiceRooms';
 import { getVideoController, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
-import { useSwipeDrawers } from './useSwipeDrawers';
 import { useFriends } from '../../modules/friends';
 import { getFriendsUi, setFriendsUi, useFriendsUi } from '../Friends/friends-ui';
 import { FriendsView } from '../Friends/FriendsView';
-import { PhonePage, PhoneTabBar } from '../Friends/FriendsNav';
+import { PhonePage } from '../Friends/FriendsNav';
 import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
 import './ChatLayout.css';
 import './NetworkPanes.css';
@@ -104,6 +103,9 @@ interface Props {
   onOpenDm?: (serverId: string, name: string) => void;
 }
 
+// Phones: the launch has opened onto the last conversation (once per run).
+let launchShown = false;
+
 export function ChatLayout({
   chat, serverName, serverHost, bannerUrl, logoUrl, onToggleNetworkTheme, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
@@ -113,7 +115,12 @@ export function ChatLayout({
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
   //   2. ChatLayoutBloc owns transient feedback (error banner + help modal).
-  const [state, setState] = useState<ChatState>(chat.getState());
+  const [subscribed, setState] = useState<ChatState>(chat.getState());
+  // Another server's chat: its state at once, not the last server's for a
+  // render (until the subscription below catches up).
+  const [stateOf, setStateOf] = useState(chat);
+  if (stateOf !== chat) { setStateOf(chat); setState(chat.getState()); }
+  const state = stateOf === chat ? subscribed : chat.getState();
   const layoutBloc = useMemo(() => new ChatLayoutBloc({ chat }), [chat]);
   const [layoutState, setLayoutState] = useState<ChatLayoutState>(layoutBloc.getState());
 
@@ -141,28 +148,36 @@ export function ChatLayout({
 
   const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
 
-  // Phones (and narrow windows), Discord style: the chat fills the screen;
-  // the server rail with the channel list and the member list are drawers
-  // under it, revealed by swiping the chat aside (useSwipeDrawers) or from
-  // the chat header. With no channel open yet, the channels show.
+  // Phones (and narrow windows) show one screen at a time, like the
+  // desktop's columns in turn: the rail with the channel list, or a page
+  // full screen with a back arrow (the conversation, its members, Friends,
+  // Calls). friends-ui's `phone` is the page.
   const narrow = useNarrow();
-  const shellRef = useRef<HTMLDivElement>(null);
-  const swipe = useSwipeDrawers(shellRef, narrow, active ? 'none' : 'nav', isChannel);
-  const { drawer, setDrawer } = swipe;
-  // A newly active channel — picked, joined, or opened from elsewhere — is
-  // what the user wants to see: close the drawer onto it.
+  // A conversation that becomes active on this server — picked, joined, or
+  // opened from elsewhere — is what the user wants to see (switching
+  // servers shows that server's channels). A launch opens onto the last
+  // conversation.
   const activeName = state.activeChannel;
-  const [lastActive, setLastActive] = useState(activeName);
-  if (activeName !== lastActive) {
-    setLastActive(activeName);
-    if (activeName) setDrawer('none');
-    // Phones: a conversation opened from elsewhere (Message on a friend) shows.
-    if (activeName && lastActive) setFriendsUi({ tab: 'chats' });
-    // MY shows direct messages: a channel opened from elsewhere (a
-    // notification, the inbox) leaves it; a conversation shows in it.
-    if (activeName && lastActive && getFriendsUi().my) {
-      if (activeName.startsWith('#') || activeName.startsWith('&')) setFriendsUi({ my: false });
-      else setFriendsUi({ myView: 'chat' });
+  if (narrow && !launchShown) {
+    launchShown = true;
+    if (activeName && !getFriendsUi().phone && !getFriendsUi().my) setFriendsUi({ phone: 'chat' });
+  }
+  const activeKey = `${activeServerId ?? ''}\0${activeName ?? ''}`;
+  const [lastActive, setLastActive] = useState({ key: activeKey, server: activeServerId, name: activeName });
+  if (activeKey !== lastActive.key) {
+    const sameServer = lastActive.server === activeServerId;
+    const prev = lastActive.name;
+    setLastActive({ key: activeKey, server: activeServerId, name: activeName });
+    if (activeName && sameServer) {
+      if (narrow && getFriendsUi().phone !== 'chat') setFriendsUi({ phone: 'chat' });
+    }
+    if (activeName && prev && sameServer) {
+      // MY shows direct messages: a channel opened from elsewhere (a
+      // notification, the inbox) leaves it; a conversation shows in it.
+      if (getFriendsUi().my) {
+        if (activeName.startsWith('#') || activeName.startsWith('&')) setFriendsUi({ my: false });
+        else setFriendsUi({ myView: 'chat' });
+      }
     }
   }
 
@@ -244,19 +259,6 @@ export function ChatLayout({
   // A phone: the call screen in place of the chat while it's open (else a
   // bar at the bottom of every screen).
   const phoneCallOpen = narrow && inCall && (onCallView || videoSnap.open);
-  // Opening the call (or a voice channel's view) shows it: close the
-  // drawer it was opened from.
-  const callShown = phoneCallOpen || (narrow && !!voiceView);
-  const [lastCallShown, setLastCallShown] = useState(callShown);
-  if (callShown !== lastCallShown) {
-    setLastCallShown(callShown);
-    if (callShown) setDrawer('none');
-  }
-  // No channel to show (none joined yet, or it was closed): the channels,
-  // unless the call or a voice channel's view is what's showing.
-  const shownDrawer = narrow && !active && !callShown && drawer === 'none' && swipe.dragX === null ? 'nav' : drawer;
-  // The drawer under the chat that's showing (or being dragged into view).
-  const revealed = swipe.dragX !== null ? swipe.reveal : shownDrawer === 'none' ? null : shownDrawer;
   // Video is received only while a call view shows it.
   useEffect(() => {
     const want = stageOpen || phoneCallOpen;
@@ -274,8 +276,12 @@ export function ChatLayout({
   const { snap: friendsSnap } = useFriends();
   const friendsUi = useFriendsUi();
   useEffect(() => { setFriendsUi({ host: serverHost ?? null }); }, [serverHost]);
-  const friendsOn = friendsSnap.available;
-  const phoneTabs = friendsOn && narrow && !phoneCallOpen;
+  // The phone's page (null: the rail and channel list). A conversation's
+  // page needs one open; its members, a channel.
+  const phonePage = !narrow ? null
+    : friendsUi.phone === 'chat' && !active ? null
+      : friendsUi.phone === 'members' && !isChannel ? (active ? 'chat' : null)
+        : friendsUi.phone;
   const inViewedRoom = !!voiceView && call.host === voiceView.host && call.room === voiceView.roomId && call.status !== 'idle' && call.status !== 'error';
   // A private 1:1 call (friends) has no join screen: you're in it from the
   // moment you answer, and once it ends its room is gone. Its view closes.
@@ -284,7 +290,7 @@ export function ChatLayout({
   const prejoinOpen = !!voiceView && !privateView && !inViewedRoom;
   const selfNick = state.myNick || myNick;
   const presence: Presence = engineState !== 'connected' ? 'offline' : friendsSnap.privacy.doNotDisturb ? 'dnd' : 'online';
-  const myOpen = friendsUi.my && !narrow;
+  const myOpen = friendsUi.my;
   // MY's main column: a conversation only while a DM is the active one.
   const myView = friendsUi.myView === 'chat' && (!active || isChannel) ? 'friends' : friendsUi.myView;
   const activeDm = myOpen && myView === 'chat' && active && activeServerId ? { serverId: activeServerId, name: active.name } : null;
@@ -293,7 +299,7 @@ export function ChatLayout({
   // Join on the Calls page: the voice channel's join view, on its server.
   const joinLive = (host: string, roomId: string, roomName: string): void => {
     const view = { host, roomId, serverName: serverNameFor(host) ?? roomName };
-    setFriendsUi({ my: false, tab: 'chats' });
+    setFriendsUi({ my: false, phone: null });
     if (host === serverHost || !onSelectServer) { setVoiceUi({ view }); return; }
     const tile = servers?.find((t) => t.host === host);
     if (!tile) { setVoiceUi({ view }); return; }
@@ -307,14 +313,14 @@ export function ChatLayout({
           servers={servers}
           activeServerId={myOpen ? null : activeServerId}
           activeServerName={serverName}
-          onSelectServer={onSelectServer ? (id) => { setFriendsUi({ my: false }); onSelectServer(id); } : undefined}
-          top={!narrow ? (
+          onSelectServer={onSelectServer ? (id) => { setFriendsUi({ my: false, phone: null }); onSelectServer(id); } : undefined}
+          top={(
             <>
               <MyRailTile nick={selfNick} avatarUrl={avatarFor(selfNick)} presence={presence} active={myOpen}
                 onClick={() => setFriendsUi({ my: true })} />
               <RailDivider />
             </>
-          ) : undefined}
+          )}
           onBrowseServers={onBrowseServers}
           onOpenServerSettings={onOpenServerSettings}
           onLeaveServer={onLeaveServer}
@@ -324,10 +330,27 @@ export function ChatLayout({
           onToggleNetworkTheme={onToggleNetworkTheme}
         />
   );
+  const mySidebar = (
+    <MySidebar
+        nick={selfNick}
+        presence={presence}
+        view={narrow ? null : myView}
+        dms={myDms ?? []}
+        activeDm={activeDm}
+        showServer={(servers?.length ?? 0) > 1}
+        width={narrow ? undefined : channelsW}
+        onOpenDm={(d) => {
+          setFriendsUi({ myView: 'chat', phone: 'chat' });
+          if (onOpenDm) onOpenDm(d.serverId, d.name);
+          else chat.setActive(d.name);
+        }}
+      />
+  );
   const sidebar = (
         <ChannelSidebar
           serverName={serverName}
-          bannerUrl={bannerUrl}
+          // Phones: a compact header instead of the big banner.
+          bannerUrl={narrow ? undefined : bannerUrl}
           logoUrl={logoUrl}
           channels={state.channels}
           activeChannel={state.activeChannel}
@@ -337,7 +360,7 @@ export function ChatLayout({
             setVoiceUi({ view: null });
             if (!narrow) video?.setOpen(false);
             chat.setActive(name);
-            setDrawer('none');
+            setFriendsUi({ phone: 'chat' });
             // A channel we're not in: ask for it again (a no-op if joined).
             if (engineState === 'connected') chat.rejoin(name);
           }}
@@ -372,7 +395,8 @@ export function ChatLayout({
             <ChannelVoiceRooms host={serverHost} serverName={serverName} channel={name} avatarFor={avatarFor} />
           ) : undefined}
           channelAction={serverHost ? (name) => <ChannelVoiceAdd host={serverHost} channel={name} /> : undefined}
-          footer={<VoiceBar />}
+          // Phones: the minimized call bar under every screen instead.
+          footer={narrow ? undefined : <VoiceBar />}
         />
   );
   const chatArea = (
@@ -431,8 +455,8 @@ export function ChatLayout({
           onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
           onTrustBouncerCert={typeof chat.trustBouncerCert === 'function' ? () => chat.trustBouncerCert() : undefined}
           onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
-          onBack={narrow ? () => setDrawer('nav') : undefined}
-          onShowMembers={narrow && isChannel ? () => setDrawer('members') : undefined}
+          onBack={narrow ? () => setFriendsUi({ phone: null }) : undefined}
+          onShowMembers={narrow && isChannel ? () => setFriendsUi({ phone: 'members' }) : undefined}
         />
   );
   const userPanel = (
@@ -441,65 +465,48 @@ export function ChatLayout({
           nickActions={nickActions}
           avatarFor={avatarFor}
           width={membersW}
-          onBack={narrow ? () => setDrawer('none') : undefined}
+          onBack={narrow ? () => setFriendsUi({ phone: 'chat' }) : undefined}
         />
   );
 
   return (
     <div
-      ref={shellRef}
-      class={`app-shell${narrow ? ` is-narrow drawer-${shownDrawer}${swipe.dragX !== null ? ' is-dragging' : ''}${revealed ? ` reveal-${revealed}` : ''}${phoneTabs ? ' has-tabs' : ''}` : ''}`}
+      class={`app-shell${narrow ? ` is-narrow phone-${phoneCallOpen ? 'call' : phonePage ?? 'home'}` : ''}`}
     >
       {narrow ? (
         <>
-          {/* Under the chat: the drawer it's being slid aside to show. */}
-          <div class="mobile-under mobile-under-nav" inert={revealed !== 'nav'}>
-            {rail}
-            {sidebar}
-          </div>
-          <div class="mobile-under mobile-under-members" inert={revealed !== 'members'}>
-            {userPanel}
-          </div>
-          <div
-            class="mobile-main"
-            style={swipe.dragX !== null ? { transform: `translateX(${swipe.dragX}px)`, transition: 'none' } : undefined}
-          >
-            {phoneCallOpen ? (
-              <MobileCallScreen avatarFor={avatarFor}
-                onChat={chatChannel ? () => { closeCall(); chat.setActive(chatChannel.name); } : undefined} />
-            ) : (
-              <>
-                {chatArea}
-                {/* In a voice call: minimized, at the bottom. */}
-                <MobileMiniBar />
-              </>
-            )}
-            <VoiceJoinSheet self={myNick} avatarFor={avatarFor} />
-            {shownDrawer !== 'none' && active && (
-              <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />
-            )}
-          </div>
-          {phoneTabs && <PhonePage calls={calls('phone')} />}
-          {phoneTabs && <PhoneTabBar />}
+          {phoneCallOpen ? (
+            <MobileCallScreen avatarFor={avatarFor}
+              onChat={chatChannel ? () => { closeCall(); chat.setActive(chatChannel.name); setFriendsUi({ my: false, phone: 'chat' }); } : undefined} />
+          ) : (
+            <div class="phone-screen">
+              {phonePage === null ? (
+                <div class="phone-home">
+                  {rail}
+                  {friendsUi.my ? mySidebar : sidebar}
+                </div>
+              ) : phonePage === 'chat' ? chatArea
+                : phonePage === 'members' ? userPanel
+                  : phonePage === 'friends' ? (
+                    <PhonePage title="Friends" sub={friendsSub(friendsSnap)} backLabel="Back to MY" onBack={() => setFriendsUi({ phone: null })}>
+                      <FriendsView layout="phone" />
+                    </PhonePage>
+                  ) : phonePage === 'calls' ? (
+                    <PhonePage title="Calls" sub="live · recent" backLabel="Back to MY" onBack={() => setFriendsUi({ phone: null })}>
+                      {calls('phone')}
+                    </PhonePage>
+                  ) : null}
+              {/* In a voice call: minimized, at the bottom of every screen. */}
+              <MobileMiniBar />
+            </div>
+          )}
+          <VoiceJoinSheet self={myNick} avatarFor={avatarFor} />
         </>
       ) : (
         myOpen ? (
           <>
             {rail}
-            <MySidebar
-              nick={selfNick}
-              presence={presence}
-              view={myView}
-              dms={myDms ?? []}
-              activeDm={activeDm}
-              showServer={(servers?.length ?? 0) > 1}
-              width={channelsW}
-              onOpenDm={(d) => {
-                setFriendsUi({ myView: 'chat' });
-                if (onOpenDm) onOpenDm(d.serverId, d.name);
-                else chat.setActive(d.name);
-              }}
-            />
+            {mySidebar}
             <ResizeHandle
               side="left"
               width={channelsW}
@@ -641,6 +648,13 @@ export function ChatLayout({
       </Modal>
     </div>
   );
+}
+
+// Friends' page subtitle: "2 friends · 1 request".
+function friendsSub(snap: { friends: readonly unknown[]; incoming: readonly unknown[] }): string {
+  const f = snap.friends.length;
+  const r = snap.incoming.length;
+  return `${f} friend${f === 1 ? '' : 's'}${r ? ` · ${r} request${r === 1 ? '' : 's'}` : ''}`;
 }
 
 // Merge the user's joined channels with the server-advertised directory into

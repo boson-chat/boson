@@ -8,9 +8,9 @@ import { PersonMenu } from './PersonMenu';
 import { FriendsView } from './FriendsView';
 import { CallOverlays } from './CallOverlays';
 import { PrivacyCalls } from './PrivacyCalls';
-import { PhoneTabBar } from './FriendsNav';
+import { PhonePage } from './FriendsNav';
 import { CallsView, MyRailTile, MySidebar } from './MySpace';
-import { getFriendsUi, setFriendsUi } from './friends-ui';
+import { getFriendsUi, openMy, setFriendsUi } from './friends-ui';
 
 const HOST = 'irc.boson.example';
 let api: FakeFriendsApi;
@@ -46,7 +46,7 @@ beforeEach(async () => {
   });
   setFriendsController(ctl);
   ctl.start();
-  setFriendsUi({ host: HOST, my: false, myView: 'friends', tab: 'chats' });
+  setFriendsUi({ host: HOST, my: false, myView: 'friends', phone: null });
   await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
 });
 
@@ -161,10 +161,18 @@ describe('PrivacyCalls and navigation', () => {
     await waitFor(() => expect(ctl.getSnapshot().privacy.doNotDisturb).toBe(true));
   });
 
-  it('the phone bar switches tabs', async () => {
-    render(<PhoneTabBar />);
-    fireEvent.click(screen.getByRole('button', { name: 'Calls' }));
-    expect(getFriendsUi().tab).toBe('calls');
+  it('a phone page has a title and a back arrow', async () => {
+    let back = 0;
+    render(<PhonePage title="Calls" sub="live · recent" backLabel="Back to MY" onBack={() => { back++; }}><p>body</p></PhonePage>);
+    expect(screen.getByRole('heading', { name: 'Calls' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Calls' }).textContent).toContain('body');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to MY' }));
+    expect(back).toBe(1);
+  });
+
+  it('opening Friends or Calls from MY opens them full screen on a phone', () => {
+    openMy('calls');
+    expect(getFriendsUi()).toMatchObject({ my: true, myView: 'calls', phone: 'calls' });
   });
 });
 

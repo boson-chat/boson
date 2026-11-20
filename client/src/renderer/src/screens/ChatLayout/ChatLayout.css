@@ -77,56 +77,48 @@
 .kick-modal-confirm { color: var(--danger, #f85149); border-color: var(--danger, #f85149); }
 .kick-modal-confirm:hover { opacity: 0.85; }
 
-/* Phone layout (shared/narrow.ts, ≤ 700px), Discord style: the chat
-   (.mobile-main) fills the screen; under it sit two drawers — the server
-   rail with the channel list on the left, the member list on the right.
-   Swiping the chat aside (useSwipeDrawers) or the header buttons slide it
-   over, leaving a sliver (PEEK = 56px) that taps or swipes back. */
+/* Phone layout (shared/narrow.ts, ≤ 700px), the desktop's columns one at
+   a time: the slim rail beside a full-width channel list (.phone-home), or
+   a page full screen with a back arrow (the conversation, its members,
+   Friends, Calls). No drawers, no bottom bar. */
 .app-shell.is-narrow { position: relative; }
 .app-shell.is-narrow .resize-handle { display: none; }
-.mobile-under {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: calc(100% - 56px);
+.phone-screen {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   display: flex;
-  background: var(--bg);
-  visibility: hidden;
-}
-.mobile-under-nav { left: 0; }
-.mobile-under-members { right: 0; }
-.app-shell.reveal-nav .mobile-under-nav,
-.app-shell.reveal-members .mobile-under-members { visibility: visible; }
-.mobile-under .channel-sidebar,
-.mobile-under .user-panel { flex: 1 1 auto; width: auto !important; min-width: 0; }
-.mobile-main {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  /* The voice call bar (MobileVoice.tsx) over the chat. */
   flex-direction: column;
   background: var(--bg);
-  z-index: 1;
-  transition: transform var(--motion-medium, 220ms) var(--ease-in-out, ease);
-  will-change: transform;
 }
-.mobile-main .chat-area { flex: 1 1 auto; min-width: 0; min-height: 0; }
-.app-shell.drawer-nav .mobile-main { transform: translateX(calc(100% - 56px)); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35); }
-.app-shell.drawer-members .mobile-main { transform: translateX(calc(-100% + 56px)); box-shadow: 8px 0 24px rgba(0, 0, 0, 0.35); }
-.app-shell.is-dragging .mobile-main { box-shadow: 0 0 24px rgba(0, 0, 0, 0.35); }
-/* Over the chat sliver while a drawer is open: a tap closes it. */
-.mobile-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 5;
-  border: none;
-  padding: 0;
-  background: rgba(0, 0, 0, 0.25);
-  cursor: pointer;
+.phone-screen > .chat-area,
+.phone-screen > .user-panel { flex: 1 1 auto; min-width: 0; min-height: 0; width: auto !important; }
+.phone-home { flex: 1 1 auto; min-height: 0; display: flex; }
+.phone-home > .channel-sidebar { flex: 1 1 auto; width: auto !important; min-width: 0; }
+
+/* The slim rail: MY, SERVERS, the servers, "+". */
+.app-shell.is-narrow .server-rail { width: 64px; padding: 12px 0; gap: 10px; }
+.app-shell.is-narrow .server-item { width: 44px; height: 44px; }
+.app-shell.is-narrow .my-tile { width: 44px; height: 44px; }
+.app-shell.is-narrow .rail-divider-bar { width: 30px; }
+.app-shell.is-narrow .rail-divider-label { font-size: 7px; }
+
+/* A compact header in place of the server's banner: its name and status
+   line over a subtle gradient. */
+.app-shell.is-narrow .channel-sidebar-header {
+  min-height: 62px;
+  height: 62px;
+  padding: 0 10px 0 16px;
+  align-items: center;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--accent), var(--surface) 92%), var(--surface));
 }
+.app-shell.is-narrow .channel-sidebar-title { font-size: 17px; }
+.app-shell.is-narrow .channel-sidebar-header .channel-sidebar-settings { width: 44px; height: 44px; }
+.app-shell.is-narrow .my-top .my-row,
+.app-shell.is-narrow .my-row { min-height: 48px; font-size: 15px; }
 .app-shell.is-narrow .user-panel-header { display: flex; align-items: center; }
 
-/* The header buttons that open the drawers sit at the start of headers. */
+/* The back arrows sit at the start of headers. */
 .chat-pane-back { margin-left: calc(-1 * var(--space-2)); flex-shrink: 0; }
 .user-panel-header .chat-pane-back { margin-right: var(--space-1); }
 
@@ -146,3 +138,8 @@
   .kick-modal-actions button { min-height: 44px; }
   .help-modal-row { grid-template-columns: 1fr; gap: var(--space-1); }
 }
+
+/* Phones: the members page's header matches the other pages'. */
+.app-shell.is-narrow .user-panel { border-left: 0; }
+.app-shell.is-narrow .user-panel-header { height: 54px; min-height: 54px; padding: 0 6px; gap: 4px; }
+.app-shell.is-narrow .user-panel-header .chat-pane-back { margin: 0; }
