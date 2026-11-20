@@ -26,6 +26,8 @@ export interface VoiceBridge {
   micTest(on: boolean): Promise<VoiceState>;
   // Phones: loudspeaker (true) or earpiece. Absent on older shells.
   setSpeaker?(on: boolean): Promise<VoiceState>;
+  // What we send: standard | high | music. Absent on older shells.
+  setVoiceQuality?(quality: string): Promise<VoiceState>;
   state(): Promise<VoiceState>;
   onState(fn: (s: VoiceState) => void): () => void;
 }

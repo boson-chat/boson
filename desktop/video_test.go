@@ -115,12 +115,13 @@ func (s *fakeShare) Switch(id string) error {
 // fakeMedia starts shares after delay (or fails); onEnd is kept so a test
 // can end a share as if the device went away.
 type fakeMedia struct {
-	mu     sync.Mutex
-	delay  time.Duration
-	err    error
-	shares []*fakeShare
-	onEnd  func(error)
-	facing string // the cameras' facing
+	mu           sync.Mutex
+	camQualities []string
+	delay        time.Duration
+	err          error
+	shares       []*fakeShare
+	onEnd        func(error)
+	facing       string // the cameras' facing
 	// PreviewCamera calls and stops.
 	previews, previewStops int
 	modes                  []string // StartScreen's modes
@@ -155,7 +156,10 @@ func (m *fakeMedia) start(ctx context.Context, name string, onEnd func(error)) (
 	m.onEnd = onEnd
 	return s, nil
 }
-func (m *fakeMedia) StartCamera(ctx context.Context, _ *qvclient.Client, _ string, _ func(int, int, []byte), onEnd func(error)) (videoShare, error) {
+func (m *fakeMedia) StartCamera(ctx context.Context, _ *qvclient.Client, _, quality string, _ func(int, int, []byte), onEnd func(error)) (videoShare, error) {
+	m.mu.Lock()
+	m.camQualities = append(m.camQualities, quality)
+	m.mu.Unlock()
 	return m.start(ctx, "FaceTime HD Camera", onEnd)
 }
 func (m *fakeMedia) StartScreen(ctx context.Context, _ *qvclient.Client, id, mode string, sound bool, onEnd func(error)) (videoShare, error) {

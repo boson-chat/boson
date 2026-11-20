@@ -19,7 +19,22 @@ export interface VoiceSettings {
   // jitter buffer (instead of showing frames as they arrive). Off by
   // default until it's been checked on every platform's webview.
   screenPacing: boolean;
+  // What you send: Standard (32 kbit/s; 24 on phones), High (64) or Music
+  // (128, tuned for music, no voice-activity gating). A channel's cap wins
+  // when it's lower.
+  voiceQuality: VoiceQualitySetting;
+  // The top of your camera's layers: Auto (720p), Data saver (360p) or
+  // High (1080p when the camera has it).
+  cameraQuality: CameraQualitySetting;
+  // Data saver: receive cameras at ≤360p, screen shares at their low layer,
+  // and send the camera at Data saver. Auto: while on a metered network
+  // (mobile data, a hotspot, Low Data Mode) — phones report it.
+  dataSaver: DataSaverSetting;
 }
+
+export type VoiceQualitySetting = 'standard' | 'high' | 'music';
+export type CameraQualitySetting = 'auto' | 'saver' | 'high';
+export type DataSaverSetting = 'auto' | 'always' | 'off';
 
 export const VAD_MIN_DB = -60;
 export const VAD_MAX_DB = -10;
@@ -32,7 +47,14 @@ export const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   vadDb: -45,
   userVolumes: {},
   screenPacing: false,
+  voiceQuality: 'standard',
+  cameraQuality: 'auto',
+  dataSaver: 'auto',
 };
+
+function oneOf<T extends string>(v: unknown, allowed: readonly T[], def: T): T {
+  return typeof v === 'string' && (allowed as readonly string[]).includes(v) ? (v as T) : def;
+}
 
 interface KV {
   getItem(k: string): string | null;
@@ -71,6 +93,9 @@ export function getVoiceSettings(): VoiceSettings {
         vadDb: typeof p.vadDb === 'number' && Number.isFinite(p.vadDb) ? clamp(p.vadDb, VAD_MIN_DB, VAD_MAX_DB) : next.vadDb,
         userVolumes: volumes,
         screenPacing: p.screenPacing === true,
+        voiceQuality: oneOf(p.voiceQuality, ['standard', 'high', 'music'] as const, 'standard'),
+        cameraQuality: oneOf(p.cameraQuality, ['auto', 'saver', 'high'] as const, 'auto'),
+        dataSaver: oneOf(p.dataSaver, ['auto', 'always', 'off'] as const, 'auto'),
       };
     }
   } catch { /* defaults */ }

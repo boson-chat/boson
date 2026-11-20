@@ -24,6 +24,9 @@ export interface VideoBridge {
   switchScreen?(sourceId: string): Promise<VideoState>;
   screenThumbnails?(ids: string[]): Promise<Record<string, string>>;
   stopThumbnails?(): Promise<void>;
+  // What the camera sends: auto | saver | high (the renderer passes saver
+  // while data saver is on). Restarts a running camera. Optional.
+  setCameraQuality?(quality: string): Promise<VideoState>;
 }
 
 export function videoBridge(): VideoBridge | null {

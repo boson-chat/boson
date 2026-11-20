@@ -4,6 +4,7 @@ import {
   VAD_MAX_DB, VAD_MIN_DB, getVoiceSettings, keyLabel, onVoiceSettingsChange, setVoiceSettings, useVoice,
   type VoiceDevices, type VoiceSettings,
 } from '../../modules/voice';
+import { dataSaverOn, useVideo } from '../../modules/video';
 import { isMobile } from '../../shared/window-controls';
 import './VoiceSettings.css';
 
@@ -14,6 +15,7 @@ import './VoiceSettings.css';
 // and push to talk is the call screen's hold-to-talk button.
 export function VoiceSettingsSection({ open }: { open: boolean }) {
   const { voice, snap } = useVoice();
+  const { video, snap: vsnap } = useVideo();
   const [s, setS] = useState<VoiceSettings>(() => getVoiceSettings());
   useEffect(() => onVoiceSettingsChange(setS), []);
   const [devices, setDevices] = useState<VoiceDevices | null>(null);
@@ -175,6 +177,7 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
             ? 'In a call, More → People and volume changes how loud someone is for you.'
             : 'Right-click someone in a voice channel to change how loud they are for you.'}
         </p>
+        <QualityCard s={s} phone={phone} call={call} hasVideo={!!video} metered={!!vsnap.state.metered} />
         <Card>
           <div class="user-settings-card-body user-settings-form">
             <Field label="Smoother screen shares (experimental)" hint="Shows a shared screen at the pace it was captured, with a small buffer, rather than as frames arrive. Try it if screen shares look jumpy.">
@@ -184,6 +187,81 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
         </Card>
       </div>
     </section>
+  );
+}
+
+const kbps = (bps: number): string => `${Math.round(bps / 1000)} kbps`;
+
+// Voice and camera quality, and data saver (phones).
+function QualityCard({ s, phone, call, hasVideo, metered }: {
+  s: VoiceSettings;
+  phone: boolean;
+  call: { status: string; bitrate?: number; maxBitrate?: number };
+  hasVideo: boolean;
+  metered: boolean;
+}) {
+  const saver = phone && dataSaverOn(s.dataSaver, metered);
+  const standard = phone ? 24000 : 32000;
+  const chosen = s.voiceQuality === 'music' ? 128000 : s.voiceQuality === 'high' ? 64000 : standard;
+  const voiceHint = {
+    standard: `${kbps(standard)}. Clear speech, light on data.`,
+    high: `${kbps(64000)}. A fuller, more natural voice.`,
+    music: `${kbps(128000)}, tuned for music: quiet passages aren't cut off by voice activity. Mute when you're done.`,
+  }[s.voiceQuality];
+  const capped = call.status === 'connected' && !!call.maxBitrate && call.maxBitrate < chosen;
+  const cameraHint = saver
+    ? 'Data saver is on, so your camera sends at most 360p.'
+    : {
+      auto: 'Up to 720p. Others get a smaller version when their tile or connection is small.',
+      saver: 'Up to 360p, about a quarter of the data.',
+      high: 'Up to 1080p when your camera has it, about 2.5 Mbps. A camera that’s on restarts at the new size.',
+    }[s.cameraQuality];
+  return (
+    <Card>
+      <div class="user-settings-card-body user-settings-form">
+        <Field label="Voice quality" hint={voiceHint}>
+          <Tabs
+            tabs={[{ id: 'standard', label: 'Standard' }, { id: 'high', label: 'High' }, { id: 'music', label: 'Music' }]}
+            active={s.voiceQuality}
+            onChange={(id) => setVoiceSettings({ voiceQuality: id as VoiceSettings['voiceQuality'] })}
+          />
+        </Field>
+        {capped && (
+          <p class="voice-settings-cap" role="status">
+            <span class="voice-settings-cap-tag">Channel cap</span>
+            This channel allows {kbps(call.maxBitrate!)}, so you send {kbps(call.maxBitrate!)}.
+          </p>
+        )}
+        {hasVideo && <>
+          <Divider />
+          <Field label="Camera quality" hint={cameraHint}>
+            <Tabs
+              tabs={[{ id: 'auto', label: 'Auto' }, { id: 'saver', label: 'Data saver' }, { id: 'high', label: 'High' }]}
+              active={s.cameraQuality}
+              onChange={(id) => setVoiceSettings({ cameraQuality: id as VoiceSettings['cameraQuality'] })}
+            />
+          </Field>
+          {phone && <>
+            <Divider />
+            <Field
+              label="Data saver"
+              hint="Receives cameras at 360p and screen shares at their low quality, and sends your camera at 360p. Auto: on mobile data, a hotspot or Low Data Mode."
+            >
+              <div class="voice-settings-saver">
+                <Tabs
+                  tabs={[{ id: 'auto', label: 'Auto' }, { id: 'always', label: 'Always' }, { id: 'off', label: 'Off' }]}
+                  active={s.dataSaver}
+                  onChange={(id) => setVoiceSettings({ dataSaver: id as VoiceSettings['dataSaver'] })}
+                />
+                <span class="voice-settings-saver-state" data-on={saver || undefined}>
+                  {saver ? (s.dataSaver === 'always' ? 'On' : 'On · mobile data') : 'Off now'}
+                </span>
+              </div>
+            </Field>
+          </>}
+        </>}
+      </div>
+    </Card>
   );
 }
 

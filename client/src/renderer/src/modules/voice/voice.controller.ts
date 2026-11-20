@@ -583,6 +583,7 @@ export class VoiceController {
       void b.setInputMode(s.mode).catch(ignore);
     }
     if (!prev || prev.vadDb !== s.vadDb) void b.setVADThreshold(s.vadDb).catch(ignore);
+    if (!prev || prev.voiceQuality !== s.voiceQuality) void b.setVoiceQuality?.(s.voiceQuality).catch(ignore);
     for (const [user, v] of Object.entries(s.userVolumes)) {
       if (!prev || prev.userVolumes[user] !== v) void b.setUserVolume(user, v).catch(ignore);
     }

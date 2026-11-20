@@ -101,7 +101,7 @@ func appIcon(bundleID string) string {
 	return url
 }
 
-func (nativeMedia) StartCamera(ctx context.Context, c *qvclient.Client, id string, preview func(int, int, []byte), onEnd func(error)) (videoShare, error) {
+func (nativeMedia) StartCamera(ctx context.Context, c *qvclient.Client, id, quality string, preview func(int, int, []byte), onEnd func(error)) (videoShare, error) {
 	if err := cameraAllowed(); err != nil {
 		return nil, err
 	}
@@ -117,10 +117,11 @@ func (nativeMedia) StartCamera(ctx context.Context, c *qvclient.Client, id strin
 	// Follow the phone's orientation while this camera runs (Android).
 	cameraTurning(true)
 	release := sync.OnceFunc(func() { cameraTurning(false) })
+	q, w, h := cameraLadder(quality)
 	share, err := startNativeShare(ctx, c, controlpb.TrackKind_CAMERA, name, "", preview, func(err error) { release(); onEnd(err) },
 		func(push func(media.CapturedFrame)) (media.Source, error) {
-			return media.StartCamera(media.CameraOptions{ID: id, Width: 1280, Height: 720, FPS: 30}, push)
-		})
+			return media.StartCamera(media.CameraOptions{ID: id, Width: w, Height: h, FPS: 30}, push)
+		}, q)
 	if err != nil {
 		release()
 		return nil, err
@@ -178,7 +179,7 @@ func (nativeMedia) StartScreen(ctx context.Context, c *qvclient.Client, id, mode
 	o, name := opts(id)
 	share, err := startNativeShare(ctx, c, controlpb.TrackKind_SCREEN, name, m, nil, onEnd, func(push func(media.CapturedFrame)) (media.Source, error) {
 		return media.StartScreen(o, push)
-	})
+	}, media.CameraAuto)
 	if err != nil {
 		if snd != nil {
 			snd.stop()
@@ -364,7 +365,7 @@ const cameraStall = 5 * time.Second
 // size picks the layer ladder), publishes, and watches for the source
 // ending. Like the quicvideo viewer's share lifecycle.
 func startNativeShare(ctx context.Context, c *qvclient.Client, kind controlpb.TrackKind, name string, mode media.ScreenMode,
-	preview func(int, int, []byte), onEnd func(error), start func(func(media.CapturedFrame)) (media.Source, error)) (*nativeShare, error) {
+	preview func(int, int, []byte), onEnd func(error), start func(func(media.CapturedFrame)) (media.Source, error), camQuality media.CameraQuality) (*nativeShare, error) {
 	if c == nil {
 		return nil, errors.New("video: not connected")
 	}
@@ -412,7 +413,7 @@ func startNativeShare(ctx context.Context, c *qvclient.Client, kind controlpb.Tr
 		src.Stop()
 		return nil, fmt.Errorf("the %s delivered no picture in 10 s (is it in use by another app?)", name)
 	}
-	layers := media.CameraLayers(wh[0], wh[1], src.FPS())
+	layers := media.CameraLayersFor(wh[0], wh[1], src.FPS(), camQuality)
 	if !camera {
 		layers = media.ScreenLayersFor(wh[0], wh[1], mode)
 	}
@@ -457,4 +458,17 @@ func startNativeShare(ctx context.Context, c *qvclient.Client, kind controlpb.Tr
 		}
 	}()
 	return s, nil
+}
+
+// cameraLadder maps a camera quality setting to the quicvideo ladder and
+// the capture size to ask the camera for (1080p only for High, which is
+// the only ladder that uses it).
+func cameraLadder(quality string) (q media.CameraQuality, w, h int) {
+	switch quality {
+	case CameraQualitySaver:
+		return media.CameraDataSaver, 1280, 720
+	case CameraQualityHigh:
+		return media.CameraHigh, 1920, 1080
+	}
+	return media.CameraAuto, 1280, 720
 }

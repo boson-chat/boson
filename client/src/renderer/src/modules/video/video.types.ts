@@ -66,6 +66,11 @@ export interface VideoState {
   // nothing is sent. Absent from older shells.
   preview?: VideoShareState;
   tracks: VideoTrack[];
+  // On a metered network (phones: mobile data, a hotspot, Low Data Mode);
+  // data saver's Auto follows it. Absent on older shells.
+  metered?: boolean;
+  // What the camera sends now (auto | saver | high).
+  cameraQuality?: string;
 }
 
 export interface VideoCamera {

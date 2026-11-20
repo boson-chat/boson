@@ -17,7 +17,9 @@ type videoMedia interface {
 	// publishes it on c. preview gets small self-view pictures; onEnd is
 	// called if the capture ends on its own (unplugged, an error, no
 	// pictures).
-	StartCamera(ctx context.Context, c *qvclient.Client, id string, preview func(w, h int, rgba []byte), onEnd func(error)) (videoShare, error)
+	// quality (auto | saver | high) caps the layer ladder: 720p, 360p, or
+	// 1080p when the camera has it (CameraQuality*).
+	StartCamera(ctx context.Context, c *qvclient.Client, id, quality string, preview func(w, h int, rgba []byte), onEnd func(error)) (videoShare, error)
 	// StartScreen shares a screen or window (VideoSource.ID; "" = the main
 	// screen, or the system picker where there is one).
 	// mode: "detail" (text, up to 1440p, 15 fps) or "motion" (default;

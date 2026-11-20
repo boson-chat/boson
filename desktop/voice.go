@@ -84,6 +84,11 @@ type VoiceService struct {
 	// CallEnded).
 	inCall bool
 	dirty  bool
+	// quality: what this user sends (voice quality setting): standard |
+	// high | music. roomCap: the room's cap in bit/s (0 = none), from
+	// RoomState / RoomSettings (quicvoiced >= 1.13).
+	quality string
+	roomCap int
 
 	stop chan struct{}
 	once sync.Once
@@ -156,6 +161,36 @@ type audioBackend interface {
 	SetVADThreshold(unit float32)
 	Stats() audioStats
 	Close()
+}
+
+// qualitySetter is an audio backend whose encoder quality can change live
+// (the quicvoice engine).
+type qualitySetter interface {
+	SetQuality(bitrate int, music bool)
+}
+
+// Voice quality settings: what the user sends, before the room's cap.
+const (
+	VoiceQualityStandard = "standard" // voiceBitrate: 32 kbit/s desktop, 24 phones
+	VoiceQualityHigh     = "high"     // 64 kbit/s
+	VoiceQualityMusic    = "music"    // 128 kbit/s, music mode
+)
+
+// voiceSendBitrate is what quality sends in a room capped at roomCap
+// (bit/s, 0 = none), and whether it's music mode.
+func voiceSendBitrate(quality string, roomCap int) (bps int, music bool) {
+	switch quality {
+	case VoiceQualityHigh:
+		bps = 64000
+	case VoiceQualityMusic:
+		bps, music = 128000, true
+	default:
+		bps = voiceBitrate
+	}
+	if roomCap > 0 {
+		bps = min(bps, roomCap)
+	}
+	return bps, music
 }
 
 type voiceSender interface {
@@ -276,6 +311,11 @@ type VoiceState struct {
 	Speaker     bool   `json:"speaker"`
 	Route       string `json:"route,omitempty"`
 	Interrupted bool   `json:"interrupted,omitempty"`
+	// VoiceQuality: the user's setting (standard | high | music). Bitrate:
+	// what we send, bit/s. MaxBitrate: the room's cap (0 = none).
+	VoiceQuality string `json:"voiceQuality"`
+	Bitrate      int    `json:"bitrate"`
+	MaxBitrate   int    `json:"maxBitrate,omitempty"`
 }
 
 const (
@@ -303,6 +343,7 @@ func NewVoiceService(dataDir, authBase string, dev bool) *VoiceService {
 		screenAwake: newScreenAwake(),
 		status:      "idle",
 		vadDB:       defaultVADDB,
+		quality:     VoiceQualityStandard,
 		volumes:     map[string]int{},
 		speaker:     true,
 		stop:        make(chan struct{}),
@@ -468,6 +509,7 @@ func (s *VoiceService) ensureAudio() (audioBackend, error) {
 		r.SetSpeaker(s.speaker)
 	}
 	s.audio = a
+	s.applyQualityLocked()
 	return a, nil
 }
 
@@ -680,6 +722,8 @@ func (s *VoiceService) Join(req VoiceJoinRequest) VoiceState {
 	if r := state.GetRoom(); r != "" {
 		s.room = r
 	}
+	s.roomCap = int(state.GetMaxBitrate())
+	s.applyQualityLocked()
 	muted, deafened := s.muted, s.deafened
 	s.applyVolumesLocked(sess)
 	s.dirty = true
@@ -711,6 +755,10 @@ func (s *VoiceService) Leave() {
 		s.status, s.errMsg, s.errKind = "idle", "", ""
 	}
 	s.host, s.room, s.roomName = "", "", ""
+	if s.roomCap != 0 {
+		s.roomCap = 0
+		s.applyQualityLocked()
+	}
 	s.dirty = true
 	s.mu.Unlock()
 	if sess != nil {
@@ -898,6 +946,12 @@ func (s *VoiceService) onControl(sess *voiceSession, m *controlpb.ControlMessage
 	case m.GetParticipantUpdated() != nil:
 		p := m.GetParticipantUpdated().GetParticipant()
 		sess.members[uint16(p.GetSessionId())] = memberFrom(p)
+	case m.GetRoomSettings() != nil:
+		// The room's cap changed (a server config reload).
+		if s.sess == sess {
+			s.roomCap = int(m.GetRoomSettings().GetMaxBitrate())
+			s.applyQualityLocked()
+		}
 	case m.GetError() != nil && m.GetError().GetCode() == controlpb.Error_KICKED && !m.GetError().GetFatal():
 		// Out of the room (it was deleted, or someone removed us), but the
 		// connection is still open. One room per connection here, so hang
@@ -1085,6 +1139,36 @@ func (s *VoiceService) SetVADThreshold(db float64) {
 	}
 }
 
+// SetVoiceQuality sets what this user sends: standard | high | music
+// (anything else = standard). It applies at once, mid-call too, capped by
+// the room's limit.
+func (s *VoiceService) SetVoiceQuality(quality string) VoiceState {
+	switch quality {
+	case VoiceQualityHigh, VoiceQualityMusic:
+	default:
+		quality = VoiceQualityStandard
+	}
+	s.mu.Lock()
+	if s.quality != quality {
+		s.quality = quality
+		s.applyQualityLocked()
+		s.dirty = true
+	}
+	s.mu.Unlock()
+	return s.State()
+}
+
+// applyQualityLocked tells the audio backend the bitrate to send. Caller
+// holds s.mu.
+func (s *VoiceService) applyQualityLocked() {
+	q, ok := s.audio.(qualitySetter)
+	if !ok {
+		return
+	}
+	bps, music := voiceSendBitrate(s.quality, s.roomCap)
+	q.SetQuality(bps, music)
+}
+
 func dbToUnit(db float64) float32 { return float32(max(0, min(1, 1+db/60))) }
 
 // SetUserVolume sets how loud a user (by account id) plays, 0..200 %. It
@@ -1133,7 +1217,9 @@ func (s *VoiceService) State() VoiceState {
 		Participants: []VoiceParticipant{},
 		Muted:        s.muted, Deafened: s.deafened, PushToTalk: s.ptt, MicTest: s.micTest, MicTestError: s.micTestErr,
 		Quality: "unknown", AudioError: s.audioErr, Speaker: s.speaker,
+		VoiceQuality: s.quality, MaxBitrate: s.roomCap,
 	}
+	st.Bitrate, _ = voiceSendBitrate(s.quality, s.roomCap)
 	if s.running {
 		st.MicLevel, st.Transmitting = es.MicLevel, es.Transmitting
 		st.Route, st.Interrupted = es.Route, es.Interrupted

@@ -8,10 +8,10 @@
 // capture + offset comes round, i.e. with the audio captured at the same
 // moment. Without an offset (no audio playing, an old voice server) frames
 // show as they arrive.
-import { getVoiceSettings } from '../voice/voice.settings';
+import { getVoiceSettings, onVoiceSettingsChange, type VoiceSettings } from '../voice/voice.settings';
 import type { VideoBridge } from './video.bridge';
 import { codecFromDesc, parseBinary, parseText, type FrameMsg } from './video.frames';
-import { fitRect, layerForTile } from './video.layout';
+import { fitRect, layerFor } from './video.layout';
 import { EMPTY_VIDEO_STATE, type VideoCamera, type VideoSource, type VideoState, type VideoTrack } from './video.types';
 
 export interface VideoSnapshot {
@@ -20,6 +20,13 @@ export interface VideoSnapshot {
   open: boolean;
   // The big tile: a track id, or 0 for the default (the newest screen).
   pinned: number;
+  // Data saver is on now (Always, or Auto on a metered network).
+  dataSaver?: boolean;
+}
+
+/** Data saver is on: always, or in Auto while the network is metered. */
+export function dataSaverOn(setting: VoiceSettings['dataSaver'], metered: boolean | undefined): boolean {
+  return setting === 'always' || (setting === 'auto' && !!metered);
 }
 
 // Per-track numbers for the UI and the lip-sync measurement.
@@ -282,9 +289,13 @@ export class VideoController {
   private previewCanvas: HTMLCanvasElement | null = null;
   private previewSrc: HTMLCanvasElement | null = null;
   private disposed = false;
+  // The tiles last reported (re-applied when data saver turns on or off).
+  private lastTiles: TileSize[] = [];
+  private offSettings: (() => void) | null = null;
 
   constructor(private bridge: VideoBridge, env?: Partial<VideoEnv>) {
     this.env = { ...browserEnv(), ...env };
+    this.offSettings = onVoiceSettingsChange(() => this.applyQuality());
     let pushed = false;
     this.off = bridge.onState((s) => { pushed = true; this.setState(s); });
     // The first answer, unless a newer state was pushed meanwhile.
@@ -334,6 +345,7 @@ export class VideoController {
     if (pinned && !live.has(pinned)) pinned = 0;
     this.publish({ state: s, pinned });
     this.syncSocket();
+    this.applyQuality();
     // Joined with the camera chosen on the pre-join view: on once the
     // call's video is up.
     if (this.cameraOnJoin && s.available && s.status === 'connected' && s.canCapture && s.canPublish) {
@@ -427,10 +439,32 @@ export class VideoController {
     return this.bridge.screenSources();
   }
 
+  private pushedCamera = '';
+
+  /** Data saver and camera quality from the settings and the network: tells
+   * Go what the camera should send (when that changes) and re-picks the
+   * layers we receive. */
+  private applyQuality(): void {
+    if (this.disposed) return;
+    const st = getVoiceSettings();
+    const saver = dataSaverOn(st.dataSaver, this.snapshot.state.metered);
+    const camera = saver ? 'saver' : st.cameraQuality;
+    if (this.bridge.setCameraQuality && camera !== this.pushedCamera) {
+      this.pushedCamera = camera;
+      void this.bridge.setCameraQuality(camera).catch(() => { this.pushedCamera = ''; });
+    }
+    if (saver !== !!this.snapshot.dataSaver) {
+      this.publish({ dataSaver: saver });
+      this.tiles(this.lastTiles);
+    }
+  }
+
   /** The call view reports its tiles after layout: each visible track is
    * received at the layer that fits; the rest not at all. */
   tiles(sizes: TileSize[]): void {
+    this.lastTiles = sizes;
     if (!this.snapshot.open) return;
+    const saver = !!this.snapshot.dataSaver;
     const tracks = new Map<number, VideoTrack>(this.snapshot.state.tracks.map((t) => [t.trackId, t]));
     const want = new Map<number, number>();
     for (const s of sizes) {
@@ -440,9 +474,8 @@ export class VideoController {
       // small layer runs at half the rate (15 against 30 fps), and a
       // phone's tile is small. The server's bandwidth controller still
       // steps it down when the link can't take it. Cameras: by size.
-      const layer = t.kind === 'screen' && s.visible && t.layers.length > 0
-        ? t.layers.reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a)).id
-        : layerForTile(t.layers, s.width, s.height, s.visible);
+      // Data saver: cameras ≤360p, screen shares their low layer.
+      const layer = layerFor(t.kind, t.layers, s.width, s.height, s.visible, saver);
       if (layer !== null) want.set(s.trackId, layer);
     }
     for (const [id, layer] of want) {
@@ -624,6 +657,7 @@ export class VideoController {
     this.disposed = true;
     this.off?.();
     this.offVisible?.();
+    this.offSettings?.();
     this.closeSocket();
     for (const p of this.players.values()) p.close();
     this.players.clear();
