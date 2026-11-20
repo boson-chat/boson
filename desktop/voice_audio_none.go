@@ -9,6 +9,10 @@ import "errors"
 // lists still work; joining reports that this build can't.
 const voiceAudioCompiled = false
 
+// voiceBitrate: what Standard would send (nothing is sent in these builds;
+// VoiceState still reports it).
+const voiceBitrate = 32000
+
 var errVoiceAudioUnavailable = errors.New("this build has no voice audio (built without cgo or with novoiceaudio)")
 
 var newAudioBackend func() (audioBackend, error)
