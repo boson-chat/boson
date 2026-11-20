@@ -11,6 +11,8 @@ import './NetworkPanes.css';
 export interface ServerRailTile {
   serverId: string;
   name: string;
+  // The server's IRC host (voice channels are per host).
+  host?: string;
   engineState: EngineState;
   // Aggregated unread / mention counts across all channels in this server.
   // Drives the tile's notification dot + accent treatment. Optional so
@@ -56,7 +58,7 @@ interface ServerRailProps {
   onReorderServers?: (serverIds: string[]) => void;
   // "Use this network's theme" toggled for a tile's network.
   onToggleNetworkTheme?: (serverId: string, on: boolean) => void;
-  // Above the servers: the Friends tile (MY).
+  // Above the servers: MY (your avatar) and the SERVERS divider.
   top?: ComponentChildren;
 }
 

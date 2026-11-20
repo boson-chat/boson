@@ -31,9 +31,10 @@ import { getVideoController, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { useSwipeDrawers } from './useSwipeDrawers';
 import { useFriends } from '../../modules/friends';
-import { setFriendsUi, useFriendsUi } from '../Friends/friends-ui';
+import { getFriendsUi, setFriendsUi, useFriendsUi } from '../Friends/friends-ui';
 import { FriendsView } from '../Friends/FriendsView';
-import { FriendsRailTile, PhonePage, PhoneTabBar } from '../Friends/FriendsNav';
+import { PhonePage, PhoneTabBar } from '../Friends/FriendsNav';
+import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
 import './ChatLayout.css';
 import './NetworkPanes.css';
 
@@ -97,13 +98,17 @@ interface Props {
   channelOrder?: readonly string[];
   onReorderChannels?: (names: string[]) => void;
   onResetChannelOrder?: () => void;
+  // MY's direct messages (every connected server's), and opening one:
+  // its server becomes the active one, with the conversation open.
+  myDms?: readonly MyDm[];
+  onOpenDm?: (serverId: string, name: string) => void;
 }
 
 export function ChatLayout({
   chat, serverName, serverHost, bannerUrl, logoUrl, onToggleNetworkTheme, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
-  onReorderServers, channelOrder, onReorderChannels, onResetChannelOrder,
+  onReorderServers, channelOrder, onReorderChannels, onResetChannelOrder, myDms, onOpenDm,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -153,6 +158,12 @@ export function ChatLayout({
     if (activeName) setDrawer('none');
     // Phones: a conversation opened from elsewhere (Message on a friend) shows.
     if (activeName && lastActive) setFriendsUi({ tab: 'chats' });
+    // MY shows direct messages: a channel opened from elsewhere (a
+    // notification, the inbox) leaves it; a conversation shows in it.
+    if (activeName && lastActive && getFriendsUi().my) {
+      if (activeName.startsWith('#') || activeName.startsWith('&')) setFriendsUi({ my: false });
+      else setFriendsUi({ myView: 'chat' });
+    }
   }
 
   // ChanServ (channel registration) for this connection. `typeof` guard:
@@ -215,10 +226,15 @@ export function ChatLayout({
   // view (the desktop's main column; a phone shows a join sheet).
   const { view: voiceView } = useVoiceUi();
   const call = voiceSnap.call;
-  // Another server: its voice channel's view doesn't follow.
+  // Another server: its voice channel's view doesn't follow, unless it's
+  // the voice channel Join (Calls) switched servers for.
+  const pendingJoin = useRef<{ host: string; roomId: string; serverName: string } | null>(null);
   useEffect(() => {
-    setVoiceUi({ view: null });
+    const join = pendingJoin.current;
+    pendingJoin.current = null;
+    setVoiceUi({ view: join && join.host === serverHost ? join : null });
     if (!isNarrow()) getVideoController()?.setOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeServerId]);
   // Desktop: the call's stage while you're on its voice channel (or the
   // call was opened from the voice panel, the title bar or the strip).
@@ -252,13 +268,13 @@ export function ChatLayout({
   const callChat: CallChat | null = chatChannel
     ? { channel: chatChannel.name, messages: chatChannel.messages, onSend: (text) => chat.send(chatChannel.name, text) }
     : null;
-  // Friends (signed in with an account): the rail's MY page on desktop, the
-  // bottom bar's tabs on phones. Person menus are for this server's people.
+  // Friends (signed in with an account). MY (your avatar, top of the rail)
+  // holds Friends, Calls and your direct messages; on phones, for now, the
+  // bottom bar's tabs. Person menus are for this server's people.
   const { snap: friendsSnap } = useFriends();
   const friendsUi = useFriendsUi();
   useEffect(() => { setFriendsUi({ host: serverHost ?? null }); }, [serverHost]);
   const friendsOn = friendsSnap.available;
-  const friendsPage = friendsOn && friendsUi.page && !narrow && !stageOpen;
   const phoneTabs = friendsOn && narrow && !phoneCallOpen;
   const inViewedRoom = !!voiceView && call.host === voiceView.host && call.room === voiceView.roomId && call.status !== 'idle' && call.status !== 'error';
   // A private 1:1 call (friends) has no join screen: you're in it from the
@@ -266,14 +282,39 @@ export function ChatLayout({
   const privateView = !!voiceView && isPrivateCall(voiceView.roomId);
   useEffect(() => { if (privateView && !inViewedRoom) setVoiceUi({ view: null }); }, [privateView, inViewedRoom]);
   const prejoinOpen = !!voiceView && !privateView && !inViewedRoom;
+  const selfNick = state.myNick || myNick;
+  const presence: Presence = engineState !== 'connected' ? 'offline' : friendsSnap.privacy.doNotDisturb ? 'dnd' : 'online';
+  const myOpen = friendsUi.my && !narrow;
+  // MY's main column: a conversation only while a DM is the active one.
+  const myView = friendsUi.myView === 'chat' && (!active || isChannel) ? 'friends' : friendsUi.myView;
+  const activeDm = myOpen && myView === 'chat' && active && activeServerId ? { serverId: activeServerId, name: active.name } : null;
+  const serverNameFor = (host: string): string | undefined =>
+    host === serverHost ? serverName : servers?.find((t) => t.host === host)?.name;
+  // Join on the Calls page: the voice channel's join view, on its server.
+  const joinLive = (host: string, roomId: string, roomName: string): void => {
+    const view = { host, roomId, serverName: serverNameFor(host) ?? roomName };
+    setFriendsUi({ my: false, tab: 'chats' });
+    if (host === serverHost || !onSelectServer) { setVoiceUi({ view }); return; }
+    const tile = servers?.find((t) => t.host === host);
+    if (!tile) { setVoiceUi({ view }); return; }
+    pendingJoin.current = view;
+    onSelectServer(tile.serverId);
+  };
+  const calls = (layout: 'desktop' | 'phone') => <CallsView layout={layout} onJoin={joinLive} serverNameFor={serverNameFor} />;
 
   const rail = (
         <ServerRail
           servers={servers}
-          activeServerId={friendsPage ? null : activeServerId}
+          activeServerId={myOpen ? null : activeServerId}
           activeServerName={serverName}
-          onSelectServer={onSelectServer ? (id) => { setFriendsUi({ page: false }); onSelectServer(id); } : undefined}
-          top={friendsOn && !narrow ? <FriendsRailTile active={friendsPage} /> : undefined}
+          onSelectServer={onSelectServer ? (id) => { setFriendsUi({ my: false }); onSelectServer(id); } : undefined}
+          top={!narrow ? (
+            <>
+              <MyRailTile nick={selfNick} avatarUrl={avatarFor(selfNick)} presence={presence} active={myOpen}
+                onClick={() => setFriendsUi({ my: true })} />
+              <RailDivider />
+            </>
+          ) : undefined}
           onBrowseServers={onBrowseServers}
           onOpenServerSettings={onOpenServerSettings}
           onLeaveServer={onLeaveServer}
@@ -438,14 +479,58 @@ export function ChatLayout({
               <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />
             )}
           </div>
-          {phoneTabs && <PhonePage />}
+          {phoneTabs && <PhonePage calls={calls('phone')} />}
           {phoneTabs && <PhoneTabBar />}
         </>
       ) : (
-        friendsPage ? (
+        myOpen ? (
           <>
             {rail}
-            <FriendsView layout="desktop" />
+            <MySidebar
+              nick={selfNick}
+              presence={presence}
+              view={myView}
+              dms={myDms ?? []}
+              activeDm={activeDm}
+              showServer={(servers?.length ?? 0) > 1}
+              width={channelsW}
+              onOpenDm={(d) => {
+                setFriendsUi({ myView: 'chat' });
+                if (onOpenDm) onOpenDm(d.serverId, d.name);
+                else chat.setActive(d.name);
+              }}
+            />
+            <ResizeHandle
+              side="left"
+              width={channelsW}
+              min={PANEL_BOUNDS.channels.min}
+              max={PANEL_BOUNDS.channels.max}
+              onChange={setChannelsW}
+              onCommit={(w) => setChannelsW(setPanelWidth('channels', w))}
+              onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
+              ariaLabel="Resize channel list"
+            />
+            {stageOpen ? <CallStage avatarFor={avatarFor} />
+              : myView === 'friends' ? <FriendsView layout="desktop" />
+                : myView === 'calls' ? calls('desktop')
+                  : chatArea}
+            {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />
+              : myView === 'chat' ? (
+                <>
+                  <ResizeHandle
+                    side="right"
+                    width={membersW}
+                    min={PANEL_BOUNDS.members.min}
+                    max={PANEL_BOUNDS.members.max}
+                    onChange={setMembersW}
+                    onCommit={(w) => setMembersW(setPanelWidth('members', w))}
+                    onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
+                    ariaLabel="Resize member list"
+                  />
+                  {userPanel}
+                </>
+              ) : null}
+            <ScreenPicker />
           </>
         ) : <>
           {rail}
