@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { ArrowLeft, Settings, X } from 'lucide-preact';
-import { AtomLoader } from '@boson/shared';
+import { AtomLoader, Button, EmptyState, ListRow, PageHeader, Segmented, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { getAvatar, subscribeAvatars } from '../../modules/chat/avatar-cache';
 import { getMemoStore, type Memo } from '../../modules/memos';
@@ -144,71 +144,60 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
     else if (filter === 'friend' || filter === 'call') feed.clear([filter]);
   };
 
-  const head = (
+  const markAll = (): void => { memoStore.markAllRead(); feed.markAllRead(); };
+  const settingsBtn = onOpenSettings && (
+    <Button variant="ghost" size={phone ? 'lg' : 'sm'} icon={<Settings aria-hidden="true" />} aria-label="Notification settings" title="Notification settings" onClick={onOpenSettings} />
+  );
+  const head = phone ? (
+    <PageHeader layout="phone" title={<span id="notes-title">Notifications</span>} sub={`${unread} unread`} onBack={onClose} backLabel="Back"
+      backIcon={<ArrowLeft aria-hidden="true" />}
+      actions={<>
+        <Button variant="ghost" size="lg" onClick={markAll} disabled={unread === 0}>Mark all read</Button>
+        {settingsBtn}
+      </>} />
+  ) : (
     <div class="notes-head">
-      {phone && (
-        <button type="button" class="notes-icon" aria-label="Back" onClick={onClose}><ArrowLeft size={22} aria-hidden="true" /></button>
-      )}
-      <span class="notes-titles">
-        <h2 class="notes-title" id="notes-title">Notifications</h2>
-        {phone && <span class="notes-sub">{unread} unread</span>}
-      </span>
-      <button type="button" class="notes-text-btn" onClick={() => { memoStore.markAllRead(); feed.markAllRead(); }} disabled={unread === 0}>Mark all read</button>
-      {!phone && shown.length > 0 && <button type="button" class="notes-text-btn" onClick={clear}>Clear</button>}
-      {onOpenSettings && (
-        <button type="button" class="notes-icon" aria-label="Notification settings" title="Notification settings" onClick={onOpenSettings}>
-          <Settings size={phone ? 18 : 15} aria-hidden="true" />
-        </button>
-      )}
+      <h2 class="notes-title" id="notes-title">Notifications</h2>
+      <Button variant="ghost" size="sm" onClick={markAll} disabled={unread === 0}>Mark all read</Button>
+      {shown.length > 0 && <Button variant="ghost" size="sm" onClick={clear}>Clear</Button>}
+      {settingsBtn}
     </div>
   );
   const body = (
     <>
       {head}
-      <div class="notes-filters" role="tablist" aria-label="Show">
-        {FILTERS.map(([k, label]) => {
-          const n = k === 'all' ? unread : all.filter((x) => x.group === k && x.unread).length;
-          return (
-            <button key={k} type="button" role="tab" aria-selected={filter === k} class={`notes-filter${filter === k ? ' notes-filter-on' : ''}`}
-              aria-label={n > 0 ? `${label}, ${n} unread` : label} onClick={() => setFilter(k)}>
-              {label}
-            </button>
-          );
-        })}
+      <div class="notes-filters">
+        <Segmented semantics="tabs" label="Show" value={filter} size={phone ? 'lg' : 'md'} onChange={setFilter}
+          options={FILTERS.map(([k, label]) => {
+            const n = k === 'all' ? unread : all.filter((x) => x.group === k && x.unread).length;
+            return { id: k, label, ariaLabel: n > 0 ? `${label}, ${n} unread` : label };
+          })} />
       </div>
       <ul class="notes-list" role="tabpanel" aria-label={FILTERS.find(([k]) => k === filter)![1]}>
-        {shown.length === 0 && <li class="notes-empty">{EMPTY[filter]}</li>}
+        {shown.length === 0 && <li class="notes-empty"><EmptyState>{EMPTY[filter]}</EmptyState></li>}
         {shown.map((n) => {
           const pending = !!n.memo && unfetched(n.memo);
           const url = n.serverId ? getAvatar(n.serverId, n.nick) : undefined;
           return (
-            <li key={n.id} class={`notes-item${n.unread ? ' notes-item-unread' : ''}`}>
-              <button type="button" class="notes-open" onClick={() => open(n)}
-                aria-label={`${n.unread ? 'Unread: ' : ''}${n.title}${n.where ? `, ${n.where}` : ''}${n.body ? `: ${n.body}` : ''}${pending ? '. Read memo' : ''}`}>
-                <Avatar nick={n.nick} url={url} size={phone ? 38 : 32} />
-                <span class="notes-text">
-                  <span class="notes-row-head">
-                    <span class="notes-row-title">{n.title}</span>
-                    {n.where && <span class="notes-row-where">{n.where}</span>}
-                    <span class="notes-fill" />
-                    <span class="notes-time">{n.time ?? ago(n.at)}</span>
-                  </span>
-                  <span class="notes-row-body">
-                    {pending
-                      ? (loading.has(n.memo!.id)
-                        ? <span class="notes-loading"><AtomLoader size={14} label="Fetching memo" /> Fetching…</span>
-                        : <span class="notes-placeholder">{phone ? 'Tap' : 'Click'} to read →</span>)
-                      : n.body}
-                  </span>
-                </span>
-                {n.unread && <span class="notes-dot" aria-hidden="true" />}
-              </button>
-              <button type="button" class="notes-x" aria-label={`Remove ${n.title}`} onClick={() => dismiss(n)}><X size={14} aria-hidden="true" /></button>
-            </li>
+            <ListRow key={n.id} as="li" class="notes-item" size={phone ? 'lg' : 'md'} unread={n.unread}
+              onClick={() => open(n)}
+              ariaLabel={`${n.unread ? 'Unread: ' : ''}${n.title}${n.where ? `, ${n.where}` : ''}${n.body ? `: ${n.body}` : ''}${pending ? '. Read memo' : ''}`}
+              leading={<Avatar nick={n.nick} url={url} size={phone ? 38 : 32} />}
+              title={n.title}
+              meta={n.where || undefined}
+              aside={<><span class="notes-time">{n.time ?? ago(n.at)}</span>{n.unread && <StatusDot status="accent" size={8} class="notes-dot" />}</>}
+              subtitleLines={2}
+              subtitle={pending
+                ? (loading.has(n.memo!.id)
+                  ? <span class="notes-loading"><AtomLoader size={14} label="Fetching memo" /> Fetching…</span>
+                  : <span class="notes-placeholder">{phone ? 'Tap' : 'Click'} to read →</span>)
+                : n.body}
+              trailing={<Button variant="ghost" size={phone ? 'lg' : 'sm'} class="notes-x" icon={<X aria-hidden="true" />} aria-label={`Remove ${n.title}`} onClick={() => dismiss(n)} />}
+            />
           );
         })}
         {phone && shown.length > 0 && (
-          <li class="notes-foot"><button type="button" class="notes-text-btn" onClick={clear}>Clear {filter === 'all' ? 'all' : 'these'}</button></li>
+          <li class="notes-foot"><Button variant="ghost" size="lg" onClick={clear}>Clear {filter === 'all' ? 'all' : 'these'}</Button></li>
         )}
       </ul>
     </>

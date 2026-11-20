@@ -21,12 +21,18 @@ interface SegmentedProps<T extends string> {
   size?: 'md' | 'lg';
   /** Options share the width (default) or size to their labels. */
   fill?: boolean;
+  /**
+   * radio (default): a setting. tabs: picks what a list below shows (the
+   * bell's filters): a tablist of tabs, same look.
+   */
+  semantics?: 'radio' | 'tabs';
   class?: string;
 }
 
 // One choice out of a few, side by side: a radio group drawn as joined
 // buttons. Arrow keys move the choice, as in any radio group.
-export function Segmented<T extends string>({ label, labelledBy, value, options, onChange, size = 'md', fill = true, class: extra }: SegmentedProps<T>) {
+export function Segmented<T extends string>({ label, labelledBy, value, options, onChange, size = 'md', fill = true, semantics = 'radio', class: extra }: SegmentedProps<T>) {
+  const tabs = semantics === 'tabs';
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const onKey = (e: KeyboardEvent, i: number): void => {
     const step = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
@@ -38,7 +44,7 @@ export function Segmented<T extends string>({ label, labelledBy, value, options,
   };
   const cls = ['bds-seg', `bds-seg-${size}`, fill ? 'bds-seg-fill' : '', extra ?? ''].filter(Boolean).join(' ');
   return (
-    <div class={cls} role="radiogroup" aria-label={labelledBy ? undefined : label} aria-labelledby={labelledBy}>
+    <div class={cls} role={tabs ? 'tablist' : 'radiogroup'} aria-label={labelledBy ? undefined : label} aria-labelledby={labelledBy}>
       {options.map((o, i) => {
         const on = o.id === value;
         return (
@@ -46,8 +52,9 @@ export function Segmented<T extends string>({ label, labelledBy, value, options,
             key={o.id}
             ref={(el) => { refs.current[i] = el; }}
             type="button"
-            role="radio"
-            aria-checked={on}
+            role={tabs ? 'tab' : 'radio'}
+            aria-checked={tabs ? undefined : on}
+            aria-selected={tabs ? on : undefined}
             aria-label={o.ariaLabel}
             tabIndex={on ? 0 : -1}
             class={`bds-seg-opt${on ? ' bds-seg-on' : ''}`}
