@@ -44,8 +44,10 @@ func connectForProbe(t *testing.T, answer bool) (*Client, chan error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	done := make(chan error, 1)
+	c.keepalive.tick = 10 * time.Millisecond
 	go func() { done <- c.Connect(ctx) }()
 	require.Eventually(t, c.girc.IsConnected, 5*time.Second, 5*time.Millisecond)
+	require.Eventually(t, c.keepalive.welcomed.Load, 5*time.Second, 5*time.Millisecond)
 	return c, done
 }
 
@@ -63,8 +65,10 @@ func TestProbe_AliveConnectionAnswers(t *testing.T) {
 func TestProbe_SilentConnectionIsDropped(t *testing.T) {
 	c, done := connectForProbe(t, false)
 	start := time.Now()
-	assert.False(t, c.Probe(300*time.Millisecond))
-	assert.Less(t, time.Since(start), 2*time.Second)
+	assert.False(t, c.Probe(200*time.Millisecond))
+	// One PING and keepaliveRetries more, each given the wait.
+	assert.GreaterOrEqual(t, time.Since(start), time.Duration(1+keepaliveRetries)*200*time.Millisecond)
+	assert.Less(t, time.Since(start), 3*time.Second)
 	select {
 	case <-done: // Connect returned: the session reports disconnected
 	case <-time.After(5 * time.Second):

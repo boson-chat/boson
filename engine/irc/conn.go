@@ -31,6 +31,9 @@ type lineFilterConn struct {
 	net.Conn
 	r       *bufio.Reader
 	pending []byte // bytes of the current accepted line still to be served
+	// onRead, when set, runs whenever bytes arrive (the keepalive's proof
+	// of life). Set before the conn is handed to girc.
+	onRead func()
 
 	wmu       sync.Mutex
 	wbuf      []byte // a partial outbound line, held until its \n arrives
@@ -117,6 +120,9 @@ func (l *lineFilterConn) Read(p []byte) (int, error) {
 	for len(l.pending) == 0 {
 		line, err := l.r.ReadBytes('\n')
 		if len(line) > 0 {
+			if l.onRead != nil {
+				l.onRead()
+			}
 			if girc.ParseEvent(string(line)) != nil {
 				l.pending = line
 			} else {
@@ -141,7 +147,7 @@ func (l *lineFilterConn) Read(p []byte) (int, error) {
 // girc.MockConnect so girc skips its internal dial+TLS but still runs the full
 // registration flow (PASS / CAP / NICK / USER). This is the only way to put a
 // filter ABOVE TLS — a girc DialerConnect filter would see ciphertext.
-func dial(ctx context.Context, cfg Config) (net.Conn, error) {
+func dial(ctx context.Context, cfg Config) (*lineFilterConn, error) {
 	addr := net.JoinHostPort(cfg.Hostname, strconv.Itoa(cfg.Port))
 	d := &net.Dialer{Timeout: cfg.ConnTimeout}
 	raw, err := d.DialContext(ctx, "tcp", addr)

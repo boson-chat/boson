@@ -139,6 +139,14 @@ So for v1:
   user's bouncer (ZNC/soju replay, which the app already handles) or
   IRCv3 chathistory where the server has it. Direct connections without
   either lose what was said while away, as on desktop after a sleep.
+- Keepalive (`engine/irc/keepalive.go`): the engine PINGs after 60s of
+  quiet, which keeps carrier NATs and the server's idle timer (Ergo: ping
+  at 90s, drop at 150s) happy. Any bytes from the server count as alive.
+  A connection is dropped only after three unanswered PINGs, 20s apart. A
+  check on returning to the app or on a Wi-Fi/cellular switch uses the same
+  retries with 10s waits. Silence while the app was suspended isn't
+  counted. No IRC spec sets these numbers (RFC 1459/2812 say only "regular
+  intervals"), and no ISUPPORT/CAP advertises a server's.
 - Android: an opt-in "Stay connected in the background" setting (foreground
   service).
 - iOS: the bouncer is the way to stay "present"; the app nudges users who

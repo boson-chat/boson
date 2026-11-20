@@ -27,10 +27,21 @@ static void watchNetwork(void) {
     nw_path_monitor_t monitor = nw_path_monitor_create();
     nw_path_monitor_set_queue(monitor, dispatch_get_main_queue());
     __block BOOL first = YES;
+    __block int lastKey = -1;
     nw_path_monitor_set_update_handler(monitor, ^(nw_path_t path) {
+        BOOL online = nw_path_get_status(path) == nw_path_status_satisfied;
+        // The monitor reports every path update, and on cellular those come
+        // often with nothing that matters to a TCP connection (expensive /
+        // constrained flags, DNS, the radio's own state). Only a change of
+        // reachability or interface (Wi-Fi <-> cellular) is passed on.
+        int key = (online ? 1 : 0)
+            | (nw_path_uses_interface_type(path, nw_interface_type_wifi) ? 2 : 0)
+            | (nw_path_uses_interface_type(path, nw_interface_type_cellular) ? 4 : 0)
+            | (nw_path_uses_interface_type(path, nw_interface_type_wired) ? 8 : 0);
+        if (key == lastKey) return;
+        lastKey = key;
         // The first update is the state at start, not a change.
         if (first) { first = NO; return; }
-        BOOL online = nw_path_get_status(path) == nw_path_status_satisfied;
         if (![bosonWebView respondsToSelector:@selector(evaluateJavaScript:completionHandler:)]) return;
         NSString *js = [NSString stringWithFormat:
             @"window.dispatchEvent(new CustomEvent('boson:network', { detail: { online: %@ } }))",

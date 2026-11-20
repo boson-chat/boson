@@ -116,9 +116,8 @@ type Client struct {
 	// aborted: Abort dropped the connection; Connect must not QUIT on the
 	// way out (see Abort).
 	aborted atomic.Bool
-	// Probe's outstanding PINGs, by token; closed when their PONG arrives.
-	probes   map[string]chan struct{}
-	probeSeq atomic.Uint64
+	// keepalive pings a quiet connection and drops a dead one (keepalive.go).
+	keepalive *keepalive
 	// lifeCtx is the connection's lifetime context, set at the top of
 	// Connect. Deferred work (the post-welcome LIST timers, the services
 	// probe-timeout fallbacks) selects on its Done so a disconnect within
@@ -196,10 +195,12 @@ func New(cfg Config) (*Client, error) {
 		// girc's own flood control sleeps in the *caller* of Send (the IPC
 		// dispatch loop), stalling every command on the session; we pace
 		// in our own queue's drainer instead. See sendqueue.go.
-		AllowFlood:  true,
-		PingDelay:   30 * time.Second,
-		PingTimeout: 30 * time.Second,
-		SASL:        saslMechanism,
+		AllowFlood: true,
+		// girc's own ping loop is off (negative = disabled; 0 would be
+		// clamped to 20s): the engine's keepalive does it, with retries and
+		// any incoming data counting as an answer. See keepalive.go.
+		PingDelay: -1,
+		SASL:      saslMechanism,
 		// IRCv3 capabilities we negotiate at connect:
 		//   message-tags     — required to send/receive client tags like +typing
 		//   server-time      — server-stamps messages with a UTC timestamp
@@ -270,19 +271,7 @@ func New(cfg Config) (*Client, error) {
 	c.bouncer.after = c.afterConnLifetime
 	c.bouncer.selfNick = c.girc.GetNick
 	c.bouncer.rearm = c.rearmUpstreamSession
-	// A PONG answering a Probe (its token is the PONG's last param).
-	gc.Handlers.Add(girc.PONG, func(_ *girc.Client, e girc.Event) {
-		token := e.Last()
-		c.mu.Lock()
-		ch, ok := c.probes[token]
-		if ok {
-			delete(c.probes, token)
-		}
-		c.mu.Unlock()
-		if ok {
-			close(ch)
-		}
-	})
+	c.installKeepalive()
 	return c, nil
 }
 
@@ -682,6 +671,13 @@ func (c *Client) Connect(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// Keepalive for this connection: incoming bytes prove it alive; the
+	// loop ends with Connect.
+	c.keepalive.reset()
+	conn.onRead = c.keepalive.touch
+	kaCtx, stopKeepalive := context.WithCancel(ctx)
+	defer stopKeepalive()
+	go c.keepalive.run(kaCtx)
 
 	// Start the ordered callback drainer for this connection. Deferred stop
 	// runs after girc has fully exited (MockConnect returned), so by then
@@ -773,37 +769,18 @@ func (c *Client) Abort() {
 	c.girc.Close()
 }
 
-// Probe checks the connection is alive: a PING the server must answer within
-// timeout. A connection that doesn't is dropped (without a QUIT — nothing
-// would receive it), so it reports disconnected now rather than after
-// girc's own ping timeout. For when the app comes back from being
-// suspended (a phone app in the background): its sockets may have died
-// meanwhile, and its timers were frozen. Reports whether it answered.
-func (c *Client) Probe(timeout time.Duration) bool {
+// Probe checks the connection is alive now rather than at the next
+// keepalive: for when the app comes back from being suspended (a phone app in
+// the background) or the network changed, and its sockets may have died
+// meanwhile. It PINGs at once and waits up to wait for anything from the
+// server, retrying like the keepalive (keepaliveRetries more PINGs) before
+// dropping the connection (without a QUIT — nothing would receive it), which
+// then reports disconnected. Reports whether it answered.
+func (c *Client) Probe(wait time.Duration) bool {
 	if !c.girc.IsConnected() {
 		return false
 	}
-	token := fmt.Sprintf("boson-probe-%d", c.probeSeq.Add(1))
-	ch := make(chan struct{})
-	c.mu.Lock()
-	if c.probes == nil {
-		c.probes = map[string]chan struct{}{}
-	}
-	c.probes[token] = ch
-	c.mu.Unlock()
-	// Straight to girc, ahead of the paced queue: it must not wait behind a
-	// backlog to be judged.
-	c.girc.Send(&girc.Event{Command: girc.PING, Params: []string{token}})
-	select {
-	case <-ch:
-		return true
-	case <-time.After(timeout):
-		c.mu.Lock()
-		delete(c.probes, token)
-		c.mu.Unlock()
-		c.Abort()
-		return false
-	}
+	return <-c.keepalive.check(wait)
 }
 
 // Quit ends the IRC session with the given reason.
