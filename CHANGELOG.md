@@ -1,3 +1,9 @@
+## [0.85.0](https://github.com/boson-chat/boson/compare/v0.84.0...v0.85.0) (2026-11-20)
+
+### Features
+
+* notifications: toasts, the bell, settings, and incoming calls as a banner or full screen ([#115](https://github.com/boson-chat/boson/issues/115)) ([0943e04](https://github.com/boson-chat/boson/commit/0943e0461114d3573e40dbb074dee534b128fe8d))
+
 ## [0.84.0](https://github.com/boson-chat/boson/compare/v0.83.0...v0.84.0) (2026-11-20)
 
 ### Features
