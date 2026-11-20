@@ -1,3 +1,9 @@
+## [0.82.0](https://github.com/boson-chat/boson/compare/v0.81.1...v0.82.0) (2026-11-20)
+
+### Features
+
+* friends and private 1:1 calls ([#111](https://github.com/boson-chat/boson/issues/111)) ([762ab51](https://github.com/boson-chat/boson/commit/762ab513f31d22126ca576f4a6222955135d5342))
+
 ## [0.81.1](https://github.com/boson-chat/boson/compare/v0.81.0...v0.81.1) (2026-11-20)
 
 ### Bug Fixes
