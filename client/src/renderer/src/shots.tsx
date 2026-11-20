@@ -24,6 +24,13 @@ import { VoiceController, setVoiceController, setVoiceSettings, type VoiceRoom }
 import { createFakeVoiceBridge } from './modules/voice/voice.fake';
 import { VideoController, setVideoController, EMPTY_VIDEO_STATE, type VideoState } from './modules/video';
 import { NetworkDirectories } from './modules/directory/networks';
+import { FriendsController, HttpFriendsApi, setFriendsController } from './modules/friends';
+import { FakeFriendsApi } from './modules/friends/friends.fake';
+import { getVoiceController } from './modules/voice';
+import { getVideoController } from './modules/video';
+import { openCall } from './screens/ChatLayout/call-shared';
+import { setFriendsUi } from './screens/Friends/friends-ui';
+import { CallOverlays } from './screens/Friends/CallOverlays';
 import { configureDirectorySources } from './modules/directory/sources';
 import { fakeDirectory, fakeTransport, type FakeNetwork } from './modules/directory/test-directory-server';
 
@@ -404,9 +411,59 @@ function installVideo(): void {
   setTimeout(() => c.setOpen(true), 400);
 }
 
+// ?friends=1: signed in, with friends (kestrel, mox who may call anytime),
+// pixel (friends-only calls), a request from nova, orbit blocked.
+// &fpage=1 opens the desktop Friends page; &tab=friends|calls the phone's
+// tab; &ring=video|voice: kestrel calls; &calling=mox: calling mox
+// (&answer=ms answers); &missed=N missed calls.
+const friendsMode = new URLSearchParams(location.search).get('friends');
+function installFriends(): void {
+  if (!friendsMode) return;
+  const q = new URLSearchParams(location.search);
+  const missed = Number(q.get('missed') ?? 0);
+  const api = new FakeFriendsApi({
+    people: [
+      { username: 'kestrel', rel: 'friend' },
+      { username: 'mox', rel: 'friend', anytime: true },
+      { username: 'pixel', rel: 'none' },
+      { username: 'nova', rel: 'incoming', calls: 'everyone' },
+      { username: 'orbit', rel: 'blocked' },
+    ],
+    privacy: q.get('privacy') ? { calls: q.get('privacy') as 'nobody' } : undefined,
+    missed: Array.from({ length: missed }, (_, i) => ({ from: i % 2 ? 'mox' : 'kestrel', video: i % 2 === 0, minutesAgo: 5 + i * 40 })),
+    answerAfter: q.get('answer') ? Number(q.get('answer')) : undefined,
+  });
+  // &live=<auth URL>&tok=<access token>: the real auth service instead.
+  const live = q.get('live');
+  const liveApi = live ? new HttpFriendsApi({
+    request: async <T,>(method: string, path: string, body?: unknown): Promise<T> => {
+      const r = await fetch(live + path, { method, headers: { Authorization: `Bearer ${q.get('tok')}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const text = await r.text();
+      const parsed = text ? JSON.parse(text) : null;
+      if (!r.ok) throw Object.assign(new Error(parsed?.message ?? r.statusText), { code: parsed?.error, status: r.status });
+      return parsed as T;
+    },
+  }) : null;
+  const ctl = new FriendsController({
+    api: liveApi ?? api, authUrl: 'https://auth.boson.chat', signedIn: () => true, me: () => NICK,
+    onAccessChange: () => () => {}, voice: getVoiceController, video: getVideoController, openCall,
+  });
+  setFriendsController(ctl);
+  ctl.start();
+  (globalThis as unknown as { __friends: unknown }).__friends = { api, ctl };
+  if (q.get('fpage')) setFriendsUi({ page: true });
+  const tab = q.get('tab');
+  if (tab === 'friends' || tab === 'calls') setFriendsUi({ tab });
+  const ring = q.get('ring');
+  if (ring) setTimeout(() => api.ring('kestrel', ring === 'video'), 600);
+  const calling = q.get('calling');
+  if (calling) setTimeout(() => { void ctl.call(calling, q.get('video') === '1'); }, 600);
+}
+
 function chatView(): void {
   installVoice();
   installVideo();
+  installFriends();
   const session = makeSession();
   const chat = new ChatService(
     session as never,
@@ -444,8 +501,9 @@ function chatView(): void {
       onBrowseServers={() => {}}
     />
   );
+  const withCalls = <>{layout}{friendsMode && <CallOverlays />}</>;
   render(
-    voiceMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{layout}</AuthProvider> : layout,
+    voiceMode ? <AuthProvider service={makeAuth(voiceMode !== 'guest')}>{withCalls}</AuthProvider> : withCalls,
     document.getElementById('app')!,
   );
 
@@ -654,6 +712,7 @@ function settingsView(): void {
   installApi(true);
   multiDirectoryNetworks();
   installVoice();
+  installFriends();
   // Settings → Voice's quality card: ?platform=ios (a phone), ?metered=1
   // (on mobile data), ?vq=music&cq=high&ds=always (the settings).
   const q = new URLSearchParams(location.search);

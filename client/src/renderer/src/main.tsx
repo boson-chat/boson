@@ -7,7 +7,9 @@ import { installDropGuard } from './shared/drop-guard';
 import { trackVisualViewport } from './shared/visual-viewport';
 import { NetworkThemes, getThemeStore, setNetworkThemes } from './modules/ui/theme';
 import { VoiceController, getVoiceController, guestVoiceId, normalizeAuthUrl, setVoiceController, voiceBridge } from './modules/voice';
-import { VideoController, setVideoController, videoBridge } from './modules/video';
+import { VideoController, getVideoController, setVideoController, videoBridge } from './modules/video';
+import { FriendsController, HttpFriendsApi, setFriendsController } from './modules/friends';
+import { openCall } from './screens/ChatLayout/call-shared';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
 import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
@@ -162,6 +164,24 @@ void (async () => {
     const vb = videoBridge();
     if (vb) setVideoController(new VideoController(vb));
   }
+  // Friends and private calls on the app's account (its auth service): the
+  // event feed rings this app while it's open.
+  const friends = new FriendsController({
+    api: new HttpFriendsApi(props.auth),
+    authUrl,
+    signedIn: () => loadGuestSession() === null && !!props.auth.getState().session,
+    me: () => props.auth.getState().session?.user.username ?? '',
+    onAccessChange: (fn) => {
+      const offAuth = props.auth.subscribe(() => fn());
+      const offGuest = onGuestChange(fn);
+      return () => { offAuth(); offGuest(); };
+    },
+    voice: getVoiceController,
+    video: getVideoController,
+    openCall,
+  });
+  setFriendsController(friends);
+  friends.start();
   void netAccounts?.init();
   // Fire init async — App renders immediately and shows "Loading…" until ready.
   props.auth.init().catch((err) => {

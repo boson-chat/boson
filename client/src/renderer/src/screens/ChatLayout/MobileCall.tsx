@@ -8,7 +8,7 @@ import { useVoice, type VoiceController, type VoiceState } from '../../modules/v
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { BottomSheet } from './BottomSheet';
 import { HoldToTalk, VoicePanel } from './MobileVoice';
-import { callTiles, closeCall, openCall, type CallTileInfo } from './call-shared';
+import { callTiles, closeCall, isPrivateCall, openCall, type CallTileInfo } from './call-shared';
 import { ShareSound } from './ShareSound';
 import { GuestBadge } from './GuestBadge';
 import './MobileCall.css';
@@ -74,7 +74,7 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
         <button type="button" class="mcall-icon" aria-label="Minimize call" onClick={closeCall}><ChevronDown size={22} aria-hidden="true" /></button>
         <span class="mcall-dot" aria-hidden="true" />
         <span class="mcall-title">{call.roomName || call.room}</span>
-        <span class="mcall-meta">· {call.participants.length}{rtt ? ` · ${rtt}` : ''}</span>
+        <span class="mcall-meta">· {isPrivateCall(call.room) ? 'private' : call.participants.length}{rtt ? ` · ${rtt}` : ''}</span>
         {onChat && (
           <button type="button" class="mcall-icon" aria-label={`Chat in ${call.roomName || call.room}`} onClick={onChat}><MessageSquare size={20} aria-hidden="true" /></button>
         )}

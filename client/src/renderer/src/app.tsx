@@ -25,6 +25,7 @@ import { getMemoStore, type Memo } from './modules/memos';
 import { publishOpenConversation, publishReadMemo } from './modules/inbox-nav/inbox-nav';
 import { onOpenUserSettings } from './modules/ui/open-settings';
 import { useUpdateState } from './modules/updater/updater';
+import { CallOverlays } from './screens/Friends/CallOverlays';
 
 interface AppProps {
   auth: AuthService;
@@ -140,6 +141,8 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
         identity={identity}
         auth={auth}
       />
+      {/* Private calls: calling, ringing, toasts. */}
+      <CallOverlays />
       {/* "Sign in to <network>" (self-hosted networks' own accounts). */}
       <NetworkSignInHost />
       <Inbox

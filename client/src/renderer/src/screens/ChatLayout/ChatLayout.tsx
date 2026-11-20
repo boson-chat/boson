@@ -30,6 +30,10 @@ import { setVoiceUi, useVoiceUi } from './VoiceRooms';
 import { getVideoController, useVideo } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { useSwipeDrawers } from './useSwipeDrawers';
+import { useFriends } from '../../modules/friends';
+import { setFriendsUi, useFriendsUi } from '../Friends/friends-ui';
+import { FriendsView } from '../Friends/FriendsView';
+import { FriendsRailTile, PhonePage, PhoneTabBar } from '../Friends/FriendsNav';
 import './ChatLayout.css';
 import './NetworkPanes.css';
 
@@ -147,6 +151,8 @@ export function ChatLayout({
   if (activeName !== lastActive) {
     setLastActive(activeName);
     if (activeName) setDrawer('none');
+    // Phones: a conversation opened from elsewhere (Message on a friend) shows.
+    if (activeName && lastActive) setFriendsUi({ tab: 'chats' });
   }
 
   // ChanServ (channel registration) for this connection. `typeof` guard:
@@ -246,14 +252,23 @@ export function ChatLayout({
   const callChat: CallChat | null = chatChannel
     ? { channel: chatChannel.name, messages: chatChannel.messages, onSend: (text) => chat.send(chatChannel.name, text) }
     : null;
+  // Friends (signed in with an account): the rail's MY page on desktop, the
+  // bottom bar's tabs on phones. Person menus are for this server's people.
+  const { snap: friendsSnap } = useFriends();
+  const friendsUi = useFriendsUi();
+  useEffect(() => { setFriendsUi({ host: serverHost ?? null }); }, [serverHost]);
+  const friendsOn = friendsSnap.available;
+  const friendsPage = friendsOn && friendsUi.page && !narrow && !stageOpen;
+  const phoneTabs = friendsOn && narrow && !phoneCallOpen;
   const prejoinOpen = !!voiceView && !(call.host === voiceView.host && call.room === voiceView.roomId && call.status !== 'idle' && call.status !== 'error');
 
   const rail = (
         <ServerRail
           servers={servers}
-          activeServerId={activeServerId}
+          activeServerId={friendsPage ? null : activeServerId}
           activeServerName={serverName}
-          onSelectServer={onSelectServer}
+          onSelectServer={onSelectServer ? (id) => { setFriendsUi({ page: false }); onSelectServer(id); } : undefined}
+          top={friendsOn && !narrow ? <FriendsRailTile active={friendsPage} /> : undefined}
           onBrowseServers={onBrowseServers}
           onOpenServerSettings={onOpenServerSettings}
           onLeaveServer={onLeaveServer}
@@ -387,7 +402,7 @@ export function ChatLayout({
   return (
     <div
       ref={shellRef}
-      class={`app-shell${narrow ? ` is-narrow drawer-${shownDrawer}${swipe.dragX !== null ? ' is-dragging' : ''}${revealed ? ` reveal-${revealed}` : ''}` : ''}`}
+      class={`app-shell${narrow ? ` is-narrow drawer-${shownDrawer}${swipe.dragX !== null ? ' is-dragging' : ''}${revealed ? ` reveal-${revealed}` : ''}${phoneTabs ? ' has-tabs' : ''}` : ''}`}
     >
       {narrow ? (
         <>
@@ -418,9 +433,16 @@ export function ChatLayout({
               <button type="button" class="mobile-scrim" aria-label="Back to chat" onClick={() => setDrawer('none')} />
             )}
           </div>
+          {phoneTabs && <PhonePage />}
+          {phoneTabs && <PhoneTabBar />}
         </>
       ) : (
-        <>
+        friendsPage ? (
+          <>
+            {rail}
+            <FriendsView layout="desktop" />
+          </>
+        ) : <>
           {rail}
           {sidebar}
           <ResizeHandle

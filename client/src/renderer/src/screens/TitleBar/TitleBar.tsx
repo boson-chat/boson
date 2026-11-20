@@ -5,6 +5,7 @@ import { getWindowBridge, isDarwin, isMobile } from '../../shared/window-control
 import { useVoice } from '../../modules/voice';
 import { useNarrow } from '../../shared/narrow';
 import { openCall, useCallClock } from '../ChatLayout/call-shared';
+import { MissedCallsPill } from '../Friends/MissedCalls';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -68,6 +69,7 @@ export function TitleBar({
       </div>
       {(onOpenSettings || onOpenInbox || (updateReady && onOpenUpdate)) && (
         <div class="title-bar-controls">
+          {!mobile && <MissedCallsPill />}
           <CallPill />
           {updateReady && onOpenUpdate && (
             <button

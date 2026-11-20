@@ -1,0 +1,102 @@
+/* Friend and call actions in a nick's menu, profile card and phone sheet. */
+.person-menu { display: flex; flex-direction: column; }
+.person-menu-relation {
+  padding: 0 var(--space-3) var(--space-2);
+  margin-top: calc(-1 * var(--space-1));
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+}
+.person-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--fg);
+  font: 500 13px var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.person-menu-item:hover, .person-menu-item:focus-visible { background: var(--surface-hover); outline: none; }
+.person-menu-item:focus-visible { box-shadow: var(--focus-ring); }
+.person-menu-item-danger { color: color-mix(in oklab, var(--danger), white 25%); }
+.person-menu-icon-call { color: var(--success); flex: none; }
+.person-menu-icon-friend { color: var(--accent); flex: none; }
+.person-menu-why {
+  padding: 6px var(--space-3) var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--fg-2);
+}
+.person-menu-why-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: 2px;
+  color: var(--fg-3);
+  font-weight: 600;
+}
+.person-menu-sep { height: 1px; margin: 6px 0; background: var(--border-soft); }
+
+/* Phone sheet: big call buttons, then the options as sheet rows. */
+.person-sheet { display: flex; flex-direction: column; padding: 0 0 var(--space-2); }
+.person-sheet-relation { padding: 0 18px var(--space-3); font-size: 13px; color: var(--fg-2); }
+.person-sheet-calls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 0 18px 14px;
+}
+.person-sheet-call {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 48px;
+  border-radius: var(--radius-lg);
+  font: 700 14px var(--font-mono);
+  cursor: pointer;
+}
+.person-sheet-call-voice { border: 1px solid var(--success); background: var(--success); color: var(--bg); }
+.person-sheet-call-video {
+  border: 1px solid color-mix(in oklab, var(--success), transparent 60%);
+  background: var(--surface-raised);
+  color: var(--success);
+}
+.person-sheet-why {
+  margin: 0 18px 14px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-2);
+}
+.person-sheet-opt {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 54px;
+  padding: 0 18px;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  background: transparent;
+  color: var(--fg);
+  font: 500 15px var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+.person-sheet-opt-friend { color: var(--warn); }
+.person-sheet-opt-danger { color: color-mix(in oklab, var(--danger), white 25%); }
+.person-sheet-call:focus-visible, .person-sheet-opt:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* In the desktop profile card: below the details. */
+.nick-profile-card-person:not(:empty) { margin-top: var(--space-3); }
+.nick-profile-card-person .person-menu-relation { margin-top: 0; padding-left: 0; }
+.nick-profile-card-person .person-menu-item, .nick-profile-card-person .person-menu-why { padding-left: 0; padding-right: 0; }
+.nick-profile-card-person .person-menu-item:hover { padding-left: var(--space-2); }
+.nick-profile-card-person .person-menu-sep:last-child { display: none; }
