@@ -1,3 +1,9 @@
+## [0.87.1](https://github.com/boson-chat/boson/compare/v0.87.0...v0.87.1) (2026-11-21)
+
+### Bug Fixes
+
+* phones: the sidebar's "+" buttons line up, and the conversation stays on top while swiping ([#124](https://github.com/boson-chat/boson/issues/124)) ([99d6b92](https://github.com/boson-chat/boson/commit/99d6b9257e6d4fa358628dbf336d28d077a88c3f))
+
 ## [0.87.0](https://github.com/boson-chat/boson/compare/v0.86.1...v0.87.0) (2026-11-21)
 
 ### Features
