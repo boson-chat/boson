@@ -16,7 +16,7 @@ import type { WhoisInfo } from './chat.types';
 //   378 RPL_WHOISHOST       <nick> :is connecting from *@<host> <ip>
 //   671 RPL_WHOISSECURE     <nick> :is using a secure connection
 //   401 ERR_NOSUCHNICK      <nick> :No such nick/channel
-export const WHOIS_REPLIES = new Set(['301', '311', '312', '313', '317', '318', '319', '330', '335', '338', '378', '671', '401']);
+export const WHOIS_REPLIES = new Set(['301', '307', '311', '312', '313', '317', '318', '319', '330', '335', '338', '378', '671', '401']);
 
 // Replies that also arrive outside a WHOIS (301 when you message someone
 // away, 401 when they've gone): only taken while one is in flight.

@@ -41,9 +41,10 @@ describe('ChannelRegistration', () => {
     rerender(<View ctl={ctl} />);
     expect(screen.getByText('Not registered')).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Register #dev' }) as HTMLButtonElement).disabled).toBe(false);
+    // Not knowing our account doesn't lock the button: ChanServ decides.
     rerender(<View ctl={ctl} account="" />);
-    expect((screen.getByRole('button', { name: 'Register #dev' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText('Sign in to an account to register channels.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Register #dev' }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText(/You need to be identified to NickServ/)).toBeTruthy();
     rerender(<View ctl={ctl} rank={1} />);
     expect(screen.getByText('Only channel operators (@) can register it.')).toBeTruthy();
   });

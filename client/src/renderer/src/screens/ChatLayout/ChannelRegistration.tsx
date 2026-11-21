@@ -202,9 +202,12 @@ function RegisterAction({ channel, ctl, myAccount, myRank, withDescription }: {
 }) {
   const [busy, result, run] = useAction();
   const [desc, setDesc] = useState('');
-  const why = !myAccount
-    ? 'Sign in to an account to register channels.'
-    : myRank < OP ? 'Only channel operators (@) can register it.' : null;
+  // Only being an op is a hard requirement we can check here. Whether
+  // you're identified is ChanServ's call: plenty of networks never tell the
+  // client (no RPL_LOGGEDIN after a NickServ IDENTIFY), so an unknown account
+  // only earns a hint, and ChanServ's own answer shows if it refuses.
+  const why = myRank < OP ? 'Only channel operators (@) can register it.' : null;
+  const hint = !why && !myAccount ? 'You need to be identified to NickServ; ChanServ will say if you aren\u2019t.' : null;
   return (
     <section class="chan-settings-section chan-reg-register">
       {withDescription && !why && (
@@ -218,7 +221,7 @@ function RegisterAction({ channel, ctl, myAccount, myRank, withDescription }: {
         <Button size="sm" loading={busy} disabled={!!why} onClick={() => run(() => ctl.register(channel, desc))}>
           Register {channel}
         </Button>
-        {why && <span class="chan-settings-note">{why}</span>}
+        {(why ?? hint) && <span class="chan-settings-note">{why ?? hint}</span>}
       </div>
       <Outcome result={result} success={`Registered. You're the founder of ${channel}.`} />
     </section>
