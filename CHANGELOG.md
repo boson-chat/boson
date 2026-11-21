@@ -1,3 +1,9 @@
+## [0.87.2](https://github.com/boson-chat/boson/compare/v0.87.1...v0.87.2) (2026-11-21)
+
+### Bug Fixes
+
+* you can register a channel when the network never said you're logged in ([#125](https://github.com/boson-chat/boson/issues/125)) ([5486b7b](https://github.com/boson-chat/boson/commit/5486b7b07ec9a5d1baef84808cf2cadccb3dd8af)), closes [#123](https://github.com/boson-chat/boson/issues/123)
+
 ## [0.87.1](https://github.com/boson-chat/boson/compare/v0.87.0...v0.87.1) (2026-11-21)
 
 ### Bug Fixes
