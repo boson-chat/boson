@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
+import { Pipette } from 'lucide-preact';
+import { Button, Input } from '@boson/shared';
 import { clamp, formatHex, hsvToHex, parseColor, parseHex, rgbToHsv, type Hsva } from './color';
 import './ColorPicker.css';
 
@@ -223,8 +225,8 @@ export function ColorPicker({ value, onChange, label, swatches = [] }: Props) {
             <span class="color-picker-preview" aria-hidden="true">
               <span style={{ background: hsvToHex(hsv) }} />
             </span>
-            <input
-              class="color-picker-hex"
+            <Input
+              inputSize="sm"
               aria-label="Hex"
               value={hexText}
               spellcheck={false}
@@ -233,11 +235,13 @@ export function ColorPicker({ value, onChange, label, swatches = [] }: Props) {
               onBlur={() => setHexText(hsvToHex(hsv))}
             />
             {dropper && (
-              <button type="button" class="color-picker-dropper" aria-label="Pick a colour from the screen" onClick={() => void sample()}>
-                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                  <path d="M11.5 1.5a2 2 0 0 1 2.9 2.8l-1.6 1.6.7.7-1 1-.7-.7-5.6 5.6H3.3v-2.9l5.6-5.6-.7-.7 1-1 .7.7z" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" />
-                </svg>
-              </button>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<Pipette size={14} />}
+                aria-label="Pick a colour from the screen"
+                onClick={() => void sample()}
+              />
             )}
           </div>
 

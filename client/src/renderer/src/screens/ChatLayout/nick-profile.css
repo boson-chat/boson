@@ -38,19 +38,6 @@
   gap: var(--space-1);
   margin-top: var(--space-3);
 }
-.nick-profile-flag {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  color: var(--fg-2);
-}
-.nick-profile-flag-oper { border-color: var(--warn); color: var(--warn); }
-.nick-profile-flag-bot  { border-color: var(--info); color: var(--info); }
-
 .nick-profile-meta {
   margin: var(--space-4) 0 0;
   display: flex;
@@ -102,18 +89,7 @@
   -webkit-user-select: text;
   cursor: text;
 }
-.nick-profile-copy {
-  margin-left: var(--space-2);
-  padding: 0 var(--space-1);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.nick-profile-copy:hover { color: var(--fg); border-color: var(--fg-3); }
+.nick-profile-copy { margin: -6px 0 -6px var(--space-2); }
 
 /* Desktop card. Fixed, placed by NickProfileCard from what was clicked. */
 .nick-profile-card {
@@ -124,8 +100,8 @@
   padding: var(--space-4);
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-menu);
   font-family: var(--font-body);
   color: var(--fg-2);
   animation: nick-profile-card-enter var(--motion-base) var(--ease-out) both;
@@ -145,23 +121,6 @@
   padding-top: var(--space-2);
   border-top: 1px solid var(--border-soft);
 }
-.nick-profile-card-action {
-  text-align: left;
-  padding: var(--space-2) var(--space-2);
-  background: transparent;
-  border: none;
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  transition: background var(--motion-instant) var(--ease-standard);
-}
-.nick-profile-card-action:hover { background: var(--surface-hover); }
-.nick-profile-card-action:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.nick-profile-card-action-danger { color: var(--danger); }
-.nick-profile-card-action-danger:hover { background: color-mix(in oklab, var(--danger), transparent 88%); }
-
 @media (prefers-reduced-motion: reduce) {
   .nick-profile-card { animation: none; }
 }

@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, ChipInput, Divider, Field, Input, Tabs, Toggle, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, ChipInput, Count, Divider, EmptyState, Field, Input, ListRow, PageHeader, Tabs, Toggle, useTransientFlag } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
 import type { BouncerUpstreamState } from '../../modules/engine';
 import type { SavedServerBouncer } from '../../modules/session';
@@ -16,7 +16,7 @@ import { FileDropArea, FileDropHint } from '../../shared/FileDrop/FileDropArea';
 import { HttpError } from '../../shared/http/http.client';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
 import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
-import { ChevronLeft } from 'lucide-preact';
+import { ChevronLeft, X } from 'lucide-preact';
 import { useNarrow } from '../../shared/narrow';
 import './ServerSettings.css';
 
@@ -216,43 +216,31 @@ export function ServerSettings({
 
   return (
     <main class="server-settings">
-      <header class="server-settings-header">
-        {narrow && (
-          <button type="button" class="chat-icon-btn chat-pane-back" onClick={onClose} aria-label="Close settings">
-            <ChevronLeft size={20} aria-hidden="true" />
-          </button>
+      <PageHeader
+        layout={narrow ? 'phone' : 'desktop'}
+        title={serverDisplayName}
+        sub="Server settings"
+        onBack={narrow ? onClose : undefined}
+        backLabel="Close settings"
+        backIcon={<ChevronLeft size={20} />}
+        actions={!narrow && (
+          <Button variant="ghost" icon={<X size={18} />} aria-label="Close settings" title="Back to chat" onClick={onClose} />
         )}
-        <div class="server-settings-header-left">
-          <span class="server-settings-eyebrow">Server settings</span>
-          <h1 class="server-settings-title">{serverDisplayName}</h1>
-        </div>
-        {!narrow && (
-          <button
-            type="button"
-            class="server-settings-close"
-            onClick={onClose}
-            aria-label="Close settings"
-            title="Back to chat"
-          >
-            ×
-          </button>
-        )}
-      </header>
+      />
 
       <div class="server-settings-split">
         <nav class="server-settings-menu" aria-label="Settings sections">
           {visibleMenu.map((m) => (
-            <button
+            <ListRow
               key={m.id}
-              type="button"
-              role="tab"
-              aria-selected={section === m.id}
-              class={`server-settings-menu-item ${section === m.id ? 'server-settings-menu-item-active' : ''}`}
+              variant="nav"
+              title={m.label}
+              subtitle={m.description}
+              subtitleLines={2}
+              selected={section === m.id}
               onClick={() => setSection(m.id)}
-            >
-              <span class="server-settings-menu-label">{m.label}</span>
-              <span class="server-settings-menu-desc">{m.description}</span>
-            </button>
+              mainProps={{ role: 'tab', 'aria-selected': section === m.id }}
+            />
           ))}
         </nav>
 
@@ -3116,17 +3104,21 @@ function LogSection({ entries, onClear }: { entries: ReadonlyArray<ServerLogEntr
       <Card>
         <div class="server-settings-log">
           <div class="server-settings-log-head">
-            <span class="server-settings-log-count">
-              {entries.length === 0 ? 'No entries yet.' : `${entries.length} entries`}
-            </span>
+            {entries.length > 0 && (
+              <span class="server-settings-log-count">
+                <Count value={entries.length} tone="neutral" max={9999} /> entries
+              </span>
+            )}
             <Button
               variant="ghost"
+              class="server-settings-log-clear"
               disabled={entries.length === 0}
               onClick={onClear}
             >
               Clear
             </Button>
           </div>
+          {entries.length === 0 && <EmptyState>No entries yet.</EmptyState>}
           {entries.length > 0 && (
             <div class="server-settings-log-body">
               {entries.map((e) => (

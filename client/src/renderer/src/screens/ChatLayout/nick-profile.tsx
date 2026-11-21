@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { describeSeen, formatMask, type ChatMember, type ChatMessage, type WhoisInfo } from '../../modules/chat';
 import { seenMask, type SeenRecord } from '../../modules/seen/seen.store';
+import { Badge, Button, MenuItem, type BadgeTone } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import type { NickContextAction } from './NickContextMenu';
 import { PersonMenu } from '../Friends/PersonMenu';
@@ -17,6 +18,18 @@ export function prefixClass(prefix: ChatMember['prefix']): string {
     case '+': return 'voice';
     default:  return 'regular';
   }
+}
+
+// A channel role's label colour, the same everywhere a role is shown (the
+// message row's OPS, the hover card's Operator, the profile's head).
+const ROLE_TONE: Record<string, BadgeTone> = {
+  founder: 'danger', admin: 'warn', op: 'accent', halfop: 'mod', voice: 'success', regular: 'neutral',
+};
+
+/** A member's channel role as a Badge; `label` overrides the long name. */
+export function RoleBadge({ prefix, label, class: extra }: { prefix: ChatMember['prefix']; label?: string; class?: string }) {
+  const kind = prefixClass(prefix);
+  return <Badge tone={ROLE_TONE[kind] ?? 'neutral'} class={extra}>{label ?? roleLabel(prefix)}</Badge>;
 }
 
 export function roleLabel(prefix: ChatMember['prefix']): string {
@@ -145,15 +158,16 @@ function lineVerb(kind: ChatMessage['kind']): string {
 
 function CopyButton({ text }: { text: string }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
       class="nick-profile-copy"
       title="Copy"
       aria-label={`Copy ${text}`}
       onClick={() => { void navigator.clipboard?.writeText(text); }}
     >
       Copy
-    </button>
+    </Button>
   );
 }
 
@@ -233,7 +247,7 @@ export function NickProfileDetails({ nick, member, whois, seen, line }: {
       {flags.length > 0 && (
         <div class="nick-profile-flags">
           {flags.map((f) => (
-            <span key={f.label} class={`nick-profile-flag nick-profile-flag-${f.label}`} title={f.title}>{f.value}</span>
+            <Badge key={f.label} tone={f.label === 'oper' ? 'warn' : f.label === 'bot' ? 'info' : 'neutral'} class={`nick-profile-flag nick-profile-flag-${f.label}`} title={f.title}>{f.value}</Badge>
           ))}
         </div>
       )}
@@ -270,9 +284,7 @@ export function NickProfileHead({ nick, member, avatarUrl, size }: {
         {activity && <span class="nick-profile-activity">{activity}</span>}
       </div>
       {member && (
-        <span class={`nick-hovercard-role nick-hovercard-role-${prefixClass(member.prefix)}`}>
-          {roleLabel(member.prefix)}
-        </span>
+        <RoleBadge prefix={member.prefix} class={`nick-hovercard-role nick-hovercard-role-${prefixClass(member.prefix)}`} />
       )}
     </div>
   );
@@ -390,15 +402,14 @@ export function NickProfileCard({ nick, member, avatarUrl, anchor, side = 'below
       {actions.length > 0 && (
         <div class="nick-profile-card-actions" role="menu">
           {actions.map((a) => (
-            <button
+            <MenuItem
               key={a.label}
-              type="button"
-              role="menuitem"
-              class={`nick-profile-card-action ${a.danger ? 'nick-profile-card-action-danger' : ''}`}
+              danger={a.danger}
+              class="nick-profile-card-action"
               onClick={() => { a.onClick(); onClose(); }}
             >
               {a.label}
-            </button>
+            </MenuItem>
           ))}
         </div>
       )}

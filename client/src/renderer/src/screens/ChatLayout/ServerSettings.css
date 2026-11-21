@@ -11,61 +11,6 @@
   overflow: hidden;
 }
 
-.server-settings-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--border-soft);
-  flex-shrink: 0;
-}
-
-.server-settings-header-left {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.server-settings-eyebrow {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.server-settings-title {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--text-xl);
-  font-weight: 700;
-  letter-spacing: var(--tracking-display);
-  color: var(--fg);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.server-settings-close {
-  background: transparent;
-  border: 1px solid var(--border-soft);
-  color: var(--fg-3);
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  transition: all var(--motion-fast) var(--ease-standard);
-}
-
-.server-settings-close:hover {
-  background: var(--surface-hover);
-  color: var(--fg);
-  border-color: var(--fg-3);
-}
-
 /* Internal split: left nav menu + scrollable body. Mirrors the desktop
    conventions of Discord / VS Code settings pages — discoverable section
    list on the left, full content on the right. */
@@ -85,50 +30,6 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.server-settings-menu-item {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  transition: background var(--motion-fast) var(--ease-standard),
-              color var(--motion-fast) var(--ease-standard),
-              border-color var(--motion-fast) var(--ease-standard);
-  color: var(--fg-2);
-}
-
-.server-settings-menu-item:hover {
-  background: var(--surface-hover);
-  color: var(--fg);
-}
-
-.server-settings-menu-item-active {
-  background: var(--surface-raised);
-  color: var(--fg);
-  border-color: var(--border);
-}
-
-.server-settings-menu-item-active .server-settings-menu-label {
-  color: var(--accent);
-}
-
-.server-settings-menu-label {
-  font-family: var(--font-display);
-  font-size: var(--text-sm);
-  font-weight: 700;
-  letter-spacing: var(--tracking-display);
-}
-
-.server-settings-menu-desc {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
 }
 
 .server-settings-body {
@@ -206,28 +107,25 @@
   font-style: italic;
 }
 
-.server-settings-drop-error {
-  margin: var(--space-2) 0 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-2);
-  background: var(--surface-danger, color-mix(in srgb, var(--accent-danger, #c0392b) 12%, transparent));
-  color: var(--accent-danger, #c0392b);
-  font-size: var(--font-size-1);
-}
-
+/* An action's outcome under it (identify, register, confirm, drop): the
+   same tinted strip with a coloured edge as the account status message. */
+.server-settings-drop-error,
 .server-settings-identify-feedback {
   margin: var(--space-2) 0 0;
   padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-2);
-  font-size: var(--font-size-1);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid transparent;
+  font-size: var(--text-sm);
+  color: var(--fg);
 }
 .server-settings-identify-success {
-  background: var(--surface-success, color-mix(in srgb, var(--accent-success, #27ae60) 12%, transparent));
-  color: var(--accent-success, #27ae60);
+  background: color-mix(in oklab, var(--success) 8%, var(--surface));
+  border-left-color: var(--success);
 }
+.server-settings-drop-error,
 .server-settings-identify-error {
-  background: var(--surface-danger, color-mix(in srgb, var(--accent-danger, #c0392b) 12%, transparent));
-  color: var(--accent-danger, #c0392b);
+  background: color-mix(in oklab, var(--danger) 8%, var(--surface));
+  border-left-color: var(--danger);
 }
 
 /* Advanced section — stacked card layout, one card per command surface
@@ -259,7 +157,7 @@
   font-size: var(--text-xs);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 6px;
 }
 
@@ -294,23 +192,23 @@
   font-size: var(--text-xs);
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 6px;
 }
 .services-creds-status-msg-ok {
   color: var(--fg);
-  background: color-mix(in oklab, var(--success, #10b981) 8%, var(--surface));
-  border-left-color: var(--success, #10b981);
+  background: color-mix(in oklab, var(--success) 8%, var(--surface));
+  border-left-color: var(--success);
 }
 .services-creds-status-msg-error {
   color: var(--fg);
-  background: color-mix(in oklab, var(--danger, #ef4444) 8%, var(--surface));
-  border-left-color: var(--danger, #ef4444);
+  background: color-mix(in oklab, var(--danger) 8%, var(--surface));
+  border-left-color: var(--danger);
 }
 .services-creds-status-msg-warn {
   color: var(--fg);
-  background: color-mix(in oklab, var(--warn, #f5a524) 8%, var(--surface));
-  border-left-color: var(--warn, #f5a524);
+  background: color-mix(in oklab, var(--warn) 8%, var(--surface));
+  border-left-color: var(--warn);
 }
 .services-creds-status-msg-info {
   color: var(--fg-2);
@@ -359,13 +257,13 @@
 }
 .services-creds-drop-row-confirming {
   padding: var(--space-2);
-  border-left: 3px solid var(--danger, #ef4444);
-  background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
-  border-radius: var(--radius-sm, 4px);
+  border-left: 3px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border-radius: var(--radius-sm);
   flex-wrap: wrap;
 }
 .services-creds-drop-warning {
-  color: var(--danger, #ef4444);
+  color: var(--danger-fg);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   flex: 1 1 auto;
@@ -373,9 +271,9 @@
 }
 .services-creds-drop-warning code {
   font-family: var(--font-mono);
-  background: color-mix(in srgb, var(--danger, #ef4444) 15%, transparent);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 /* Search input above the Advanced subsections. Constrains its width so
@@ -508,32 +406,6 @@
   font-size: var(--text-sm);
 }
 
-.server-settings-hint-muted {
-  color: var(--fg-3);
-  font-size: var(--text-xs);
-}
-
-.server-settings-code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  background: var(--surface-raised);
-  padding: 1px var(--space-2);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  color: var(--accent);
-}
-
-.server-settings-code-block {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  background: var(--bg);
-  padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  color: var(--fg);
-}
-
 .server-settings-actions {
   display: flex;
   gap: var(--space-3);
@@ -557,10 +429,14 @@
 }
 
 .server-settings-log-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--fg-3);
 }
+.server-settings-log-clear { margin-left: auto; }
 
 .server-settings-log-body {
   max-height: 320px;
@@ -583,8 +459,8 @@
 }
 
 .server-settings-log-kind { color: var(--accent); }
-.server-settings-log-from { color: var(--info, var(--fg-2)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.server-settings-log-target { color: var(--muted, var(--fg-3)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-settings-log-from { color: var(--info); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-settings-log-target { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .server-settings-log-message { color: var(--fg-2); }
 
 /* Edit-profile form lives inside the Card body. Mirrors the
@@ -639,7 +515,7 @@
   width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--fg);
   font: inherit;
   font-size: var(--text-sm);
@@ -651,7 +527,7 @@
 .server-settings-textarea:focus { border-color: var(--accent); outline: none; }
 .server-settings-error {
   margin: 0;
-  color: var(--danger, #ef4444);
+  color: var(--danger-fg);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
@@ -662,7 +538,7 @@
   gap: var(--space-3);
 }
 .server-settings-saved {
-  color: var(--success, #10b981);
+  color: var(--success);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   /* Match `.user-settings-saved` — transient badge rises 4px + fades in
@@ -684,13 +560,13 @@
   gap: var(--space-2);
   padding: var(--space-3);
   margin: var(--space-3) 0;
-  background: var(--surface-2, color-mix(in srgb, var(--accent) 6%, transparent));
-  border: 1px solid color-mix(in srgb, var(--accent, #6366f1) 30%, transparent);
-  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--radius-md);
 }
 .services-claim-hint {
   margin: 0;
-  font-size: var(--font-size-1);
+  font-size: var(--text-sm);
   color: var(--fg-2);
 }
 .services-claim-hint code {
@@ -753,9 +629,13 @@
     gap: var(--space-1);
     flex-shrink: 0;
   }
-  .server-settings-menu-item { flex-shrink: 0; }
-  .server-settings-menu-desc { display: none; }
-  .server-settings-header { justify-content: flex-start; gap: var(--space-2); padding: var(--space-3) var(--space-4); }
+  .server-settings-menu > .bds-row { flex-shrink: 0; }
+  .server-settings-menu .bds-row-sub { display: none; }
+  /* Across the top the selected entry's accent edge goes under it (as a
+     tab's), and each entry is a 44px touch target. */
+  .server-settings-menu > .bds-row-nav { border-left: 0; border-bottom: 2px solid transparent; }
+  .server-settings-menu > .bds-row-nav.bds-row-selected { border-bottom-color: var(--accent); }
+  .server-settings-menu .bds-row-main { min-height: var(--control-lg); padding-right: var(--space-4); }
   .server-settings-body { padding: var(--space-4); }
   /* Label above value: a fixed label column leaves values a sliver. */
   .server-settings-row { grid-template-columns: 1fr; gap: var(--space-1); }

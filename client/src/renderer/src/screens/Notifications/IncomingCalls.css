@@ -1,22 +1,5 @@
+/* "Incoming calls: Full screen | Banner": label, the choice, a hint. */
 .incoming-calls { display: flex; flex-direction: column; gap: 8px; }
 .incoming-calls-phone { padding: 12px 16px 4px; }
 .incoming-calls-label { font: 500 var(--text-xs) var(--font-mono); letter-spacing: .1em; color: var(--fg-3); }
-.incoming-calls-seg { display: flex; }
-.incoming-calls-opt {
-  flex: 1;
-  min-width: 0;
-  height: 34px;
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--fg-2);
-  font: 500 12px var(--font-mono);
-  cursor: pointer;
-}
-.incoming-calls-phone .incoming-calls-opt { height: 44px; font-size: 13px; }
-.incoming-calls-opt:first-child { border-radius: 6px 0 0 6px; }
-.incoming-calls-opt:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
-.incoming-calls-opt-on { border-color: var(--accent); background: var(--accent-dim); color: var(--accent); }
-.incoming-calls-opt-on + .incoming-calls-opt { border-left: 0; }
-.incoming-calls-opt:last-child.incoming-calls-opt-on { border-left: 1px solid var(--accent); }
-.incoming-calls-opt:focus-visible { outline: none; box-shadow: var(--focus-ring); position: relative; }
 .incoming-calls-hint { font-size: 12px; color: var(--fg-3); }

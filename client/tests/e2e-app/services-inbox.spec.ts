@@ -48,7 +48,7 @@ test('MemoServ memos: listed on login, body fetched on open, dismissed, deleted 
     const rows = inbox.locator('li.notes-item');
     await expect(rows).toHaveCount(2);
     const alice = rows.filter({ hasText: 'alice' });
-    await expect(alice.locator('.notes-row-title')).toHaveText('Memo from alice');
+    await expect(alice.locator('.bds-row-title')).toHaveText('Memo from alice');
     await expect(alice.locator('.notes-time')).toHaveText('Oct 10 12:00:00 2026 UTC');
     await expect(alice.getByText('Click to read →')).toBeVisible();
     // Unread first, with a dot.
@@ -56,15 +56,15 @@ test('MemoServ memos: listed on login, body fetched on open, dismissed, deleted 
     await expect(alice.locator('.notes-dot')).toBeVisible();
     // Attributed to the server's display name (guests get it via the chat
     // service's server scope, not only the 005 NETWORK= name).
-    await expect(alice.locator('.notes-row-where')).toHaveText(serverName);
+    await expect(alice.locator('.bds-row-meta')).toHaveText(serverName);
     expect(memoNet.memoCommands).toEqual(['LIST']);
 
     // Opening the memo fetches its body in place: READ 1.
-    const openAlice = alice.locator('button.notes-open');
+    const openAlice = alice.locator('button.bds-row-main');
     await expect(openAlice).toHaveAccessibleName(/Read memo$/);
     await openAlice.click();
     await memoNet.waitForCommand(/^READ 1$/);
-    await expect(alice.locator('.notes-row-body')).toHaveText(body1);
+    await expect(alice.locator('.bds-row-sub')).toHaveText(body1);
     await expect(alice.getByText('Click to read →')).toBeHidden();
 
     // Mark all read clears the badge (locally, not on the server).
@@ -123,17 +123,17 @@ test('DMs and mentions land in the Inbox and open their conversation', async ({ 
     await expect(inbox.getByRole('tab', { name: /^All/ })).toHaveAttribute('aria-selected', 'true');
     await messagesTab.click();
     const dmRow = inbox.locator('li.notes-item').filter({ hasText: dm });
-    await expect(dmRow.locator('.notes-row-where')).toContainText('direct message');
-    await expect(dmRow.locator('.notes-row-title')).toHaveText(peer.nick);
+    await expect(dmRow.locator('.bds-row-meta')).toContainText('direct message');
+    await expect(dmRow.locator('.bds-row-title')).toHaveText(peer.nick);
 
     // Mentions: the channel line, with its channel.
     await mentionsTab.click();
     const mRow = inbox.locator('li.notes-item').filter({ hasText: mention });
-    await expect(mRow.locator('.notes-row-where')).toContainText(channel);
+    await expect(mRow.locator('.bds-row-meta')).toContainText(channel);
 
     // Open the DM from the list → the 1:1 conversation.
     await messagesTab.click();
-    const openDm = dmRow.locator('button.notes-open');
+    const openDm = dmRow.locator('button.bds-row-main');
     await openDm.click();
     await expect(inbox).toBeHidden();
     await expect(page.getByPlaceholder(`Message @${peer.nick}`)).toBeVisible();
@@ -142,7 +142,7 @@ test('DMs and mentions land in the Inbox and open their conversation', async ({ 
     // Open the mention → back in the channel.
     inbox = await openInbox(page);
     await inbox.getByRole('tab', { name: /^Mentions/ }).click();
-    const openMention = inbox.locator('li.notes-item').filter({ hasText: mention }).locator('button.notes-open');
+    const openMention = inbox.locator('li.notes-item').filter({ hasText: mention }).locator('button.bds-row-main');
     await openMention.click();
     await expect(composer(page, channel)).toBeVisible();
     // Both opened: read.

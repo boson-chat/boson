@@ -22,15 +22,34 @@ describe('ListRow', () => {
     expect(onClick).toHaveBeenCalledOnce();
     expect(act).toHaveBeenCalledOnce();
   });
+  it('mainProps go on the body button (a settings menu tab)', () => {
+    render(<ListRow variant="nav" title="About" subtitle="Version" onClick={() => {}} mainProps={{ role: 'tab', 'aria-selected': true }} />);
+    const tab = screen.getByRole('tab', { name: /About/ });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(tab.className).toContain('bds-row-main');
+  });
   it('nav variant marks the selected entry current; li when asked', () => {
     const { container } = render(<ul><ListRow as="li" variant="nav" selected title="Friends" /></ul>);
     const li = container.querySelector('li')!;
     expect(li.className).toContain('bds-row-nav');
     expect(li.getAttribute('aria-current')).toBe('page');
   });
+  it('a clickable selected nav entry marks its button current, not the row', () => {
+    const { container } = render(<ListRow variant="nav" selected title="Calls" onClick={() => {}} ariaLabel="Calls" />);
+    expect(screen.getByRole('button', { name: 'Calls' }).getAttribute('aria-current')).toBe('page');
+    expect(container.querySelector('.bds-row')!.hasAttribute('aria-current')).toBe(false);
+  });
   it('title tone and size classes', () => {
     const { container } = render(<ListRow title="x" titleTone="danger" size="lg" unread />);
     expect(container.querySelector('.bds-row-title-danger')).toBeTruthy();
     expect(container.querySelector('.bds-row-lg.bds-row-unread')).toBeTruthy();
+  });
+
+  it('passes mainProps to the body button (disabled, aria-pressed)', () => {
+    const onClick = vi.fn();
+    render(<ListRow title="Share screen" onClick={onClick} mainProps={{ disabled: true, 'aria-pressed': false }} />);
+    const b = screen.getByRole('button', { name: /Share screen/ }) as HTMLButtonElement;
+    expect(b.disabled).toBe(true);
+    expect(b.getAttribute('aria-pressed')).toBe('false');
   });
 });

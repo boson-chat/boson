@@ -1,6 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
 import { Phone, Users } from 'lucide-preact';
+import { Button, Count, EmptyState, ListRow, PageHeader, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { useFriends } from '../../modules/friends';
 import { useVoice } from '../../modules/voice';
@@ -8,11 +9,10 @@ import { getAvatar } from '../../modules/chat/avatar-cache';
 import { isPrivateCall, openCall } from '../ChatLayout/call-shared';
 import { MissedList } from './MissedCalls';
 import { IncomingCallsSetting } from '../Notifications/IncomingCalls';
+import { useNarrow } from '../../shared/narrow';
 import { openUserSettings } from '../../modules/ui/open-settings';
 import { openMy, type MyView } from './friends-ui';
 import './MySpace.css';
-
-const count = (n: number): string => (n > 99 ? '99+' : String(n));
 
 // Your presence, as the dot on your avatar shows it.
 export type Presence = 'online' | 'dnd' | 'offline';
@@ -56,8 +56,8 @@ export function MyRailTile({ nick, avatarUrl, presence, active, onClick }: RailT
       onClick={onClick}
     >
       <Avatar nick={nick || '?'} url={avatarUrl} size={40} class="my-tile-av" />
-      <span class="my-tile-dot" data-presence={presence} aria-hidden="true" />
-      {n > 0 && <span class="my-tile-badge" aria-hidden="true">{count(n)}</span>}
+      <StatusDot status={presence} size={12} ring class="my-tile-dot" />
+      <Count value={n} overlay class="my-tile-badge" />
     </button>
   );
 }
@@ -97,35 +97,30 @@ interface SidebarProps {
 // MY's sidebar: Friends and Calls at the top, then your direct messages.
 export function MySidebar({ nick, presence, view, dms, activeDm, onOpenDm, showServer, width }: SidebarProps) {
   const { pending, missed } = useMyBadge();
+  const size = useNarrow() ? 'lg' : 'md';
   return (
     <aside class="channel-sidebar my-sidebar" aria-label="You" style={width ? { width: `${width}px` } : undefined}>
       <div class="channel-sidebar-header my-sidebar-header">
         <div class="channel-sidebar-heading">
           <div class="channel-sidebar-title sidebar-server-name">{nick || 'You'}</div>
           <div class="sidebar-server-meta">
-            <span class="my-sidebar-dot" data-presence={presence} aria-hidden="true" />
+            <StatusDot status={presence} />
             <span class="sidebar-server-version">{PRESENCE_LABEL[presence]}</span>
           </div>
         </div>
       </div>
       <nav class="channel-list my-list" aria-label="Friends, calls and messages">
         <div class="my-top">
-          <button type="button" class={`my-row${view === 'friends' ? ' my-row-on' : ''}`}
-            aria-current={view === 'friends' ? 'page' : undefined}
-            aria-label={pending > 0 ? `Friends, ${pending} request${pending === 1 ? '' : 's'}` : 'Friends'}
-            onClick={() => openMy('friends')}>
-            <Users size={16} aria-hidden="true" />
-            <span class="my-row-label">Friends</span>
-            {pending > 0 && <span class="my-count" aria-hidden="true">{count(pending)}</span>}
-          </button>
-          <button type="button" class={`my-row${view === 'calls' ? ' my-row-on' : ''}`}
-            aria-current={view === 'calls' ? 'page' : undefined}
-            aria-label={missed > 0 ? `Calls, ${missed} missed` : 'Calls'}
-            onClick={() => openMy('calls')}>
-            <Phone size={16} aria-hidden="true" />
-            <span class="my-row-label">Calls</span>
-            {missed > 0 && <span class="my-count my-count-missed" aria-hidden="true">{count(missed)}</span>}
-          </button>
+          <ListRow variant="nav" size={size} class="my-row" selected={view === 'friends'}
+            ariaLabel={pending > 0 ? `Friends, ${pending} request${pending === 1 ? '' : 's'}` : 'Friends'}
+            onClick={() => openMy('friends')}
+            leading={<Users size={16} aria-hidden="true" />} title="Friends"
+            trailing={<Count value={pending} />} />
+          <ListRow variant="nav" size={size} class="my-row" selected={view === 'calls'}
+            ariaLabel={missed > 0 ? `Calls, ${missed} missed` : 'Calls'}
+            onClick={() => openMy('calls')}
+            leading={<Phone size={16} aria-hidden="true" />} title="Calls"
+            trailing={<Count value={missed} tone="danger" />} />
         </div>
         <div class="channel-section-header">
           <div class="channel-section">Direct Messages</div>
@@ -135,18 +130,13 @@ export function MySidebar({ nick, presence, view, dms, activeDm, onOpenDm, showS
           const on = view === 'chat' && activeDm?.serverId === d.serverId && activeDm.name === d.name;
           const unread = !on && d.unread > 0;
           return (
-            <button key={`${d.serverId}\0${d.name}`} type="button"
-              class={`my-row my-dm${on ? ' my-row-on' : ''}${unread ? ' my-dm-unread' : ''}`}
-              aria-current={on ? 'page' : undefined}
-              aria-label={`${d.name}${showServer ? ` on ${d.serverName}` : ''}${unread ? `, ${d.unread} unread` : ''}`}
-              onClick={() => onOpenDm(d)}>
-              <Avatar nick={d.name} url={getAvatar(d.serverId, d.name)} size={20} />
-              <span class="my-row-label">{d.name}</span>
-              {showServer && <span class="my-dm-server">{d.serverName}</span>}
-              {unread && (d.mentions > 0
-                ? <span class="my-count" aria-hidden="true">{count(d.mentions)}</span>
-                : <span class="channel-unread-dot" aria-hidden="true" />)}
-            </button>
+            <ListRow key={`${d.serverId}\0${d.name}`} variant="nav" size={size} class="my-row" selected={on} unread={unread}
+              ariaLabel={`${d.name}${showServer ? ` on ${d.serverName}` : ''}${unread ? `, ${d.unread} unread` : ''}`}
+              onClick={() => onOpenDm(d)}
+              leading={<Avatar nick={d.name} url={getAvatar(d.serverId, d.name)} size={20} />}
+              title={d.name}
+              aside={showServer ? d.serverName : undefined}
+              trailing={unread ? (d.mentions > 0 ? <Count value={d.mentions} /> : <StatusDot status="unread" />) : undefined} />
           );
         })}
       </nav>
@@ -189,50 +179,39 @@ export function CallsView({ layout, onJoin, serverNameFor, settings }: CallsView
   }
   const privateCall = inCall && isPrivateCall(call.room);
   const phone = layout === 'phone';
+  const size = phone ? 'lg' : 'md';
+  const liveDot = <span class="calls-live-lead"><StatusDot status="live" size={10} /></span>;
   return (
     <main class={`calls-view calls-view-${layout}`} aria-label="Calls">
-      {!phone && (
-        <header class="calls-view-head">
-          <h1 class="calls-view-title">Calls</h1>
-          <span class="calls-view-sub">live · recent</span>
-        </header>
-      )}
+      {!phone && <PageHeader title="Calls" sub="live · recent" />}
       <div class="calls-view-body">
         {settings}
         {snap.available && <IncomingCallsSetting layout={layout} />}
         {privateCall && (
           <section aria-labelledby="calls-now">
             <h2 id="calls-now" class="calls-sec">IN A CALL</h2>
-            <div class="calls-row">
-              <span class="calls-live-dot" aria-hidden="true">◉</span>
-              <span class="calls-who">
-                <span class="calls-name calls-name-live">{snap.active ? `Call with ${snap.active.call.peer.username}` : 'Private call'}</span>
-                <span class="calls-sub">private · 1:1</span>
-              </span>
-              <button type="button" class="calls-btn calls-btn-live" onClick={openCall}>Open</button>
-            </div>
+            <ListRow size={size} leading={liveDot} titleTone="success"
+              title={snap.active ? `Call with ${snap.active.call.peer.username}` : 'Private call'}
+              subtitle="private · 1:1"
+              trailing={<Button variant="secondary" tone="success" size={size} onClick={openCall}>Open</Button>} />
           </section>
         )}
         <section aria-labelledby="calls-live">
           <h2 id="calls-live" class="calls-sec">LIVE NOW</h2>
-          {live.length === 0 && <p class="calls-empty">No one is in a voice channel right now.</p>}
+          {live.length === 0 && <EmptyState>No one is in a voice channel right now.</EmptyState>}
           {live.map((r) => {
             const server = serverNameFor(r.host);
             return (
-              <div key={`${r.host}\0${r.id}`} class="calls-row">
-                <span class="calls-live-dot" aria-hidden="true">◉</span>
-                <span class="calls-who">
-                  <span class="calls-name calls-name-live">{r.name}{server ? ` · ${server}` : ''}</span>
-                  <span class="calls-sub">{peopleText(r.people)}</span>
-                </span>
-                {r.here ? (
-                  <button type="button" class="calls-btn calls-btn-live" onClick={openCall}
-                    aria-label={`Open the call in ${r.name}`}>Open</button>
+              <ListRow key={`${r.host}\0${r.id}`} size={size} leading={liveDot} titleTone="success"
+                title={`${r.name}${server ? ` · ${server}` : ''}`}
+                subtitle={peopleText(r.people)}
+                trailing={r.here ? (
+                  <Button variant="secondary" tone="success" size={size} onClick={openCall}
+                    aria-label={`Open the call in ${r.name}`}>Open</Button>
                 ) : (
-                  <button type="button" class="calls-btn calls-btn-live" onClick={() => onJoin(r.host, r.id, r.name)}
-                    aria-label={`Join ${r.name}${server ? ` on ${server}` : ''}`}>Join</button>
-                )}
-              </div>
+                  <Button variant="secondary" tone="success" size={size} onClick={() => onJoin(r.host, r.id, r.name)}
+                    aria-label={`Join ${r.name}${server ? ` on ${server}` : ''}`}>Join</Button>
+                )} />
             );
           })}
         </section>
@@ -240,15 +219,15 @@ export function CallsView({ layout, onJoin, serverNameFor, settings }: CallsView
           <section aria-labelledby="calls-recent">
             <h2 id="calls-recent" class="calls-sec">MISSED CALLS</h2>
             {snap.missedCalls.length > 0
-              ? <MissedList calls={snap.missedCalls} />
-              : <p class="calls-empty">No missed calls.</p>}
+              ? <MissedList calls={snap.missedCalls} layout={layout} />
+              : <EmptyState>No missed calls.</EmptyState>}
           </section>
         )}
         {snap.available && (
-          <button type="button" class="calls-privacy" onClick={() => openUserSettings('privacy')}>
+          <Button variant="ghost" size={phone ? 'lg' : 'sm'} class="calls-privacy" onClick={() => openUserSettings('privacy')}>
             Privacy &amp; calls: who can call you, Do not disturb
             <span aria-hidden="true"> →</span>
-          </button>
+          </Button>
         )}
       </div>
     </main>

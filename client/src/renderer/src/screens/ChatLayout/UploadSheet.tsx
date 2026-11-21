@@ -193,15 +193,15 @@ export function UploadSheet({ open, files, target, limits, usage, homeLabel, not
                   {big && <div class="upload-sheet-error" role="alert">{fileTooLargeMessage(maxFile, { name: clean, size: r.file.size })}</div>}
                   {!many && captionField(`Caption for ${r.file.name}`)}
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="ghost"
+                  size="sm"
                   class="upload-sheet-remove"
                   aria-label={`Remove ${r.file.name}`}
                   title="Remove"
                   onClick={() => removeRow(r)}
-                >
-                  <X size={16} aria-hidden="true" />
-                </button>
+                  icon={<X aria-hidden="true" />}
+                />
               </li>
             );
           })}

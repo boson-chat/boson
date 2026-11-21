@@ -23,21 +23,6 @@
 .stage-meta { font: 12px var(--font-mono); color: var(--fg-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .stage-spacer { flex: 1; }
 .stage-layout { display: flex; gap: 4px; flex-shrink: 0; }
-.stage-btn {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--fg);
-  cursor: pointer;
-}
-.stage-btn:hover { background: var(--surface-hover); }
-.stage-btn[data-sel] { border-color: var(--accent); color: var(--accent); }
-
 /* Focus: the big tile, and a strip of the others that scrolls sideways. */
 .stage-focus {
   flex: 1;
@@ -81,7 +66,7 @@
   overflow: hidden;
   padding: 0;
   border: 2px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--fg);
   font: inherit;
@@ -94,7 +79,6 @@ button.stage-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); 
 .stage-video { width: 100%; height: 100%; display: block; }
 .stage-video[data-mirror] { transform: scaleX(-1); }
 .stage-avatar { display: inline-flex; }
-.stage-avatar[data-size='big'] .bds-avatar { border-radius: 10px; }
 .stage-tag {
   position: absolute;
   left: 8px;
@@ -105,7 +89,7 @@ button.stage-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); 
   max-width: calc(100% - 16px);
   height: 24px;
   padding: 0 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: rgba(7, 7, 9, 0.8);
   font: 500 12px var(--font-mono);
   color: var(--fg);
@@ -114,10 +98,9 @@ button.stage-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); 
   text-overflow: ellipsis;
 }
 .stage-tile[data-size='strip'] .stage-tag { height: 22px; font-size: 11px; }
-.stage-muted { color: var(--danger, #f87171); flex-shrink: 0; }
+.stage-muted { color: var(--danger-fg); flex-shrink: 0; }
 
-/* The dock: mic, camera, screen, deafen | leave. Red tint: muted,
-   deafened, camera off. Amber: you're sharing your screen. */
+/* The dock: mic, camera, screen, deafen | leave (shared Buttons, 44px). */
 .stage-dock {
   flex: none;
   height: 80px;
@@ -129,41 +112,7 @@ button.stage-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); 
 }
 .stage-dock .call-video-buttons { display: contents; }
 .stage-dock .call-video-error { position: absolute; transform: translateY(-38px); }
-.stage-dock-btn,
-.stage-dock .voice-bar-btn {
-  width: 48px;
-  height: 48px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--surface);
-  color: var(--fg);
-  cursor: pointer;
-}
-.stage-dock .voice-bar-btn svg { width: 20px; height: 20px; }
-.stage-dock-btn:hover,
-.stage-dock .voice-bar-btn:hover { background: var(--surface-hover); }
-.stage-dock-btn:focus-visible,
-.stage-dock .voice-bar-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.stage-dock-btn[data-off],
-.stage-dock .voice-bar-btn[data-off] {
-  background: color-mix(in oklab, var(--danger, #ef4444), transparent 86%);
-  border-color: color-mix(in oklab, var(--danger, #ef4444), transparent 50%);
-  color: var(--danger, #f87171);
-}
-.stage-dock .call-cam-btn[data-live] { color: var(--fg); }
-.stage-dock .call-screen-btn[data-live] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
-.stage-dock-btn:disabled { cursor: default; opacity: 0.8; }
 .stage-dock-sep { width: 1px; height: 30px; margin: 0 8px; background: var(--border); }
-.stage-dock .stage-leave {
-  width: 64px;
-  background: var(--danger, #ef4444);
-  border-color: var(--danger, #ef4444);
-  color: #fff;
-}
-.stage-dock .stage-leave:hover { background: var(--danger, #ef4444); filter: brightness(1.1); }
 
 /* A received video with no picture yet says why (video-notice), in the
  * middle of its tile, so a blank tile is never a mystery. Shared by the
@@ -175,10 +124,10 @@ button.stage-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); 
   transform: translate(-50%, -50%);
   max-width: calc(100% - 24px);
   padding: 6px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: rgba(7, 7, 9, 0.8);
   font: 500 12px var(--font-mono);
-  color: var(--fg-2, #9898a8);
+  color: var(--fg-2);
   text-align: center;
   line-height: 1.4;
   pointer-events: none;

@@ -75,7 +75,7 @@ describe('the pre-join view (desktop)', () => {
 
     // Join muted: the choice is made before the call starts.
     fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Unmute' }).hasAttribute('data-off')).toBe(true));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Unmute' }).getAttribute('aria-pressed')).toBe('true'));
     fireEvent.click(screen.getByRole('button', { name: 'Join call' }));
     await waitFor(() => expect(bridge.calls.some((c) => c.method === 'join')).toBe(true));
     const mute = bridge.calls.findIndex((c) => c.method === 'setMuted' && c.args[0] === true);

@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import { createPortal, memo } from 'preact/compat';
 import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
-import { BarLoader } from '@boson/shared';
+import { BarLoader, Button } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, isPreformattedLine, stripIrcFormatting, type MdToken } from './markdown';
 import { parseTables, type ParsedTable } from './table';
@@ -17,7 +17,7 @@ import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
 import {
-  NickProfileCard, RememberedDetails, anchorOf, lineIdentityOf, profileRows, useFitInWindow,
+  NickProfileCard, RememberedDetails, RoleBadge, anchorOf, lineIdentityOf, profileRows, useFitInWindow,
   type LineIdentity, type ProfileAnchor,
 } from './nick-profile';
 import type { SeenRecord } from '../../modules/seen/seen.store';
@@ -35,12 +35,12 @@ import { bottomOf, captureAnchor, HeightCache, Layout, restoreAnchor, type Ancho
 // Used both for the role pill rendered next to a nick in chat (MOD/OPS/V)
 // and for color theming in the hover card. Centralised here so message
 // rows and the member panel can't drift apart on label/color.
-const ROLE_BADGES: Record<MemberPrefix, { label: string; kind: string } | null> = {
-  '~': { label: 'FOUNDER', kind: 'founder' },
-  '&': { label: 'ADMIN',   kind: 'admin' },
-  '@': { label: 'OPS',     kind: 'op' },
-  '%': { label: 'MOD',     kind: 'halfop' },
-  '+': { label: 'V',       kind: 'voice' },
+const ROLE_BADGES: Record<MemberPrefix, { label: string; kind: string; prefix: MemberPrefix } | null> = {
+  '~': { label: 'FOUNDER', kind: 'founder', prefix: '~' },
+  '&': { label: 'ADMIN',   kind: 'admin', prefix: '&' },
+  '@': { label: 'OPS',     kind: 'op', prefix: '@' },
+  '%': { label: 'MOD',     kind: 'halfop', prefix: '%' },
+  '+': { label: 'V',       kind: 'voice', prefix: '+' },
   '':  null,
 };
 
@@ -230,9 +230,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
               {msg.from}
             </span>
             {badge && (
-              <span class={`message-row-role message-row-role-${badge.kind}`} aria-label={`role: ${badge.label.toLowerCase()}`}>
-                {badge.label}
-              </span>
+              <RoleBadge prefix={badge.prefix} label={badge.label} class={`message-row-role message-row-role-${badge.kind}`} />
             )}
             <span class="message-row-handle">~{msg.from}</span>
             <span class="message-row-time">{msg.pending ? 'Sending…' : time}</span>
@@ -415,10 +413,8 @@ function MessageNickHoverCard({
     >
       <div class="nick-hovercard-head">
         <span class="nick-hovercard-nick">{nick}</span>
-        {role && (
-          <span class={`nick-hovercard-role nick-hovercard-role-${role.kind}`}>
-            {role.label === 'V' ? 'Voiced' : role.label === 'OPS' ? 'Operator' : role.label === 'MOD' ? 'Half-op' : role.label === 'ADMIN' ? 'Admin' : 'Founder'}
-          </span>
+        {role && member && (
+          <RoleBadge prefix={member.prefix} class={`nick-hovercard-role nick-hovercard-role-${role.kind}`} />
         )}
       </div>
       {meta.length > 0 && (
@@ -806,13 +802,15 @@ export const MessageList = memo(function MessageList({
         {historySupported && (
           <div class="chat-load-older" ref={ribbonRef}>
             {historyError ? (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
+                size="sm"
+                tone="danger"
                 class="chat-load-older-btn chat-load-older-error"
                 onClick={() => onLoadOlder?.()}
               >
                 {historyError} — retry
-              </button>
+              </Button>
             ) : historyLoading ? (
               <>
                 <BarLoader class="chat-load-older-bar" label="Loading older messages" />
@@ -823,9 +821,9 @@ export const MessageList = memo(function MessageList({
             ) : historyExhausted ? (
               <span class="chat-load-older-end">Beginning of history</span>
             ) : (
-              <button type="button" class="chat-load-older-btn" onClick={() => onLoadOlder?.()}>
+              <Button variant="secondary" size="sm" class="chat-load-older-btn" onClick={() => onLoadOlder?.()}>
                 Load older messages
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -1227,9 +1225,9 @@ function MessageTable({ table }: { table: ParsedTable }) {
         </table>
       </div>
       {many && (
-        <button type="button" class="message-table-toggle" onClick={() => setExpanded((e) => !e)}>
+        <Button variant="ghost" size="sm" tone="accent" class="message-table-toggle" onClick={() => setExpanded((e) => !e)}>
           {expanded ? '▾ Show less' : `▸ Show all ${table.rows.length} rows`}
-        </button>
+        </Button>
       )}
     </div>
   );

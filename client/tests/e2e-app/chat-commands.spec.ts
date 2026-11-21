@@ -232,7 +232,7 @@ test.describe('slash commands', () => {
     await expect(kinds.filter({ hasText: /^(464|491)$/ }).first()).toBeAttached({ timeout: 60_000 });
     // The log can be cleared.
     await page.locator('.server-settings-log').getByRole('button', { name: 'Clear' }).click();
-    await expect(page.locator('.server-settings-log-count')).toHaveText(/^(No entries yet\.|\d+ entries)$/);
+    await expect(page.locator('.server-settings-log')).toContainText(/No entries yet\.|\d+ entries/);
     await expect(kinds.filter({ hasText: /^311$/ })).toHaveCount(0);
   });
 

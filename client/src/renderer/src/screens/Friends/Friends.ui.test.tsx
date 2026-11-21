@@ -83,13 +83,13 @@ describe('PersonMenu', () => {
   it('blocked: Unblock, and the reason', async () => {
     render(<PersonMenu nick="orbit" variant="sheet" />);
     expect(await screen.findByText('You blocked orbit. Unblock them to call.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Unblock' })).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Unblock' })).toBeTruthy();
   });
 
   it('phone sheet: big call buttons; accept a request', async () => {
     render(<PersonMenu nick="nova" variant="sheet" />);
     expect(await screen.findByRole('button', { name: 'Call' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Accept friend request' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Accept friend request' }));
     await waitFor(() => expect(ctl.getSnapshot().toast?.text).toBe('You and nova are now friends'));
   });
 
@@ -194,7 +194,7 @@ describe('MY', () => {
     let clicked = 0;
     const { container } = render(<MyRailTile nick="ada" presence="dnd" active={false} onClick={() => { clicked++; }} />);
     const tile = await screen.findByRole('button', { name: 'You: friends, calls and messages (Do not disturb; 1 friend request)' });
-    expect(container.querySelector('.my-tile-dot')?.getAttribute('data-presence')).toBe('dnd');
+    expect(container.querySelector('.my-tile-dot')?.getAttribute('data-status')).toBe('dnd');
     expect(container.querySelector('.my-tile-badge')?.textContent).toBe('1');
     expect(tile.textContent).toContain('A');
     fireEvent.click(tile);

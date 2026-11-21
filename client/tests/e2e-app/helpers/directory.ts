@@ -68,13 +68,13 @@ export async function openServerSettings(page: Page, name: string): Promise<Loca
   const menu = await railContextMenu(page, name);
   await menu.getByRole('menuitem', { name: 'Server details' }).click();
   const settings = page.locator('main.server-settings');
-  await expect(settings.locator('.server-settings-title')).toHaveText(name);
+  await expect(settings.getByRole('heading', { level: 1 })).toHaveText(name);
   return settings;
 }
 
 export function settingsTab(settings: Locator, label: string): Locator {
   return settings.getByRole('navigation', { name: 'Settings sections' })
-    .getByRole('tab').filter({ has: settings.page().locator('.server-settings-menu-label', { hasText: new RegExp(`^${escape(label)}$`) }) });
+    .getByRole('tab').filter({ has: settings.page().locator('.bds-row-title', { hasText: new RegExp(`^${escape(label)}$`) }) });
 }
 
 // The chat view's sidebar header for the active server.

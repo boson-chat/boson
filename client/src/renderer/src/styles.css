@@ -45,12 +45,12 @@ html.vv-tracked .directory-screen { height: var(--app-height, 100vh); }
 /* Full-screen overlays (dialogs, sheets) end at the keyboard too, so a
    field in them isn't typed into blind. */
 html.vv-tracked .bds-modal-backdrop,
-html.vv-tracked .bottom-sheet-backdrop {
+html.vv-tracked .bds-sheet-backdrop {
   top: var(--app-top, 0px);
   bottom: auto;
   height: var(--app-height, 100%);
 }
-html.kb-open .bottom-sheet { padding-bottom: var(--space-4); }
+html.kb-open .bds-sheet { padding-bottom: var(--space-4); }
 
 body {
   margin: 0;
@@ -68,7 +68,7 @@ input, textarea { font: inherit; color: inherit; }
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-sm); }
 ::-webkit-scrollbar-thumb:hover { background: var(--fg-3); }
 
 .loading {

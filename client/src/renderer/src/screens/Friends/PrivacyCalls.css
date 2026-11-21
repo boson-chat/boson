@@ -1,15 +1,8 @@
+/* Privacy & calls: cards of settings (layout and section text only; the
+   cards, choices and switch are the design system's). */
 .privacy { display: flex; flex-direction: column; gap: 22px; }
 .privacy-phone { gap: 14px; }
-.privacy-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-}
-.privacy-phone .privacy-card { padding: var(--space-4); border-radius: 8px; }
+.privacy-card { display: flex; flex-direction: column; gap: 10px; }
 .privacy-card-title { font: 700 13px var(--font-mono); color: var(--fg); }
 .privacy-phone .privacy-card-title { font-size: 15px; }
 .privacy-card-desc { font-size: 13px; color: var(--fg-2); line-height: 1.45; }
@@ -17,37 +10,5 @@
 .privacy-phone .privacy-label { margin-top: 0; font-size: var(--text-sm); }
 .privacy-hint { font-size: var(--text-sm); color: var(--fg-3); line-height: 1.45; }
 .privacy-phone .privacy-hint { font-size: 13px; color: var(--fg-2); }
-.privacy-seg { display: flex; }
-.privacy-seg-opt {
-  flex: 1;
-  min-width: 0;
-  min-height: 38px;
-  margin-left: -1px;
-  padding: 4px var(--space-2);
-  line-height: 1.2;
-  border: 1px solid var(--border);
-  background: var(--surface-raised);
-  color: var(--fg-2);
-  font: 600 var(--text-sm) var(--font-mono);
-  cursor: pointer;
-  position: relative;
-}
-.privacy-seg-opt:first-child { margin-left: 0; border-radius: var(--radius-md) 0 0 var(--radius-md); }
-.privacy-seg-opt:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
-.privacy-seg-opt:hover { background: var(--surface-hover); }
-.privacy-seg-on, .privacy-seg-on:hover { z-index: 1; border-color: var(--accent); background: var(--accent-dim); color: var(--warn); }
-.privacy-seg-opt:focus-visible { outline: none; z-index: 2; box-shadow: var(--focus-ring); }
-.privacy-phone .privacy-seg-opt { min-height: 44px; font-size: 13px; }
-.privacy-phone .privacy-seg-opt:first-child { border-radius: var(--radius-lg) 0 0 var(--radius-lg); }
-.privacy-phone .privacy-seg-opt:last-child { border-radius: 0 var(--radius-lg) var(--radius-lg) 0; }
-.privacy-dnd {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-top: 10px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-soft);
-}
+.privacy-dnd { margin-top: 10px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
 .privacy-phone .privacy-dnd { margin-top: 0; padding-top: var(--space-3); }
-.privacy-dnd-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.privacy-signin { color: var(--fg-3); font-size: 13px; }

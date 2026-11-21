@@ -43,7 +43,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   window.matchMedia = matchMedia;
-  document.body.querySelectorAll('.bottom-sheet-backdrop').forEach((n) => n.remove());
+  document.body.querySelectorAll('.bds-sheet-backdrop').forEach((n) => n.remove());
 });
 
 describe('ServerRail on a phone', () => {
@@ -55,7 +55,7 @@ describe('ServerRail on a phone', () => {
     expect(sheet.querySelector('.server-rail-sheet-title')?.textContent).toBe('Libera.Chat');
     expect(menuLabels()).toEqual(['Server details', 'Leave server']);
     const leave = screen.getByRole('menuitem', { name: 'Leave server' });
-    expect(leave.classList.contains('bottom-sheet-action-danger')).toBe(true);
+    expect(leave.classList.contains('bds-menu-item-danger')).toBe(true);
     fireEvent.click(leave);
     expect(onLeaveServer).toHaveBeenCalledWith('s1');
   });

@@ -98,7 +98,7 @@ test.describe('phone layout', () => {
     // MY: Friends and Calls above the direct messages.
     await page.getByRole('button', { name: 'Back to channels' }).click();
     await page.getByRole('button', { name: /^You: friends, calls and messages/ }).click();
-    await expect(page.locator('.my-sidebar .my-row').first()).toHaveAccessibleName(/^Friends/);
+    await expect(page.locator('.my-sidebar .my-row').getByRole('button').first()).toHaveAccessibleName(/^Friends/);
     await page.getByRole('button', { name: /^Calls/ }).click();
     await expect(page.getByRole('main', { name: 'Calls' })).toBeVisible();
     await page.getByRole('button', { name: 'Back to MY' }).click();

@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { ChatChannel, ServerInfo } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
-import { ArrowLeftRight, Settings } from 'lucide-preact';
-import { Button, Input, Modal } from '@boson/shared';
+import { ArrowLeftRight, Plus, Settings, X } from 'lucide-preact';
+import { Button, Count, EmptyState, Input, Modal, StatusDot, type DotStatus } from '@boson/shared';
 import {
   ChannelSidebarBloc,
   type ChannelSidebarState,
@@ -13,7 +13,7 @@ import { useChannelReorder, type ReorderSection } from './channel-reorder';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
 import { getChannelLevel, setChannelLevel, type ChannelLevel } from '../../modules/ui/notifications.store';
 import { BottomSheet } from './BottomSheet';
-import { isNarrow } from '../../shared/narrow';
+import { isNarrow, useNarrow } from '../../shared/narrow';
 import './ChannelSidebar.css';
 import './ChannelReorder.css';
 
@@ -101,6 +101,7 @@ export function ChannelSidebar({
   const orderRef = useRef(channelOrder);
   orderRef.current = channelOrder;
 
+  const narrow = useNarrow();
   const bloc = useMemo(
     () =>
       new ChannelSidebarBloc({
@@ -230,7 +231,9 @@ export function ChannelSidebar({
           <div class="channel-sidebar-title sidebar-server-name">{serverName}</div>
           {(serverMeta || serverInfo?.bouncer) && (
             <div class="sidebar-server-meta" title={metaTooltip}>
-              <span class="sidebar-status-dot" data-state={dotState} aria-label={statusLabel} />
+              <span class="sidebar-status-dot" data-state={dotState} role="img" aria-label={statusLabel}>
+                <StatusDot status={DOT_STATUS[dotState] ?? 'online'} />
+              </span>
               {serverMeta && <span class="sidebar-server-version">{serverMeta}</span>}
               {serverInfo?.bouncer && (
                 <ArrowLeftRight
@@ -245,15 +248,15 @@ export function ChannelSidebar({
           )}
         </div>
         {onOpenSettings && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size={narrow ? 'lg' : 'sm'}
             class="channel-sidebar-settings"
             aria-label="Server details"
             title="Server details"
             onClick={onOpenSettings}
-          >
-            <Settings size={14} aria-hidden="true" />
-          </button>
+            icon={<Settings aria-hidden="true" />}
+          />
         )}
       </div>
 
@@ -266,20 +269,20 @@ export function ChannelSidebar({
         onDrop={reorder.list.onDrop}
       >
         {realChannels.length === 0 && dms.length === 0 && (
-          <div class="channel-empty">No channels joined yet.</div>
+          <EmptyState class="channel-empty">No channels joined yet.</EmptyState>
         )}
 
         <div class="channel-section-header">
           <div class="channel-section">Channels</div>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size={narrow ? 'lg' : 'sm'}
             class="channel-add"
             aria-label="Add channel"
             title="Join a new channel"
             onClick={() => bloc.openJoinModal()}
-          >
-            +
-          </button>
+            icon={<Plus aria-hidden="true" />}
+          />
         </div>
         {realChannels.map((c) => (
           <Fragment key={c.name}>
@@ -370,6 +373,15 @@ export function ChannelSidebar({
   );
 }
 
+// The header's connection dot: an offline or pending bouncer upstream
+// reads as a warning; otherwise the engine state.
+const DOT_STATUS: Record<string, DotStatus> = {
+  connected: 'online',
+  connecting: 'away',
+  'upstream-offline': 'away',
+  disconnected: 'error',
+};
+
 // Escape a URL for safe interpolation into a CSS url("...") value: neutralise
 // the closing quote, backslash, and parens so a crafted banner URL can't break
 // out of the declaration. The URL itself is backend-issued (our CDN), but we
@@ -457,28 +469,28 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder
       </span>
       <span class="channel-name">{display}</span>
       {hasMention ? (
-        <span
+        <Count
+          value={channel.mentions}
           class="channel-mention-count"
-          aria-label={`${channel.mentions} mention${channel.mentions === 1 ? '' : 's'} in ${channel.name}`}
-        >
-          {channel.mentions > 99 ? '99+' : channel.mentions}
-        </span>
+          label={`${channel.mentions} mention${channel.mentions === 1 ? '' : 's'} in ${channel.name}`}
+        />
       ) : showBadge ? (
-        <span
+        <StatusDot
+          status="unread"
           class="channel-unread-dot"
-          aria-label={`${channel.unread} unread message${channel.unread === 1 ? '' : 's'} in ${channel.name}`}
+          label={`${channel.unread} unread message${channel.unread === 1 ? '' : 's'} in ${channel.name}`}
         />
       ) : null}
       {action}
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         class="channel-leave"
-        type="button"
         title="Leave"
         aria-label={`Leave ${channel.name}`}
         onClick={(e) => { e.stopPropagation(); onPart(channel.name); }}
-      >
-        ×
-      </button>
+        icon={<X aria-hidden="true" />}
+      />
     </div>
   );
 }
@@ -621,11 +633,11 @@ function JoinChannelBrowser({
 
       <div class="channel-join-results" ref={listRef} role="listbox">
         {visible.length === 0 ? (
-          <div class="channel-join-empty">
+          <EmptyState class="channel-join-empty">
             {directory === undefined || directory.length === 0
               ? 'Waiting for the server to publish its channel list…'
               : 'No channels match. Press Enter to join the typed name anyway.'}
-          </div>
+          </EmptyState>
         ) : (
           visible.map((c, idx) => (
             <button
@@ -656,30 +668,30 @@ function JoinChannelBrowser({
 
       {totalPages > 1 && (
         <div class="channel-join-pagination" aria-label="Channel list pagination">
-          <button
-            type="button"
-            class="channel-join-page-btn"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={goPrev}
             disabled={page === 0}
             aria-label="Previous page"
           >
             ‹ Prev
-          </button>
+          </Button>
           <span class="channel-join-page-status">
             Page {page + 1} of {totalPages.toLocaleString()}
             <span class="channel-join-page-range">
               {' '}({(start + 1).toLocaleString()}–{Math.min(start + JOIN_PAGE_SIZE, matches.length).toLocaleString()} of {matches.length.toLocaleString()})
             </span>
           </span>
-          <button
-            type="button"
-            class="channel-join-page-btn"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={goNext}
             disabled={page >= totalPages - 1}
             aria-label="Next page"
           >
             Next ›
-          </button>
+          </Button>
         </div>
       )}
 

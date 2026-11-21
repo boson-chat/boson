@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'preact/hooks';
+import { Button } from '@boson/shared';
 import type { EngineState } from '../../modules/engine';
 import { useAuthState } from '../../modules/auth';
 import { type VoiceRoom } from '../../modules/voice';
@@ -7,7 +8,6 @@ import {
 } from './VoiceRooms';
 import { VoiceRoomDialog, voiceRoomOf } from './VoiceRoomDialog';
 import { GuestBadge } from './GuestBadge';
-import './NickContextMenu.css';
 import './VoiceSection.css';
 
 interface VoiceSectionProps {
@@ -122,7 +122,7 @@ export function VoiceSection({ host, serverName, engineState, avatarFor, channel
       {server.roomsError && (
         <div class="voice-note voice-note-error" role="status">
           <span>{server.roomsError}</span>
-          <button type="button" class="voice-note-retry" onClick={() => { void voice.refreshRooms(key, true); }}>Retry</button>
+          <Button variant="secondary" size="sm" onClick={() => { void voice.refreshRooms(key, true); }}>Retry</Button>
         </div>
       )}
       {server.rooms === null && !server.roomsError && !anyRooms && (

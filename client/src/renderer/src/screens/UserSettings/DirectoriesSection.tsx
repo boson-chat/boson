@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, Button, Card, Field, Input, Toggle } from '@boson/shared';
+import { Badge, Button, Card, Field, Input, ListRow, Toggle } from '@boson/shared';
 import {
   DirectoryCheckError,
   getDirectorySources,
@@ -52,18 +52,16 @@ export function DirectoriesSection({ sources = getDirectorySources() }: { source
       </div>
       <div class="user-settings-section-body">
         <Card>
-          <ul class="directories-list" aria-label="Your directories">
+          <ul class="settings-rows" aria-label="Your directories">
             {list.map((d) => (
-              <li key={d.url} class={`directories-row ${d.enabled ? '' : 'directories-row-off'}`}>
-                <div class="directories-row-titles">
-                  <span class="directories-row-name">
-                    {d.name}
-                    {d.isDefault && <Badge tone="info">Default</Badge>}
-                  </span>
-                  <span class="directories-row-host">{new URL(d.url).host}</span>
-                  {d.operator && <span class="directories-row-operator">Run by {d.operator}</span>}
-                </div>
-                <div class="directories-row-actions">
+              <ListRow
+                key={d.url}
+                as="li"
+                class={d.enabled ? undefined : 'settings-row-off'}
+                title={d.name}
+                meta={d.isDefault ? <Badge tone="info">Default</Badge> : undefined}
+                subtitle={new URL(d.url).host}
+                trailing={<>
                   <Toggle
                     checked={d.enabled}
                     onChange={(v) => sources.setEnabled(d.url, v)}
@@ -74,8 +72,10 @@ export function DirectoriesSection({ sources = getDirectorySources() }: { source
                       Remove
                     </Button>
                   )}
-                </div>
-              </li>
+                </>}
+              >
+                {d.operator && <span class="settings-row-note">Run by {d.operator}</span>}
+              </ListRow>
             ))}
           </ul>
         </Card>

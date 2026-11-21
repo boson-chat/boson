@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { LayoutGrid, MonitorUp, MonitorX, Video, VideoOff } from 'lucide-preact';
+import { Button, Menu, MenuItem, type ButtonSize } from '@boson/shared';
 import { useVideo, type VideoCamera, type VideoSource } from '../../modules/video';
 import './CallView.css';
 import { openScreenPicker } from './ScreenPicker';
@@ -7,7 +8,10 @@ import { useVoice } from '../../modules/voice';
 
 // Camera, screen share and "show the call" for the voice bar and the call
 // view. Nothing renders until the call's voice server offers video.
-export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: boolean }) {
+// size / fullWidth: the dock's 44px buttons, or the voice panel's grid.
+export function CallVideoButtons({ withCallToggle = true, size = 'sm', fullWidth = false }: {
+  withCallToggle?: boolean; size?: ButtonSize; fullWidth?: boolean;
+}) {
   const { video, snap } = useVideo();
   const { snap: vsnap } = useVoice();
   const [menu, setMenu] = useState<'none' | 'camera' | 'screen'>('none');
@@ -69,50 +73,44 @@ export function CallVideoButtons({ withCallToggle = true }: { withCallToggle?: b
       {/* Builds that can't send (phones for now, Linux release builds)
           watch only: no send buttons. */}
       {st.canCapture && (<>
-      <button type="button" class="voice-bar-btn call-cam-btn" aria-pressed={camLive} data-live={camLive || undefined} data-paused={cam.paused || undefined}
-        data-off={!camLive || undefined}
+      <Button variant="secondary" size={size} fullWidth={fullWidth} class="call-cam-btn" pressed={camLive} data-paused={cam.paused || undefined}
         data-starting={cam.starting || undefined} disabled={!canSend} aria-label={canSend ? camLabel : sendTitle}
-        title={canSend ? camLabel : sendTitle} onClick={toggleCamera} onContextMenu={(e) => { e.preventDefault(); void pickCamera(); }}>
-        {camLive ? <Video size={16} aria-hidden="true" /> : <VideoOff size={16} aria-hidden="true" />}
-      </button>
-      {st.canShareScreen && <button type="button" class="voice-bar-btn call-screen-btn" aria-pressed={scr.on} data-live={scr.on || scr.starting || undefined}
+        title={canSend ? camLabel : sendTitle} onClick={toggleCamera} onContextMenu={(e) => { e.preventDefault(); void pickCamera(); }}
+        icon={camLive ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />} />
+      {st.canShareScreen && <Button variant="secondary" size={size} fullWidth={fullWidth} class="call-screen-btn" pressed={scr.on}
         data-starting={scr.starting || undefined} disabled={!canSend} aria-label={canSend ? scrLabel : sendTitle}
-        title={canSend ? scrLabel : sendTitle} onClick={() => { void toggleScreen(); }}>
-        {scr.on || scr.starting ? <MonitorX size={16} aria-hidden="true" /> : <MonitorUp size={16} aria-hidden="true" />}
-      </button>}
+        title={canSend ? scrLabel : sendTitle} onClick={() => { void toggleScreen(); }}
+        icon={scr.on || scr.starting ? <MonitorX aria-hidden="true" /> : <MonitorUp aria-hidden="true" />} />}
       </>)}
       {withCallToggle && (
-        <button type="button" class="voice-bar-btn" aria-pressed={snap.open} data-live={snap.open || undefined}
+        <Button variant="secondary" size={size} fullWidth={fullWidth} pressed={snap.open}
           aria-label={snap.open ? 'Back to chat' : 'Show the call'} title={snap.open ? 'Back to chat' : 'Show the call'}
-          onClick={() => video.setOpen(!snap.open)}>
-          <LayoutGrid size={16} aria-hidden="true" />
-        </button>
+          onClick={() => video.setOpen(!snap.open)} icon={<LayoutGrid aria-hidden="true" />} />
       )}
       {((!cam.paused && cam.error) || scr.error) && (
         <span class="call-video-error" role="status">{(!cam.paused && cam.error) || scr.error}</span>
       )}
       {menu === 'screen' && (
-        <div class="call-menu" role="menu" aria-label="Share which screen or window?">
+        <Menu class="call-menu" label="Share which screen or window?">
           {srcs.map((s) => (
-            <button key={s.id} type="button" role="menuitem" class="call-menu-item"
-              onClick={() => { setMenu('none'); void video.setScreen(true, s.id); video.setOpen(true); }}>
+            <MenuItem key={s.id} onClick={() => { setMenu('none'); void video.setScreen(true, s.id); video.setOpen(true); }}>
               {s.name}{s.width ? <span class="call-menu-dim"> {s.width}×{s.height}</span> : null}
-            </button>
+            </MenuItem>
           ))}
-          <button type="button" role="menuitem" class="call-menu-item call-menu-cancel" onClick={() => setMenu('none')}>Cancel</button>
-        </div>
+          <MenuItem onClick={() => setMenu('none')}>Cancel</MenuItem>
+        </Menu>
       )}
       {menu === 'camera' && (
-        <div class="call-menu" role="menu" aria-label="Which camera?">
+        <Menu class="call-menu" label="Which camera?">
           {cams.map((c) => (
-            <button key={c.id} type="button" role="menuitem" class="call-menu-item" disabled={!!c.unavailable}
-              title={c.unavailable} onClick={() => { setMenu('none'); void video.setCamera(true, c.id); video.setOpen(true); }}>
+            <MenuItem key={c.id} disabled={!!c.unavailable}
+              onClick={() => { setMenu('none'); void video.setCamera(true, c.id); video.setOpen(true); }}>
               {c.name}{c.default ? <span class="call-menu-dim"> (default)</span> : null}
               {c.unavailable ? <span class="call-menu-dim"> — {c.unavailable}</span> : null}
-            </button>
+            </MenuItem>
           ))}
-          <button type="button" role="menuitem" class="call-menu-item call-menu-cancel" onClick={() => setMenu('none')}>Cancel</button>
-        </div>
+          <MenuItem onClick={() => setMenu('none')}>Cancel</MenuItem>
+        </Menu>
       )}
     </span>
   );

@@ -24,4 +24,10 @@ describe('Segmented', () => {
     await u.keyboard('{ArrowLeft}');
     expect(onChange).toHaveBeenLastCalledWith('a');
   });
+  it('tabs semantics: a tablist with the value selected', () => {
+    render(<Segmented semantics="tabs" label="Show" value="c" options={opts} onChange={() => {}} />);
+    expect(screen.getByRole('tablist', { name: 'Show' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Everyone' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('radio')).toBeNull();
+  });
 });

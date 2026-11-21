@@ -13,11 +13,13 @@ interface MenuProps {
   y?: number;
   class?: string;
   style?: JSX.CSSProperties | string;
+  /** 'dialog' for a popover that holds a control (a volume slider) rather than a list of commands. */
+  role?: 'menu' | 'dialog';
 }
 
 // A popover menu (right-click, a "…" button): a raised surface with menu
 // items. On phones the same items go in a Sheet instead.
-export function Menu({ label, children, onClose, x, y, class: extra, style }: MenuProps) {
+export function Menu({ label, children, onClose, x, y, class: extra, style, role = 'menu' }: MenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
@@ -37,7 +39,7 @@ export function Menu({ label, children, onClose, x, y, class: extra, style }: Me
   }, [!!onClose]);
   const pos = x != null && y != null ? `position:fixed;left:${x}px;top:${y}px;` : '';
   return (
-    <div ref={ref} class={`bds-menu${extra ? ` ${extra}` : ''}`} role="menu" aria-label={label}
+    <div ref={ref} class={`bds-menu${extra ? ` ${extra}` : ''}`} role={role} aria-label={label}
       style={typeof style === 'string' || style == null ? `${pos}${style ?? ''}` : { ...(pos ? { position: 'fixed', left: `${x}px`, top: `${y}px` } : {}), ...style }}>
       {children}
     </div>
@@ -53,6 +55,8 @@ interface MenuItemProps {
   danger?: boolean;
   /** One of a set of choices: ticked when true. */
   checked?: boolean;
+  /** With `checked`: an on/off item of its own (menuitemcheckbox), not one of a set. */
+  checkbox?: boolean;
   disabled?: boolean;
   /** md 32px (menus) · lg 44px (sheets). */
   size?: 'md' | 'lg';
@@ -60,10 +64,10 @@ interface MenuItemProps {
   class?: string;
 }
 
-export function MenuItem({ children, onClick, icon, iconTone, danger = false, checked, disabled, size = 'md', ariaLabel, class: extra }: MenuItemProps) {
+export function MenuItem({ children, onClick, icon, iconTone, danger = false, checked, checkbox = false, disabled, size = 'md', ariaLabel, class: extra }: MenuItemProps) {
   const cls = ['bds-menu-item', `bds-menu-item-${size}`, danger ? 'bds-menu-item-danger' : '', extra ?? ''].filter(Boolean).join(' ');
   return (
-    <button type="button" class={cls} role={checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={checked}
+    <button type="button" class={cls} role={checked === undefined ? 'menuitem' : checkbox ? 'menuitemcheckbox' : 'menuitemradio'} aria-checked={checked}
       aria-label={ariaLabel} disabled={disabled} onClick={onClick}>
       {checked !== undefined && <span class="bds-menu-check" aria-hidden="true">{checked ? '✓' : ''}</span>}
       {icon != null && <span class={`bds-menu-icon${iconTone ? ` bds-menu-icon-${iconTone}` : ''}`} aria-hidden="true">{icon}</span>}

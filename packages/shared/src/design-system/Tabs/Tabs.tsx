@@ -10,6 +10,8 @@ interface TabsProps {
   tabs: TabItem[];
   active: string;
   onChange: (id: string) => void;
+  /** The tablist's accessible name. */
+  label?: string;
 }
 
 interface IndicatorRect {
@@ -23,7 +25,7 @@ interface IndicatorRect {
 // click, this glides via CSS transition. Measurement uses
 // getBoundingClientRect against the tablist itself so the math is
 // independent of scroll / parent offsets.
-export function Tabs({ tabs, active, onChange }: TabsProps) {
+export function Tabs({ tabs, active, onChange, label }: TabsProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
   const [indicator, setIndicator] = useState<IndicatorRect | null>(null);
@@ -41,7 +43,7 @@ export function Tabs({ tabs, active, onChange }: TabsProps) {
   }, [active, tabs]);
 
   return (
-    <div class="bds-tabs" role="tablist" ref={listRef}>
+    <div class="bds-tabs" role="tablist" aria-label={label} ref={listRef}>
       {tabs.map((t) => (
         <button
           key={t.id}

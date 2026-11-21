@@ -80,7 +80,7 @@ test('owner edits the directory profile and images from Server settings', async 
     name: renamed, description: 'After the edit', tags: ['beta', 'gamma'], languages: ['en', 'fr'], is_nsfw: true,
   });
   // The page header and the rail pick the new name up without a refetch.
-  await expect(settings.locator('.server-settings-title')).toHaveText(renamed);
+  await expect(settings.getByRole('heading', { level: 1 })).toHaveText(renamed);
   await expect(railTile(page, renamed)).toBeVisible();
   await expect(save).toBeDisabled();
 
@@ -184,7 +184,7 @@ test('Info, Operators, Log and Actions (reconnect, disconnect)', async ({ launch
     const logKind = (kind: string) => settings.locator('.server-settings-log-kind').getByText(kind, { exact: true });
     for (const kind of ['324', '315', '323']) await expect(logKind(kind).first()).toBeVisible({ timeout: 30_000 });
     await settings.getByRole('button', { name: 'Clear' }).click();
-    await expect(settings.locator('.server-settings-log-count')).toHaveText('No entries yet.');
+    await expect(settings.locator('.server-settings-log').getByText('No entries yet.')).toBeVisible();
 
     // Actions → Reconnect: a fresh IRC session that rejoins the channel.
     await settingsTab(settings, 'Actions').click();

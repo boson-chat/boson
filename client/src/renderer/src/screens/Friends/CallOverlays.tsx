@@ -1,6 +1,7 @@
 import { useEffect } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import { Mic, Phone, PhoneOff } from 'lucide-preact';
+import { Button, Toast, type ButtonShape } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { useNarrow } from '../../shared/narrow';
 import { useFriends, type CallInfo, type OutgoingCall } from '../../modules/friends';
@@ -10,6 +11,10 @@ import { incomingCallStyle } from '../../modules/ui/notifications.store';
 import { useNotificationSettings } from '../../modules/notifications/use-settings';
 import { useRingExpanded } from '../Notifications/ring-ui';
 import './CallOverlays.css';
+
+// The full-screen call's Decline / Voice only / Accept: round, or square
+// like every other button (DESIGN.md). One line to flip.
+export const CALL_BUTTON_SHAPE: ButtonShape = 'round';
 
 // Private calls' own screens, over whatever is showing: "Calling mira…"
 // (Cancel), the incoming call when it shows full screen (Decline, Voice
@@ -44,7 +49,9 @@ export function CallOverlays() {
         />
       )}
       {snap.toast && (
-        <div key={snap.toast.id} role="status" class={`call-toast${narrow ? ' call-toast-phone' : ''}`}>{snap.toast.text}</div>
+        <div key={snap.toast.id} class={`call-toast${narrow ? ' call-toast-phone' : ''}`}>
+          <Toast status role="status" surface={narrow ? 'phone' : 'desktop'} title={snap.toast.text} />
+        </div>
       )}
     </>,
     document.body,
@@ -75,15 +82,13 @@ function Outgoing({ out, phone, onCancel }: { out: OutgoingCall; phone: boolean;
     return (
       <div role="dialog" aria-label={`Calling ${name}`} class="pcall pcall-out">
         <div class="pcall-who">
-          <Avatar nick={name} accountUrl={peerUrl} size={120} class={`pcall-av${calling ? ' call-pulse' : ''}`} />
+          <Avatar nick={name} accountUrl={peerUrl} size={120} ringing={calling} />
           <span class="pcall-name">{name}</span>
           <span class="pcall-sub" aria-live="polite">{calling ? `Calling… · ${out.video ? 'video' : 'voice'}` : outcomeText(out)}</span>
         </div>
         <div class="pcall-buttons pcall-buttons-one">
           <div class="pcall-btn-wrap">
-            <button type="button" class="pcall-btn pcall-btn-danger" aria-label={calling ? 'Cancel call' : 'Close'} onClick={onCancel}>
-              <PhoneOff size={28} aria-hidden="true" />
-            </button>
+            <Button variant="danger" size="xl" shape={CALL_BUTTON_SHAPE} icon={<PhoneOff aria-hidden="true" />} aria-label={calling ? 'Cancel call' : 'Close'} onClick={onCancel} />
           </div>
         </div>
       </div>
@@ -92,13 +97,13 @@ function Outgoing({ out, phone, onCancel }: { out: OutgoingCall; phone: boolean;
   return (
     <div class="ocall-backdrop">
       <div role="dialog" aria-label={`Calling ${name}`} class="ocall">
-        <Avatar nick={name} accountUrl={peerUrl} size={84} class="ocall-av" />
+        <Avatar nick={name} accountUrl={peerUrl} size={84} ringing={calling} />
         <span class="ocall-name">{calling ? `Calling ${name}…` : name}</span>
         <span class="ocall-sub" aria-live="polite">
           {calling ? `${out.video ? 'Video call' : 'Voice call'} · ringing for up to 45 s` : outcomeText(out)}
         </span>
         <div class="ocall-actions">
-          <button type="button" class={`call-btn ${calling ? 'call-btn-danger' : ''}`} onClick={onCancel}>{calling ? 'Cancel' : 'Close'}</button>
+          <Button variant={calling ? 'danger' : 'secondary'} onClick={onCancel}>{calling ? 'Cancel' : 'Close'}</Button>
         </div>
       </div>
     </div>
@@ -115,25 +120,12 @@ function Incoming({ call, phone, onDecline, onVoice, onAccept }: {
     return (
       <div role="alertdialog" aria-label={`${name} is calling`} class="pcall pcall-in">
         <div class="pcall-who">
-          <Avatar nick={name} accountUrl={peerUrl} size={120} class="pcall-av call-pulse" />
+          <Avatar nick={name} accountUrl={peerUrl} size={120} ringing />
           <span class="pcall-name">{name}</span>
           <span class="pcall-sub pcall-sub-ok">is calling you · {kind}</span>
         </div>
         <div class="pcall-buttons">
-          <div class="pcall-btn-wrap">
-            <button type="button" class="pcall-btn pcall-btn-danger" aria-label="Decline" onClick={onDecline}><PhoneOff size={28} aria-hidden="true" /></button>
-            <span class="pcall-btn-label">Decline</span>
-          </div>
-          {call.video && (
-            <div class="pcall-btn-wrap">
-              <button type="button" class="pcall-btn pcall-btn-plain" aria-label="Accept with voice only" onClick={onVoice}><Mic size={24} aria-hidden="true" /></button>
-              <span class="pcall-btn-label">Voice only</span>
-            </div>
-          )}
-          <div class="pcall-btn-wrap">
-            <button type="button" class="pcall-btn pcall-btn-ok call-answer" aria-label="Accept" onClick={onAccept}><Phone size={28} aria-hidden="true" /></button>
-            <span class="pcall-btn-label pcall-btn-label-ok">Accept</span>
-          </div>
+          <CallButtons video={call.video} onDecline={onDecline} onVoice={onVoice} onAccept={onAccept} />
         </div>
       </div>
     );
@@ -143,27 +135,36 @@ function Incoming({ call, phone, onDecline, onVoice, onAccept }: {
     <div class="fcall-backdrop">
       <div role="alertdialog" aria-label={`${name} is calling`} class="fcall">
         <div class="pcall-who">
-          <Avatar nick={name} accountUrl={peerUrl} size={112} class="pcall-av call-pulse" />
+          <Avatar nick={name} accountUrl={peerUrl} size={112} ringing />
           <span class="pcall-name">{name}</span>
           <span class="pcall-sub pcall-sub-ok">is calling you · {kind}</span>
         </div>
         <div class="fcall-buttons">
-          <div class="pcall-btn-wrap">
-            <button type="button" class="pcall-btn pcall-btn-danger" aria-label="Decline" onClick={onDecline}><PhoneOff size={28} aria-hidden="true" /></button>
-            <span class="pcall-btn-label">Decline</span>
-          </div>
-          {call.video && (
-            <div class="pcall-btn-wrap">
-              <button type="button" class="pcall-btn pcall-btn-plain" aria-label="Accept with voice only" onClick={onVoice}><Mic size={24} aria-hidden="true" /></button>
-              <span class="pcall-btn-label">Voice only</span>
-            </div>
-          )}
-          <div class="pcall-btn-wrap">
-            <button type="button" class="pcall-btn pcall-btn-ok call-answer" aria-label="Accept" onClick={onAccept}><Phone size={28} aria-hidden="true" /></button>
-            <span class="pcall-btn-label pcall-btn-label-ok">Accept</span>
-          </div>
+          <CallButtons video={call.video} onDecline={onDecline} onVoice={onVoice} onAccept={onAccept} />
         </div>
       </div>
     </div>
+  );
+}
+
+// Decline · Voice only (video calls) · Accept, each with its label under it.
+function CallButtons({ video, onDecline, onVoice, onAccept }: { video: boolean; onDecline: () => void; onVoice: () => void; onAccept: () => void }) {
+  return (
+    <>
+      <div class="pcall-btn-wrap">
+        <Button variant="danger" size="xl" shape={CALL_BUTTON_SHAPE} icon={<PhoneOff aria-hidden="true" />} aria-label="Decline" onClick={onDecline} />
+        <span class="pcall-btn-label">Decline</span>
+      </div>
+      {video && (
+        <div class="pcall-btn-wrap">
+          <Button variant="secondary" size="xl" shape={CALL_BUTTON_SHAPE} icon={<Mic aria-hidden="true" />} aria-label="Accept with voice only" onClick={onVoice} />
+          <span class="pcall-btn-label">Voice only</span>
+        </div>
+      )}
+      <div class="pcall-btn-wrap">
+        <Button variant="success" size="xl" shape={CALL_BUTTON_SHAPE} attention class="call-answer" icon={<Phone aria-hidden="true" />} aria-label="Accept" onClick={onAccept} />
+        <span class="pcall-btn-label pcall-btn-label-ok">Accept</span>
+      </div>
+    </>
   );
 }

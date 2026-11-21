@@ -48,14 +48,14 @@ function drag(sheet: HTMLElement, dy: number, ms: number, end: 'pointerup' | 'po
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => {
   vi.useRealTimers();
-  document.body.querySelectorAll('.bottom-sheet-backdrop').forEach((n) => n.remove());
+  document.body.querySelectorAll('.bds-sheet-backdrop').forEach((n) => n.remove());
 });
 
 describe('BottomSheet', () => {
   it('renders the header, body and actions in a portal on <body>', () => {
     const { sheet } = renderSheet();
     expect(sheet.parentElement?.parentElement).toBe(document.body);
-    expect(sheet.querySelector('.bottom-sheet-handle .test-header')).not.toBeNull();
+    expect(sheet.querySelector('.bds-sheet-handle .test-header')).not.toBeNull();
     expect(sheet.querySelector('.test-body')).not.toBeNull();
     expect(screen.getAllByRole('menuitem').map((b) => b.textContent)).toEqual(['Message alice']);
   });
@@ -91,7 +91,7 @@ describe('BottomSheet', () => {
     fireEvent.click(sheet.querySelector('.test-body')!);
     settle();
     expect(onClose).not.toHaveBeenCalled();
-    fireEvent.click(document.querySelector('.bottom-sheet-backdrop')!);
+    fireEvent.click(document.querySelector('.bds-sheet-backdrop')!);
     settle();
     expect(onClose).toHaveBeenCalledTimes(1);
   });

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Input, Tabs, Toggle } from '@boson/shared';
+import { Button, Input, ListRow, SwitchRow, Tabs } from '@boson/shared';
 import type { ChatChannel } from '../../modules/chat';
 import { canSetChannelMode, canSetTopic } from '../../modules/chat';
 import { sameName, type ChanServController, type ChanServState, type ChannelPolicy } from '../../modules/chanserv';
@@ -109,13 +109,13 @@ export function ChannelSettings({
 
   const modeRow = (m: typeof BOOL_MODES[number]) => (
     <li key={m.flag} class="chan-mode-row">
-      <Toggle
+      <SwitchRow
+        title={m.label}
+        description={m.hint}
         checked={isOn(m.flag)}
         disabled={!canEdit}
-        label={m.label}
         onChange={(next) => toggleMode(m.flag, next)}
       />
-      {m.hint && <span class="chan-mode-hint">{m.hint}</span>}
     </li>
   );
 
@@ -209,11 +209,14 @@ export function ChannelSettings({
         {!!channel.bans?.length && (
           <ul class="chan-bans">
             {channel.bans.map((b) => (
-              <li key={b.mask} class="chan-ban-row">
-                <code class="chan-ban-mask">{b.mask}</code>
-                {b.setBy && <span class="chan-ban-meta">by {b.setBy}</span>}
-                <Button variant="ghost" size="sm" disabled={!canEdit} onClick={() => onRemoveBan(b.mask)}>Remove</Button>
-              </li>
+              <ListRow
+                key={b.mask}
+                as="li"
+                class="chan-ban-row"
+                title={<code class="chan-ban-mask">{b.mask}</code>}
+                meta={b.setBy ? <span class="chan-ban-meta">by {b.setBy}</span> : undefined}
+                trailing={<Button variant="ghost" size="sm" disabled={!canEdit} onClick={() => onRemoveBan(b.mask)}>Remove</Button>}
+              />
             ))}
           </ul>
         )}

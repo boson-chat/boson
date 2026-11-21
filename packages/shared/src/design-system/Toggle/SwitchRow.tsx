@@ -12,12 +12,14 @@ interface SwitchRowProps {
   ariaLabel?: string;
   /** md (default) · lg (phones: 44px rows). */
   size?: 'md' | 'lg';
+  /** 'switch': the control is announced as a switch, not a checkbox. */
+  role?: 'switch';
   class?: string;
 }
 
 // A setting that's on or off: title and description on the left, the
 // switch on the right. Every switch-with-a-description row uses this.
-export function SwitchRow({ title, description, checked, onChange, disabled, ariaLabel, size = 'md', class: extra }: SwitchRowProps) {
+export function SwitchRow({ title, description, checked, onChange, disabled, ariaLabel, size = 'md', role, class: extra }: SwitchRowProps) {
   const id = useId();
   const cls = ['bds-switch-row', `bds-switch-row-${size}`, disabled ? 'bds-switch-row-disabled' : '', extra ?? ''].filter(Boolean).join(' ');
   return (
@@ -36,6 +38,7 @@ export function SwitchRow({ title, description, checked, onChange, disabled, ari
         disabled={disabled}
         ariaLabel={ariaLabel ?? (typeof title === 'string' ? title : undefined)}
         describedBy={description ? `${id}-d` : undefined}
+        role={role}
       />
     </div>
   );

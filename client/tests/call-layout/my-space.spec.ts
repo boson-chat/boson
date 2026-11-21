@@ -24,7 +24,7 @@ test('desktop (1440×900): MY is your avatar with a dot, then SERVERS, then the 
   await expect(page.locator('.my-tile-badge')).toHaveText('3');
 
   await my.click();
-  const rows = page.locator('.my-sidebar .my-row');
+  const rows = page.locator('.my-sidebar .my-row').getByRole('button');
   await expect(rows.nth(0)).toHaveAccessibleName('Friends, 1 request');
   await expect(rows.nth(1)).toHaveAccessibleName('Calls, 2 missed');
   await expect(page.getByRole('main', { name: 'Friends' })).toBeVisible();
@@ -57,6 +57,14 @@ for (const [w, h, phone] of [[390, 844, 'iphone'], [360, 800, 'android']] as con
     await expect(page.getByRole('button', { name: 'Call kestrel back' })).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
     expect(overflow).toBeLessThanOrEqual(0);
+    // Design system: 44px buttons on phones; no circles but status dots.
+    const shapes = await page.evaluate(() => {
+      const main = document.querySelector('main.calls-view')!;
+      const small = [...main.querySelectorAll('button')].filter((b) => b.getBoundingClientRect().height < 43.5).map((b) => b.textContent || b.getAttribute('aria-label'));
+      const round = [...main.querySelectorAll('*')].filter((e) => !e.classList.contains('bds-dot') && getComputedStyle(e).borderRadius === '50%').map((e) => e.className);
+      return { small, round };
+    });
+    expect(shapes).toEqual({ small: [], round: [] });
     await page.screenshot({ path: test.info().outputPath(`calls-${phone}.png`) });
   });
 }

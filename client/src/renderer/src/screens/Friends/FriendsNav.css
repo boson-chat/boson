@@ -7,33 +7,6 @@
   flex-direction: column;
   background: var(--bg);
 }
-.phone-page-head {
-  height: 54px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  border-bottom: 1px solid var(--border);
-}
-.phone-page-back {
-  width: 44px;
-  height: 44px;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 0;
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--fg-2);
-  cursor: pointer;
-}
-.phone-page-back:focus-visible { outline: none; box-shadow: var(--focus-ring); }
-.phone-page-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.phone-page-title { margin: 0; font: 700 16px var(--font-mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.phone-page-sub { font: 400 11px var(--font-mono); color: var(--fg-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .phone-page-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow-y: auto; }
 .phone-page-body > .friends,
 .phone-page-body > .calls-view { flex: 1 1 auto; }

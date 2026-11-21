@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { usePauseOffscreen } from '../../shared/use-offscreen';
 import { Download, FileText, FileX } from 'lucide-preact';
+import { Button } from '@boson/shared';
 import { filesViewUrl, formatBytes, formatDuration, type FilesLink } from '../../modules/files';
 import { INLINE_BOX, imagesBridge, reserveStyle, useCachedImage } from '../../shared/image-cache';
 import './Uploads.css';
@@ -150,9 +151,10 @@ function FileCard({ link, meta, phase, openExternal }: { link: FilesLink; meta: 
           {[meta.size !== undefined ? formatBytes(meta.size) : '', expiryLabel(meta.expiresAt)].filter(Boolean).join(' · ') || link.ext.toUpperCase() || 'File'}
         </span>
       </span>
-      <button type="button" class="files-card-download" onClick={() => openExternal(link.url)} aria-label={`Download ${link.name}`}>
-        <Download size={16} aria-hidden="true" /> Download
-      </button>
+      <Button variant="secondary" size="sm" class="files-card-download" onClick={() => openExternal(link.url)} aria-label={`Download ${link.name}`}
+        icon={<Download aria-hidden="true" />}>
+        Download
+      </Button>
     </div>
   );
 }
@@ -162,9 +164,8 @@ function FootLine({ link, meta, openExternal }: { link: FilesLink; meta: Meta; o
     <div class="files-foot">
       <span class="files-card-name" title={link.name}>{link.name}</span>
       <span class="files-card-meta">{[meta.size !== undefined ? formatBytes(meta.size) : '', expiryLabel(meta.expiresAt)].filter(Boolean).join(' · ')}</span>
-      <button type="button" class="files-foot-download" onClick={() => openExternal(link.url)} aria-label={`Download ${link.name}`}>
-        <Download size={14} aria-hidden="true" />
-      </button>
+      <Button variant="ghost" size="sm" class="files-foot-download" onClick={() => openExternal(link.url)} aria-label={`Download ${link.name}`}
+        icon={<Download aria-hidden="true" />} />
     </div>
   );
 }

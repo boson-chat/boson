@@ -2,7 +2,8 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
 import { ArrowLeft, PlugZap, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
-import { BarLoader } from '@boson/shared';
+import { BarLoader, Button, EmptyState, StatusDot } from '@boson/shared';
+import { useNarrow } from '../../shared/narrow';
 import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
   getServiceCredentialsStore,
@@ -131,9 +132,8 @@ interface ChatAreaProps {
 function PaneBackButton({ onBack }: { onBack?: () => void }) {
   if (!onBack) return null;
   return (
-    <button type="button" class="chat-icon-btn chat-pane-back" onClick={onBack} aria-label="Back to channels">
-      <ArrowLeft size={20} aria-hidden="true" />
-    </button>
+    <Button variant="ghost" size="lg" class="chat-pane-back" onClick={onBack} aria-label="Back to channels"
+      icon={<ArrowLeft aria-hidden="true" />} />
   );
 }
 
@@ -267,6 +267,7 @@ export function ChatArea({
     setSheetFiles(null);
     setSheetNotice(undefined);
   };
+  const narrow = useNarrow();
   const drop = useFileDrop({ disabled: !canUpload, onFiles: openSheet });
   const onSendToRef = useRef(onSendTo);
   onSendToRef.current = onSendTo;
@@ -311,20 +312,20 @@ export function ChatArea({
     const isReconnecting = reconnectActive;
     const isAttempting = engineState === 'connecting';
     let title: string;
-    let dotClass: string;
+    let dotPulse: boolean;
     if (isAttempting && !isReconnecting) {
       // First-time connect, no cycle yet.
       title = `Connecting to ${serverName ?? 'server'}…`;
-      dotClass = 'chat-engine-dot-pulse';
+      dotPulse = true;
     } else if (isReconnecting) {
       // Auto-reconnect cycle running — same copy whether we're in
       // 'connecting' (mid-attempt) or 'disconnected' (backoff wait).
       title = `Reconnecting to ${serverName ?? 'server'}…`;
-      dotClass = 'chat-engine-dot-pulse';
+      dotPulse = true;
     } else {
       // Manual mode — cycle inactive, user has to click Reconnect.
       title = `Disconnected from ${serverName ?? 'server'}`;
-      dotClass = 'chat-engine-dot-down';
+      dotPulse = false;
     }
     return (
       <main class="chat-area chat-area-engine">
@@ -334,7 +335,7 @@ export function ChatArea({
           onBack={onBack}
         />
         <div class="chat-engine-splash">
-          <div class={`chat-engine-dot ${dotClass}`} />
+          <StatusDot status={dotPulse ? 'accent' : 'offline'} size={10} pulse={dotPulse} class="chat-engine-dot" />
           <div class="chat-engine-title">{title}</div>
           {showDisconnectedSplash && connectionError && (
             <div class="chat-engine-reason" role="alert">{connectionError}</div>
@@ -345,26 +346,26 @@ export function ChatArea({
                 actively attempting (a click would be a no-op since
                 another connect is already in flight). */}
             {(showDisconnectedSplash || isReconnecting) && onReconnect && (
-              <button
-                type="button"
+              <Button
+                variant="primary"
                 class="chat-engine-reconnect"
                 onClick={onReconnect}
                 disabled={isAttempting}
               >
                 Reconnect
-              </button>
+              </Button>
             )}
             {/* Cancel: only meaningful while the auto-reconnect cycle
                 is running — clicking it stops the cycle and the user
                 falls through to the manual-mode splash. */}
             {isReconnecting && onCancelReconnect && (
-              <button
-                type="button"
+              <Button
+                variant="secondary"
                 class="chat-engine-cancel"
                 onClick={onCancelReconnect}
               >
                 Cancel
-              </button>
+              </Button>
             )}
           </div>
           <ServerLogTail entries={serverLog} />
@@ -385,9 +386,7 @@ export function ChatArea({
           onTrustCert={onTrustBouncerCert}
           onRejectCert={onRejectBouncerCert}
         />
-        <div class="chat-area-empty-state">
-          <p>Select a channel from the sidebar, or join one to start chatting.</p>
-        </div>
+        <EmptyState class="chat-area-empty-state">Select a channel from the sidebar, or join one to start chatting.</EmptyState>
       </main>
     );
   }
@@ -417,16 +416,17 @@ export function ChatArea({
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
           {registration && prefix === '#' && (
-            <button
-              type="button"
-              class={`chat-icon-btn chat-reg-badge${registration.registered ? ' chat-reg-badge-on' : ''}`}
+            <Button
+              variant="ghost"
+              size={narrow ? 'lg' : 'sm'}
+              tone={registration.registered ? 'success' : undefined}
+              class={`chat-reg-badge${registration.registered ? ' chat-reg-badge-on' : ''}`}
               onClick={onOpenRegistration}
               disabled={!onOpenRegistration}
               title={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
               aria-label={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
-            >
-              {registration.registered ? <ShieldCheck size={14} aria-hidden="true" /> : <ShieldOff size={14} aria-hidden="true" />}
-            </button>
+              icon={registration.registered ? <ShieldCheck aria-hidden="true" /> : <ShieldOff aria-hidden="true" />}
+            />
           )}
           {topic && (
             <span
@@ -440,26 +440,26 @@ export function ChatArea({
         </div>
         <div class="chat-header-right">
           {onShowMembers && (
-            <button
-              type="button"
-              class="chat-icon-btn chat-pane-members"
+            <Button
+              variant="ghost"
+              size={narrow ? 'lg' : 'sm'}
+              class="chat-pane-members"
               onClick={onShowMembers}
               title="Members"
               aria-label={`Members (${channel.members.length})`}
-            >
-              <Users size={16} aria-hidden="true" />
-            </button>
+              icon={<Users aria-hidden="true" />}
+            />
           )}
           {onOpenChannelSettings && (
-            <button
-              type="button"
-              class="chat-icon-btn chat-channel-gear"
+            <Button
+              variant="ghost"
+              size={narrow ? 'lg' : 'sm'}
+              class="chat-channel-gear"
               onClick={onOpenChannelSettings}
               title="Channel settings"
               aria-label="Channel settings"
-            >
-              <Settings size={16} aria-hidden="true" />
-            </button>
+              icon={<Settings aria-hidden="true" />}
+            />
           )}
         </div>
       </div>
@@ -477,14 +477,14 @@ export function ChatArea({
 
       {!offline && joining && (
         <div class="chat-connection-strip chat-join-strip" role="status" data-state={joinError ? 'failed' : 'joining'}>
-          <span class={`chat-engine-dot ${joinError ? 'chat-engine-dot-down' : 'chat-engine-dot-pulse'}`} aria-hidden="true" />
+          <StatusDot status={joinError ? 'offline' : 'accent'} size={8} pulse={!joinError} class="chat-engine-dot" />
           <span class="chat-connection-strip-label">
             {joinError ? `Couldn't join ${prefix}${display}` : `Joining ${prefix}${display}…`}
           </span>
           {joinError && <span class="chat-connection-strip-reason">{joinError}</span>}
           {joinError && onRejoin && (
             <span class="chat-connection-strip-actions">
-              <button type="button" class="chat-connection-strip-btn" onClick={() => onRejoin(channel.name)}>Try again</button>
+              <Button variant="secondary" size="sm" class="chat-connection-strip-btn" onClick={() => onRejoin(channel.name)}>Try again</Button>
             </span>
           )}
         </div>
@@ -628,19 +628,19 @@ function ConnectionStrip({ engineState, reconnectActive, connectionError, onReco
   const label = reconnectActive ? 'Reconnecting…' : attempting ? 'Connecting…' : 'Disconnected';
   return (
     <div class="chat-connection-strip" role="status">
-      <span class={`chat-engine-dot ${reconnectActive || attempting ? 'chat-engine-dot-pulse' : 'chat-engine-dot-down'}`} aria-hidden="true" />
+      <StatusDot status={reconnectActive || attempting ? 'accent' : 'offline'} size={8} pulse={reconnectActive || attempting} class="chat-engine-dot" />
       <span class="chat-connection-strip-label">{label}</span>
       {engineState === 'disconnected' && connectionError && (
         <span class="chat-connection-strip-reason">{connectionError}</span>
       )}
       <span class="chat-connection-strip-actions">
         {(engineState === 'disconnected' || reconnectActive) && onReconnect && (
-          <button type="button" class="chat-connection-strip-btn" onClick={onReconnect} disabled={attempting}>
+          <Button variant="secondary" size="sm" class="chat-connection-strip-btn" onClick={onReconnect} disabled={attempting}>
             Reconnect
-          </button>
+          </Button>
         )}
         {reconnectActive && onCancelReconnect && (
-          <button type="button" class="chat-connection-strip-btn" onClick={onCancelReconnect}>Cancel</button>
+          <Button variant="secondary" size="sm" class="chat-connection-strip-btn" onClick={onCancelReconnect}>Cancel</Button>
         )}
       </span>
     </div>
@@ -734,13 +734,9 @@ function PendingConfirmationBanner({
         Confirm your registration{where}.
       </span>
       {onOpenSettings && (
-        <button
-          type="button"
-          class="chat-pending-confirm-link"
-          onClick={onOpenSettings}
-        >
+        <Button variant="secondary" size="sm" class="chat-pending-confirm-link" onClick={onOpenSettings}>
           Open settings
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -781,14 +777,14 @@ export function BouncerUpstreamBanner({ serverInfo, serverName, onConnect, onTru
           </span>
         </span>
         {onRejectCert && (
-          <button type="button" class="chat-bouncer-upstream-action" data-variant="quiet" onClick={onRejectCert}>
+          <Button variant="ghost" size="sm" class="chat-bouncer-upstream-action" onClick={onRejectCert}>
             Don't trust
-          </button>
+          </Button>
         )}
         {onTrustCert && (
-          <button type="button" class="chat-bouncer-upstream-action" onClick={onTrustCert}>
+          <Button variant="secondary" size="sm" class="chat-bouncer-upstream-action" onClick={onTrustCert}>
             Trust certificate
-          </button>
+          </Button>
         )}
       </div>
     );
@@ -813,13 +809,9 @@ export function BouncerUpstreamBanner({ serverInfo, serverName, onConnect, onTru
         Your bouncer isn't connected to {network}.
       </span>
       {onConnect && (
-        <button
-          type="button"
-          class="chat-bouncer-upstream-action"
-          onClick={onConnect}
-        >
+        <Button variant="secondary" size="sm" class="chat-bouncer-upstream-action" onClick={onConnect}>
           Connect
-        </button>
+        </Button>
       )}
     </div>
   );

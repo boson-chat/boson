@@ -52,7 +52,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   window.matchMedia = matchMedia;
-  document.body.querySelectorAll('.bottom-sheet-backdrop, .nick-profile-card, .nick-hovercard-portal').forEach((n) => n.remove());
+  document.body.querySelectorAll('.bds-sheet-backdrop, .nick-profile-card, .nick-hovercard-portal').forEach((n) => n.remove());
   localStorage.clear();
   __resetPrivacySettingsCache();
 });

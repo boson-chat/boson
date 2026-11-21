@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
 import { Volume2, VolumeX } from 'lucide-preact';
+import { Button } from '@boson/shared';
 import { useVideo, type VideoTrack } from '../../modules/video';
 import './ShareSound.css';
 
@@ -24,11 +25,10 @@ export function ShareSound({ track, compact, cls }: { track: VideoTrack; compact
   };
   return (
     <div class={cls ? `share-sound ${cls}` : 'share-sound'} data-compact={compact || undefined} data-muted={muted || undefined}>
-      <button type="button" class="share-sound-btn" aria-pressed={muted}
+      <Button variant="ghost" size={cls === 'mcall-share-sound' ? 'md' : 'sm'} pressed={muted}
         aria-label={muted ? `Unmute ${whose}` : `Mute ${whose}`} title={muted ? 'Unmute its sound' : 'Mute its sound'}
-        onClick={() => set(muted ? lastHeard.get(track.trackId) ?? 100 : 0)}>
-        {muted ? <VolumeX size={14} aria-hidden="true" /> : <Volume2 size={14} aria-hidden="true" />}
-      </button>
+        onClick={() => set(muted ? lastHeard.get(track.trackId) ?? 100 : 0)}
+        icon={muted ? <VolumeX aria-hidden="true" /> : <Volume2 aria-hidden="true" />} />
       {!compact && (
         <input type="range" class="share-sound-range" min={0} max={200} step={5} value={shown}
           aria-label={`${whose} volume`} aria-valuetext={`${shown}%`}

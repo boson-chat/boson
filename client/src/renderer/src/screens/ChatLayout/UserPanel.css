@@ -38,15 +38,7 @@
 
 .user-panel-list::-webkit-scrollbar { width: 4px; }
 .user-panel-list::-webkit-scrollbar-track { background: transparent; }
-.user-panel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-.user-panel-placeholder {
-  padding: var(--space-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-  line-height: 1.5;
-}
+.user-panel-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: var(--radius-sm); }
 
 /* Shown while a joined channel's member list is still empty — the
    NAMES self-heal is re-requesting in the background (chat.service.ts). */
@@ -83,58 +75,18 @@
   font-weight: 600;
 }
 
-.user-panel-item {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) var(--space-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--fg-2);
-  cursor: default;
-  transition: background var(--motion-fast) var(--ease-standard);
-}
-
-
-/* Presence dot. Green when the member is here and responsive, amber when
-   they've set an /away message, gray when they've signed off (channel
-   list snapshot — IRC drops parted users immediately, so "offline"
-   currently only shows up for DM contacts when that feature lands). */
-.user-panel-presence {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  /* Transition the colour so an away→online flip (or vice versa) fades
-     between hues instead of snapping. Same with opacity for offline. */
-  transition:
-    background var(--motion-base) var(--ease-standard),
-    opacity var(--motion-base) var(--ease-standard);
-}
-.user-panel-presence-online  { background: var(--success); }
-.user-panel-presence-away    { background: var(--warn); }
-.user-panel-presence-offline { background: var(--fg-3); opacity: 0.4; }
-
-.user-panel-item {
-  transition: background var(--motion-instant) var(--ease-standard);
-}
-.user-panel-item:hover { background: var(--surface-hover); color: var(--fg); }
+/* Member rows are ListRow nav entries; here only the role colours and the
+   away dim. */
+.user-panel-item { position: relative; }
 
 /* Member avatar now rendered by the shared <Avatar> component
    (shared/Avatar) — see modules/chat/nick-color.ts for the fallback hue. */
 
-.user-panel-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.user-panel-item .bds-row-title { flex: 1; }
 
 /* Subtle role coloring — visible at a glance but not loud. Hover tooltip
    spells it out explicitly. */
-.user-panel-item-founder .user-panel-name { color: var(--danger); font-weight: 700; }
+.user-panel-item-founder .user-panel-name { color: var(--danger-fg); font-weight: 700; }
 .user-panel-item-admin .user-panel-name   { color: var(--warn); font-weight: 700; }
 .user-panel-item-op .user-panel-name      { color: var(--accent); font-weight: 600; }
 .user-panel-item-halfop .user-panel-name  { color: var(--info); }
@@ -160,8 +112,8 @@
   padding: var(--space-3) var(--space-4);
   background: var(--surface-raised);
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-menu);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   color: var(--fg-2);
@@ -198,23 +150,7 @@
   white-space: nowrap;
 }
 
-.nick-hovercard-role {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px var(--space-2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  color: var(--fg-3);
-  flex-shrink: 0;
-}
-
-.nick-hovercard-role-founder { border-color: var(--danger);  color: var(--danger); }
-.nick-hovercard-role-admin   { border-color: var(--warn);    color: var(--warn); }
-.nick-hovercard-role-op      { border-color: var(--accent);  color: var(--accent); }
-.nick-hovercard-role-halfop  { border-color: var(--info);    color: var(--info); }
-.nick-hovercard-role-voice   { border-color: var(--success); color: var(--success); }
+.nick-hovercard-role { flex-shrink: 0; }
 
 .nick-hovercard-activity {
   font-family: var(--font-mono);

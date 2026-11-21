@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AlertTriangle, X } from 'lucide-preact';
+import { Button, EmptyState, Input, Segmented, SwitchRow, Tabs } from '@boson/shared';
 import { useVideo, type VideoSource } from '../../modules/video';
 import { useVoice } from '../../modules/voice';
 import { initialPick, moveSelection, rememberedShare, rememberShare, sourcesFor, type PickerTab, type ShareMode } from './screen-picker';
@@ -124,29 +125,30 @@ function PickerDialog({ onClose }: { onClose: () => void }) {
       <div class="picker" role="dialog" aria-modal="true" aria-label="Share your screen" ref={dialog} onKeyDown={onKey}>
         <div class="picker-head">
           <span class="picker-title">Share to {where}</span>
-          <button type="button" class="picker-icon" aria-label="Close" onClick={onClose}><X size={16} aria-hidden="true" /></button>
+          <Button variant="ghost" aria-label="Close" onClick={onClose} icon={<X aria-hidden="true" />} />
         </div>
         <div class="picker-tabs-row">
-          <div role="tablist" class="picker-tabs">
-            {(['screens', 'windows'] as const).map((t) => (
-              <button key={t} type="button" role="tab" class="picker-tab" aria-selected={tab === t}
-                onClick={() => { setTab(t); const first = sources ? sourcesFor(sources, t, search)[0] : undefined; if (first && chosen?.kind !== (t === 'windows' ? 'window' : 'display')) setPick(first.id); }}>
-                {t === 'screens' ? 'SCREENS' : 'WINDOWS'} · {counts[t]}
-              </button>
-            ))}
+          <div class="picker-tabs">
+            <Tabs
+              tabs={[{ id: 'screens', label: `SCREENS · ${counts.screens}` }, { id: 'windows', label: `WINDOWS · ${counts.windows}` }]}
+              active={tab}
+              onChange={(id) => { const t = id as PickerTab; setTab(t); const first = sources ? sourcesFor(sources, t, search)[0] : undefined; if (first && chosen?.kind !== (t === 'windows' ? 'window' : 'display')) setPick(first.id); }}
+            />
           </div>
           <span class="picker-spacer" />
           {tab === 'windows' && (
             <>
               <label class="picker-sr" for="picker-search">Search windows</label>
-              <input id="picker-search" class="picker-search" placeholder="Search windows" value={search}
-                onInput={(e) => setSearch((e.target as HTMLInputElement).value)} />
+              <span class="picker-search">
+                <Input id="picker-search" inputSize="sm" placeholder="Search windows" value={search}
+                  onInput={(e) => setSearch((e.target as HTMLInputElement).value)} />
+              </span>
             </>
           )}
         </div>
         <div class="picker-body">
-          {sources === null && <div class="picker-empty">Looking for screens and windows…</div>}
-          {sources !== null && list.length === 0 && <div class="picker-empty">{search ? 'No windows match.' : tab === 'windows' ? 'No windows to share.' : 'No screens to share.'}</div>}
+          {sources === null && <EmptyState>Looking for screens and windows…</EmptyState>}
+          {sources !== null && list.length === 0 && <EmptyState>{search ? 'No windows match.' : tab === 'windows' ? 'No windows to share.' : 'No screens to share.'}</EmptyState>}
           <div role="listbox" aria-label="Sources" class="picker-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}>
             {list.map((s) => (
               <button key={s.id} type="button" role="option" aria-selected={s.id === pick} tabIndex={s.id === pick ? 0 : -1}
@@ -176,33 +178,25 @@ function PickerDialog({ onClose }: { onClose: () => void }) {
         <div class="picker-options">
           <div class="picker-opt">
             <span class="picker-opt-title">OPTIMIZE FOR</span>
-            <div role="radiogroup" aria-label="Optimize for" class="picker-seg-row">
-              <button type="button" role="radio" aria-checked={mode === 'detail'} class="picker-seg" onClick={() => setMode('detail')}>
-                <span class="picker-seg-name">Text &amp; detail</span><span class="picker-seg-sub">Sharp, up to 1440p · 15 fps</span>
-              </button>
-              <button type="button" role="radio" aria-checked={mode === 'motion'} class="picker-seg" onClick={() => setMode('motion')}>
-                <span class="picker-seg-name">Smooth motion</span><span class="picker-seg-sub">Video &amp; scrolling · 1080p · 30 fps</span>
-              </button>
-            </div>
+            <Segmented size="lg" class="picker-seg-row" label="Optimize for" value={mode} onChange={setMode} options={[
+              { id: 'detail', label: <><span class="picker-seg-name">Text &amp; detail</span><span class="picker-seg-sub">Sharp, up to 1440p · 15 fps</span></> },
+              { id: 'motion', label: <><span class="picker-seg-name">Smooth motion</span><span class="picker-seg-sub">Video &amp; scrolling · 1080p · 30 fps</span></> },
+            ]} />
           </div>
           {st.canShareAudio && (
             <div class="picker-opt picker-opt-sound">
               <span class="picker-opt-title">SOUND</span>
-              <div class="picker-sound">
-                <span class="picker-names"><span class="picker-seg-name">Share sound</span><span class="picker-seg-sub">{isScreen ? 'Everything you hear' : 'Only this app’s sound'}</span></span>
-                <button type="button" role="switch" aria-checked={sound} aria-label="Share sound" class="picker-switch" onClick={() => setSound(!sound)}>
-                  <span class="picker-switch-knob" aria-hidden="true" />
-                </button>
-              </div>
+              <SwitchRow class="picker-sound" role="switch" title="Share sound" checked={sound} onChange={setSound}
+                description={isScreen ? 'Everything you hear' : 'Only this app’s sound'} />
             </div>
           )}
         </div>
         <div class="picker-foot">
           <span class="picker-hint">Double-click to share at once · Enter shares · Esc cancels</span>
-          <button type="button" class="picker-btn" onClick={onClose}>Cancel</button>
-          <button type="button" class="picker-btn picker-primary" disabled={!chosen} onClick={() => share()}>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" disabled={!chosen} onClick={() => share()}>
             {sharing && sharing.id !== pick && sharing.mode === mode && !!sharing.sound === sound ? 'Switch to this' : isScreen ? 'Share screen' : 'Share window'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -236,11 +230,11 @@ export function SharingBar() {
         <span class="voice-live" aria-hidden="true">LIVE</span>
       </span>
       <span class="sharebar-text">You're sharing <span class="sharebar-what">{scr.name || 'your screen'}</span> · {how}{scr.sound ? ' · with sound' : ''}</span>
-      <button type="button" class="sharebar-btn" onClick={() => {
+      <Button variant="secondary" onClick={() => {
         if (snap.state.canPickScreen) openScreenPicker();
         else void video.setScreen(true, '');
-      }}>Change</button>
-      <button type="button" class="sharebar-btn sharebar-stop" onClick={() => { void video.setScreen(false); }}>Stop</button>
+      }}>Change</Button>
+      <Button variant="danger" onClick={() => { void video.setScreen(false); }}>Stop</Button>
     </div>
   );
 }

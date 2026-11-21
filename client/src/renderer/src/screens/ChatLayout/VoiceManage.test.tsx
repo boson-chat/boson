@@ -139,8 +139,8 @@ describe('voice channel management', () => {
     mount();
     const row = await screen.findByLabelText('Voice channel Town hall, listen only');
     fireEvent.contextMenu(row);
-    expect((screen.getByText('Move down') as HTMLButtonElement).disabled).toBe(true); // Staff isn't yours
-    await act(async () => { fireEvent.click(screen.getByText('Move up')); });
+    expect((screen.getByRole('menuitem', { name: 'Move down' }) as HTMLButtonElement).disabled).toBe(true); // Staff isn't yours
+    await act(async () => { fireEvent.click(screen.getByRole('menuitem', { name: 'Move up' })); });
     await waitFor(() => {
       const ups = bridge.calls.filter((c) => c.method === 'updateRoom').map((c) => c.args.slice(2));
       expect(ups).toEqual([['dev-town', { position: 0 }], ['dev-standup', { position: 1 }]]);

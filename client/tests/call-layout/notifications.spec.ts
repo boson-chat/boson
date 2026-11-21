@@ -70,6 +70,10 @@ for (const [w, h, name] of SIZES) {
       await expect(ring.getByRole('button', { name: 'Accept with voice only' })).toBeVisible();
       await expect(ring.getByRole('button', { name: phone ? 'Accept' : 'Accept call', exact: true })).toBeVisible();
       await fits(page);
+      // Phones: every button is a 44px touch target; all use the shared Button.
+      const btns = await ring.locator('button').evaluateAll((els) => els.map((e) => ({ h: e.getBoundingClientRect().height, btn: e.classList.contains('bds-btn'), shared: e.classList.contains('bds-btn') || e.classList.contains('bds-toast-main') })));
+      expect(btns.every((b) => b.shared)).toBe(true);
+      if (phone) expect(Math.min(...btns.filter((b) => b.btn).map((b) => b.h))).toBeGreaterThanOrEqual(44);
       await page.screenshot({ path: test.info().outputPath(`ring-banner-${name}.png`) });
       // Tapping the banner opens it full screen.
       await ring.getByRole('button', { name: /Open full screen/ }).click();

@@ -145,12 +145,12 @@ describe('VoiceSection', () => {
     // shows without a peek once we're in.
     expect(screen.getByLabelText('me (you)')).toBeTruthy();
     expect(screen.getByRole('button', { name: /in call: hide who's in Music/ }).hasAttribute('disabled')).toBe(true);
-    // Red tint while muted or deafened.
-    expect(screen.getByLabelText('Mute').hasAttribute('data-off')).toBe(false);
+    // Pressed while muted or deafened.
+    expect(screen.getByLabelText('Mute').getAttribute('aria-pressed')).toBe('false');
 
     fireEvent.click(screen.getByLabelText('Mute'));
     await waitFor(() => expect(screen.getByLabelText('Unmute')).toBeTruthy());
-    expect(screen.getByLabelText('Unmute').hasAttribute('data-off')).toBe(true);
+    expect(screen.getByLabelText('Unmute').getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(screen.getByLabelText('Deafen'));
     await waitFor(() => expect(screen.getByLabelText('Undeafen')).toBeTruthy());
     fireEvent.click(screen.getByLabelText('Leave call'));

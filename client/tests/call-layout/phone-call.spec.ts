@@ -41,3 +41,26 @@ test('1:1 with a screen share: the share leads, the grid is as before', async ({
   await page.waitForSelector('.mcall .mcall-screen canvas', { timeout: 20_000 });
   expect(await page.locator('.mcall-grid[data-solo]').count()).toBe(0);
 });
+
+// The design system on the call screen: every control is the shared
+// Button, 44px and up, and nothing but a status dot is a circle.
+for (const [w, h, phone] of PHONES) {
+  test(`call controls on ${phone} are shared, 44px buttons with no circles`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto('/shots.html?view=chat&voice=connected&video=call&people=4');
+    await page.waitForSelector('.mcall .mcall-dock button', { timeout: 20_000 });
+    const m = await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll('.mcall button:not(.mcall-t)')];
+      return {
+        count: buttons.length,
+        notShared: buttons.filter((b) => !b.classList.contains('bds-btn')).map((b) => b.getAttribute('aria-label') ?? b.textContent),
+        small: buttons.filter((b) => { const r = b.getBoundingClientRect(); return r.width < 44 || r.height < 44; }).map((b) => b.getAttribute('aria-label')),
+        circles: [...document.querySelectorAll('.mcall *')].filter((e) => getComputedStyle(e).borderRadius.startsWith('50%') && !e.classList.contains('bds-dot')).map((e) => e.className),
+      };
+    });
+    expect(m.count).toBeGreaterThan(3);
+    expect(m.notShared).toEqual([]);
+    expect(m.small).toEqual([]);
+    expect(m.circles).toEqual([]);
+  });
+}
