@@ -1,3 +1,9 @@
+## [0.87.3](https://github.com/boson-chat/boson/compare/v0.87.2...v0.87.3) (2026-11-21)
+
+### Bug Fixes
+
+* themes can't change shape, and cards lose the thick left bar ([#126](https://github.com/boson-chat/boson/issues/126)) ([442ccc2](https://github.com/boson-chat/boson/commit/442ccc206dd1fdecdd56f7a9734ca287c7be6d79))
+
 ## [0.87.2](https://github.com/boson-chat/boson/compare/v0.87.1...v0.87.2) (2026-11-21)
 
 ### Bug Fixes
