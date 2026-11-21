@@ -104,18 +104,18 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
       </div>
       {call.pushToTalk && !call.listener && <div class="mcall-ptt"><HoldToTalk voice={voice} call={call} compact /></div>}
       <div role="toolbar" aria-label="Call controls" class="mcall-dock">
-        <Button variant="secondary" size="lg" pressed={call.muted} disabled={!!call.listener}
+        <Button variant="secondary" size="lg" fullWidth pressed={call.muted} disabled={!!call.listener}
           aria-label={call.listener ? "Listen only: your mic isn't heard here" : call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice.setMuted(!call.muted); }}
           icon={call.muted || call.listener ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />} />
         {vstate.canCapture && (
-          <Button variant="secondary" size="lg" data-paused={cam.paused || undefined} pressed={camLive} disabled={!canSend}
+          <Button variant="secondary" size="lg" fullWidth data-paused={cam.paused || undefined} pressed={camLive} disabled={!canSend}
             aria-label={cam.paused ? 'Camera paused until the app is open again (turn off)' : camLive ? 'Turn camera off' : 'Turn camera on'}
             onClick={() => { void video?.setCamera(!camLive); }}
             icon={camLive ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />} />
         )}
         {cam.on && <FlipButton />}
-        <Button variant="secondary" size="lg" aria-label="More options" onClick={() => setMore(true)} icon={<MoreHorizontal aria-hidden="true" />} />
-        <Button variant="danger" size="lg" aria-label="Leave call" onClick={() => { closeCall(); void voice.leave(); }}
+        <Button variant="secondary" size="lg" fullWidth aria-label="More options" onClick={() => setMore(true)} icon={<MoreHorizontal aria-hidden="true" />} />
+        <Button variant="danger" size="lg" fullWidth aria-label="Leave call" onClick={() => { closeCall(); void voice.leave(); }}
           icon={<PhoneOff aria-hidden="true" />} />
       </div>
       {more && <MoreSheet voice={voice} call={call} onChat={onChat} onPeople={() => { setMore(false); setPeople(true); }} onClose={() => setMore(false)} />}
@@ -210,7 +210,7 @@ function FlipButton() {
   const cur = cams.findIndex((c) => c.id === cam.id);
   const next = cams[((cur >= 0 ? cur : Math.max(0, cams.findIndex((c) => c.default))) + 1) % cams.length];
   return (
-    <Button variant="secondary" size="lg" aria-label={`Switch to the ${next.facing === 'back' ? 'back' : next.facing === 'front' ? 'front' : 'next'} camera`}
+    <Button variant="secondary" size="lg" fullWidth aria-label={`Switch to the ${next.facing === 'back' ? 'back' : next.facing === 'front' ? 'front' : 'next'} camera`}
       onClick={() => { void video.setCamera(true, next.id); }} icon={<SwitchCamera aria-hidden="true" />} />
   );
 }
