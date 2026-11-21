@@ -26,8 +26,18 @@ import {
   randomUsername, serverCard, uid,
 } from './fixtures';
 import { cardIn, expectConnected, railContextMenu, railTile, searchDirectory } from './helpers/directory';
-import { banner, command, conversation, sidebar } from './helpers/chat';
+import { banner, conversation, dismissPopups, input, sidebar } from './helpers/chat';
 import { IrcPeer } from './irc-peer';
+
+// /part the active channel. Not helpers' command(): when it was the only
+// channel, the composer goes away with it.
+async function part(page: Page): Promise<void> {
+  const box = input(page);
+  await box.click();
+  await box.fill('/part');
+  await dismissPopups(page);
+  await box.press('Enter');
+}
 
 type Handler = (path: string, res: ServerResponse) => boolean;
 
@@ -118,7 +128,7 @@ test.describe('network channels: a listing\'s default channels', () => {
       await expect(page.getByPlaceholder(new RegExp(`^Message #${lobby.slice(1)}$`, 'i'))).toBeVisible();
 
       // Leave it, leave the server, connect from the card again: it stays left.
-      await command(page, '/part');
+      await part(page);
       await expect(conversation(page, lobby)).toHaveCount(0, { timeout: 15_000 });
       await (await railContextMenu(page, listing.name)).getByRole('menuitem', { name: 'Leave server' }).click();
       await expect(railTile(page, listing.name)).toHaveCount(0);
@@ -278,7 +288,7 @@ test.describe('network channels: server-side auto-join (RoleServ)', () => {
 
     // Part, reconnect (logs in again): RoleServ doesn't put us back.
     await conversation(page, NETCHAN_CHANNEL).click();
-    await command(page, '/part');
+    await part(page);
     await expect(conversation(page, NETCHAN_CHANNEL)).toHaveCount(0, { timeout: 15_000 });
     await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
     await expect(railTile(page, name)).toHaveCount(0);
