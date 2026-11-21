@@ -17,6 +17,8 @@ export interface BouncerStore {
   get(): BouncerProfile | null;
   set(profile: BouncerProfile): void;
   clear(): void;
+  // Sign-out: forget the profile, in memory and in the keychain.
+  clearForSignOut?(): Promise<void>;
   subscribe(fn: BouncerListener): () => void;
   whenHydrated(): Promise<void>;
 }
@@ -62,6 +64,17 @@ export class SecureBouncerStore implements BouncerStore {
     this.cache = null;
     this.persist();
     this.emit();
+  }
+
+  async clearForSignOut(): Promise<void> {
+    // After hydration, so a late load can't bring the profile back.
+    await this.hydrating;
+    this.cache = null;
+    this.emit();
+    this.writeChain = this.writeChain
+      .then(() => this.secure.remove(SECURE_KEY))
+      .catch(() => { /* best effort; the sign-out wipe removes it too */ });
+    await this.writeChain;
   }
 
   subscribe(fn: BouncerListener): () => void {

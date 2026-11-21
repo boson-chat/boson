@@ -130,6 +130,15 @@ export class NotificationFeed {
     this.emit();
   }
 
+  // Sign-out: drop toasts and the list from memory and unscope (the storage
+  // wipe removes the saved copy).
+  clearForSignOut(): void {
+    this.userId = '';
+    this.toasts = [];
+    this.items = [];
+    this.emit();
+  }
+
   unread(): number { return this.items.reduce((n, i) => n + (i.read ? 0 : 1), 0); }
 
   private update(fn: (i: FeedItem) => FeedItem): void {

@@ -20,6 +20,7 @@ export interface SecureBridge {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
+  removePrefix(prefix: string): Promise<void>;
 }
 
 function req<T>(r: IDBRequest<T>): Promise<T> {
@@ -132,6 +133,13 @@ export function createWebSecureStore(
     async remove(name) {
       checkKey(name);
       await req((await tx('readwrite')).delete(`v:${name}`));
+    },
+    // Every key starting with prefix (sign-out). As on the desktop, at
+    // least "boson." so a bad call can't empty the store.
+    async removePrefix(prefix) {
+      checkKey(prefix);
+      if (prefix.length < 'boson.'.length) throw new Error('secure store removePrefix prefix too short');
+      await req((await tx('readwrite')).delete(IDBKeyRange.bound(`v:${prefix}`, `v:${prefix}\uffff`)));
     },
   };
 }

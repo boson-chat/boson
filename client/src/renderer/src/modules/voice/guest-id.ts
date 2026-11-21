@@ -41,6 +41,11 @@ export function guestVoiceId(authUrl: string, local: Local | null = defaultLocal
 
 // Whether a voice participant joined as a guest (no account): the voice
 // server's flag, or a guest token's user id.
+// Sign-out: a new guest id next time (the storage wipe removes the saved ones).
+export function clearGuestVoiceIdsForSignOut(): void {
+  memo.clear();
+}
+
 export function isGuestParticipant(p: { guest?: boolean; userId?: string } | null | undefined): boolean {
   return !!p && (p.guest === true || (p.userId ?? '').startsWith('guest:'));
 }

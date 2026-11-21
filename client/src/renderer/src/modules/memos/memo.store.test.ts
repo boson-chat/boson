@@ -244,3 +244,18 @@ describe('LocalStorageMemoStore', () => {
     expect(s.list()).toHaveLength(1);
   });
 });
+
+describe('LocalStorageMemoStore.clearForSignOut', () => {
+  it('drops the list and unscopes, so the next account sees none of it', () => {
+    const storage = memStorage();
+    const store = new LocalStorageMemoStore('u1', storage);
+    store.append({ serverId: 's1', serverName: 'S', sender: 'bob', kind: 'dm', text: 'secret', timestamp: 1 } as never);
+    const seen = vi.fn();
+    store.subscribe(seen);
+    store.clearForSignOut();
+    expect(store.list()).toEqual([]);
+    expect(seen).toHaveBeenLastCalledWith([]);
+    store.setUserId('u2');
+    expect(store.list()).toEqual([]);
+  });
+});

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MemorySeenBackend, SeenStore, foldNick, mergeSeen, seenMask, type SeenRecord } from './seen.store';
-import { clearAllSeen, seenNamespace, seenStoreFor, wipeSeenForUser, __resetSeenRegistry } from './seen.idb';
+import { clearAllSeen, seenNamespace, seenStoreFor, wipeSeenForSignOut, wipeSeenForUser, __resetSeenRegistry } from './seen.idb';
 import { __resetPrivacySettingsCache, setPrivacySettings } from '../ui/privacy.store';
 
 // The per-server "seen" record: nick → last user@host, account, realname,
@@ -190,6 +190,20 @@ describe('registry', () => {
     await clearAllSeen();
     expect(s2.get('eve')).toBeUndefined();
     expect(backend.rows.size).toBe(0);
+  });
+
+  it("sign-out forgets the account's and the guest's sightings and drops their stores", async () => {
+    const backend = new MemorySeenBackend();
+    __resetSeenRegistry(backend);
+    const mine = seenStoreFor('u1::srv');
+    const guest = seenStoreFor('guest::srv');
+    const other = seenStoreFor('u2::srv');
+    for (const s of [mine, guest, other]) { s.note('bob', { host: 'h' }); await s.flush(); }
+    await wipeSeenForSignOut('u1');
+    expect([...backend.rows.keys()]).toEqual(['u2::srv\u0001bob']);
+    expect(seenStoreFor('u1::srv')).not.toBe(mine);
+    expect(seenStoreFor('u1::srv').get('bob')).toBeUndefined();
+    expect(seenStoreFor('u2::srv')).toBe(other);
   });
 });
 

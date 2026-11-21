@@ -235,3 +235,29 @@ describe('in-app toasts', () => {
     expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(1);
   });
 });
+
+describe('Notifier.clearForSignOut', () => {
+  afterEach(() => { delete (globalThis as { Notification?: unknown }).Notification; localStorage.clear(); __resetNotificationSettingsCache(); });
+
+  it("takes down the account's system notifications still showing", () => {
+    const closed: string[] = [];
+    class N {
+      static permission = 'granted';
+      onclick: (() => void) | null = null;
+      onclose: ((e: Event) => void) | null = null;
+      constructor(public title: string) {}
+      close(): void { closed.push(this.title); this.onclose?.(new Event('close')); }
+    }
+    (globalThis as { Notification?: unknown }).Notification = N;
+    const n = new Notifier();
+    n.setFocusedForTest(false);
+    n.notify(ev({ kind: 'dm', channel: 'bob', from: 'bob', text: 'private' }));
+    n.notifyOther({ title: 'Missed call', body: 'from bob', tag: 'call' });
+    n.clearForSignOut();
+    expect(closed.sort()).toEqual(['Missed call', 'bob']);
+    // The same line for the next account isn't swallowed as a duplicate.
+    n.notify(ev({ kind: 'dm', channel: 'bob', from: 'bob', text: 'private' }));
+    n.clearForSignOut();
+    expect(closed).toHaveLength(3);
+  });
+});

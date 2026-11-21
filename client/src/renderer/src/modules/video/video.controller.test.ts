@@ -503,3 +503,19 @@ describe('data saver', () => {
     c.dispose();
   });
 });
+
+describe('VideoController.clearForSignOut', () => {
+  it('turns the camera and screen share off, closes the call view and forgets the pre-join choice', async () => {
+    const on = { on: true, starting: false };
+    const { c, bridge } = setup({ camera: on, screen: on });
+    await flush();
+    c.setCameraOnJoin(true, 'cam-1');
+    c.setOpen(true);
+    await c.clearForSignOut();
+    expect(bridge.setCamera).toHaveBeenCalledWith(false, '');
+    expect(bridge.setScreen).toHaveBeenCalledWith(false, '');
+    expect(c.getSnapshot().open).toBe(false);
+    expect(c.getSnapshot().pinned).toBe(0);
+    c.dispose();
+  });
+});

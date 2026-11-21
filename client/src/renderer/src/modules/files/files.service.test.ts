@@ -106,6 +106,28 @@ describe('FilesController', () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it('sign-out cancels every upload and forgets the guest token', async () => {
+    const { b, calls } = bridge();
+    const fetchFn = vi.fn((_: string, init: RequestInit) => new Promise<Response>((_res, rej) => {
+      init.signal?.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError')));
+    }));
+    const c = new FilesController({ bridge: b, signedIn: () => false, fetch: fetchFn as unknown as typeof fetch });
+    await c.ensure('irc.example.org');
+    const post = vi.fn();
+    c.upload({ host: 'irc.example.org', channel: '#a', file: new Blob(['x']), name: 'a.txt', post });
+    c.upload({ host: 'irc.example.org', channel: '#b', file: new Blob(['y']), name: 'b.txt', post });
+    await vi.waitFor(() => expect(fetchFn).toHaveBeenCalled());
+    c.clearForSignOut();
+    expect(b.cancelUpload).toHaveBeenCalledWith('t1');
+    expect(c.uploads.value).toEqual([]);
+    expect(post).not.toHaveBeenCalled();
+    // The next person's upload gets a guest token of its own.
+    const before = calls.filter((x) => x.path === '/v1/guest-token').length;
+    c.upload({ host: 'irc.example.org', channel: '#a', file: new Blob(['z']), name: 'c.txt', post });
+    await vi.waitFor(() => expect(calls.filter((x) => x.path === '/v1/guest-token').length).toBe(before + 1));
+    c.clearForSignOut();
+  });
+
   it('a refused guest token (invalid_guest_token) is refetched once and the upload retried', async () => {
     const { b, calls } = bridge();
     const url = `${FILES}/f/AbCdEfGhIjKlMnOpQrStUv/a.txt`;

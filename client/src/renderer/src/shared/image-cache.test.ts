@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { h } from 'preact';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/preact';
 import {
-  forgetDims, imageCacheUrl, knownDims, rememberDims, reserveStyle, useCachedImage, type CachedImageState,
+  clearImagesForSignOut, forgetDims, imageCacheUrl, knownDims, rememberDims, reserveStyle, useCachedImage, type CachedImageState,
 } from './image-cache';
 import { CachedImg } from './CachedImg';
 
@@ -88,5 +88,20 @@ describe('CachedImg', () => {
     const img2 = again.container.querySelector('img')!;
     expect(img2.style.width).toBe('560px');
     expect(img2.style.aspectRatio).toBe('800 / 400');
+  });
+});
+
+describe('clearImagesForSignOut', () => {
+  afterEach(() => { delete window.bosonImages; forgetDims(); });
+  it("empties the shell's disk cache and the known sizes", async () => {
+    const b = bridge();
+    window.bosonImages = b;
+    rememberDims('https://files.example/f/secret.png', { w: 10, h: 10 });
+    await clearImagesForSignOut();
+    expect(b.clear).toHaveBeenCalledOnce();
+    expect(knownDims('https://files.example/f/secret.png')).toBeUndefined();
+  });
+  it('is fine outside the shell', async () => {
+    await expect(clearImagesForSignOut()).resolves.toBeUndefined();
   });
 });

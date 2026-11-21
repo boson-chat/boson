@@ -61,6 +61,15 @@ export class NickservSyncService {
     }
   }
 
+  // Sign-out: drop pending pushes and what was synced for this account (the
+  // identity is locked before the stores are wiped, so the wipe itself is
+  // never pushed as deletes). Stays subscribed for the next account.
+  clearForSignOut(): void {
+    for (const t of this.pushTimers.values()) clearTimeout(t);
+    this.pushTimers.clear();
+    this.lastSynced.clear();
+  }
+
   dispose(): void {
     this.unsubIdentity?.();
     this.unsubStore?.();

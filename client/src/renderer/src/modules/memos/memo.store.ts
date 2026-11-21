@@ -61,6 +61,9 @@ export interface MemoStore {
   // Update the user-scope key. App shell calls this when the auth
   // identity resolves so the inbox shows the right user's memos.
   setUserId(userId: string): void;
+  // Sign-out: drop the list from memory and unscope (the storage wipe
+  // removes the saved copy).
+  clearForSignOut?(): void;
 }
 
 // Hard cap on retained memos to keep localStorage well under the ~5MB
@@ -230,6 +233,12 @@ export class LocalStorageMemoStore implements MemoStore {
       this.memos = [];
     }
     this.save();
+    this.emit();
+  }
+
+  clearForSignOut(): void {
+    this.userId = '';
+    this.memos = [];
     this.emit();
   }
 

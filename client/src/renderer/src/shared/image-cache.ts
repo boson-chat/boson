@@ -67,6 +67,13 @@ const MAX_DIMS = 5000;
 // Map order = insertion order: the oldest go first past the cap.
 const dimsByUrl = new Map<string, Box>();
 
+// Sign-out: empty the shell's image cache (avatars, link previews, uploaded
+// files' previews from this account's conversations) and the known sizes.
+export async function clearImagesForSignOut(): Promise<void> {
+  dimsByUrl.clear();
+  await imagesBridge()?.clear();
+}
+
 export function knownDims(url: string): Box | undefined {
   return dimsByUrl.get(url);
 }

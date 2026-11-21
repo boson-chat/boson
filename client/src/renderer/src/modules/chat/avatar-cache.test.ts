@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getAvatar, getAvatarAnyServer, setAvatar, setAvatars, subscribeAvatars, avatarVersion, publishOwnAvatar, subscribeOwnAvatar } from './avatar-cache';
+import { clearAvatarsForSignOut, getAvatar, getAvatarAnyServer, setAvatar, setAvatars, subscribeAvatars, avatarVersion, publishOwnAvatar, subscribeOwnAvatar } from './avatar-cache';
 
 describe('avatar-cache', () => {
   beforeEach(() => {
@@ -66,5 +66,19 @@ describe('avatar-cache', () => {
     setAvatar('srv-x', 'Kestrel', null);
     expect(getAvatarAnyServer('kestrel')).toBeUndefined();
     setAvatar('srv-y', 'lkestrel', null);
+  });
+});
+
+describe('clearAvatarsForSignOut', () => {
+  it('forgets every picture and tells the list to re-render', () => {
+    setAvatar('s1', 'alice', 'https://img/a.png');
+    setAvatars('s2', [{ nick: 'bob', url: 'https://img/b.png' }]);
+    const v = avatarVersion();
+    clearAvatarsForSignOut();
+    expect(getAvatar('s1', 'alice')).toBeUndefined();
+    expect(getAvatarAnyServer('bob')).toBeUndefined();
+    expect(avatarVersion()).toBe(v + 1);
+    clearAvatarsForSignOut();
+    expect(avatarVersion()).toBe(v + 1);
   });
 });

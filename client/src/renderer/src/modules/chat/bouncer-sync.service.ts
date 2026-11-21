@@ -50,6 +50,14 @@ export class BouncerSyncService {
     this.unsubStore = this.store.subscribe(() => this.onLocalChange());
   }
 
+  // Sign-out: drop a pending push and what was synced for this account (see
+  // NickservSyncService.clearForSignOut). Stays subscribed for the next one.
+  clearForSignOut(): void {
+    if (this.pushTimer) clearTimeout(this.pushTimer);
+    this.pushTimer = null;
+    this.lastSynced = null;
+  }
+
   dispose(): void {
     this.unsubIdentity?.();
     this.unsubStore?.();

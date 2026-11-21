@@ -78,6 +78,21 @@ describe('FriendsController', () => {
     expect(r.ctl.getSnapshot().friends).toEqual([]);
   });
 
+  it('sign-out hangs up the call (ending it server-side) and drops everything', async () => {
+    const c = r.api.ring('kestrel', false);
+    await settle();
+    await r.ctl.accept(c.id, false);
+    await settle();
+    const end = vi.spyOn(r.api, 'endCall');
+    await r.ctl.clearForSignOut();
+    expect(r.bridge.calls.some((x) => x.method === 'leave')).toBe(true);
+    expect(end).toHaveBeenCalledWith(c.id);
+    const s = r.ctl.getSnapshot();
+    expect(s.active).toBeNull();
+    expect(s.friends).toEqual([]);
+    expect(s.available).toBe(false);
+  });
+
   it('only offers person menus on servers whose voice takes this account', async () => {
     expect(r.ctl.peopleHere(HOST)).toBe(true);
     expect(r.ctl.peopleHere('irc.elsewhere.example')).toBe(false);

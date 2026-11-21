@@ -440,6 +440,8 @@ export class EngineClient {
         resolve();
       };
       ws.onerror = () => {
+        // A socket replaced by a newer open() (sign-out's restart) is done.
+        if (this.ws && this.ws !== ws) return;
         this.ws = null;
         this.pendingSends = [];
         this.markAllSessionsDisconnected('engine: websocket connection failed');
@@ -447,12 +449,14 @@ export class EngineClient {
         reject(new Error('engine: websocket error'));
       };
       ws.onclose = () => {
+        if (this.ws && this.ws !== ws) return;
         this.ws = null;
         this.pendingSends = [];
         this.markAllSessionsDisconnected();
         this.maybeScheduleReconnect();
       };
       ws.onmessage = (ev: MessageEvent) => {
+        if (this.ws !== ws) return;
         let msg: ServerMessage;
         try {
           msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '') as ServerMessage;
@@ -526,6 +530,26 @@ export class EngineClient {
       session._dispose();
     }
     return session;
+  }
+
+  // Sign-out: disconnect every IRC / bouncer session (a clean QUIT each),
+  // give them settleMs to confirm, then end the engine session itself —
+  // which drops anything left, including connections this client never knew
+  // of — and open a fresh one for the next account. Nothing is adopted by
+  // the next sign-in (see connect()).
+  async clearForSignOut(settleMs = 2000): Promise<void> {
+    const wasOpen = this.ws !== null;
+    // Reopen unless the app had closed it on purpose.
+    const reopen = !this.closedByCaller;
+    for (const s of this.sessions()) if (!s.isClosing()) s.disconnect();
+    const deadline = Date.now() + settleMs;
+    while (wasOpen && this.sessions_.size + this.closing_.size > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    this.close();
+    this.pendingSends = [];
+    this.markAllSessionsDisconnected('signed out');
+    if (reopen) await this.open().catch(() => { /* reconnects on its own */ });
   }
 
   // Returns currently-open sessions in insertion order. Disposed sessions

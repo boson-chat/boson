@@ -293,4 +293,30 @@ describe('IRC refusals', () => {
     expect(isSaslFailure({ Kind: '904' })).toBe(true);
     expect(isSaslFailure({ Kind: '001' })).toBe(false);
   });
+
+  it('sign-out signs out of every network (revoking each), forgets them and cancels a prompt', async () => {
+    const { accounts, mainAuth, storage, local, seen } = setup();
+    await mainAuth.signIn('main-user', 'pw');
+    await accounts.discover('irc.net-a.org');
+    await accounts.service(NET_A).signIn('alice', 'pw-a');
+    await accounts.discover('irc.net-b.org');
+    await accounts.service(NET_B).signIn('alice', 'pw-b');
+    accounts.setGuestChosen('irc.net-a.org', true);
+    expect(accounts.knownAuthUrls().sort()).toEqual([NET_A, NET_B]);
+    const prompt = accounts.promptSignIn({ link: accounts.linkFor('irc.net-a.org')!, serverName: 'A', reason: 'connect', allowGuest: true });
+
+    await accounts.clearForSignOut();
+    expect(await prompt).toBe('cancel');
+    const logouts = seen.filter((r) => r.path === '/v1/logout').map((r) => r.origin).sort();
+    expect(logouts).toEqual([NET_A, NET_B]);
+    expect(await storage.get(sessionKeyFor(NET_A))).toBeNull();
+    expect(await storage.get(sessionKeyFor(NET_B))).toBeNull();
+    expect(accounts.getSnapshot()).toMatchObject({ known: [], sessions: {}, prompt: null });
+    expect(local.getItem('boson.netauth.known')).toBeNull();
+    expect(accounts.guestChosen('irc.net-a.org')).toBe(false);
+    // The main account is the app's sign-out's to end, not this one's.
+    expect(mainAuth.getState().session).not.toBeNull();
+    // A later sign-in to a network starts from nothing.
+    expect(accounts.sessionFor(accounts.linkFor('irc.net-a.org')!)).toBeNull();
+  });
 });

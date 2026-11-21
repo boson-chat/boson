@@ -628,6 +628,18 @@ export class FilesController {
   dismiss(id: string): void {
     this.remove(id);
   }
+
+  // Sign-out: cancel every upload (they carry this account's token), forget
+  // the guest tokens and the account's files host. Which hosts have files
+  // (public discovery) stays.
+  clearForSignOut(): void {
+    for (const id of [...this.queue, ...this.running.keys()]) this.cancel(id);
+    this.uploads.value = [];
+    this.guestTokens.clear();
+    this.guestFetches.clear();
+    this.home.value = null;
+    this.homeLoading = null;
+  }
 }
 
 let instance: FilesController | null = null;

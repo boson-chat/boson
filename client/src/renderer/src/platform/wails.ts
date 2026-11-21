@@ -317,6 +317,7 @@ export async function installWailsBridges(): Promise<void> {
     get: (key: string) => Call.ByName(`${STORE}.Get`, key) as Promise<string | null>,
     set: (key: string, value: string) => Call.ByName(`${STORE}.Set`, key, value) as Promise<void>,
     remove: (key: string) => Call.ByName(`${STORE}.Remove`, key) as Promise<void>,
+    removePrefix: (prefix: string) => Call.ByName(`${STORE}.RemovePrefix`, prefix) as Promise<void>,
   };
   // Voice channels (desktop/voice.go): desktop, iOS and Android. A shell
   // without a VoiceService fails the probe and gets no bridge (no voice UI).

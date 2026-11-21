@@ -275,6 +275,12 @@ export class DirectorySources {
     this.save();
   }
 
+  // Sign-out: back to the default directory alone (turned on).
+  clearForSignOut(): void {
+    this.state = { defaultEnabled: true, defaultInfo: this.state.defaultInfo, extra: [] };
+    this.save();
+  }
+
   setEnabled(url: string, enabled: boolean): void {
     if (url === this.defaultUrl) {
       if (this.state.defaultEnabled === enabled) return;
