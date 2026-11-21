@@ -3,8 +3,7 @@
 import type { CDPSession, Locator, Page } from '@playwright/test';
 import {
   test, expect, IRC_HOST, IRC_PORT, uid, randomChannel,
-  continueAsGuest, addServerManually, serverCard, joinChannel,
-} from './fixtures';
+  continueAsGuest, addServerManually, serverCard, joinChannel, webBrowserSkip } from './fixtures';
 
 const sidebar = (page: Page): Locator => page.locator('.channel-sidebar');
 const row = (page: Page, channel: string): Locator =>
@@ -33,6 +32,8 @@ async function touch(cdp: CDPSession, type: 'touchStart' | 'touchMove' | 'touchE
 }
 
 test('press and hold, then drag a channel; the order survives a reload', async ({ launchApp }) => {
+  webBrowserSkip('firefox', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
+  webBrowserSkip('webkit', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
   const { page } = await launchApp();
   await continueAsGuest(page, `mor${uid()}`);
   const name = `Phone Order ${uid(4)}`;

@@ -151,8 +151,8 @@ export async function startFakeFiles(o: FakeFilesOptions = {}): Promise<FakeFile
     const m = /^\/f\/([A-Za-z0-9]{22,})\/([^/]+)$/.exec(path);
     if (m && (req.method === 'GET' || req.method === 'HEAD')) {
       const f = state.files.find((x) => x.id === m[1]);
-      if (!f) { res.writeHead(404); res.end(); return; }
-      if (f.expired) { res.writeHead(410, { 'Content-Type': 'text/html' }); res.end('<p>This file expired.</p>'); return; }
+      if (!f) { res.writeHead(404, { 'Access-Control-Allow-Origin': '*' }); res.end(); return; }
+      if (f.expired) { res.writeHead(410, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' }); res.end('<p>This file expired.</p>'); return; }
       const ext = f.name.split('.').pop()!.toLowerCase();
       const left = Math.max(0, Math.round(opts.retentionSeconds - (Date.now() - f.createdAt) / 1000));
       const expiresAt = new Date(f.createdAt + opts.retentionSeconds * 1000).toISOString();

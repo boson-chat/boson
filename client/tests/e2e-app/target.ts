@@ -20,7 +20,10 @@ export function webSkip(reason: string): void {
 
 /** Skips in one web browser only (e.g. a WebKit gap). */
 export function webBrowserSkip(browser: 'chromium' | 'firefox' | 'webkit', reason: string): void {
-  test.skip(({ browserName }) => IS_WEB && browserName === browser, `web ${browser}: ${reason}`);
+  let inTest = true;
+  try { test.info(); } catch { inTest = false; }
+  if (inTest) test.skip(IS_WEB && test.info().project.use.browserName === browser, `web ${browser}: ${reason}`);
+  else test.skip(({ browserName }) => IS_WEB && browserName === browser, `web ${browser}: ${reason}`);
 }
 
 // What the secure store keeps on disk, key → stored value: the desktop's

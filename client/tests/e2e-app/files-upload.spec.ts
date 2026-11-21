@@ -196,7 +196,12 @@ test.describe('file uploads', () => {
     await box.evaluate((el, b64) => {
       const data = new DataTransfer();
       data.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'image.png', { type: 'image/png' }));
-      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      // Firefox ignores clipboardData in the ClipboardEvent constructor (an
+      // empty one):
+      // give the event its data the way a real paste carries it.
+      const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clipboardData', { value: data });
+      el.dispatchEvent(ev);
     }, png(64, 64, [200, 60, 60]).toString('base64'));
     await expect(sheet(page)).toBeVisible();
     await sheet(page).getByRole('button', { name: 'Send' }).click();

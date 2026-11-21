@@ -38,9 +38,13 @@ export class WebEngine {
     if (this.ready) return this.ready;
     const worker = this.opts.createWorker();
     this.worker = worker;
+    const t0 = performance.now();
     this.ready = new Promise<void>((resolve, reject) => {
       const onMessage = (ev: MessageEvent<EngineWorkerReply>): void => {
-        if (ev.data?.type === 'ready') resolve();
+        if (ev.data?.type === 'ready') {
+          console.info(`[engine] ready in ${Math.round(performance.now() - t0)} ms`);
+          resolve();
+        }
         else if (ev.data?.type === 'failed') reject(new Error(ev.data.error));
         else return;
         worker.removeEventListener('message', onMessage);

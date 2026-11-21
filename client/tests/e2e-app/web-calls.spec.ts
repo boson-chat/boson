@@ -73,7 +73,9 @@ async function pictureVariance(page: Page, selector: string): Promise<number> {
 test.describe('calls in the browser', () => {
   test('two people join a voice channel, see each other speak, and see a camera', async ({ launchApp, createAccount, browserName }, testInfo) => {
     test.setTimeout(240_000);
-    const env = { BOSON_NETWORK_JSON: networkJson() };
+    // Voice only (BOSON_VOICE_JSON): with the whole document the app would
+    // sign in to the e2e ergo with the account (OAUTHBEARER), which it lacks.
+    const env = { BOSON_VOICE_JSON: networkJson() };
     const [alice, bob] = await Promise.all([createAccount({ handle: true }), createAccount({ handle: true })]);
     const p2 = profile();
     try {

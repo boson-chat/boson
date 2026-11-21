@@ -59,7 +59,9 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
     let alive = true;
     let blob: string | null = null;
     const image = link.media === 'image';
-    fetch(view, { method: image ? 'GET' : 'HEAD' })
+    // Revalidated: a file taken down early must not look alive from the
+    // browser's cache (the web build fetches the files host directly).
+    fetch(view, { method: image ? 'GET' : 'HEAD', cache: 'no-cache' })
       .then(async (res) => {
         if (!alive) return;
         if (res.status === 404 || res.status === 410) { setState({ phase: 'expired' }); return; }

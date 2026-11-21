@@ -49,7 +49,7 @@ export async function installWebBridges(): Promise<void> {
   // Networks' boson.json (sign-in, themes, uploads, voice). e2e builds
   // reach loopback http and take documents for domain-less hosts from the
   // test (BOSON_NETWORK_JSON).
-  const e2eEnv = (window as unknown as { bosonWebE2EEnv?: { networkJson?: string[]; certInfo?: Record<string, string> } }).bosonWebE2EEnv;
+  const e2eEnv = (window as unknown as { bosonWebE2EEnv?: { networkJson?: string[]; voiceJson?: string[]; certInfo?: Record<string, string> } }).bosonWebE2EEnv;
   const dev = !!cfg.e2e;
   const discoverer = new NetworkDiscoverer({ allowLoopbackHttp: dev, overrides: dev ? e2eEnv?.networkJson ?? [] : [] });
   setNetworkDiscoverer(discoverer);
@@ -74,7 +74,7 @@ export async function installWebBridges(): Promise<void> {
   await installCalls(w, {
     authBase: mainAuthUrl,
     dev,
-    networkJson: dev ? e2eEnv?.networkJson : undefined,
+    networkJson: dev ? [...(e2eEnv?.networkJson ?? []), ...(e2eEnv?.voiceJson ?? [])] : undefined,
     certInfo: dev ? e2eEnv?.certInfo : undefined,
   }).catch((err) => console.warn('calls: not available', err));
 

@@ -27,11 +27,13 @@ function pageEnv(env: Record<string, string>): Record<string, unknown> {
   const keep = ['BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
   const out: Record<string, unknown> = {};
   for (const k of keep) if (env[k] !== undefined) out[k] = env[k]!;
-  const docs: string[] = [];
-  for (const k of ['BOSON_NETWORK_JSON', 'BOSON_VOICE_JSON']) {
-    for (const path of (env[k] ?? '').split(delimiter).filter(Boolean)) docs.push(readFileSync(path, 'utf8'));
-  }
-  if (docs.length > 0) out['networkJson'] = docs;
+  // As on the desktop: BOSON_NETWORK_JSON is a network's whole boson.json
+  // (sign-in, uploads, themes, voice); BOSON_VOICE_JSON its voice only.
+  const read = (k: string): string[] => (env[k] ?? '').split(delimiter).filter(Boolean).map((p) => readFileSync(p, 'utf8'));
+  const nets = read('BOSON_NETWORK_JSON');
+  const voice = read('BOSON_VOICE_JSON');
+  if (nets.length > 0) out['networkJson'] = nets;
+  if (voice.length > 0) out['voiceJson'] = voice;
   out['certInfo'] = { [STACK.voice.video.addr]: STACK.voice.video.infoUrl };
   return out;
 }
