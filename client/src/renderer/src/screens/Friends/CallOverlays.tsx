@@ -12,9 +12,9 @@ import { useNotificationSettings } from '../../modules/notifications/use-setting
 import { useRingExpanded } from '../Notifications/ring-ui';
 import './CallOverlays.css';
 
-// The full-screen call's Decline / Voice only / Accept: round, or square
-// like every other button (DESIGN.md). One line to flip.
-export const CALL_BUTTON_SHAPE: ButtonShape = 'round';
+// The full-screen call's Decline / Voice only / Accept: square (radius-lg)
+// like every other button (DESIGN.md). 'round' brings back circles.
+export const CALL_BUTTON_SHAPE: ButtonShape = 'square';
 
 // Private calls' own screens, over whatever is showing: "Calling mira…"
 // (Cancel), the incoming call when it shows full screen (Decline, Voice

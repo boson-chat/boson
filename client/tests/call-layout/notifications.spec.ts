@@ -120,3 +120,49 @@ test('reduced motion: toasts and the ringing banner are still', async ({ page })
   const anims = await page.evaluate(() => [...document.querySelectorAll('.ntoast, .ntoast *')].map((e) => getComputedStyle(e).animationName).filter((n) => n !== 'none'));
   expect(anims).toEqual([]);
 });
+
+// Option D: the incoming-call banner is one row, as tall as a message
+// banner, with 44px square Decline / Voice only / Accept on phones.
+for (const [w, h, name] of SIZES.filter(([, , n]) => n !== 'desktop')) {
+  test(`${name}: the call banner is one row, as tall as a message banner`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto(`${BASE}${platform(name)}&notify=mention`);
+    const msg = (await page.locator('.ntoast').first().boundingBox())!;
+    await incoming(page, 'banner');
+    await page.goto(`${BASE}${platform(name)}&notify=ring`);
+    const ring = page.getByRole('alertdialog', { name: 'kestrel is calling' });
+    await expect(ring).toBeVisible();
+    await expect(ring).toContainText('video call');
+    const box = (await ring.boundingBox())!;
+    // A one-line message banner's height (44px row + padding); a longer
+    // message wraps and grows, the call banner never does.
+    expect(Math.round(box.height)).toBe(66);
+    expect(msg.height).toBeGreaterThanOrEqual(box.height - 0.5);
+    const btns = ring.locator('.bds-toast-actions button');
+    await expect(btns).toHaveCount(3);
+    const names = await btns.evaluateAll((els) => els.map((e) => e.getAttribute('aria-label')));
+    expect(names).toEqual(['Decline', 'Accept with voice only', 'Accept']);
+    for (const b of await btns.all()) {
+      const r = (await b.boundingBox())!;
+      expect(Math.round(r.width)).toBe(44);
+      expect(Math.round(r.height)).toBe(44);
+      // All on the banner's one row.
+      expect(r.y).toBeGreaterThan(box.y);
+      expect(r.y + r.height).toBeLessThan(box.y + box.height);
+    }
+    const radius = await btns.first().evaluate((e) => getComputedStyle(e).borderRadius);
+    expect(radius).toBe('4px');
+    await expect(btns.last()).toHaveClass(/bds-btn-attention/);
+    await page.screenshot({ path: test.info().outputPath(`ring-banner-d-${name}.png`) });
+  });
+}
+
+test('full screen incoming call: square 72px buttons with the 6px radius', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await incoming(page, 'full');
+  await page.goto(`${BASE}&platform=ios&notify=ring`);
+  const accept = page.locator('.pcall-in').getByRole('button', { name: 'Accept', exact: true });
+  await expect(accept).toBeVisible();
+  const m = await accept.evaluate((e) => ({ r: getComputedStyle(e).borderRadius, w: e.getBoundingClientRect().width }));
+  expect(m).toEqual({ r: '6px', w: 72 });
+});
