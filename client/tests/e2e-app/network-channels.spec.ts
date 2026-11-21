@@ -26,10 +26,17 @@ import {
   randomUsername, serverCard, uid,
 } from './fixtures';
 import { cardIn, expectConnected, railContextMenu, railTile, searchDirectory } from './helpers/directory';
-import { banner, conversation, sidebar } from './helpers/chat';
+import { banner, command, conversation, sidebar } from './helpers/chat';
 import { IrcPeer } from './irc-peer';
 
 type Handler = (path: string, res: ServerResponse) => boolean;
+
+const SHOTS = process.env['NETCHAN_SHOTS_DIR'] ?? '';
+async function shot(page: Page, name: string): Promise<void> {
+  if (!SHOTS) return;
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: join(SHOTS, `${name}.png`) });
+}
 
 // A tiny loopback HTTP server (CORS-open, for the web build too).
 async function serve(handler: Handler): Promise<{ url: string; close(): Promise<void> }> {
@@ -101,6 +108,7 @@ test.describe('network channels: a listing\'s default channels', () => {
       const card = serverCard(page, listing.name);
       await expect(card).toBeVisible({ timeout: 20_000 });
       await expect(card.locator('.directory-card-joins')).toHaveText(`Joins ${lobby}`);
+      await shot(page, '01-card-joins');
 
       await card.getByRole('button', { name: 'Connect' }).click();
       await expectConnected(page, listing.name);
@@ -110,8 +118,7 @@ test.describe('network channels: a listing\'s default channels', () => {
       await expect(page.getByPlaceholder(new RegExp(`^Message #${lobby.slice(1)}$`, 'i'))).toBeVisible();
 
       // Leave it, leave the server, connect from the card again: it stays left.
-      await page.getByPlaceholder(new RegExp(`^Message #${lobby.slice(1)}$`, 'i')).fill('/part');
-      await page.getByPlaceholder(new RegExp(`^Message #${lobby.slice(1)}$`, 'i')).press('Enter');
+      await command(page, '/part');
       await expect(conversation(page, lobby)).toHaveCount(0, { timeout: 15_000 });
       await (await railContextMenu(page, listing.name)).getByRole('menuitem', { name: 'Leave server' }).click();
       await expect(railTile(page, listing.name)).toHaveCount(0);
@@ -169,6 +176,7 @@ test.describe('network channels: only admins create channels', () => {
       await sidebar(page).getByRole('button', { name: 'Add channel' }).click();
       const dialog = page.getByRole('dialog', { name: 'Join a channel' });
       await expect(dialog.getByTestId('channel-create-restricted')).toContainText('Only admins can create channels on this network.');
+      await shot(page, '02-join-dialog-admins-only');
       await dialog.getByRole('group', { name: 'Network channels' }).getByRole('button', { name: existing }).click();
       await expect(page.getByPlaceholder(new RegExp(`^Message #${existing.slice(1)}$`, 'i'))).toBeVisible({ timeout: 20_000 });
 
@@ -181,6 +189,7 @@ test.describe('network channels: only admins create channels', () => {
       await box.press('Enter');
       await expect(banner(page)).toContainText(`${missing} doesn't exist, and only admins can create channels on ${name}.`, { timeout: 20_000 });
       await expect(banner(page)).not.toContainText('server operators');
+      await shot(page, '03-friendly-join-error');
       await expect(conversation(page, missing)).toHaveCount(0);
     } finally {
       await admin.quit().catch(() => {});
@@ -208,7 +217,13 @@ test.describe('network channels: only admins create channels', () => {
 //   E2E_NETCHAN_CHANNEL='#lobby' npx playwright test -c playwright.app.config.ts network-channels
 //
 // Without E2E_NETCHAN_IRC they skip; without E2E_NETCHAN_AUTH the account
-// case skips.
+// case skips. The guest case also runs against the stack repo's RoleServ
+// harness (fake auth, no OAUTHBEARER — so not the account case):
+//
+//   (stack) KEEP=1 test/roles/run.sh fake      # Ergo + RoleServ on 127.0.0.1:26667
+//   curl -X POST http://127.0.0.1:28081/test/state -H 'Content-Type: application/json' \
+//     -d '{"network":{"founder":"alice","autojoin_guests":true,"channels":[{"channel":"#lobby","name":"#lobby","autojoin":true}]}}'
+//   E2E_NETCHAN_IRC=127.0.0.1:26667 npx playwright test -c playwright.app.config.ts network-channels -g guest
 const NETCHAN_IRC = process.env['E2E_NETCHAN_IRC'] ?? '';
 const NETCHAN_AUTH = (process.env['E2E_NETCHAN_AUTH'] ?? '').replace(/\/+$/, '');
 const NETCHAN_CHANNEL = process.env['E2E_NETCHAN_CHANNEL'] || '#lobby';
@@ -263,9 +278,7 @@ test.describe('network channels: server-side auto-join (RoleServ)', () => {
 
     // Part, reconnect (logs in again): RoleServ doesn't put us back.
     await conversation(page, NETCHAN_CHANNEL).click();
-    const composerBox = page.getByPlaceholder(/^Message /);
-    await composerBox.fill('/part');
-    await composerBox.press('Enter');
+    await command(page, '/part');
     await expect(conversation(page, NETCHAN_CHANNEL)).toHaveCount(0, { timeout: 15_000 });
     await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
     await expect(railTile(page, name)).toHaveCount(0);
