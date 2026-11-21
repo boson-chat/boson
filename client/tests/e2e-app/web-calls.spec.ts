@@ -79,41 +79,48 @@ test.describe('calls in the browser', () => {
     try {
       const a = await launchApp({ env });
       const b = await launchApp({ env, profile: p2 });
-      await loginAs(a.page, alice);
-      await loginAs(b.page, bob);
       const name = `Voice ${uid()}`;
-      await connect(a.page, name);
-      await connect(b.page, name);
+      await test.step('sign in and connect', async () => {
+        await loginAs(a.page, alice);
+        await loginAs(b.page, bob);
+        await connect(a.page, name);
+        await connect(b.page, name);
+      });
 
-      // The voice channels from the voice server's room list.
-      await expect(a.page.getByLabel('Voice channel General', { exact: true })).toBeVisible({ timeout: 30_000 });
-      await joinGeneral(a.page);
-      await joinGeneral(b.page);
+      await test.step('both join General', async () => {
+        // The voice channels from the voice server's room list.
+        await expect(a.page.getByLabel('Voice channel General', { exact: true })).toBeVisible({ timeout: 30_000 });
+        await joinGeneral(a.page);
+        await joinGeneral(b.page);
+        // Each sees both in the channel.
+        for (const page of [a.page, b.page]) {
+          const room = page.locator('.voice-room[data-room="general"]');
+          await expect(room.locator('.voice-participant')).toHaveCount(2, { timeout: 30_000 });
+        }
+        await expect(a.page.locator('.voice-room[data-room="general"] .voice-participant', { hasText: bob.username })).toBeVisible();
+      });
 
-      // Each sees both in the channel.
-      for (const page of [a.page, b.page]) {
-        const room = page.locator('.voice-room[data-room="general"]');
-        await expect(room.locator('.voice-participant')).toHaveCount(2, { timeout: 30_000 });
-      }
-      await expect(a.page.locator('.voice-room[data-room="general"] .voice-participant', { hasText: bob.username })).toBeVisible();
+      await test.step("Bob's voice reaches Alice", async () => {
+        // Bob's mic (the fake device's tone): his speaking ring at Alice's.
+        await expect(a.page.locator('.voice-participant-speaking', { hasText: bob.username })).toBeVisible({ timeout: 30_000 });
+        await a.page.screenshot({ path: testInfo.outputPath(`call-${browserName}.png`) });
+      });
 
-      // Bob's mic (the fake device's tone) reaches Alice: his speaking ring.
-      await expect(a.page.locator('.voice-participant-speaking', { hasText: bob.username })).toBeVisible({ timeout: 30_000 });
-      await a.page.screenshot({ path: testInfo.outputPath(`call-${browserName}.png`) });
+      await test.step("Bob's camera reaches Alice as pictures", async () => {
+        const cam = b.page.getByRole('button', { name: 'Turn camera on' }).first();
+        await expect(cam).toBeEnabled({ timeout: 30_000 });
+        await cam.click();
+        await expect(b.page.getByRole('button', { name: 'Turn camera off' }).first()).toBeVisible({ timeout: 30_000 });
+        const show = a.page.getByRole('button', { name: 'Show the call' }).first();
+        if (await show.isVisible().catch(() => false)) await show.click();
+        await expect.poll(() => pictureVariance(a.page, 'canvas.stage-video'), { timeout: 45_000 }).toBeGreaterThan(10);
+        await a.page.screenshot({ path: testInfo.outputPath(`camera-${browserName}.png`) });
+      });
 
-      // Bob's camera: Alice gets his video as decoded pictures.
-      const cam = b.page.getByRole('button', { name: 'Turn camera on' }).first();
-      await expect(cam).toBeEnabled({ timeout: 30_000 });
-      await cam.click();
-      await expect(b.page.getByRole('button', { name: 'Turn camera off' }).first()).toBeVisible({ timeout: 30_000 });
-      const show = a.page.getByRole('button', { name: 'Show the call' }).first();
-      if (await show.isVisible().catch(() => false)) await show.click();
-      await expect.poll(() => pictureVariance(a.page, 'canvas.stage-video'), { timeout: 45_000 }).toBeGreaterThan(10);
-      await a.page.screenshot({ path: testInfo.outputPath(`camera-${browserName}.png`) });
-
-      // Leaving: the other side sees one person left.
-      await b.page.getByRole('button', { name: /^Leave/ }).first().click();
-      await expect(a.page.locator('.voice-room[data-room="general"] .voice-participant')).toHaveCount(1, { timeout: 30_000 });
+      await test.step('Bob leaves', async () => {
+        await b.page.getByRole('button', { name: /^Leave/ }).first().click();
+        await expect(a.page.locator('.voice-room[data-room="general"] .voice-participant')).toHaveCount(1, { timeout: 30_000 });
+      });
     } finally {
       rmSync(p2.root, { recursive: true, force: true });
     }
