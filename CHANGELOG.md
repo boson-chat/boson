@@ -1,3 +1,9 @@
+## [0.90.1](https://github.com/boson-chat/boson/compare/v0.90.0...v0.90.1) (2026-11-21)
+
+### Bug Fixes
+
+* sign-out clears everything of the account on this device ([#132](https://github.com/boson-chat/boson/issues/132)) ([ca2f112](https://github.com/boson-chat/boson/commit/ca2f11260c987752ec58a9abee64a5898606de3a))
+
 ## [0.90.0](https://github.com/boson-chat/boson/compare/v0.89.0...v0.90.0) (2026-11-21)
 
 ### Features
