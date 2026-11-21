@@ -1,3 +1,9 @@
+## [0.86.1](https://github.com/boson-chat/boson/compare/v0.86.0...v0.86.1) (2026-11-21)
+
+### Refactors
+
+* every screen on the shared design system ([#122](https://github.com/boson-chat/boson/issues/122)) ([2e7b793](https://github.com/boson-chat/boson/commit/2e7b7934b3e886383ddc33d2fbbcc0c2bafa3563))
+
 ## [0.86.0](https://github.com/boson-chat/boson/compare/v0.85.0...v0.86.0) (2026-11-21)
 
 ### Features
