@@ -2,7 +2,7 @@
   width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   color: var(--fg);
   font-family: var(--font-mono);
   outline: none;

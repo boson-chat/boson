@@ -22,7 +22,7 @@ export function MissedList({ calls, onCall }: { calls: readonly CallInfo[]; onCa
     <ul class="missed-list">
       {calls.map((c) => (
         <li key={c.id} class="missed-row">
-          <Avatar nick={c.peer.username} size={28} />
+          <Avatar nick={c.peer.username} accountUrl={c.peer.avatarUrl} size={28} />
           <span class="missed-who">
             <span class="missed-name">{c.peer.username}</span>
             <span class="missed-when">{c.video ? 'Video call' : 'Call'} · {when(c.createdAt)}</span>

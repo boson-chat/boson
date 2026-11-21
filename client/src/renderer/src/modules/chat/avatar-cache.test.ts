@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { getAvatar, setAvatar, setAvatars, subscribeAvatars, avatarVersion, publishOwnAvatar, subscribeOwnAvatar } from './avatar-cache';
+import { getAvatar, getAvatarAnyServer, setAvatar, setAvatars, subscribeAvatars, avatarVersion, publishOwnAvatar, subscribeOwnAvatar } from './avatar-cache';
 
 describe('avatar-cache', () => {
   beforeEach(() => {
@@ -55,5 +55,16 @@ describe('avatar-cache', () => {
     off();
     publishOwnAvatar('https://cdn/x.png');
     expect(got).toBeNull(); // unsubscribed → unchanged
+  });
+
+  it('getAvatarAnyServer: the nick on any server, case-insensitively; not a nick that only ends the same', () => {
+    setAvatar('srv-x', 'Kestrel', 'https://cdn/k.png');
+    setAvatar('srv-y', 'lkestrel', 'https://cdn/l.png');
+    expect(getAvatarAnyServer('kestrel')).toBe('https://cdn/k.png');
+    expect(getAvatarAnyServer('nobody')).toBeUndefined();
+    expect(getAvatarAnyServer('')).toBeUndefined();
+    setAvatar('srv-x', 'Kestrel', null);
+    expect(getAvatarAnyServer('kestrel')).toBeUndefined();
+    setAvatar('srv-y', 'lkestrel', null);
   });
 });

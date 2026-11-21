@@ -119,7 +119,7 @@ function ToastCard({ t, phone, onClose }: { t: Toast; phone: boolean; onClose: (
       onMouseEnter={timer.pause} onMouseLeave={timer.resume} onFocusIn={timer.pause} onFocusOut={timer.resume}>
       <button type="button" class="ntoast-main" onClick={() => openToast(t)}
         aria-label={`${label}: ${t.body}. Open`}>
-        {t.nick ? <Avatar nick={t.nick} size={phone ? 36 : 34} class="ntoast-av" /> : <span class="ntoast-av ntoast-av-live" aria-hidden="true">◉</span>}
+        {t.nick ? <Avatar nick={t.nick} serverId={t.serverId} accountUrl={t.friend?.avatarUrl} size={phone ? 36 : 34} class="ntoast-av" /> : <span class="ntoast-av ntoast-av-live" aria-hidden="true">◉</span>}
         <span class="ntoast-text">
           <span class="ntoast-head">
             <span class="ntoast-title">{t.title}</span>
@@ -144,7 +144,7 @@ function RingToast({ call, phone, onDecline, onVoice, onAccept, onExpand }: {
     return (
       <div class="ntoast ntoast-phone ntoast-ring" role="alertdialog" aria-label={`${name} is calling`}>
         <button type="button" class="ntoast-main" onClick={onExpand} aria-label={`${name} is calling you, ${kind}. Open full screen`}>
-          <Avatar nick={name} size={40} class="ntoast-av call-pulse-sm" />
+          <Avatar nick={name} accountUrl={call.peer.avatarUrl} size={40} class="ntoast-av call-pulse-sm" />
           <span class="ntoast-text">
             <span class="ntoast-title">{name}</span>
             <span class="ntoast-body ntoast-body-ok">is calling you · {kind}</span>
@@ -161,7 +161,7 @@ function RingToast({ call, phone, onDecline, onVoice, onAccept, onExpand }: {
   return (
     <div class="ntoast ntoast-ring" role="alertdialog" aria-label={`${name} is calling`}>
       <button type="button" class="ntoast-main" onClick={onExpand} aria-label={`${name} is calling you, ${kind}. Open full screen`}>
-        <Avatar nick={name} size={34} class="ntoast-av call-pulse-sm" />
+        <Avatar nick={name} accountUrl={call.peer.avatarUrl} size={34} class="ntoast-av call-pulse-sm" />
         <span class="ntoast-text">
           <span class="ntoast-head">
             <span class="ntoast-title">{name} is calling</span>

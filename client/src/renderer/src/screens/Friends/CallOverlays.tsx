@@ -64,6 +64,7 @@ function outcomeText(out: OutgoingCall): string {
 
 function Outgoing({ out, phone, onCancel }: { out: OutgoingCall; phone: boolean; onCancel: () => void }) {
   const name = out.peer.username;
+  const peerUrl = out.peer.avatarUrl;
   const calling = out.status === 'calling';
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onCancel(); };
@@ -74,7 +75,7 @@ function Outgoing({ out, phone, onCancel }: { out: OutgoingCall; phone: boolean;
     return (
       <div role="dialog" aria-label={`Calling ${name}`} class="pcall pcall-out">
         <div class="pcall-who">
-          <Avatar nick={name} size={120} class={`pcall-av${calling ? ' call-pulse' : ''}`} />
+          <Avatar nick={name} accountUrl={peerUrl} size={120} class={`pcall-av${calling ? ' call-pulse' : ''}`} />
           <span class="pcall-name">{name}</span>
           <span class="pcall-sub" aria-live="polite">{calling ? `Calling… · ${out.video ? 'video' : 'voice'}` : outcomeText(out)}</span>
         </div>
@@ -91,7 +92,7 @@ function Outgoing({ out, phone, onCancel }: { out: OutgoingCall; phone: boolean;
   return (
     <div class="ocall-backdrop">
       <div role="dialog" aria-label={`Calling ${name}`} class="ocall">
-        <Avatar nick={name} size={84} class="ocall-av" />
+        <Avatar nick={name} accountUrl={peerUrl} size={84} class="ocall-av" />
         <span class="ocall-name">{calling ? `Calling ${name}…` : name}</span>
         <span class="ocall-sub" aria-live="polite">
           {calling ? `${out.video ? 'Video call' : 'Voice call'} · ringing for up to 45 s` : outcomeText(out)}
@@ -108,12 +109,13 @@ function Incoming({ call, phone, onDecline, onVoice, onAccept }: {
   call: CallInfo; phone: boolean; onDecline: () => void; onVoice: () => void; onAccept: () => void;
 }) {
   const name = call.peer.username;
+  const peerUrl = call.peer.avatarUrl;
   const kind = call.video ? 'video' : 'voice';
   if (phone) {
     return (
       <div role="alertdialog" aria-label={`${name} is calling`} class="pcall pcall-in">
         <div class="pcall-who">
-          <Avatar nick={name} size={120} class="pcall-av call-pulse" />
+          <Avatar nick={name} accountUrl={peerUrl} size={120} class="pcall-av call-pulse" />
           <span class="pcall-name">{name}</span>
           <span class="pcall-sub pcall-sub-ok">is calling you · {kind}</span>
         </div>
@@ -141,7 +143,7 @@ function Incoming({ call, phone, onDecline, onVoice, onAccept }: {
     <div class="fcall-backdrop">
       <div role="alertdialog" aria-label={`${name} is calling`} class="fcall">
         <div class="pcall-who">
-          <Avatar nick={name} size={112} class="pcall-av call-pulse" />
+          <Avatar nick={name} accountUrl={peerUrl} size={112} class="pcall-av call-pulse" />
           <span class="pcall-name">{name}</span>
           <span class="pcall-sub pcall-sub-ok">is calling you · {kind}</span>
         </div>

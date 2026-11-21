@@ -58,7 +58,7 @@
   padding: 3px 4px 3px 10px;
   background: var(--surface-raised);
   border: 1px solid var(--border-soft);
-  border-radius: 999px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.06em;
@@ -86,7 +86,7 @@
   margin-left: 2px;
   background: transparent;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius-sm);
   color: var(--fg-3);
   font-size: 14px;
   line-height: 1;

@@ -1,0 +1,19 @@
+/* Status / presence dots — the one place a circle is allowed. */
+.bds-dot {
+  flex: none;
+  display: inline-block;
+  width: var(--bds-dot, 6px);
+  height: var(--bds-dot, 6px);
+  border-radius: 50%;
+  background: var(--fg-3);
+}
+.bds-dot-online, .bds-dot-live { background: var(--success); }
+.bds-dot-dnd, .bds-dot-error { background: var(--danger); }
+.bds-dot-away { background: var(--warn); }
+.bds-dot-offline { background: var(--fg-3); }
+.bds-dot-unread { background: var(--fg-2); }
+.bds-dot-accent { background: var(--accent); }
+.bds-dot-ring { box-shadow: 0 0 0 2px var(--dot-ring, var(--surface)); }
+@keyframes bds-dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.bds-dot-pulse { animation: bds-dot-pulse 1.6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .bds-dot-pulse { animation: none; } }

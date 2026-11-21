@@ -53,3 +53,10 @@ jobs:
       - name: vitest
         working-directory: client
         run: npm test
+      # The design system (packages/shared): its own typecheck and tests.
+      - name: shared typecheck
+        working-directory: packages/shared
+        run: npm run typecheck
+      - name: shared vitest
+        working-directory: packages/shared
+        run: npm test

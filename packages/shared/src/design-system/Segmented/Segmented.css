@@ -1,0 +1,35 @@
+/* Segmented control: joined buttons, the outer corners radius-md; the
+   chosen one in the accent. */
+.bds-seg { display: flex; min-width: 0; }
+.bds-seg-opt {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: var(--control-md);
+  margin-left: -1px;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--surface-raised);
+  color: var(--fg-2);
+  font: 600 var(--text-sm) var(--font-mono);
+  line-height: 1.2;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.bds-seg-fill .bds-seg-opt { flex: 1 1 0; padding: 4px var(--space-2); }
+.bds-seg-opt:first-child { margin-left: 0; border-radius: var(--radius-md) 0 0 var(--radius-md); }
+.bds-seg-opt:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+.bds-seg-opt:only-child { border-radius: var(--radius-md); }
+@media (hover: hover) { .bds-seg-opt:hover { background: var(--surface-hover); color: var(--fg); } }
+.bds-seg-on, .bds-seg-on:hover {
+  z-index: 1;
+  border-color: var(--accent);
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+.bds-seg-opt:focus-visible { outline: none; z-index: 2; box-shadow: var(--focus-ring); }
+.bds-seg-lg .bds-seg-opt { min-height: var(--control-lg); font-size: 13px; }

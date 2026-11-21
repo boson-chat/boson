@@ -1,0 +1,51 @@
+/* Avatars and placeholder tiles: rounded squares (radius by size, see
+   avatarRadius), the initial tinted by --nick-color, or a picture. */
+.bds-avatar {
+  --bds-avatar-r: var(--radius-md);
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  border-radius: var(--bds-avatar-r);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.bds-avatar-r-sm { --bds-avatar-r: var(--radius-sm); }
+.bds-avatar-r-md { --bds-avatar-r: var(--radius-md); }
+.bds-avatar-r-lg { --bds-avatar-r: var(--radius-lg); }
+
+.bds-avatar-tile {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: inherit;
+  background: color-mix(in oklab, var(--nick-color, var(--fg-3)) 22%, var(--surface-raised));
+  color: var(--nick-color, var(--fg-2));
+  border: 1px solid color-mix(in oklab, var(--nick-color, var(--fg-3)) 32%, transparent);
+  box-sizing: border-box;
+}
+.bds-avatar-has-image .bds-avatar-tile { background: var(--surface-raised); border-color: var(--border); }
+.bds-avatar-tile > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bds-avatar-dim { opacity: 0.5; }
+
+.bds-avatar-status { position: absolute; right: -3px; bottom: -3px; --dot-ring: var(--avatar-ring, var(--surface)); }
+
+/* Ringing (a call for you): a green ring and a soft pulse outside it. */
+@keyframes bds-avatar-ring {
+  0% { box-shadow: 0 0 0 2px var(--avatar-ring, var(--surface)), 0 0 0 4px var(--success), 0 0 0 4px color-mix(in oklab, var(--success), transparent 50%); }
+  100% { box-shadow: 0 0 0 2px var(--avatar-ring, var(--surface)), 0 0 0 4px var(--success), 0 0 0 16px transparent; }
+}
+@keyframes bds-avatar-ring-lg {
+  0% { box-shadow: 0 0 0 4px var(--avatar-ring, var(--bg)), 0 0 0 7px var(--success), 0 0 0 7px color-mix(in oklab, var(--success), transparent 50%); }
+  100% { box-shadow: 0 0 0 4px var(--avatar-ring, var(--bg)), 0 0 0 7px var(--success), 0 0 0 30px transparent; }
+}
+.bds-avatar-ringing { animation: bds-avatar-ring 1.4s ease-out infinite; }
+.bds-avatar-ringing.bds-avatar-lg { animation-name: bds-avatar-ring-lg; }
+@media (prefers-reduced-motion: reduce) {
+  .bds-avatar-ringing { animation: none; box-shadow: 0 0 0 2px var(--avatar-ring, var(--surface)), 0 0 0 4px var(--success); }
+  .bds-avatar-ringing.bds-avatar-lg { box-shadow: 0 0 0 4px var(--avatar-ring, var(--bg)), 0 0 0 7px var(--success); }
+}

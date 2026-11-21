@@ -5,6 +5,8 @@ export interface Person {
   userId: string;
   username: string;
   displayName: string;
+  /** The account's profile picture, when it has one. */
+  avatarUrl?: string;
 }
 
 export interface Friend extends Person {

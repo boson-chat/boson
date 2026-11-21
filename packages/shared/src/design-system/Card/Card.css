@@ -1,5 +1,5 @@
 .bds-card {
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-lg);
   padding: var(--space-6);
 }
 

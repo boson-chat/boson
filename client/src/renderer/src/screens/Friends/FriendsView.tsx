@@ -99,7 +99,7 @@ export function FriendsView({ layout }: Props) {
           <>
             {pending.map(({ f, incoming }) => (
               <div key={f.userId} class="friends-row">
-                <Avatar nick={f.username} size={phone ? 40 : 36} class="friends-av" />
+                <Avatar nick={f.username} accountUrl={f.avatarUrl} size={phone ? 40 : 36} class="friends-av" />
                 <div class="friends-who">
                   <span class="friends-name">{f.username}</span>
                   <span class="friends-sub">{incoming ? 'wants to be your friend' : phone ? 'request sent' : 'request sent, waiting'}</span>
@@ -130,7 +130,7 @@ export function FriendsView({ layout }: Props) {
           <>
             {snap.blocked.map((f) => (
               <div key={f.userId} class="friends-row">
-                <Avatar nick={f.username} size={phone ? 40 : 36} class="friends-av friends-av-dim" />
+                <Avatar nick={f.username} accountUrl={f.avatarUrl} size={phone ? 40 : 36} class="friends-av friends-av-dim" />
                 <div class="friends-who">
                   <span class="friends-name">{f.username}</span>
                   {!phone && <span class="friends-sub friends-sub-dim">Can't call you or send you friend requests. They aren't told.</span>}
@@ -168,7 +168,7 @@ function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
     return (
       <div class="friends-row friends-row-phone">
         <div class="friends-row-top">
-          <Avatar nick={f.username} size={40} class="friends-av" />
+          <Avatar nick={f.username} accountUrl={f.avatarUrl} size={40} class="friends-av" />
           <div class="friends-who">
             <span class="friends-name">{f.username}</span>
             <span class="friends-sub">{sub}</span>
@@ -188,7 +188,7 @@ function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
   }
   return (
     <div class="friends-row">
-      <Avatar nick={f.username} size={36} class="friends-av" />
+      <Avatar nick={f.username} accountUrl={f.avatarUrl} size={36} class="friends-av" />
       <div class="friends-who">
         <span class="friends-name">{f.username}</span>
         <span class="friends-sub">{sub}</span>
