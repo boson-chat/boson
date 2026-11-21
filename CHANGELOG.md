@@ -1,3 +1,9 @@
+## [0.87.0](https://github.com/boson-chat/boson/compare/v0.86.1...v0.87.0) (2026-11-21)
+
+### Features
+
+* the incoming-call banner is one row (option D), and the full-screen call's buttons are square ([#123](https://github.com/boson-chat/boson/issues/123)) ([861998a](https://github.com/boson-chat/boson/commit/861998a5a1c6465cd8e691e22829f9ef4e40585b))
+
 ## [0.86.1](https://github.com/boson-chat/boson/compare/v0.86.0...v0.86.1) (2026-11-21)
 
 ### Refactors
