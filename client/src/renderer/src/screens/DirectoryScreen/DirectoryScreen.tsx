@@ -549,7 +549,6 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
       <div class="directory-filters">
         <Input
           type="text"
-          inputSize="sm"
           placeholder="Search servers…"
           value={query}
           onInput={(e) => bloc.setQuery((e.target as HTMLInputElement).value)}

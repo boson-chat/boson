@@ -1035,29 +1035,6 @@
   font-family: var(--font-mono);
   opacity: 0.8;
 }
-/* Still used by ChannelRegistration's refresh (settings PR); delete once
-   that is a shared Button. */
-.chat-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  color: var(--fg-3);
-  cursor: pointer;
-  transition: color var(--motion-fast) var(--ease-standard),
-    background var(--motion-fast) var(--ease-standard),
-    border-color var(--motion-fast) var(--ease-standard);
-}
-.chat-icon-btn:hover {
-  color: var(--fg);
-  background: var(--surface-hover);
-  border-color: var(--border-soft);
-}
-.chat-icon-btn svg { display: block; }
 
 /* Preformatted block: a run of box-drawing / pipe-table lines rendered as one
    aligned, horizontally-scrollable monospace block (see PreBlock). */

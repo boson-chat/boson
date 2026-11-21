@@ -23,7 +23,7 @@ export function prefixClass(prefix: ChatMember['prefix']): string {
 // A channel role's label colour, the same everywhere a role is shown (the
 // message row's OPS, the hover card's Operator, the profile's head).
 const ROLE_TONE: Record<string, BadgeTone> = {
-  founder: 'danger', admin: 'warn', op: 'ops', halfop: 'mod', voice: 'success', regular: 'neutral',
+  founder: 'danger', admin: 'warn', op: 'accent', halfop: 'mod', voice: 'success', regular: 'neutral',
 };
 
 /** A member's channel role as a Badge; `label` overrides the long name. */

@@ -111,7 +111,6 @@
 .app-shell.is-narrow .voice-faces { height: 44px; min-width: 44px; margin-right: var(--space-1); padding: 0 4px 0 10px; gap: 3px; }
 .app-shell.is-narrow .voice-face { margin-left: -9px; }
 .app-shell.is-narrow .channel-add { margin: -11px -11px -11px 0; }
-.app-shell.is-narrow .voice-bar-btn { min-width: 44px; min-height: 44px; }
 
 /* Dialogs are full-screen sheets on a phone: their content fits its width. */
 @media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {

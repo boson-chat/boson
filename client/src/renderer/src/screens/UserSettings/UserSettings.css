@@ -263,7 +263,7 @@
   font-size: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 6px;
 }
 
