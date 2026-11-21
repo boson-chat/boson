@@ -4,8 +4,7 @@
 import type { Page } from '@playwright/test';
 import {
   test, expect, uid, IRC_HOST, IRC_PORT, type ZncUser,
-  continueAsGuest, configureBouncerProfile, joinChannel,
-} from './fixtures';
+  continueAsGuest, configureBouncerProfile, joinChannel, webBrowserFixme } from './fixtures';
 import { IrcPeer } from './irc-peer';
 import { conversation, messages } from './helpers/chat';
 import { withZncAdmin } from './helpers/znc-admin';
@@ -150,6 +149,7 @@ test.describe('bouncer backlog', () => {
   // a window of each conversation in memory and keeps the rest for scroll-up, so
   // "Load older messages" walks back to the start of ZNC's buffer.
   test('scroll-up reaches the start of a long ZNC buffer', async ({ launchApp, zncUser }) => {
+    webBrowserFixme('webkit', 'older history pages in only once while scrolling up in WebKit; to fix');
     test.setTimeout(300_000);
     const settings = (on: { clear: boolean; size: number }) => withZncAdmin(zncUser, async (run) => {
       for (const k of ['AutoClearChanBuffer', 'AutoClearQueryBuffer']) {

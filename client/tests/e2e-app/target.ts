@@ -66,3 +66,12 @@ export const IMG = {
   themeVar: IS_WEB ? /^url\("blob:/ : /^url\("\/_boson\/img\?k=theme&/,
   file: IS_WEB ? /^(blob:|https?:\/\/[^/]+\/f\/)/ : /^\/_boson\/img\?k=file&/,
 };
+
+/**
+ * Marks a test as a known failure in one web browser (test.fixme: not run,
+ * reported as such): a gap in the web build there that's still to fix, not
+ * something that can't apply. README.md, "Web target", lists them.
+ */
+export function webBrowserFixme(browser: 'chromium' | 'firefox' | 'webkit', reason: string): void {
+  test.fixme(IS_WEB && test.info().project.use.browserName === browser, `web ${browser}: ${reason}`);
+}

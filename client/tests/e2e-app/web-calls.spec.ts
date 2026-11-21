@@ -20,6 +20,8 @@ import {
 } from './fixtures';
 
 test.skip(!IS_WEB, 'the desktop e2e build has no voice audio (novoiceaudio); calls are checked on the web build');
+// Linux WebKit (WebKitGTK) has no WebTransport: the app shows chat only there.
+test.skip(({ browserName }) => browserName === 'webkit' && process.platform === 'linux', 'Linux WebKit has no WebTransport');
 
 function profile(): Profile {
   const root = mkdtempSync(join(process.platform === 'darwin' ? '/tmp' : tmpdir(), 'boson-e2e-'));

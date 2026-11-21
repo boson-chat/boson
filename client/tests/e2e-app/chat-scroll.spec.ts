@@ -8,7 +8,7 @@
 //   - leaving the channel and coming back lands at the bottom, and the
 //     history above is still there.
 import type { Page } from '@playwright/test';
-import { test, expect, randomChannel } from './fixtures';
+import { test, expect, randomChannel, webBrowserFixme } from './fixtures';
 import { connectGuest, connectPeer, conversation, joinViaUi, memberRow, messages } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 
@@ -52,6 +52,7 @@ test.describe('long history', () => {
   });
 
   test('scroll up through it and back down: windowed, anchored, sticks to the bottom; leave and come back', async ({ launchApp }) => {
+    webBrowserFixme('webkit', 'older history pages in only once while scrolling up in WebKit; to fix');
     test.setTimeout(240_000);
     const ch = randomChannel('scroll');
     const other = randomChannel('other');

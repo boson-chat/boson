@@ -143,3 +143,13 @@ npm run test:e2e:web -- --project=web-firefox --project=web-firefox-mobile
 | image-cache (file) | the desktop's image disk cache |
 | security: navigation guard | belongs to the desktop window; a web page may navigate |
 | themes: theme file + live edit | the desktop's themes folder and watcher |
+| mobile-layout (swipe), mobile-load-older ×3, mobile-channel-reorder — Firefox and WebKit only | touch gestures are sent through Chromium's DevTools protocol, which Playwright has only in Chromium (they run in web-chromium-mobile) |
+| web-calls — Linux WebKit only | WebKitGTK has no WebTransport (the app is chat-only there and says so) |
+
+Known gaps, marked `webBrowserFixme` (not run, reported as fixme; to fix):
+
+| Spec | Browser | What |
+|---|---|---|
+| channel-reorder | WebKit | the pointer drag doesn't reorder |
+| chat-scroll: scroll up and back down, bouncer-backlog: scroll-up | WebKit | older history pages in only once while scrolling up |
+| mobile-layout: relaunch, mobile-network ×3 | WebKit (phone) | the add-server sheet never settles under phone emulation |

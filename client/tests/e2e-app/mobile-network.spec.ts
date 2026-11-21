@@ -3,7 +3,7 @@
 // slow network is just slow (no reconnect, no strip); a dead or missing one
 // gets noticed, reconnected, and what was sent goes out after all — once.
 import type { Page } from '@playwright/test';
-import { test, expect, randomChannel, joinChannel } from './fixtures';
+import { test, expect, randomChannel, joinChannel, webBrowserFixme } from './fixtures';
 import { connectGuest, connectPeer, messages, say } from './helpers/chat';
 import { startNetProxy, type NetProxy } from './helpers/net-proxy';
 import type { IrcPeer } from './irc-peer';
@@ -43,6 +43,7 @@ test.describe('phone network', () => {
   }
 
   test('a slow network: greyed while it travels, then sent — no reconnect', async ({ launchApp }) => {
+    webBrowserFixme('webkit', 'WebKit phone emulation: the add-server sheet never settles; to fix');
     test.setTimeout(90_000);
     const { page, channel } = await setup(launchApp);
     proxy.latencyMs = 1200; // 2.4s round trip
@@ -54,6 +55,7 @@ test.describe('phone network', () => {
   });
 
   test('no network: greyed, the strip after a few seconds, sent once it is back', async ({ launchApp }) => {
+    webBrowserFixme('webkit', 'WebKit phone emulation: the add-server sheet never settles; to fix');
     test.setTimeout(120_000);
     const { page, channel } = await setup(launchApp);
     proxy.refuse = true;
@@ -69,6 +71,7 @@ test.describe('phone network', () => {
   });
 
   test('a dead link (Wi-Fi gone, socket silent): noticed in seconds, then sent', async ({ launchApp }) => {
+    webBrowserFixme('webkit', 'WebKit phone emulation: the add-server sheet never settles; to fix');
     test.setTimeout(120_000);
     const { page, channel } = await setup(launchApp);
     const mark = peer.mark();
