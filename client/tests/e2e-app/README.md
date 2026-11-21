@@ -151,5 +151,6 @@ Known gaps, marked `webBrowserFixme` (not run, reported as fixme; to fix):
 | Spec | Browser | What |
 |---|---|---|
 | channel-reorder | WebKit | the pointer drag doesn't reorder |
-| chat-scroll: scroll up and back down, bouncer-backlog: scroll-up | WebKit | older history pages in only once while scrolling up |
+| chat-scroll: scroll up and back down, bouncer-backlog: scroll-up | WebKit, Firefox | older history pages in only once while scrolling up |
+| web-calls | Firefox on Linux CI | the call never joins headless (passes on macOS) |
 | mobile-layout: relaunch, mobile-network ×3 | WebKit (phone) | the add-server sheet never settles under phone emulation |

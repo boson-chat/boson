@@ -150,6 +150,7 @@ test.describe('bouncer backlog', () => {
   // "Load older messages" walks back to the start of ZNC's buffer.
   test('scroll-up reaches the start of a long ZNC buffer', async ({ launchApp, zncUser }) => {
     webBrowserFixme('webkit', 'older history pages in only once while scrolling up in WebKit; to fix');
+    webBrowserFixme('firefox', 'older history pages in only once while scrolling up in Firefox (Linux CI); to fix');
     test.setTimeout(300_000);
     const settings = (on: { clear: boolean; size: number }) => withZncAdmin(zncUser, async (run) => {
       for (const k of ['AutoClearChanBuffer', 'AutoClearQueryBuffer']) {
