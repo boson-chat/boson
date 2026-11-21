@@ -912,7 +912,7 @@ export function BouncerNetworksPanel({ bloc, connections }: {
                   key={n}
                   class="directory-bouncer-row"
                   rowProps={{ role: 'listitem' }}
-                  title={n}
+                  title={<span class="directory-bouncer-name">{n}</span>}
                   trailing={haveNetwork(n) ? (
                     <Badge tone="info">Added</Badge>
                   ) : (
@@ -940,7 +940,7 @@ export function BouncerNetworksPanel({ bloc, connections }: {
                 key={s.id}
                 class="directory-bouncer-row"
                 rowProps={{ role: 'listitem' }}
-                title={s.name}
+                title={<span class="directory-bouncer-name">{s.name}</span>}
                 subtitle={`network: ${s.bouncer?.network ? s.bouncer.network : '(default)'}`}
                 trailing={(
                   <>
