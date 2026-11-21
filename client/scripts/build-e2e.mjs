@@ -37,6 +37,30 @@ function run(cmd, args, opts) {
 }
 
 const stack = JSON.parse(readFileSync(join(repoRoot, 'infra', 'e2e', 'stack.json'), 'utf8'));
+
+// --web: the web build instead (out-e2e/web, served by
+// tests/e2e-app/web-server.ts): the engine as WebAssembly and the renderer
+// with platform/web, pinned to the same e2e stack. No Go app binary.
+if (process.argv.includes('--web')) {
+  run('node', [join(clientDir, 'scripts', 'build-web-engine.mjs')], { cwd: clientDir });
+  run('npx', ['vite', 'build'], {
+    cwd: clientDir,
+    env: {
+      ...process.env,
+      VITE_BOSON_SHELL: 'web',
+      RENDERER_OUT_DIR: join(outDir, 'web'),
+      VITE_AUTH_URL: stack.auth.url,
+      VITE_BOSON_API_URL: stack.backend.url,
+      VITE_DIRECTORY_URL: stack.directory.url,
+      VITE_WEB_GATEWAY_URL: stack.web.gateway.url,
+      VITE_ENGINE_URL: '',
+      VITE_ENGINE_TOKEN: '',
+    },
+  });
+  console.log(`e2e web app built: ${join(outDir, 'web')}`);
+  process.exit(0);
+}
+
 const renderer = join(outDir, 'renderer');
 if (!process.argv.includes('--skip-renderer')) {
   run('npx', ['vite', 'build'], {

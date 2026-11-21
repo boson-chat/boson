@@ -1,0 +1,95 @@
+// The web build (platform/web: the engine as WebAssembly, browser bridges)
+// under the real-app e2e suite, with E2E_TARGET=web. The same specs as the
+// desktop app (desktop-app.ts): `launchWebApp` returns the same handle.
+//
+// The page is served once per run on the stack's fixed web origin
+// (web-server.ts); each test profile gets its own persistent browser
+// context (its own storage), in the Playwright project's browser. What the
+// desktop app takes from its environment for tests (BOSON_NETWORK_JSON, the
+// API outage switch, …) reaches the page as window.bosonWebE2EEnv through
+// an init script, read by platform/web.
+import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type Page } from '@playwright/test';
+import { join } from 'node:path';
+import type { Profile } from './fixtures';
+import type { App, DesktopLaunch, DeviceOptions } from './desktop-app';
+import { STACK } from './stack';
+
+export type BrowserName = 'chromium' | 'firefox' | 'webkit';
+
+const BROWSERS: Record<BrowserName, BrowserType> = { chromium, firefox, webkit };
+
+// The desktop app's test environment, for the page.
+function pageEnv(env: Record<string, string>): Record<string, string> {
+  const keep = ['BOSON_NETWORK_JSON', 'BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
+  const out: Record<string, string> = {};
+  for (const k of keep) if (env[k] !== undefined) out[k] = env[k]!;
+  return out;
+}
+
+export async function launchWebApp(
+  p: Profile, env: Record<string, string>, args: string[] = [], device: DeviceOptions & { browserName?: BrowserName } = {},
+): Promise<DesktopLaunch> {
+  const logs: string[] = [];
+  const browser = BROWSERS[device.browserName ?? 'chromium'];
+  const { browserName: _b, ...dev } = device;
+  // Firefox has no mobile emulation (viewport + touch still apply).
+  if (device.browserName === 'firefox') delete dev.isMobile;
+  const permissions = (device.browserName ?? 'chromium') === 'chromium' ? ['notifications', 'clipboard-read', 'clipboard-write'] : [];
+  const context: BrowserContext = await browser.launchPersistentContext(join(p.userData, `web-${device.browserName ?? 'chromium'}`), {
+    viewport: { width: 1280, height: 800 },
+    ...dev,
+    permissions,
+  });
+  await context.addInitScript((e) => { (window as unknown as { bosonWebE2EEnv: unknown }).bosonWebE2EEnv = e; }, pageEnv(env));
+  const page: Page = context.pages()[0] ?? (await context.newPage());
+  page.on('console', (m) => logs.push(`[renderer ${m.type()}] ${m.text()}\n`));
+  page.on('pageerror', (e) => logs.push(`[renderer pageerror] ${e.message}\n`));
+  // A cold start from a link (the desktop gets the boson:// URL as argv):
+  // a link to the web app carrying it.
+  const link = args.find((a) => a.startsWith('boson://'));
+  const url = new URL(STACK.web.url);
+  if (link) url.searchParams.set('join', link);
+  await page.goto(url.toString());
+  await page.waitForFunction(() => 'bosonShellReady' in window, null, { timeout: 30_000 });
+
+  let closed = false;
+  const close = async (): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    // Let in-flight chat-history writes land (see desktop-app.ts).
+    if (!page.isClosed()) {
+      await page.evaluate(async () => {
+        const dbs = await indexedDB.databases?.() ?? [];
+        if (!dbs.some((d) => d.name === 'boson-chat-history')) return;
+        await new Promise<void>((done) => {
+          const req = indexedDB.open('boson-chat-history');
+          req.onerror = () => done();
+          req.onsuccess = () => {
+            const db = req.result;
+            const finish = (): void => { db.close(); done(); };
+            if (db.objectStoreNames.length === 0) return finish();
+            const tx = db.transaction(Array.from(db.objectStoreNames), 'readonly');
+            tx.oncomplete = finish;
+            tx.onerror = finish;
+            tx.onabort = finish;
+          };
+        });
+      }).catch(() => {});
+    }
+    await context.close().catch(() => {});
+  };
+
+  type E2E = { openedLinks: () => Promise<string[] | null>; secondInstance: (args: string[]) => Promise<void> };
+  const openedExternally = (): Promise<string[]> =>
+    page.evaluate(async () => (await (window as unknown as { bosonE2E: E2E }).bosonE2E.openedLinks()) ?? []);
+  const app: App = {
+    process: () => { throw new Error('the web build has no app process'); },
+    secondInstance: async (a: string[]) => {
+      await page.evaluate((x) => (window as unknown as { bosonE2E: E2E }).bosonE2E.secondInstance(x), a);
+    },
+    windows: () => context.pages(),
+    context: () => context,
+    close,
+  };
+  return { app, page, logs, close, openedExternally };
+}

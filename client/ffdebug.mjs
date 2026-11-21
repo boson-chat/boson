@@ -1,0 +1,10 @@
+import { firefox } from '@playwright/test';
+const b = await firefox.launch();
+const p = await b.newPage();
+p.on('console', m => console.log('console', m.type(), m.text()));
+p.on('pageerror', e => console.log('pageerror', e.message));
+await p.goto('http://127.0.0.1:18800/');
+await p.waitForTimeout(6000);
+console.log(await p.evaluate(() => 'bosonShellReady' in window));
+console.log((await p.content()).slice(0, 300));
+await b.close();

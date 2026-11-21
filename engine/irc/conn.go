@@ -4,10 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"log/slog"
 	"net"
-	"strconv"
 	"sync"
 
 	"github.com/lrstanley/girc"
@@ -141,35 +139,16 @@ func (l *lineFilterConn) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-// dial establishes the transport girc will use, mirroring girc's own
-// newConn (TCP + optional TLS handshake, ServerName defaulting to the host)
-// and then wrapping it in lineFilterConn. We hand the result to
+// dial establishes the transport girc will use (dialTransport: TCP + an
+// optional TLS handshake natively, a WebSocket to the IRC gateway in the
+// browser build) and wraps it in lineFilterConn. We hand the result to
 // girc.MockConnect so girc skips its internal dial+TLS but still runs the full
 // registration flow (PASS / CAP / NICK / USER). This is the only way to put a
 // filter ABOVE TLS — a girc DialerConnect filter would see ciphertext.
 func dial(ctx context.Context, cfg Config) (*lineFilterConn, error) {
-	addr := net.JoinHostPort(cfg.Hostname, strconv.Itoa(cfg.Port))
-	d := &net.Dialer{Timeout: cfg.ConnTimeout}
-	raw, err := d.DialContext(ctx, "tcp", addr)
+	conn, err := dialTransport(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-
-	var conn net.Conn = raw
-	if cfg.TLS {
-		tc := tlsConfigFor(cfg)
-		if tc == nil {
-			tc = &tls.Config{ServerName: cfg.Hostname}
-		} else if tc.ServerName == "" {
-			tc.ServerName = cfg.Hostname
-		}
-		tlsConn := tls.Client(raw, tc)
-		if err := tlsConn.HandshakeContext(ctx); err != nil {
-			_ = raw.Close()
-			return nil, err
-		}
-		conn = tlsConn
-	}
-
 	return newLineFilterConn(conn), nil
 }

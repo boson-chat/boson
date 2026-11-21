@@ -8,7 +8,17 @@ interface ImportMetaEnv {
   readonly VITE_DIRECTORY_URL?: string;
   readonly VITE_ENGINE_URL?: string;
   readonly VITE_ENGINE_TOKEN?: string;
+  // 'web' for the browser build (chat.boson.chat): platform/web.
+  readonly VITE_BOSON_SHELL?: string;
 }
+
+// The web build's engine (scripts/build-web-engine.mjs → platform/web/gen,
+// aliased in vite.config.ts).
+declare module 'boson-engine-wasm?url' {
+  const url: string;
+  export default url;
+}
+declare module 'boson-wasm-exec';
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;

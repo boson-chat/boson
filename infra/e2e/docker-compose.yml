@@ -110,6 +110,8 @@ services:
     image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.55.0}}
     command: ['migrate', 'up']
     environment: &backend-env
+      # The web build under e2e (stack.json web.url) calls it cross-origin.
+      ALLOWED_ORIGINS: http://127.0.0.1:18800
       ENV: e2e
       PORT: '3000'
       DBHOST: postgres
@@ -277,6 +279,9 @@ services:
     environment:
       ENV: development
       PUBLIC_URL: http://127.0.0.1:18180
+      # The web build under e2e (stack.json web.url) calls it cross-origin.
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:18180,http://127.0.0.1:18800
+      SSO_RETURN_TO_ALLOWED: http://127.0.0.1:*,http://[::1]:*,boson://,http://127.0.0.1:18800/sso/callback
       COOKIE_SECURE: 'false'
       DATABASE_URL: postgres://auth:auth@auth-postgres:5432/auth?sslmode=disable
       AUTH_KEY_ENCRYPTION_KEY: ZTJlLW9ubHkta2V5LWZvci10aGUtdG1wZnMtc3RhY2s=
@@ -326,6 +331,7 @@ services:
     environment:
       ENV: development
       DIRECTORY_PUBLIC_URL: http://127.0.0.1:18480
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:18800
       DATABASE_URL: postgres://directory:directory@directory-postgres:5432/directory?sslmode=disable
       # Tokens carry the issuer the app signs in with (the host URL); the keys
       # are fetched inside the network.
@@ -376,6 +382,7 @@ services:
     environment:
       ENV: development
       PUBLIC_URL: http://127.0.0.1:18181
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:18181,http://127.0.0.1:18800
       COOKIE_SECURE: 'false'
       DATABASE_URL: postgres://auth:auth@auth2-postgres:5432/auth?sslmode=disable
       AUTH_KEY_ENCRYPTION_KEY: ZTJlLXNlbGZob3N0LW5ldHdvcmsta2V5LXRtcGZzISE=

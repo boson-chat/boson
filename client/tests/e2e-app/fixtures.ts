@@ -32,6 +32,10 @@ import { Mailpit } from './helpers/mailpit';
 import { createConfirmedUser, deleteAuthUser, type AuthUser } from './helpers/auth';
 import { leaseZncUser, resetZncUser, type ZncUser } from './helpers/znc';
 import { launchDesktopApp, type App, type DesktopLaunch } from './desktop-app';
+import { launchWebApp, type BrowserName } from './web-app';
+import { IS_WEB } from './target';
+
+export { IS_WEB, TARGET, webSkip, webBrowserSkip } from './target';
 
 export { APP_DIR, STACK };
 
@@ -197,8 +201,11 @@ export const test = base.extend<Fixtures>({
         BOSON_E2E: '1',
       });
       if (opts.env) Object.assign(env, opts.env);
-      const { viewport, deviceScaleFactor, isMobile, hasTouch, userAgent } = testInfo.project.use;
-      const app = await launchDesktopApp(p, env, opts.args ?? [], { viewport, deviceScaleFactor, isMobile, hasTouch, userAgent });
+      const { viewport, deviceScaleFactor, isMobile, hasTouch, userAgent, browserName } = testInfo.project.use;
+      const device = { viewport, deviceScaleFactor, isMobile, hasTouch, userAgent };
+      const app = IS_WEB
+        ? await launchWebApp(p, env, opts.args ?? [], { ...device, browserName: (browserName ?? 'chromium') as BrowserName })
+        : await launchDesktopApp(p, env, opts.args ?? [], device);
       launched.push(app);
       return app;
     });

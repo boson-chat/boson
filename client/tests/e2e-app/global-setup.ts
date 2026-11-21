@@ -7,6 +7,8 @@ import { APP_DIR, IRC_HOST, IRC_PORT, ZNC_HOST, ZNC_PORT } from './fixtures';
 import { STACK } from './stack';
 import { COVERAGE, COVERAGE_DIR, RAW } from './coverage/config';
 import { APP_BIN } from './desktop-app';
+import { IS_WEB } from './target';
+import { WEB_DIR, startWebServer } from './web-server';
 
 function probe(host: string, port: number, timeoutMs = 3_000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -18,12 +20,15 @@ function probe(host: string, port: number, timeoutMs = 3_000): Promise<boolean> 
   });
 }
 
-export default async function globalSetup(): Promise<void> {
+export default async function globalSetup(): Promise<void | (() => Promise<void>)> {
   const problems: string[] = [];
   // The server-mode binary embeds the renderer; the coverage report maps
   // the renderer chunks back through out-e2e/renderer's source maps.
-  if (!existsSync(APP_BIN)) problems.push(`${APP_BIN} is missing — run \`npm run build:e2e-app\``);
-  if (COVERAGE && !readdirSync(join(APP_DIR, 'renderer', 'assets')).some((f) => f.endsWith('.js.map'))) {
+  if (IS_WEB) {
+    if (!existsSync(join(WEB_DIR, 'index.html'))) problems.push(`${WEB_DIR} is missing — run \`npm run build:e2e-web\``);
+    if (!(await probe('127.0.0.1', STACK.web.gateway.port))) problems.push(`the IRC gateway isn't listening on 127.0.0.1:${STACK.web.gateway.port}`);
+  } else if (!existsSync(APP_BIN)) problems.push(`${APP_BIN} is missing — run \`npm run build:e2e-app\``);
+  if (!IS_WEB && COVERAGE && !readdirSync(join(APP_DIR, 'renderer', 'assets')).some((f) => f.endsWith('.js.map'))) {
     problems.push(`E2E_COVERAGE=1 but ${APP_DIR}/renderer is not a coverage build — run \`E2E_COVERAGE=1 npm run build:e2e-app\``);
   }
   if (!(await probe(IRC_HOST, IRC_PORT))) problems.push(`ergo not reachable on ${IRC_HOST}:${IRC_PORT}`);
@@ -42,6 +47,11 @@ export default async function globalSetup(): Promise<void> {
   if (!backendUp) {
     console.warn(`[e2e] backend not reachable on ${STACK.backend.url} — account-mode specs will fail. ` +
       'Bring the full stack up with `make test-e2e-app-up`.');
+  }
+
+  if (IS_WEB) {
+    const server = await startWebServer();
+    return () => new Promise<void>((done) => server.close(() => done()));
   }
 
   if (COVERAGE) {
