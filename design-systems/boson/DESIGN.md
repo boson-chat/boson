@@ -17,10 +17,14 @@ component can't do what a screen needs, extend the component.
   chips, a switch's knob · `--radius-md` (4px) controls: buttons, inputs,
   segmented controls, switches, menu items, small avatars · `--radius-lg`
   (6px) surfaces: cards, toasts, menus, sheets, dialogs, big avatars, the
-  72px call buttons. Themes scale all three together (`radius`, ×1/×2/×3), so
-  never write a pixel radius.
+  72px call buttons. Never write a pixel radius. **Themes can't change
+  shape**: a theme sets colours, fonts and backgrounds; its `radius` is
+  ignored, so corners are the same on every network.
 - **No circles and no pills**, except status / presence dots (`StatusDot`)
   and spinners. Avatars are rounded squares everywhere.
+- **No thick accent bars** down a card's or banner's edge (they bend around
+  the rounded corner). A card is a 1px border; its kind shows in its header
+  (site name, Spotify mark, an icon), and a state in its icon colour.
 - **Borders are 1px** (`--border`, or `--border-soft` for dividers inside a
   surface). A selected item may use a 2px accent edge (nav rows, tabs).
 - **Touch targets: 44px minimum on phones** (`size="lg"` on Button,

@@ -82,7 +82,6 @@
   width: 100%;
   max-width: 432px;
   border: 1px solid var(--border);
-  border-left: 4px solid #1ed760;
   border-radius: var(--radius-md);
   background: var(--surface-raised, var(--surface));
   overflow: hidden;
@@ -236,7 +235,6 @@
   gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
   border-radius: var(--radius-md);
   background: var(--surface-raised, var(--surface));
   max-width: 432px;
@@ -276,7 +274,6 @@
   max-width: 432px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
-  border-left: 4px solid var(--accent);
   border-radius: var(--radius-md);
   background: var(--surface-raised, var(--surface));
   color: inherit;

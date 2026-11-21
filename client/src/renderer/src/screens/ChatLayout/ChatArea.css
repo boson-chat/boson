@@ -592,7 +592,6 @@
   color: var(--danger-fg);
   background: color-mix(in oklab, var(--danger), transparent 92%);
   border: 1px solid color-mix(in oklab, var(--danger), transparent 80%);
-  border-left: 3px solid var(--danger);
 }
 
 .chat-banner-text { flex: 1; }
@@ -1061,7 +1060,6 @@
   max-width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
   border-radius: var(--radius-sm);
 }
 .message-banner + .message-banner { margin-top: var(--space-1); }

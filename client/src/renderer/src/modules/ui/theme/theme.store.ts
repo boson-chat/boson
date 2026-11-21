@@ -275,9 +275,13 @@ export class ThemeStore {
     for (const t of THEME_TOKENS) root.style.setProperty(`--${t.key}`, theme.colors[t.key]);
     root.style.setProperty('--nick-s', `${theme.nick.saturation}%`);
     root.style.setProperty('--nick-l', `${theme.nick.lightness}%`);
-    root.style.setProperty('--radius-sm', `${theme.radius}px`);
-    root.style.setProperty('--radius-md', `${theme.radius * 2}px`);
-    root.style.setProperty('--radius-lg', `${theme.radius * 3}px`);
+    // Shape is Boson's, not the theme's: corners always come from the
+    // design tokens (2/4/6px), so avatars stay rounded squares and badges
+    // stay square on every network. A theme's `radius` is still parsed (old
+    // theme files keep loading) but no longer applied.
+    root.style.removeProperty('--radius-sm');
+    root.style.removeProperty('--radius-md');
+    root.style.removeProperty('--radius-lg');
     root.style.setProperty('--font-body', FONTS[theme.font].body);
     root.style.setProperty('--font-display', FONTS[theme.font].display);
     root.style.colorScheme = theme.base;

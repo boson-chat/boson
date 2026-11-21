@@ -269,7 +269,8 @@ test.describe('network themes', () => {
     // Connected: its colours, its pane picture, its logo.
     await expect.poll(() => accent(page)).toBe(NET_ACCENT);
     expect(await cssVar(page, '--bg')).toBe('#0b0b14');
-    expect(await cssVar(page, '--radius-sm')).toBe('4px');
+    // The network's theme sets radius 4, but themes never change shape.
+    expect(await cssVar(page, '--radius-sm')).toBe('2px');
     expect(await cssVar(page, '--pane-servers-bg')).toBe('#160f2a');
     await expect.poll(() => cssVar(page, '--pane-messages-image')).toMatch(/^url\("\/_boson\/img\?k=theme&/);
     expect(await cssVar(page, '--pane-messages-blur')).toBe('6px');

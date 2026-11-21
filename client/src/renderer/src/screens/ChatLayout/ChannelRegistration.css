@@ -14,13 +14,10 @@
   align-items: start;
   padding: var(--space-4);
   border: 1px solid var(--border);
-  border-left-width: 3px;
   border-radius: var(--radius-md);
   background: var(--surface);
 }
-.chan-reg-status-ok { border-left-color: var(--success); }
 .chan-reg-status-ok .chan-reg-status-icon { color: var(--success); }
-.chan-reg-status-warn { border-left-color: var(--warn); }
 .chan-reg-status-warn .chan-reg-status-icon { color: var(--warn); }
 .chan-reg-status-muted .chan-reg-status-icon,
 .chan-reg-status-pending .chan-reg-status-icon { color: var(--fg-3); }
