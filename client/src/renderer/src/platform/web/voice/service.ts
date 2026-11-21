@@ -36,7 +36,10 @@ export interface Engine {
   setQuality(bitrate: number, music: boolean): void;
   setPlayoutDelay(sid: number, ms: number): void;
   playout(sid: number): { ts: number; localUS: number } | null;
-  stats(): { micLevel: number; transmitting: boolean; speaking: Map<number, boolean>; lossPercent: number };
+  stats(): {
+    micLevel: number; transmitting: boolean; speaking: Map<number, boolean>; lossPercent: number;
+    audioRunning?: boolean; captureIdleMs?: number; silentMs?: number; micName?: string; micMuted?: boolean;
+  };
 }
 
 export interface Conn {
@@ -130,6 +133,21 @@ export interface WebVoiceOptions {
 }
 
 const dbToUnit = (db: number): number => Math.max(0, Math.min(1, 1 + db / 60));
+
+// How long the mic may give nothing (no frames, or digital silence) in a
+// call before the call says so.
+export const MIC_QUIET_MS = 4000;
+
+/** Why our mic isn't reaching the call, or undefined when it is (or we're muted). */
+export function micProblem(es: ReturnType<Engine['stats']> | null, muted: boolean): string | undefined {
+  if (!es || muted) return undefined;
+  if (es.audioRunning === false) return 'Your browser paused the call’s sound: click anywhere on the page to start your mic and sound.';
+  const mic = es.micName ? ` (${es.micName})` : '';
+  if (es.micMuted) return `Your microphone${mic} was paused by the system or another app.`;
+  if ((es.captureIdleMs ?? 0) > MIC_QUIET_MS) return `No sound is coming from your microphone${mic}.`;
+  if ((es.silentMs ?? 0) > MIC_QUIET_MS * 2) return `Your microphone${mic} is silent: check it in your system’s sound settings, or pick another in Voice settings.`;
+  return undefined;
+}
 
 export class WebVoiceService implements VoiceBridge {
   private engineInst: Engine | null = null;
@@ -669,6 +687,7 @@ export class WebVoiceService implements VoiceBridge {
         p.deafened = this.deafened;
         p.speaking = !!es?.transmitting && !m.listener;
         st.listener = m.listener;
+        st.micProblem = m.listener ? undefined : micProblem(es, p.muted);
       } else {
         p.speaking = !!es?.speaking.get(sid);
       }

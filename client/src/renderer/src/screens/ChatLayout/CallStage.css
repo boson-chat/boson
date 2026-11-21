@@ -133,3 +133,6 @@ button.stage-tile:focus-visible { outline: none; box-shadow: var(--focus-ring); 
   pointer-events: none;
 }
 .stage-tile[data-size='strip'] .video-notice { font-size: 10px; padding: 4px 6px; }
+/* Our own tile: what's wrong with what we send, above the name tag (the
+ * avatar or self-view stays visible). */
+.video-notice-self { top: auto; bottom: 36px; transform: translateX(-50%); color: var(--fg-1, var(--fg-2)); }

@@ -4,5 +4,5 @@ export {
   type VideoSnapshot, type TrackStats, type TileSize, type VideoEnv,
 } from './video.controller';
 export { layerForTile, layerFor, fitRect, type Rect } from './video.layout';
-export { useVideo, useTrackNotice, trackNotice } from './use-video';
+export { useVideo, useTrackNotice, trackNotice, useSelfNotice, selfNotice } from './use-video';
 export * from './video.types';

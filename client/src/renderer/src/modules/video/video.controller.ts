@@ -627,7 +627,15 @@ export class VideoController {
     for (const [id, p] of this.players) p.render(now, this.offsets.get(id));
   }
 
+  private previewAt = 0;
+
+  /** When our self-view last got a picture (env clock, ms; 0: never). */
+  lastPreviewAt(): number {
+    return this.previewAt;
+  }
+
   private drawPreview(w: number, h: number, rgba: Uint8ClampedArray): void {
+    this.previewAt = this.env.now();
     const c = this.previewCanvas;
     if (!c) return;
     const ctx = c.getContext('2d');

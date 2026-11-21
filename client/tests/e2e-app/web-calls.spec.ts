@@ -7,8 +7,10 @@
 //
 // Proves: voice discovery from a boson.json, the room list, joining from
 // the pre-join view, each side seeing the other in the channel, the other
-// one's speaking indicator from their audio, the camera going out and
-// arriving as decoded pictures, and leaving.
+// one's speaking indicator from their audio (both ways), the camera going
+// out and arriving as decoded pictures (also through Safari's capture path,
+// a <video> in the page), the sender's self-view with no notice on it, and
+// leaving.
 //
 // The desktop e2e build has no voice audio (novoiceaudio), so it skips.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -121,6 +123,30 @@ test.describe('calls in the browser', () => {
         if (await show.isVisible().catch(() => false)) await show.click();
         await expect.poll(() => pictureVariance(a.page, 'canvas.stage-video'), { timeout: 45_000 }).toBeGreaterThan(10);
         await a.page.screenshot({ path: testInfo.outputPath(`camera-${browserName}.png`) });
+      });
+
+      await test.step("Bob sees himself, and his tile doesn't say anything is wrong", async () => {
+        // The self-view (his own tile, drawn from his camera in the page).
+        await expect.poll(() => pictureVariance(b.page, '.stage-tile[aria-label="you"] canvas.stage-video, .stage-tile[aria-label="Focus you"] canvas.stage-video'), { timeout: 30_000 }).toBeGreaterThan(10);
+        // Nothing about the camera or the mic on his tile once it's going.
+        await expect(b.page.locator('.video-notice-self')).toHaveCount(0, { timeout: 15_000 });
+        await expect(a.page.locator('.video-notice-self')).toHaveCount(0, { timeout: 15_000 });
+      });
+
+      await test.step("Alice's voice reaches Bob", async () => {
+        await expect(b.page.locator('.voice-participant-speaking', { hasText: alice.username })).toBeVisible({ timeout: 30_000 });
+      });
+
+      await test.step("Safari's capture path: a <video> in the page, without MediaStreamTrackProcessor", async () => {
+        // WebKit has no MediaStreamTrackProcessor outside workers: the
+        // publisher reads a <video> instead. The same camera again that way.
+        await b.page.getByRole('button', { name: 'Turn camera off' }).first().click();
+        await expect(a.page.locator('canvas.stage-video')).toHaveCount(0, { timeout: 30_000 });
+        await b.page.evaluate(() => { delete (globalThis as { MediaStreamTrackProcessor?: unknown }).MediaStreamTrackProcessor; });
+        await b.page.getByRole('button', { name: 'Turn camera on' }).first().click();
+        await expect(b.page.getByRole('button', { name: 'Turn camera off' }).first()).toBeVisible({ timeout: 30_000 });
+        await expect.poll(() => pictureVariance(a.page, 'canvas.stage-video'), { timeout: 45_000 }).toBeGreaterThan(10);
+        await expect(b.page.locator('#boson-media-host video')).not.toHaveCount(0);
       });
 
       await test.step('Bob leaves', async () => {

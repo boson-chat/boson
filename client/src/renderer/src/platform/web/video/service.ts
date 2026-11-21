@@ -8,14 +8,14 @@
 // in-page frame socket, with the same lip-sync offsets as the desktop.
 import type { VideoBridge } from '../../../modules/video/video.bridge';
 import type { VideoCamera, VideoShareState, VideoSource, VideoState, VideoTrack } from '../../../modules/video/video.types';
-import { QuicVideoClient, TrackKind, type RawFrame, type Track } from '../quicvideo/client';
+import { QuicVideoClient, TrackKind, captureVideo, releaseVideo, type Publication, type RawFrame, type Track } from '../quicvideo/client';
 import { screenLayers } from '../quicvideo/layers';
 import type { ControlMessage as VideoControl } from '../quicvideo/gen/quicvideo/v1/control_pb';
 import type { ControlMessage as VoiceControl } from '../quicvoice/gen/control_pb';
 import type { Conn as VoiceConn, VideoHooks } from '../voice/service';
 import { FrameHub } from './frame-socket';
 import { encodeFrameMsg, encodePreviewMsg, toAVC } from './frames';
-import { cameraKind, cameraLayersFor, ticketCanPublish, ticketWebTransportUrl } from './layers';
+import { bestCamera, cameraKind, cameraLayersFor, cameraRank, ticketCanPublish, ticketWebTransportUrl } from './layers';
 
 export interface VoiceSync {
   // Per user id: local µs offset for a frame's capture time (voice avOffsets).
@@ -32,7 +32,8 @@ interface Share {
   error?: string;
   gen: number;
   stream: MediaStream | null;
-  pub: { stop(): void } | null;
+  pub: Pick<Publication, 'stop' | 'captured' | 'failure'> | null;
+  since?: number; // when it went out (the no-pictures watchdog)
 }
 
 interface Sess {
@@ -60,6 +61,9 @@ const ADAPT_EARLY = 50;
 const ADAPT_MAX = 150;
 const DECODE_BUDGET = 10;
 const REFRESH_MS = 3.5 * 60_000;
+// A camera or screen that has sent no picture this long after starting is
+// reported on its tile (a capture that never delivers frames).
+export const NO_PICTURE_MS = 5000;
 
 export interface WebVideoOptions {
   dev: boolean;
@@ -375,8 +379,10 @@ export class WebVideoService implements VideoBridge, VideoHooks {
   async cameras(): Promise<VideoCamera[]> {
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
-      return all.filter((d) => d.kind === 'videoinput').map((d, i) => ({
-        id: d.deviceId, name: d.label || `Camera ${i + 1}`, kind: cameraKind(d.label), facing: '' as const, default: i === 0,
+      const cams = all.filter((d) => d.kind === 'videoinput');
+      const best = bestCamera(cams) ?? cams[0];
+      return cams.map((d, i) => ({
+        id: d.deviceId, name: d.label || `Camera ${i + 1}`, kind: cameraKind(d.label), facing: '' as const, default: d === best,
       }));
     } catch {
       return [];
@@ -465,7 +471,7 @@ export class WebVideoService implements VideoBridge, VideoHooks {
     let stream: MediaStream;
     try {
       stream = camera
-        ? await navigator.mediaDevices.getUserMedia({ video: { deviceId: id ? { exact: id } : undefined, width: { ideal: this.camQuality === 'high' ? 1920 : 1280 }, height: { ideal: this.camQuality === 'high' ? 1080 : 720 }, frameRate: { ideal: 30 } } })
+        ? await this.openCamera(id)
         : await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: { ideal: this.screenMode === 'detail' ? 15 : 30 } }, audio: false });
     } catch (e) {
       if (!current()) return;
@@ -497,7 +503,15 @@ export class WebVideoService implements VideoBridge, VideoHooks {
       return;
     }
     if (!current()) { pub.stop(); return; }
-    const done: Share = { on: true, starting: false, id, gen, name: track.label, stream, pub };
+    const done: Share = { on: true, starting: false, id, gen, name: track.label, stream, pub, since: Date.now() };
+    // Sending broke after it started (the encoder refused, no pictures):
+    // still on, with the reason on our tile.
+    pub.onFailure = (reason) => {
+      const cur = camera ? this.camera : this.screen;
+      if (cur.gen !== gen) return;
+      cur.error = `Your ${camera ? 'camera' : 'screen'} isn't going out: ${reason}.`;
+      this.dirty = true;
+    };
     if (camera) this.camera = done; else this.screen = done;
     // Stopped outside the app (the browser's "Stop sharing", a camera unplugged).
     track.addEventListener('ended', () => {
@@ -510,6 +524,37 @@ export class WebVideoService implements VideoBridge, VideoHooks {
     });
     if (camera) this.startSelfView(stream);
     this.dirty = true;
+  }
+
+  /** The camera asked for, or with none the apps' default: built-in, then
+   * external, then an iPhone, then virtual cameras (the browser's own
+   * default is just its first, often a virtual camera that gives no
+   * pictures until its app runs). */
+  private async openCamera(id: string): Promise<MediaStream> {
+    const high = this.camQuality === 'high';
+    const want = (dev: string): MediaStreamConstraints => ({
+      video: { deviceId: dev ? { exact: dev } : undefined, width: { ideal: high ? 1920 : 1280 }, height: { ideal: high ? 1080 : 720 }, frameRate: { ideal: 30 } },
+    });
+    const gum = (dev: string) => navigator.mediaDevices.getUserMedia(want(dev));
+    if (id) return gum(id);
+    const list = async () => (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === 'videoinput');
+    // Labels (and so kinds) are known once the site may use the camera.
+    const first = bestCamera(await list());
+    if (first) {
+      try { return await gum(first.deviceId); } catch { /* gone: the browser's default */ }
+    }
+    const stream = await gum('');
+    const track = stream.getVideoTracks()[0];
+    const better = bestCamera(await list());
+    const cur = track?.getSettings().deviceId ?? '';
+    if (better && cur && better.deviceId !== cur && cameraRank(cameraKind(track!.label)) > cameraRank(cameraKind(better.label))) {
+      try {
+        const s2 = await gum(better.deviceId);
+        for (const t of stream.getTracks()) t.stop();
+        return s2;
+      } catch { /* keep the first */ }
+    }
+    return stream;
   }
 
   // ---- the self-view (and the pre-join preview) ----
@@ -548,16 +593,15 @@ export class WebVideoService implements VideoBridge, VideoHooks {
   // desktop's capture sends them (the call view draws them into our tile).
   private startSelfView(stream: MediaStream): void {
     this.stopSelfView();
-    const video = document.createElement('video');
-    video.muted = true;
-    video.playsInline = true;
-    video.srcObject = stream;
+    // In the document: WebKit gives a detached <video> no frames.
+    const video = captureVideo(stream);
     void video.play().catch(() => {});
     const canvas = document.createElement('canvas');
     this.previewVideo = video;
     this.previewTimer = setInterval(() => {
       if (stream.getVideoTracks().every((t) => t.readyState === 'ended')) { this.stopSelfView(); return; }
       if (!video.videoWidth || this.hub.connected() === 0) return;
+      if (video.paused) void video.play().catch(() => {});
       const w = PREVIEW_W;
       const h = Math.max(2, Math.round((video.videoHeight / video.videoWidth) * w) & ~1);
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
@@ -571,8 +615,33 @@ export class WebVideoService implements VideoBridge, VideoHooks {
   private stopSelfView(): void {
     if (this.previewTimer) clearInterval(this.previewTimer);
     this.previewTimer = null;
-    if (this.previewVideo) this.previewVideo.srcObject = null;
+    if (this.previewVideo) releaseVideo(this.previewVideo);
     this.previewVideo = null;
+  }
+
+  /** Why a share that's out sends no pictures (said on its tile): the
+   * system paused its track, or it has captured nothing since it started. */
+  private shareNotice(s: Share, what: 'camera' | 'screen', now: number): string | undefined {
+    if (!s.on) return undefined;
+    if (s.error) return s.error;
+    const track = s.stream?.getVideoTracks()[0];
+    if (track?.muted) return `Your ${what} was paused by the system or another app.`;
+    if (s.pub && s.pub.captured === 0 && s.since !== undefined && now - s.since > NO_PICTURE_MS) {
+      return what === 'camera'
+        ? `Your camera${s.name ? ` (${s.name})` : ''} isn't giving any pictures. Pick another camera, or check that no other app has it.`
+        : "Your screen share isn't giving any pictures.";
+    }
+    return undefined;
+  }
+
+  private notices = ['', ''];
+
+  private watchShares(now: number): void {
+    const next = [this.shareNotice(this.camera, 'camera', now) ?? '', this.shareNotice(this.screen, 'screen', now) ?? ''];
+    if (next[0] !== this.notices[0] || next[1] !== this.notices[1]) {
+      this.notices = next;
+      this.dirty = true;
+    }
   }
 
   // ---- state ----
@@ -582,12 +651,16 @@ export class WebVideoService implements VideoBridge, VideoHooks {
   }
 
   snapshot(): VideoState {
-    const share = (s: Share): VideoShareState => ({ on: s.on, starting: s.starting, paused: s.paused, id: s.id || undefined, name: s.name, error: s.error, facing: '' });
+    const now = Date.now();
+    const share = (s: Share, what?: 'camera' | 'screen'): VideoShareState => ({
+      on: s.on, starting: s.starting, paused: s.paused, id: s.id || undefined, name: s.name,
+      error: (what && this.shareNotice(s, what, now)) || s.error, facing: '',
+    });
     const st: VideoState = {
       available: this.available, status: this.status, error: this.err || undefined,
       canCapture: this.opts.canSend, canPublish: this.canPublish, canShareScreen: this.canShareScreen(),
       canPickScreen: false, canShareAudio: false,
-      camera: share(this.camera), screen: share(this.screen), preview: share(this.preview),
+      camera: share(this.camera, 'camera'), screen: share(this.screen, 'screen'), preview: share(this.preview),
       tracks: [], metered: false, cameraQuality: this.camQuality,
     };
     if (st.screen.on || st.screen.starting) st.screen.mode = this.screenMode;
@@ -616,6 +689,7 @@ export class WebVideoService implements VideoBridge, VideoHooks {
 
   private tick(): void {
     const now = Date.now();
+    this.watchShares(now);
     if (this.sess && now - this.lastSync >= SYNC_MS) {
       this.lastSync = now;
       this.sendSync();
