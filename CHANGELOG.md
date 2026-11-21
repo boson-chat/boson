@@ -1,3 +1,9 @@
+## [0.90.0](https://github.com/boson-chat/boson/compare/v0.89.0...v0.90.0) (2026-11-21)
+
+### Features
+
+* network channels in the client (Joins [#lobby](https://github.com/boson-chat/boson/issues/lobby), first-connect auto-join, admins-only creation) ([#131](https://github.com/boson-chat/boson/issues/131)) ([bdd93f7](https://github.com/boson-chat/boson/commit/bdd93f7cf532c81fbcc368a70f08d2b0987dae46)), closes [#x](https://github.com/boson-chat/boson/issues/x)
+
 ## [0.89.0](https://github.com/boson-chat/boson/compare/v0.88.2...v0.89.0) (2026-11-21)
 
 ### Features
