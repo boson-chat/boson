@@ -371,7 +371,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
             <Field
               label="Password"
               hint={mode === 'login'
-                ? 'This unlocks your identity key from the keychain.'
+                ? 'It also unlocks your identity key, which signs you in to IRC servers and protects the passwords Boson syncs.'
                 : 'This encrypts your identity key. Lose it → lose access to all servers.'}
             >
               <Input
