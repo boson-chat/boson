@@ -1,3 +1,9 @@
+## [0.88.0](https://github.com/boson-chat/boson/compare/v0.87.3...v0.88.0) (2026-11-21)
+
+### Features
+
+* Boson web client (wasm engine, IRC gateway, web bridges, WebTransport calls, web e2e) ([#127](https://github.com/boson-chat/boson/issues/127)) ([1387a7a](https://github.com/boson-chat/boson/commit/1387a7abe24deed5de6648a82a99fae988ec74f8))
+
 ## [0.87.3](https://github.com/boson-chat/boson/compare/v0.87.2...v0.87.3) (2026-11-21)
 
 ### Bug Fixes
