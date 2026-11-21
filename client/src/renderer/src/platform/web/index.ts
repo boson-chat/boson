@@ -12,6 +12,7 @@ import { WebEngine } from './engine';
 import { createWebSecureStore } from './secure-store';
 import { webSSOBridge } from './sso';
 import { installWebE2E } from './e2e';
+import { installCalls } from './calls';
 import { NetworkDiscoverer, setNetworkDiscoverer } from './discovery';
 import { webNetAuthBridge } from './netauth';
 import { webFilesBridge } from './files';
@@ -48,7 +49,7 @@ export async function installWebBridges(): Promise<void> {
   // Networks' boson.json (sign-in, themes, uploads, voice). e2e builds
   // reach loopback http and take documents for domain-less hosts from the
   // test (BOSON_NETWORK_JSON).
-  const e2eEnv = (window as unknown as { bosonWebE2EEnv?: { networkJson?: string[] } }).bosonWebE2EEnv;
+  const e2eEnv = (window as unknown as { bosonWebE2EEnv?: { networkJson?: string[]; certInfo?: Record<string, string> } }).bosonWebE2EEnv;
   const dev = !!cfg.e2e;
   const discoverer = new NetworkDiscoverer({ allowLoopbackHttp: dev, overrides: dev ? e2eEnv?.networkJson ?? [] : [] });
   setNetworkDiscoverer(discoverer);
@@ -66,6 +67,16 @@ export async function installWebBridges(): Promise<void> {
   void navigator.storage?.persist?.().catch(() => {});
 
   if (cfg.e2e) installWebE2E(w, { deliverDeepLink: deepLink.deliver, engine });
+
+  // Voice and video channels (WebTransport). Dev/e2e builds take test
+  // networks' boson.json documents and self-signed servers' cert info from
+  // the e2e launcher (tests/e2e-app/web-app.ts).
+  await installCalls(w, {
+    authBase: mainAuthUrl,
+    dev,
+    networkJson: dev ? e2eEnv?.networkJson : undefined,
+    certInfo: dev ? e2eEnv?.certInfo : undefined,
+  }).catch((err) => console.warn('calls: not available', err));
 
   // Last: everything above is in place (e2e launches wait for this).
   w.bosonShellReady = true;

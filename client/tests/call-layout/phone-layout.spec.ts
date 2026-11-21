@@ -112,6 +112,9 @@ for (const [w, h, phone] of PHONES) {
 
 test.describe('swipes', () => {
   test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+  // The drags are CDP touch events: Playwright can only drive them in
+  // Chromium (Firefox and WebKit get the same layout specs above).
+  test.skip(({ browserName }) => browserName !== 'chromium', 'touch drags need the Chromium DevTools protocol');
 
   // A one-finger drag, as real touch events (Playwright's touchscreen only taps).
   async function drag(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, steps = 8): Promise<void> {

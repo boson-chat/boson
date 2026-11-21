@@ -20,14 +20,43 @@ export type BrowserName = 'chromium' | 'firefox' | 'webkit';
 const BROWSERS: Record<BrowserName, BrowserType> = { chromium, firefox, webkit };
 
 // The desktop app's test environment, for the page.
-// BOSON_NETWORK_JSON names files (a path list); the page gets their text.
+// BOSON_NETWORK_JSON / BOSON_VOICE_JSON name files (path lists); the page
+// gets their text (networkJson), and the e2e voice/video servers'
+// self-signed certificate info by host:port (certInfo).
 function pageEnv(env: Record<string, string>): Record<string, unknown> {
   const keep = ['BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
   const out: Record<string, unknown> = {};
   for (const k of keep) if (env[k] !== undefined) out[k] = env[k]!;
-  const nets = env['BOSON_NETWORK_JSON'];
-  if (nets) out['networkJson'] = nets.split(delimiter).filter(Boolean).map((p) => readFileSync(p, 'utf8'));
+  const docs: string[] = [];
+  for (const k of ['BOSON_NETWORK_JSON', 'BOSON_VOICE_JSON']) {
+    for (const path of (env[k] ?? '').split(delimiter).filter(Boolean)) docs.push(readFileSync(path, 'utf8'));
+  }
+  if (docs.length > 0) out['networkJson'] = docs;
+  out['certInfo'] = { [STACK.voice.video.addr]: STACK.voice.video.infoUrl };
   return out;
+}
+
+// Fake camera and microphone (a test pattern and a tone) instead of real
+// devices, allowed without a prompt.
+function mediaOptions(browser: BrowserName): { args?: string[]; firefoxUserPrefs?: Record<string, string | number | boolean>; permissions: string[] } {
+  if (browser === 'chromium') {
+    return {
+      args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+      permissions: ['microphone', 'camera'],
+    };
+  }
+  if (browser === 'firefox') {
+    return {
+      firefoxUserPrefs: {
+        'media.navigator.streams.fake': true,
+        'media.navigator.permission.disabled': true,
+        'media.autoplay.default': 0,
+        'media.autoplay.blocking_policy': 0,
+      },
+      permissions: [],
+    };
+  }
+  return { permissions: [] };
 }
 
 export async function launchWebApp(
@@ -40,11 +69,17 @@ export async function launchWebApp(
   const { browserName: _b, ...dev } = device;
   // Firefox has no mobile emulation (viewport + touch still apply).
   if (device.browserName === 'firefox') delete dev.isMobile;
-  const permissions = (device.browserName ?? 'chromium') === 'chromium' ? ['notifications', 'clipboard-read', 'clipboard-write'] : [];
+  const media = mediaOptions(device.browserName ?? 'chromium');
+  const permissions = [
+    ...((device.browserName ?? 'chromium') === 'chromium' ? ['notifications', 'clipboard-read', 'clipboard-write'] : []),
+    ...media.permissions,
+  ];
   const context: BrowserContext = await browser.launchPersistentContext(join(p.userData, `web-${device.browserName ?? 'chromium'}`), {
     viewport: { width: 1280, height: 800 },
     ...dev,
     permissions,
+    ...(media.args ? { args: media.args } : {}),
+    ...(media.firefoxUserPrefs ? { firefoxUserPrefs: media.firefoxUserPrefs } : {}),
   });
   dbg('launched');
   await context.addInitScript((e) => { (window as unknown as { bosonWebE2EEnv: unknown }).bosonWebE2EEnv = e; }, pageEnv(env));
