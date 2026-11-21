@@ -22,7 +22,9 @@ export type ApiTransport = (req: ApiRequest) => Promise<ApiResponse>;
 
 // Direct fetch — used on the web build and in tests (which mock globalThis.fetch).
 export const fetchTransport: ApiTransport = async ({ method, url, headers, body }) => {
-  const res = await fetch(url, { method, headers, body: body ?? undefined });
+  // Always asks the server (revalidating anything cached), as the desktop's
+  // proxy does: a directory Refresh must see a listing added a moment ago.
+  const res = await fetch(url, { method, headers, body: body ?? undefined, cache: 'no-cache' });
   const text = await res.text();
   return { status: res.status, ok: res.ok, statusText: res.statusText, text };
 };

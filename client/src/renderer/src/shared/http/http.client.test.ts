@@ -30,8 +30,9 @@ describe('HttpClient', () => {
     expect((init as RequestInit).method).toBe('GET');
     expect((init as RequestInit).headers).toMatchObject({
       'Authorization': 'Bearer jwt-token',
-      'Content-Type': 'application/json',
     });
+    // No body, no Content-Type: no CORS preflight for that in the web build.
+    expect((init as RequestInit).headers).not.toHaveProperty('Content-Type');
   });
 
   it('GET omits Authorization header when no token', async () => {

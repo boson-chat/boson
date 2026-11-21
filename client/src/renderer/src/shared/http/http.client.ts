@@ -65,7 +65,9 @@ export class HttpClient {
   // (the access token expired or the signing key rotated under us).
   private async send<T>(method: string, path: string, contentType: string, body: string | ArrayBuffer | null): Promise<T> {
     const attempt = (token: string | null) => {
-      const headers: Record<string, string> = { 'Content-Type': contentType };
+      // Content-Type only with a body: a bodyless GET then stays a simple
+      // request, with no CORS preflight in the web build.
+      const headers: Record<string, string> = body !== null ? { 'Content-Type': contentType } : {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
       return this.transport({ method, url: `${this.baseUrl}${path}`, headers, body });
     };

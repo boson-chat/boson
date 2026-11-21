@@ -61,5 +61,5 @@ export const IMG = {
   theme: IS_WEB ? /^blob:/ : /^\/_boson\/img\?k=theme&/,
   themeCss: IS_WEB ? 'url("blob:' : '/_boson/img?k=theme',
   themeVar: IS_WEB ? /^url\("blob:/ : /^url\("\/_boson\/img\?k=theme&/,
-  file: IS_WEB ? /^https?:\/\/[^/]+\/f\// : /^\/_boson\/img\?k=file&/,
+  file: IS_WEB ? /^(blob:|https?:\/\/[^/]+\/f\/)/ : /^\/_boson\/img\?k=file&/,
 };
