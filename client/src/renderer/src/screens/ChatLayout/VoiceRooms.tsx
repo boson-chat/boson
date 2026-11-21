@@ -340,11 +340,12 @@ export function ChannelVoiceRooms({ host, serverName, channel, avatarFor }: {
 // The "+" on a text channel's row: a voice channel under it.
 export function ChannelVoiceAdd({ host, channel }: { host: string; channel: string }) {
   const { voice, key, server } = useVoiceServer(host);
+  const narrow = useNarrow();
   if (!voice || !server || server.discovery !== 'available' || !canCreateUnder(server.permissions, channel)) return null;
   return (
     <Button
       variant="ghost"
-      size="sm"
+      size={narrow ? 'lg' : 'sm'}
       class="channel-voice-add"
       aria-label={`Create a voice channel in ${channel}`}
       title={`Create a voice channel in ${channel}`}
