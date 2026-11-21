@@ -1,3 +1,9 @@
+## [0.88.2](https://github.com/boson-chat/boson/compare/v0.88.1...v0.88.2) (2026-11-21)
+
+### Bug Fixes
+
+* web calls say why the camera or mic isn't going out, and send where they silently didn't ([#129](https://github.com/boson-chat/boson/issues/129)) ([adc48d2](https://github.com/boson-chat/boson/commit/adc48d27e78ddd15f6b126328a77e2ca2677ecab))
+
 ## [0.88.1](https://github.com/boson-chat/boson/compare/v0.88.0...v0.88.1) (2026-11-21)
 
 ### Bug Fixes
