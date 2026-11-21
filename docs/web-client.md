@@ -1,6 +1,6 @@
 # Boson in the browser: chat.boson.chat
 
-Status: **building** (decided by James, 2026-11-21). This replaces the
+Status: **built** (decided by James, 2026-11-21; boson#127). This replaces the
 October plan (the engine relayed through the boson.chat Cloudflare Worker,
 the app at boson.chat/chat): the stack now runs on our own VPS, so the
 gateway, the static app and the call servers live there too.
@@ -155,7 +155,8 @@ content="web">` in the web build's `index.html` (as `is-wails.ts` checks
 | Link previews, Spotify cards | not shown (no server-side fetcher yet) |
 | Image disk cache, its settings | browser cache; the Settings row is hidden |
 | Theme folder ("Open folder", live file watch) | stored in the browser; import/export instead |
-| Native screen-share picker (thumbnails, window list) | the browser's picker; share sound where the browser offers tab/system audio (Chrome) |
+| Native screen-share picker (thumbnails, window list) | the browser's picker |
+| Screen-share sound | not yet (sending or playing) |
 | OS notifications when the tab is closed | none (Web Notifications only while the tab is open) |
 | Custom title bar, updater | none |
 | `boson://` links | `https://WEB_HOST/?join=…` |
@@ -201,8 +202,8 @@ specs run against the web build too, through the **launcher**, not copies:
   context of `E2E_BROWSER` = chromium | firefox | webkit). The e2e stack
   gains a webircgateway container (same image as production, e2e policy:
   loopback/compose aliases allowed) and CORS for the web origin.
-- Specs that can't apply on the web are tagged once
-  (`test.skip(isWeb && …, 'reason')` via a `webSkip()` helper) — only
+- Specs that can't apply on the web are tagged once (`webSkip(reason)`;
+  `webBrowserFixme` marks known gaps in one browser) — only
   native-only behaviour: the native screen picker, OS notifications /
   focus restore, second-instance argv, the on-disk image cache, the theme
   folder watcher, link-preview/Spotify fetchers, the updater. The list is
