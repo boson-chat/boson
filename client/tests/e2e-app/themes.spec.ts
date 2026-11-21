@@ -35,19 +35,18 @@ test.describe('themes', () => {
     expect(await again.page.evaluate(() => document.documentElement.dataset['themeBase'])).toBe('light');
   });
 
-  test('a custom theme can round the corners and use the system font', async ({ launchApp }) => {
+  test('a custom theme can use the system font, but never changes the corners', async ({ launchApp }) => {
     const { page } = await launchApp();
     await continueAsGuest(page, `th${uid()}`);
     const dialog = await openAppearance(page);
     await dialog.getByRole('button', { name: 'Customize Terminal' }).click();
-    await dialog.getByRole('slider', { name: 'Corner radius' }).fill('4');
+    // Shape is Boson's: there's no corner control, and the tokens stay 2/4/6px.
+    await expect(dialog.getByRole('slider', { name: 'Corner radius' })).toHaveCount(0);
     await dialog.getByRole('radio', { name: 'System font' }).check();
-    await expect.poll(() => cssVar(page, '--radius-md')).toBe('8px');
     await expect.poll(() => page.evaluate(() => getComputedStyle(document.body).fontFamily)).toContain('Segoe UI');
-    // Real controls pick it up (once their own transition settles).
+    await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--radius-md').trim())).toBe('4px');
     const save = dialog.getByRole('button', { name: 'Save as new theme' });
-    await expect.poll(() => save.evaluate((el) => getComputedStyle(el).borderTopLeftRadius))
-      .toMatch(/^(4|8|12)px$/);
+    await expect.poll(() => save.evaluate((el) => getComputedStyle(el).borderTopLeftRadius)).toBe('4px');
   });
 
   // The colour picker opens over the settings dialog (rendered into <body>
