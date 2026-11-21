@@ -52,6 +52,7 @@ jobs:
           for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/healthz >/dev/null && break; sleep 1; done
           curl -fsSI http://127.0.0.1:8080/ | tee h.txt
           grep -qi "content-security-policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'" h.txt
+          grep -qi 'content-type: text/html' h.txt
           curl -fsS http://127.0.0.1:8080/boson-config.js | tee c.txt
           grep -q '"https://auth.example.test"' c.txt
           curl -fsS http://127.0.0.1:8080/join?host=irc.example.net | grep -q 'boson-config.js'

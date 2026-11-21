@@ -10,6 +10,8 @@ describe('boson.json discovery', () => {
     expect(discoveryDomain('example.com')).toBe('example.com');
     expect(discoveryDomain('a.b.example.com')).toBe('b.example.com');
     expect(discoveryDomain('localhost')).toBe('');
+    expect(discoveryDomain('irc.localhost')).toBe('localhost');
+    expect(discoveryDomain('auth.localhost')).toBe('localhost');
     expect(discoveryDomain('127.0.0.1')).toBe('');
     expect(discoveryDomain('[::1]')).toBe('');
   });

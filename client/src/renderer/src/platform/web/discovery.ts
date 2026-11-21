@@ -44,6 +44,9 @@ export function discoveryDomain(rawHost: string): string {
   const labels = host.split('.');
   if (labels.some((l) => l === '')) return '';
   if (labels.length === 1) return '';
+  // *.localhost (a local stack, scripts/setup.sh --local): localhost is
+  // the domain, as boson.chat is for irc.boson.chat.
+  if (labels[labels.length - 1] === 'localhost') return 'localhost';
   if (labels.length === 2) return host;
   return labels.slice(1).join('.');
 }
