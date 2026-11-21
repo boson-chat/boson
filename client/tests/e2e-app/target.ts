@@ -65,6 +65,8 @@ export const IMG = {
   themeCss: IS_WEB ? 'url("blob:' : '/_boson/img?k=theme',
   themeVar: IS_WEB ? /^url\("blob:/ : /^url\("\/_boson\/img\?k=theme&/,
   file: IS_WEB ? /^(blob:|https?:\/\/[^/]+\/f\/)/ : /^\/_boson\/img\?k=file&/,
+  // A link preview's image (an OG image): the remote URL itself on the web.
+  web: (url: string): string | RegExp => (IS_WEB ? url : /^\/_boson\/img\?k=web&/),
 };
 
 /**

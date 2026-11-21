@@ -116,6 +116,11 @@ void (async () => {
     authConfig: (net) => (netAccounts ? netAccounts.config(net) : props.auth.config()),
     apply: (overlay) => getThemeStore().setNetworkOverlay(overlay),
   }));
+  // Web: link previews come from the boson API, which limits signed-in
+  // users per account rather than per address (platform/web/unfurl.ts).
+  window.bosonUnfurl?.setTokenSource?.(async () => (
+    loadGuestSession() === null && props.auth.getState().session ? props.auth.getToken() : null
+  ));
   // File uploads to each network's files host (desktop app only). The
   // network account's token when signed in there, else a guest token. On a
   // network without one: the app account's files host, as that account.

@@ -31,7 +31,8 @@ function formatDate(iso: string): string {
   return new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-// Optional unfurl fetcher (Phase 3 wires window.bosonUnfurl). When absent,
+// Optional unfurl fetcher (window.bosonUnfurl: the desktop shell, or the
+// boson API on the web). When absent,
 // website embeds just open externally on click.
 export interface OgCard { title?: string; description?: string; image?: string; siteName?: string; author?: string; date?: string; url: string }
 export type UnfurlFn = (url: string) => Promise<OgCard | null>;
@@ -39,7 +40,8 @@ export type UnfurlFn = (url: string) => Promise<OgCard | null>;
 // All embeds for a message, below its text. Click-to-load by default: chips are
 // inert (no network / no remote image) until clicked. Each is dismissible.
 export function MessageEmbeds({ text, unfurl, spotify }: { text: string; unfurl?: UnfurlFn; spotify?: SpotifyFn }) {
-  // Default to the desktop app's bridges; undefined on web/tests
+  // Default to the shell's bridges (desktop, or the web's API-backed ones);
+  // undefined in tests
   // (website embeds then just open externally instead of showing a card).
   const fetcher = unfurl ?? getUnfurl();
   const spotifyFetcher = spotify ?? getSpotify();
@@ -154,7 +156,8 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
 // play in a wails:// page ("Error 153"), and some videos (label / VEVO
 // music) in any local page. The app frames public/youtube-embed.html from
 // the origin the shell names (desktop/youtube.go: boson.chat's copy, or its
-// e2e build's loopback server), and the wrapper frames YouTube. The wrapper
+// e2e build's loopback server; the web build: its own origin), and the
+// wrapper frames YouTube. The wrapper
 // posts "ready", and passes on the player's errors (embedding refused, 153).
 // An error, or no "ready" in time, turns the player back into the card,
 // which opens the video on YouTube. In a browser (`npm run dev`, tests

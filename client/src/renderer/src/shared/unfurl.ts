@@ -1,7 +1,8 @@
 // Renderer-side accessor for the shell's link-unfurl bridge (desktop/unfurl.go
-// via `window.bosonUnfurl`). Returns the fetcher when running inside the
-// desktop app, or undefined (web build / tests) — callers then fall back to just
-// opening the link externally instead of showing a preview card.
+// via `window.bosonUnfurl`; on the web, platform/web/unfurl.ts through the
+// boson API). Returns the fetcher, or undefined without a shell (tests,
+// `npm run dev`) — callers then fall back to just opening the link
+// externally instead of showing a preview card.
 
 export interface OgCard {
   url: string;
@@ -15,6 +16,8 @@ export interface OgCard {
 
 export interface BosonUnfurlBridge {
   fetch(url: string): Promise<OgCard | null>;
+  // Web only (platform/web/unfurl.ts): the signed-in user's access token.
+  setTokenSource?(fn: (() => Promise<string | null>) | null): void;
 }
 
 declare global {

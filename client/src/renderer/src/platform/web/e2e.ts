@@ -70,5 +70,11 @@ export function installWebE2E(w: Record<string, unknown>, deps: { deliverDeepLin
     secondInstance: async (args: string[]) => {
       for (const a of args) if (a.startsWith('boson://')) deps.deliverDeepLink(a);
     },
+    // Spotify's embed pages for the API's fetcher (desktop: StubSpotify in
+    // desktop/e2e.go), served by the e2e web server (tests/e2e-app/web-server.ts).
+    stubSpotify: async (pages: Record<string, string>) => {
+      await fetch('/__e2e/spotify', { method: 'POST', body: JSON.stringify(pages) });
+    },
+    spotifyFetched: async () => (await fetch('/__e2e/spotify')).json() as Promise<string[]>,
   };
 }

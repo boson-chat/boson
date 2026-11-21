@@ -100,6 +100,11 @@ function webShell(): Plugin {
         fileName: 'boson-config.js',
         source: `window.bosonWebConfig = ${JSON.stringify(cfg)};\n`,
       });
+      // The YouTube wrapper the app frames (the desktop's copy is in the
+      // renderer's public/; platform/web/index.ts, infra/web/nginx.conf).
+      for (const f of ['youtube-embed.html', 'youtube-embed.js']) {
+        this.emitFile({ type: 'asset', fileName: f, source: readFileSync(resolve(__dirname, 'src/renderer/public', f)) });
+      }
     },
   };
 }

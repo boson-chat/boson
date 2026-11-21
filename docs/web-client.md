@@ -93,7 +93,7 @@ content="web">` in the web build's `index.html` (as `is-wails.ts` checks
 | `bosonApi` | Go proxy (the wails:// origin has no CORS) | none: the existing direct-`fetch` fallback; CORS on api/auth/directory/files allows `WEB_HOST` |
 | `bosonSecure` | file + OS keychain key | IndexedDB holding values encrypted with a **non-extractable** WebCrypto AES-GCM key (also in IndexedDB). Protects at-rest copies; script on the origin can still use the key, hence the CSP below. |
 | `bosonThemes` | themes folder + watcher | localStorage-backed list/write/remove; no "open folder" (import a file instead) |
-| `bosonUnfurl`, `bosonSpotify` | Go fetchers with an SSRF guard | **unavailable**: link previews and Spotify cards aren't shown (a page can't fetch other sites; a server-side fetcher is a later step). YouTube embeds work directly (the page is https). |
+| `bosonUnfurl`, `bosonSpotify` | Go fetchers with an SSRF guard | the boson API fetches them: `GET /v1/unfurl?url=` and `/v1/unfurl/spotify?url=` (boson-chat/backend `pkg/unfurl`, a port of the desktop's fetchers with a server-side SSRF guard, cache and rate limits), same JSON; `platform/web/unfurl.ts`. Signed in, the access token goes along (per-user rather than per-address limit). Images stay remote URLs (CSP `img-src https:`). |
 | `bosonImages` | on-disk image cache | none: the browser HTTP cache |
 | `bosonBranding` | Go fetch + blob: images | direct `fetch` of the network's theme (auth `/v1/branding` sends CORS) |
 | `bosonNetAuth` | boson.json + QUIC probe | `fetch https://<domain>/.well-known/boson.json` (needs `Access-Control-Allow-Origin: *` on the website), then `auth.<domain>/v1/config` |
@@ -105,7 +105,7 @@ content="web">` in the web build's `index.html` (as `is-wails.ts` checks
 | `bosonDeepLink` | `boson://` from the OS | `https://WEB_HOST/?join=<boson://join?…>` (and `/join?host=…`) read once on load |
 | `bosonWindow` | custom title bar on Windows/Linux | none (the browser's own chrome) |
 | `bosonUpdater` | in-app updates | none (each deploy is the latest) |
-| `bosonYouTube` | wrapper origin | none needed |
+| `bosonYouTube` | wrapper origin | the app's own origin: the build ships `youtube-embed.html/.js` and nginx serves it framable by the app only (`frame-ancestors 'self'`, a referrer for YouTube), so a video YouTube refuses still turns into the card |
 | `bosonE2E` | e2e hooks (desktop/e2e.go) | an e2e build's in-page hooks for what the web can do (opened links, the API outage switch through a test proxy); the rest skip |
 
 ### Calls over WebTransport
@@ -144,7 +144,7 @@ content="web">` in the web build's `index.html` (as `is-wails.ts` checks
   `WEB_HOST`.
 - **CSP** (served by the web container): `default-src 'self'`; scripts only
   `'self'` + `'wasm-unsafe-eval'`; `connect-src 'self'` + the stack's
-  https/wss/WebTransport hosts; `frame-src` YouTube; no inline script. With
+  https/wss/WebTransport hosts; `frame-src` `'self'` (the YouTube wrapper) + YouTube; no inline script. With
   tokens and the identity key in the origin, XSS is the risk that matters:
   no third-party scripts, DOMPurify for rendered markdown (as today).
 
@@ -152,7 +152,7 @@ content="web">` in the web build's `index.html` (as `is-wails.ts` checks
 
 | Feature | Web |
 |---|---|
-| Link previews, Spotify cards | not shown (no server-side fetcher yet) |
+| Link previews, Spotify cards | fetched by the boson API (`/v1/unfurl`) instead of the app; an `http:` (not https) preview image isn't shown (mixed content) |
 | Image disk cache, its settings | browser cache; the Settings row is hidden |
 | Theme folder ("Open folder", live file watch) | stored in the browser; import/export instead |
 | Native screen-share picker (thumbnails, window list) | the browser's picker |
@@ -206,7 +206,7 @@ specs run against the web build too, through the **launcher**, not copies:
   `webBrowserFixme` marks known gaps in one browser) — only
   native-only behaviour: the native screen picker, OS notifications /
   focus restore, second-instance argv, the on-disk image cache, the theme
-  folder watcher, link-preview/Spotify fetchers, the updater. The list is
+  folder watcher, the updater. The list is
   in the README next to the specs.
 - Playwright projects: `web-chromium`, `web-firefox`, `web-webkit`. Calls
   are checked where WebTransport exists (Chromium, Firefox; WebKit only

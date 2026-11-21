@@ -1,6 +1,7 @@
 // Renderer-side accessor for the shell's Spotify metadata bridge (desktop/spotify.go
-// via `window.bosonSpotify`). Returns the fetcher in the desktop app, or
-// undefined on the web build / in tests (callers then show a minimal card).
+// via `window.bosonSpotify`; on the web, platform/web/unfurl.ts through the
+// boson API). Returns the fetcher, or undefined without a shell (tests;
+// callers then show a minimal card).
 
 export interface SpotifyTrack {
   title: string;

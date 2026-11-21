@@ -1,14 +1,17 @@
 // Rich embeds for links in messages, served by a local HTTP server:
 //   - website previews come from the app's unfurler (desktop/unfurl.go,
-//     OpenGraph), which refuses loopback / private hosts (SSRF guard). The
-//     page is served under a NAME (unfurl.e2e.test) that BOSON_E2E_HOST_MAP
-//     resolves to 127.0.0.1 inside the e2e build only (desktop/webfetch.go)
-//     — the guard itself is untouched, and a loopback URL is asserted refused;
+//     OpenGraph; on the web the boson API's /v1/unfurl), which refuses
+//     loopback / private hosts (SSRF guard). The page is served under a NAME
+//     (unfurl.e2e.test) that BOSON_E2E_HOST_MAP resolves to 127.0.0.1 inside
+//     the e2e build only (desktop/webfetch.go), and the e2e backend's
+//     UNFURL_TEST_HOST_MAP to this host (infra/e2e/docker-compose.yml) — the
+//     guard itself is untouched, and a loopback URL is asserted refused;
 //   - images / files load straight from 127.0.0.1 in the renderer (its CSP
 //     allows loopback images).
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { test, expect, randomChannel, IS_WEB, webSkip } from './fixtures';
+import { test, expect, randomChannel, IS_WEB, IMG } from './fixtures';
+import { E2E_BIND_HOST } from './web-server';
 import { connectGuest, connectPeer, messages, memberRow, joinViaUi } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 import { request } from 'node:http';
@@ -68,7 +71,8 @@ async function startSite(): Promise<TestSite> {
     res.writeHead(404, { 'content-type': 'text/plain' });
     res.end('nope');
   });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  // On the web the backend (in Docker) fetches the page: E2E_BIND_HOST.
+  await new Promise<void>((resolve) => server.listen(0, IS_WEB ? E2E_BIND_HOST : '127.0.0.1', resolve));
   port = (server.address() as AddressInfo).port;
   return {
     port,
@@ -88,7 +92,6 @@ test.describe('embeds', () => {
   });
 
   test('auto-loaded website card, image lightbox, file download guard, SSRF refusal', async ({ launchApp }) => {
-    webSkip("website previews need the desktop's fetcher (desktop/unfurl.go); unavailable on the web");
     const s = site!;
     const channel = randomChannel('emb');
     const peer = await connectPeer();
@@ -101,7 +104,8 @@ test.describe('embeds', () => {
     await expect(memberRow(page, peer.nick)).toBeVisible();
     const row = (text: string) => messages(page).locator('.message-row').filter({ hasText: text });
 
-    // Website: unfurled by main (one request, with a browser UA) → card.
+    // Website: unfurled by main (desktop) or the API (web): one request,
+    // with a Mozilla-style UA → card.
     const article = `http://${HOST}:${s.port}/article.html`;
     peer.privmsg(channel, `web1 have a look ${article}`);
     const card = row('web1').locator('.embed-card');
@@ -109,9 +113,10 @@ test.describe('embeds', () => {
     await expect(card.locator('.embed-card-title')).toHaveText('Boson & the e2e article');
     await expect(card.locator('.embed-card-desc')).toHaveText('A page served by the test, unfurled by the app.');
     const ogImg = card.locator('img.embed-card-img');
-    // Through the app's image cache (desktop/imagecache.go).
+    // Through the app's image cache (desktop/imagecache.go); on the web,
+    // the image itself.
     await expect(ogImg).toHaveAttribute('data-src', `http://127.0.0.1:${s.port}/og.png`);
-    await expect(ogImg).toHaveAttribute('src', /^\/_boson\/img\?k=web&/);
+    await expect(ogImg).toHaveAttribute('src', IMG.web(`http://127.0.0.1:${s.port}/og.png`));
     await expect.poll(() => ogImg.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(2);
     const pageHit = s.hits.find((h) => h.path === '/article.html');
     expect(pageHit?.host).toBe(`${HOST}:${s.port}`);
@@ -185,19 +190,20 @@ test.describe('embeds', () => {
   // YouTube won't play in the app's own page (wails://, "Error 153"), and
   // refuses some videos in any local page. So the player is framed by a
   // wrapper page under an ordinary hostname: boson.chat in the release build,
-  // the e2e build's own loopback server here. YouTube is stubbed: the stub
-  // reports which page embeds it.
-  test('YouTube plays inside the wrapper, whose address is a hostname, not 127.0.0.1', async ({ launchApp }) => {
-    webSkip("the desktop's YouTube wrapper origin (desktop/youtube.go); the web page embeds YouTube directly");
+  // the e2e build's own loopback server here. The web build frames its own
+  // copy, on the app's origin (it passes on the player's errors). YouTube is
+  // stubbed: the stub reports which page embeds it.
+  test('YouTube plays inside the wrapper page (a hostname on the desktop, the app origin on the web)', async ({ launchApp }) => {
     const channel = randomChannel('emy');
     const peer = await connectPeer();
     peers.push(peer);
     const { app, page, nick } = await connectGuest(launchApp);
     await app.context().route('https://www.youtube-nocookie.com/embed/**', (route) => route.fulfill({
       contentType: 'text/html',
-      body: `<!doctype html><body><p id="who"></p><script>
-        document.getElementById('who').textContent =
-          'embedded by ' + location.ancestorOrigins[0] + ' via ' + document.referrer;
+      body: `<!doctype html><body><p id="who"></p><p id="via"></p><script>
+        // Firefox has no ancestorOrigins.
+        document.getElementById('who').textContent = location.ancestorOrigins ? location.ancestorOrigins[0] : 'n/a';
+        document.getElementById('via').textContent = document.referrer;
       </script></body>`,
     }));
     await joinViaUi(page, channel, nick);
@@ -208,23 +214,29 @@ test.describe('embeds', () => {
     await row.getByRole('button', { name: 'Play video' }).click();
 
     // The e2e build serves the wrapper itself, on its loopback server under
-    // youtube-embed.localhost (the release build frames boson.chat's copy).
+    // youtube-embed.localhost (the release build frames boson.chat's copy);
+    // the web build from its own origin.
     const wrapperOrigin = await page.evaluate(() => (window as unknown as { bosonYouTube: { wrapperOrigin: string } }).bosonYouTube.wrapperOrigin);
-    expect(wrapperOrigin).toMatch(/^http:\/\/youtube-embed\.localhost:\d+$/);
+    if (IS_WEB) expect(wrapperOrigin).toBe(new URL(page.url()).origin);
+    else expect(wrapperOrigin).toMatch(/^http:\/\/youtube-embed\.localhost:\d+$/);
     const iframe = row.locator('iframe.embed-yt-iframe');
     await expect(iframe).toHaveAttribute('src', `${wrapperOrigin}/youtube-embed.html?v=KtypSRcwIhA`);
     const player = page.frameLocator('iframe.embed-yt-iframe').frameLocator('iframe');
-    await expect(player.locator('#who')).toHaveText(`embedded by ${wrapperOrigin} via ${wrapperOrigin}/`);
+    // YouTube gets the wrapper's origin as the referrer (it refuses to play without one).
+    await expect(player.locator('#via')).toHaveText(`${wrapperOrigin}/`);
+    if (test.info().project.use.browserName !== 'firefox') await expect(player.locator('#who')).toHaveText(wrapperOrigin);
     // The wrapper said it loaded, so the app keeps it (no fallback to a direct embed).
     await page.waitForTimeout(7_000);
     await expect(iframe).toHaveAttribute('src', `${wrapperOrigin}/youtube-embed.html?v=KtypSRcwIhA`);
 
-    // That server hands out the wrapper only, never the app.
-    const status = (path: string): Promise<number> => hostStatus(wrapperOrigin, path);
-    expect(await status('/youtube-embed.html')).toBe(200);
-    expect(await status('/youtube-embed.js')).toBe(200);
-    expect(await status('/')).toBe(404);
-    expect(await status('/index.html')).toBe(404);
+    // The desktop's server hands out the wrapper only, never the app.
+    if (!IS_WEB) {
+      const status = (path: string): Promise<number> => hostStatus(wrapperOrigin, path);
+      expect(await status('/youtube-embed.html')).toBe(200);
+      expect(await status('/youtube-embed.js')).toBe(200);
+      expect(await status('/')).toBe(404);
+      expect(await status('/index.html')).toBe(404);
+    }
   });
 
   // A video YouTube won't play here (embedding disabled by its owner, or
@@ -233,7 +245,6 @@ test.describe('embeds', () => {
   // video on YouTube. The stub player answers the iframe API's handshake
   // with an error, as YouTube's does.
   test('a video YouTube refuses to play here becomes a card that opens it on YouTube', async ({ launchApp }) => {
-    webSkip("seeing YouTube refuse needs the desktop's wrapper page (desktop/youtube.go)");
     const channel = randomChannel('emye');
     const peer = await connectPeer();
     peers.push(peer);
@@ -263,9 +274,9 @@ test.describe('embeds', () => {
   });
 
   // The wrapper never reports in (it didn't load). A direct embed can only
-  // fail from the app's page (wails://, "Error 153"), so it's the card.
+  // fail from the app's page (wails://, "Error 153"; on the web, YouTube's
+  // errors go unheard), so it's the card.
   test('a wrapper that never loads gives the card, not a direct embed', async ({ launchApp }) => {
-    webSkip("the desktop's YouTube wrapper (desktop/youtube.go)");
     const channel = randomChannel('emyw');
     const peer = await connectPeer();
     peers.push(peer);
@@ -303,8 +314,7 @@ test.describe('embeds', () => {
     peer.privmsg(channel, `lazy2 http://127.0.0.1:${s.port}/dog.png`);
     peer.privmsg(channel, `lazy3 http://127.0.0.1:${s.port}/movie.webm`);
     const linkcard = row('lazy1').locator('.embed-linkcard');
-    // The web has no website previews (no fetcher): the card only opens the link.
-    await expect(linkcard).toContainText(IS_WEB ? 'Open in browser' : 'Click to load preview');
+    await expect(linkcard).toContainText('Click to load preview');
     const chip = row('lazy2').getByRole('button', { name: /Image · 127\.0\.0\.1 — click to load/ });
     await expect(chip).toBeVisible();
     const videoChip = row('lazy3').getByRole('button', { name: /Video · 127\.0\.0\.1 — click to play/ });
@@ -312,14 +322,12 @@ test.describe('embeds', () => {
     // Nothing was fetched yet.
     expect(s.hits.map((h) => h.path)).toEqual([]);
 
-    if (!IS_WEB) {
-      await linkcard.click();
-      await expect(row('lazy1').locator('.embed-card-title')).toHaveText('Boson & the e2e article');
-    }
+    await linkcard.click();
+    await expect(row('lazy1').locator('.embed-card-title')).toHaveText('Boson & the e2e article');
     await videoChip.click();
     await expect(row('lazy3').locator('video.embed-video-el')).toBeVisible();
     await chip.click();
     await expect.poll(() => row('lazy2').locator('img.embed-img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(2);
-    expect(s.hits.map((h) => h.path)).toEqual(expect.arrayContaining(IS_WEB ? ['/dog.png'] : ['/article.html', '/dog.png']));
+    expect(s.hits.map((h) => h.path)).toEqual(expect.arrayContaining(['/article.html', '/dog.png']));
   });
 });
