@@ -94,6 +94,11 @@ export function createWebSecureStore(
     return k;
   })().catch((err) => { key = null; throw err; }));
 
+  // The same argument checks as the desktop's store (desktop/securestore.go).
+  const checkKey = (name: unknown): void => {
+    if (typeof name !== 'string' || name === '') throw new Error('secure store requires a non-empty string key');
+  };
+
   return {
     async isAvailable() {
       try {
@@ -104,6 +109,7 @@ export function createWebSecureStore(
       }
     },
     async get(name) {
+      checkKey(name);
       const raw = await req((await tx('readonly')).get(`v:${name}`)) as string | undefined;
       if (typeof raw !== 'string' || !raw.startsWith(PREFIX)) return null;
       const [ivB64, ctB64] = raw.slice(PREFIX.length).split('.');
@@ -117,11 +123,14 @@ export function createWebSecureStore(
       }
     },
     async set(name, value) {
+      checkKey(name);
+      if (typeof value !== 'string') throw new Error('secure store set requires a string value');
       const iv = crypto.getRandomValues(new Uint8Array(12));
       const ct = new Uint8Array(await subtle.encrypt({ name: 'AES-GCM', iv }, await getKey(), new TextEncoder().encode(value)));
       await req((await tx('readwrite')).put(`${PREFIX}${b64(iv)}.${b64(ct)}`, `v:${name}`));
     },
     async remove(name) {
+      checkKey(name);
       await req((await tx('readwrite')).delete(`v:${name}`));
     },
   };

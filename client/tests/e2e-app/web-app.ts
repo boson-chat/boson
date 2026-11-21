@@ -9,7 +9,8 @@
 // API outage switch, …) reaches the page as window.bosonWebE2EEnv through
 // an init script, read by platform/web.
 import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type Page } from '@playwright/test';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import type { Profile } from './fixtures';
 import type { App, DesktopLaunch, DeviceOptions } from './desktop-app';
 import { STACK } from './stack';
@@ -19,10 +20,13 @@ export type BrowserName = 'chromium' | 'firefox' | 'webkit';
 const BROWSERS: Record<BrowserName, BrowserType> = { chromium, firefox, webkit };
 
 // The desktop app's test environment, for the page.
-function pageEnv(env: Record<string, string>): Record<string, string> {
-  const keep = ['BOSON_NETWORK_JSON', 'BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
-  const out: Record<string, string> = {};
+// BOSON_NETWORK_JSON names files (a path list); the page gets their text.
+function pageEnv(env: Record<string, string>): Record<string, unknown> {
+  const keep = ['BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
+  const out: Record<string, unknown> = {};
   for (const k of keep) if (env[k] !== undefined) out[k] = env[k]!;
+  const nets = env['BOSON_NETWORK_JSON'];
+  if (nets) out['networkJson'] = nets.split(delimiter).filter(Boolean).map((p) => readFileSync(p, 'utf8'));
   return out;
 }
 

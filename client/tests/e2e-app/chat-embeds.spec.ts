@@ -8,7 +8,7 @@
 //     allows loopback images).
 import { createServer, type IncomingMessage, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { test, expect, randomChannel } from './fixtures';
+import { test, expect, randomChannel, IS_WEB, webSkip } from './fixtures';
 import { connectGuest, connectPeer, messages, memberRow, joinViaUi } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 import { request } from 'node:http';
@@ -88,6 +88,7 @@ test.describe('embeds', () => {
   });
 
   test('auto-loaded website card, image lightbox, file download guard, SSRF refusal', async ({ launchApp }) => {
+    webSkip("website previews need the desktop's fetcher (desktop/unfurl.go); unavailable on the web");
     const s = site!;
     const channel = randomChannel('emb');
     const peer = await connectPeer();
@@ -187,6 +188,7 @@ test.describe('embeds', () => {
   // the e2e build's own loopback server here. YouTube is stubbed: the stub
   // reports which page embeds it.
   test('YouTube plays inside the wrapper, whose address is a hostname, not 127.0.0.1', async ({ launchApp }) => {
+    webSkip("the desktop's YouTube wrapper origin (desktop/youtube.go); the web page embeds YouTube directly");
     const channel = randomChannel('emy');
     const peer = await connectPeer();
     peers.push(peer);
@@ -231,6 +233,7 @@ test.describe('embeds', () => {
   // video on YouTube. The stub player answers the iframe API's handshake
   // with an error, as YouTube's does.
   test('a video YouTube refuses to play here becomes a card that opens it on YouTube', async ({ launchApp }) => {
+    webSkip("seeing YouTube refuse needs the desktop's wrapper page (desktop/youtube.go)");
     const channel = randomChannel('emye');
     const peer = await connectPeer();
     peers.push(peer);
@@ -262,6 +265,7 @@ test.describe('embeds', () => {
   // The wrapper never reports in (it didn't load). A direct embed can only
   // fail from the app's page (wails://, "Error 153"), so it's the card.
   test('a wrapper that never loads gives the card, not a direct embed', async ({ launchApp }) => {
+    webSkip("the desktop's YouTube wrapper (desktop/youtube.go)");
     const channel = randomChannel('emyw');
     const peer = await connectPeer();
     peers.push(peer);
@@ -299,7 +303,8 @@ test.describe('embeds', () => {
     peer.privmsg(channel, `lazy2 http://127.0.0.1:${s.port}/dog.png`);
     peer.privmsg(channel, `lazy3 http://127.0.0.1:${s.port}/movie.webm`);
     const linkcard = row('lazy1').locator('.embed-linkcard');
-    await expect(linkcard).toContainText('Click to load preview');
+    // The web has no website previews (no fetcher): the card only opens the link.
+    await expect(linkcard).toContainText(IS_WEB ? 'Open in browser' : 'Click to load preview');
     const chip = row('lazy2').getByRole('button', { name: /Image · 127\.0\.0\.1 — click to load/ });
     await expect(chip).toBeVisible();
     const videoChip = row('lazy3').getByRole('button', { name: /Video · 127\.0\.0\.1 — click to play/ });
@@ -307,12 +312,14 @@ test.describe('embeds', () => {
     // Nothing was fetched yet.
     expect(s.hits.map((h) => h.path)).toEqual([]);
 
-    await linkcard.click();
-    await expect(row('lazy1').locator('.embed-card-title')).toHaveText('Boson & the e2e article');
+    if (!IS_WEB) {
+      await linkcard.click();
+      await expect(row('lazy1').locator('.embed-card-title')).toHaveText('Boson & the e2e article');
+    }
     await videoChip.click();
     await expect(row('lazy3').locator('video.embed-video-el')).toBeVisible();
     await chip.click();
     await expect.poll(() => row('lazy2').locator('img.embed-img').evaluate((i: HTMLImageElement) => i.naturalWidth)).toBe(2);
-    expect(s.hits.map((h) => h.path)).toEqual(expect.arrayContaining(['/article.html', '/dog.png']));
+    expect(s.hits.map((h) => h.path)).toEqual(expect.arrayContaining(IS_WEB ? ['/dog.png'] : ['/article.html', '/dog.png']));
   });
 });

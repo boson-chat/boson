@@ -12,10 +12,21 @@ import { WebEngine } from './engine';
 import { createWebSecureStore } from './secure-store';
 import { webSSOBridge } from './sso';
 import { installWebE2E } from './e2e';
+import { NetworkDiscoverer, setNetworkDiscoverer } from './discovery';
+import { webNetAuthBridge } from './netauth';
+import { webFilesBridge } from './files';
+import { webBrandingBridge } from './branding';
+
+function originOf(u: string | undefined): string {
+  try { return u ? new URL(u).origin : ''; } catch { return ''; }
+}
 
 export async function installWebBridges(): Promise<void> {
   const w = window as unknown as Record<string, unknown>;
   const cfg = webConfig();
+  // The renderer checks this for what the web build does differently (no
+  // window controls, the About row).
+  w.bosonShell = 'web';
 
   const engine = new WebEngine({
     wasmUrl,
@@ -34,13 +45,28 @@ export async function installWebBridges(): Promise<void> {
 
   w.bosonSSO = webSSOBridge();
 
+  // Networks' boson.json (sign-in, themes, uploads, voice). e2e builds
+  // reach loopback http and take documents for domain-less hosts from the
+  // test (BOSON_NETWORK_JSON).
+  const e2eEnv = (window as unknown as { bosonWebE2EEnv?: { networkJson?: string[] } }).bosonWebE2EEnv;
+  const dev = !!cfg.e2e;
+  const discoverer = new NetworkDiscoverer({ allowLoopbackHttp: dev, overrides: dev ? e2eEnv?.networkJson ?? [] : [] });
+  setNetworkDiscoverer(discoverer);
+  const mainAuthUrl = cfg.authUrl || import.meta.env.VITE_AUTH_URL || 'https://auth.boson.chat';
+  const appOrigins = [
+    originOf(cfg.apiUrl || import.meta.env.VITE_BOSON_API_URL || 'https://api.boson.chat'),
+    originOf(cfg.directoryUrl || import.meta.env.VITE_DIRECTORY_URL || 'https://directory.boson.chat'),
+  ].filter(Boolean);
+  w.bosonNetAuth = webNetAuthBridge({ discoverer, mainAuthUrl, appOrigins });
+  w.bosonFiles = webFilesBridge({ discoverer, mainAuthUrl, appOrigins });
+  w.bosonBranding = webBrandingBridge(dev);
+
   // Ask the browser to keep this origin's storage (history, the secure
   // store) under storage pressure. Best-effort; no prompt in most browsers.
   void navigator.storage?.persist?.().catch(() => {});
 
-  if (cfg.e2e) installWebE2E(w, { deliverDeepLink: deepLink.deliver });
+  if (cfg.e2e) installWebE2E(w, { deliverDeepLink: deepLink.deliver, engine });
 
   // Last: everything above is in place (e2e launches wait for this).
-  w.bosonShell = 'web';
   w.bosonShellReady = true;
 }

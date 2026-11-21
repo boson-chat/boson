@@ -1,8 +1,9 @@
 // Security smoke tests for the main-window navigation guard and the
 // renderer's drop guard, against the real built app.
-import { test, expect, continueAsGuest, uid } from './fixtures';
+import { test, expect, continueAsGuest, uid, webSkip } from './fixtures';
 
 test('main window cannot be navigated away from the app origin', async ({ launchApp }) => {
+  webSkip("the navigation guard belongs to the desktop window; a web page may navigate (links open in new tabs)");
   const { page, openedExternally } = await launchApp();
   await continueAsGuest(page, `sec${uid()}`);
   const appUrl = page.url();

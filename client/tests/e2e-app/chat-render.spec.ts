@@ -1,7 +1,7 @@
 // How incoming messages render: markdown (bold / italic / strike / code /
 // code blocks / spoilers), mentions + channel references, pasted tables,
 // long lines, and links (clicking one hands it to the OS browser).
-import { test, expect, randomChannel } from './fixtures';
+import { test, expect, randomChannel, IS_WEB } from './fixtures';
 import {
   connectGuest, connectPeer, messages, memberRow, joinViaUi,
 } from './helpers/chat';
@@ -76,8 +76,9 @@ test.describe('message rendering', () => {
     await expect(link).toHaveAttribute('href', url);
     await link.click();
     await expect.poll(openedExternally).toContain(url);
-    // The website preview for it settles to "unavailable".
-    await expect(row('fmt8').locator('.embed-linkcard-hint')).toHaveText('Preview unavailable — open in browser', { timeout: 20_000 });
+    // The website preview for it settles to "unavailable" (the web has no
+    // previews: the card just opens the link).
+    await expect(row('fmt8').locator('.embed-linkcard-hint')).toHaveText(IS_WEB ? 'Open in browser' : 'Preview unavailable — open in browser', { timeout: 20_000 });
   });
 
   test('pasted tables and preformatted blocks', async ({ launchApp }) => {

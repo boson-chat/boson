@@ -24,6 +24,14 @@ describe('web secure store', () => {
     });
   }
 
+  it('rejects malformed calls like the desktop store', async () => {
+    const s = createWebSecureStore(new IDBFactory(), subtle, false);
+    await expect(s.get('')).rejects.toThrow(/non-empty string key/);
+    await expect(s.set('', 'v')).rejects.toThrow(/non-empty string key/);
+    await expect(s.set('k', 5 as unknown as string)).rejects.toThrow(/requires a string value/);
+    await expect(s.remove('')).rejects.toThrow(/non-empty string key/);
+  });
+
   it('stores ciphertext, not the value', async () => {
     const idb = new IDBFactory();
     const s = createWebSecureStore(idb, subtle, false);

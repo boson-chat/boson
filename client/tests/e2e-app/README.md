@@ -106,3 +106,40 @@ Endpoints and paths: `STACK` / `APP_DIR` (`stack.ts`), `IRC_HOST` /
 `make test-e2e-app-coverage` writes `client/coverage/e2e/summary.md` with
 two layers (renderer, the Go app + engine); see the repo README.
 New specs are measured automatically.
+
+## Web target (E2E_TARGET=web)
+
+The same specs drive the web build (chat.boson.chat: `platform/web`, the
+engine as WebAssembly) in Chromium, Firefox and WebKit — the launcher, not
+copies (`target.ts`, `web-app.ts`, `web-server.ts`):
+
+```sh
+node scripts/e2e-stack.mjs up          # the stack (as for the desktop target)
+node scripts/e2e-gateway.mjs up        # the IRC gateway (the stack's webircgateway, built natively)
+npm run build:e2e-web                  # out-e2e/web
+npm run test:e2e:web -- --project=web-firefox --project=web-firefox-mobile
+```
+
+- The page is served on `stack.json` `web.url` (127.0.0.1:18800), the
+  origin the e2e services' CORS allows; each test gets its own browser
+  profile. It reaches IRC through the gateway (`web.gateway.url`), which
+  here may dial loopback and any port ≥ 1024 (production: IRC ports and
+  public addresses only).
+- The desktop's test environment reaches the page as
+  `window.bosonWebE2EEnv` (BOSON_NETWORK_JSON documents, the API outage
+  switch); `bosonE2E` has the hooks the web can do (engine crash, API
+  outage, opened links, a link arriving while open).
+- Target-specific checks use `IS_WEB` (the title bar, About's Platform row,
+  where secrets and themes are stored: `secureStoreOnDisk()`), and
+  `webSkip(reason)` marks what only the native app has. Skipped on the web:
+
+| Spec | Why |
+|---|---|
+| app-shell: About update states | no in-app updater (each deploy is the latest) |
+| app-shell: secure store file ×2 | the desktop store file format; the web store is unit-tested (`platform/web/secure-store.test.ts`) |
+| app-shell: API proxy | the desktop's API proxy; the web calls services directly under CORS |
+| app-shell: Spotify | the desktop's Spotify fetcher (no cards on the web) |
+| chat-embeds: website card, YouTube wrapper ×3 | the desktop's unfurl fetcher and YouTube wrapper page |
+| image-cache (file) | the desktop's image disk cache |
+| security: navigation guard | belongs to the desktop window; a web page may navigate |
+| themes: theme file + live edit | the desktop's themes folder and watcher |

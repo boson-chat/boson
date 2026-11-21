@@ -167,3 +167,91 @@ jobs:
       - name: Stop e2e stack
         if: always()
         run: node client/scripts/e2e-stack.mjs down
+
+  # The same real-app suite against the web build (chat.boson.chat:
+  # platform/web, the engine as WebAssembly), through the stack's IRC
+  # gateway (client/scripts/e2e-gateway.mjs: webircgateway with Boson's
+  # patches, built from the pinned stack commit), in each browser. Specs
+  # that only apply to the native app skip themselves on the web
+  # (tests/e2e-app/README.md, "Web target").
+  web:
+    name: Web app (${{ matrix.browser }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: '1.27'
+          cache: true
+          cache-dependency-path: go.sum
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Start e2e stack (background)
+        env:
+          AUTH_IMAGE: harbor.floret.dev/boson/auth:1.1.0
+          BACKEND_IMAGE: harbor.floret.dev/boson/backend:0.55.0
+        run: |
+          ( node client/scripts/e2e-stack.mjs up; echo $? > e2e-stack.exit ) > e2e-stack.log 2>&1 &
+
+      - run: npm ci
+
+      - name: IRC gateway (webircgateway, native)
+        run: node client/scripts/e2e-gateway.mjs up
+
+      - name: Install Playwright ${{ matrix.browser }}
+        working-directory: client
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Build the e2e web app
+        working-directory: client
+        run: npm run build:e2e-web
+
+      - name: Wait for e2e stack
+        timeout-minutes: 8
+        run: |
+          while [ ! -f e2e-stack.exit ]; do sleep 2; done
+          cat e2e-stack.log
+          exit "$(cat e2e-stack.exit)"
+
+      - name: Run the e2e suite (web, ${{ matrix.browser }})
+        working-directory: client
+        env:
+          E2E_WORKERS: '3'
+        run: npm run test:e2e:web -- --project=web-${{ matrix.browser }} --project=web-${{ matrix.browser }}-mobile
+
+      - name: Collect logs
+        if: failure()
+        run: |
+          mkdir -p e2e-docker-logs
+          cp e2e-stack.log infra/e2e/.run/webircgateway.log e2e-docker-logs/ 2>/dev/null || true
+          for svc in ergo znc auth directory backend; do
+            docker compose -f infra/e2e/docker-compose.yml logs --no-color --timestamps "$svc" > "e2e-docker-logs/$svc.log" 2>&1 || true
+          done
+
+      - name: Upload test artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-web-${{ matrix.browser }}-results
+          path: |
+            client/test-results/e2e-web/
+            client/playwright-report/e2e-app/
+            e2e-docker-logs/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Stop
+        if: always()
+        run: |
+          node client/scripts/e2e-gateway.mjs down || true
+          node client/scripts/e2e-stack.mjs down
