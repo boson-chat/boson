@@ -49,6 +49,8 @@ const COMPOSE_SERVICES = [
   'directory-postgres', 'directory',
   // A self-hosted network: its own auth service and Ergo (network-signin.spec.ts).
   'auth2-postgres', 'auth2', 'ergo2',
+  // Voice and video for the web build's calls (web-calls.spec.ts).
+  'quicvoiced', 'quicvideod',
 ];
 
 function log(msg) {

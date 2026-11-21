@@ -9,7 +9,8 @@
 // API outage switch, …) reaches the page as window.bosonWebE2EEnv through
 // an init script, read by platform/web.
 import { chromium, firefox, webkit, type BrowserContext, type BrowserType, type Page } from '@playwright/test';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { delimiter, join } from 'node:path';
 import type { Profile } from './fixtures';
 import type { App, DesktopLaunch, DeviceOptions } from './desktop-app';
 import { STACK } from './stack';
@@ -18,12 +19,47 @@ export type BrowserName = 'chromium' | 'firefox' | 'webkit';
 
 const BROWSERS: Record<BrowserName, BrowserType> = { chromium, firefox, webkit };
 
-// The desktop app's test environment, for the page.
-function pageEnv(env: Record<string, string>): Record<string, string> {
+// The desktop app's test environment, for the page. The page can't read
+// files, so the boson.json documents BOSON_NETWORK_JSON / BOSON_VOICE_JSON
+// name are passed by content (networkJson), and the e2e voice/video
+// servers' self-signed certificate info by host:port (certInfo).
+function pageEnv(env: Record<string, string>): Record<string, unknown> {
   const keep = ['BOSON_NETWORK_JSON', 'BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
-  const out: Record<string, string> = {};
+  const out: Record<string, unknown> = {};
   for (const k of keep) if (env[k] !== undefined) out[k] = env[k]!;
+  const docs: string[] = [];
+  for (const k of ['BOSON_NETWORK_JSON', 'BOSON_VOICE_JSON']) {
+    for (const path of (env[k] ?? '').split(delimiter)) {
+      if (!path) continue;
+      try { docs.push(readFileSync(path, 'utf8')); } catch { /* missing file: like the desktop, skip it */ }
+    }
+  }
+  out['networkJson'] = docs;
+  out['certInfo'] = { [STACK.voice.video.addr]: STACK.voice.video.infoUrl };
   return out;
+}
+
+// Fake camera and microphone (a test pattern and a tone) instead of real
+// devices, allowed without a prompt.
+function mediaOptions(browser: BrowserName): { args?: string[]; firefoxUserPrefs?: Record<string, string | number | boolean>; permissions: string[] } {
+  if (browser === 'chromium') {
+    return {
+      args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--autoplay-policy=no-user-gesture-required'],
+      permissions: ['microphone', 'camera'],
+    };
+  }
+  if (browser === 'firefox') {
+    return {
+      firefoxUserPrefs: {
+        'media.navigator.streams.fake': true,
+        'media.navigator.permission.disabled': true,
+        'media.autoplay.default': 0,
+        'media.autoplay.blocking_policy': 0,
+      },
+      permissions: [],
+    };
+  }
+  return { permissions: [] };
 }
 
 export async function launchWebApp(
@@ -34,11 +70,17 @@ export async function launchWebApp(
   const { browserName: _b, ...dev } = device;
   // Firefox has no mobile emulation (viewport + touch still apply).
   if (device.browserName === 'firefox') delete dev.isMobile;
-  const permissions = (device.browserName ?? 'chromium') === 'chromium' ? ['notifications', 'clipboard-read', 'clipboard-write'] : [];
+  const media = mediaOptions(device.browserName ?? 'chromium');
+  const permissions = [
+    ...((device.browserName ?? 'chromium') === 'chromium' ? ['notifications', 'clipboard-read', 'clipboard-write'] : []),
+    ...media.permissions,
+  ];
   const context: BrowserContext = await browser.launchPersistentContext(join(p.userData, `web-${device.browserName ?? 'chromium'}`), {
     viewport: { width: 1280, height: 800 },
     ...dev,
     permissions,
+    ...(media.args ? { args: media.args } : {}),
+    ...(media.firefoxUserPrefs ? { firefoxUserPrefs: media.firefoxUserPrefs } : {}),
   });
   await context.addInitScript((e) => { (window as unknown as { bosonWebE2EEnv: unknown }).bosonWebE2EEnv = e; }, pageEnv(env));
   const page: Page = context.pages()[0] ?? (await context.newPage());

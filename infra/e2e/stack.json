@@ -9,5 +9,6 @@
   "backend": {"url": "http://127.0.0.1:13000", "port": 13000, "internalUrl": "http://127.0.0.1:13001", "internalPort": 13001, "internalToken": "e2e-internal-token"},
   "selfhost": {"irc": {"host": "localhost", "port": 16668}, "auth": {"url": "http://127.0.0.1:18181"}, "dbPort": 16435},
   "directory": {"url": "http://127.0.0.1:18480", "dbPort": 16434, "database": "directory", "user": "directory", "password": "directory"},
-  "web": {"url": "http://127.0.0.1:18800", "port": 18800, "gateway": {"url": "ws://127.0.0.1:18801/webirc/websocket/", "port": 18801}}
+  "web": {"url": "http://127.0.0.1:18800", "port": 18800, "gateway": {"url": "ws://127.0.0.1:18801/webirc/websocket/", "port": 18801}},
+  "voice": {"addr": "127.0.0.1:17700", "url": "http://127.0.0.1:18890", "video": {"addr": "127.0.0.1:17710", "infoUrl": "http://127.0.0.1:18891/v1/info"}}
 }
