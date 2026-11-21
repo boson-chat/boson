@@ -130,11 +130,13 @@ button.mcall-t { cursor: pointer; }
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  padding: 0 12px 6px;
+  gap: 12px;
+  padding: 0 16px 6px;
   border-top: 1px solid var(--border);
   background: var(--surface-raised);
 }
+/* The dock's buttons share its width evenly. */
+.mcall-dock > .bds-btn { flex: 1 1 0; min-width: 0; }
 
 /* More: chat, audio output, deafen, people and volume, screen (soon):
    shared ListRows, edge to edge in the sheet. */
