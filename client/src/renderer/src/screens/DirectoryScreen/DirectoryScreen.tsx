@@ -20,6 +20,7 @@ import { getVoiceController } from '../../modules/voice';
 import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
+import { joinsLabel } from '../../modules/directory/autojoin';
 import { HostServerModal } from './HostServerModal';
 import { useNetworkThemes } from '../../modules/ui/theme';
 import { useNetworkThemeSync } from './network-theme-sync';
@@ -992,6 +993,7 @@ function ServerCard({
   const userCount = typeof server.user_count === 'number' ? server.user_count : null;
   const initials = computeInitials(server.name || server.hostname);
   const hue = hashHue(server.name || server.hostname);
+  const joins = joinsLabel(server.autojoin_channels);
 
   return (
     <article class="directory-card" role="listitem">
@@ -1044,6 +1046,11 @@ function ServerCard({
             <span class="directory-card-count">
               <span class="directory-card-count-icon" aria-hidden="true">👥</span>
               {userCount.toLocaleString()} {userCount === 1 ? 'user' : 'users'}
+            </span>
+          )}
+          {joins && (
+            <span class="directory-card-joins" title={`New members join ${(server.autojoin_channels ?? []).join(', ')}`}>
+              {joins}
             </span>
           )}
           {isCurrent && (

@@ -85,6 +85,26 @@ export interface AuthConfig {
   // The network's theme document (boson-theme/1, GET /v1/branding).
   // null when the network has none.
   branding_url?: string | null;
+  // Who may create IRC channels: anyone signed in ("registered", the
+  // default) or only admins (roles with irc.chanreg; Ergo's
+  // operator-only-creation). Absent on older servers: "registered".
+  channel_creation?: 'registered' | 'admins' | string;
+  // The network channels (fixed channels its services keep), with the ones
+  // new people are joined to. Absent on older servers.
+  channels?: NetworkChannel[];
+}
+
+export interface NetworkChannel {
+  name: string;
+  topic?: string;
+  autojoin?: boolean;
+}
+
+// GET /v1/me: the signed-in user's roles and effective permissions
+// (e.g. "irc.chanreg").
+export interface AuthMe {
+  roles: { id?: string; name: string }[];
+  permissions: string[];
 }
 
 // guest_access, defaulting to allowed when the server doesn't say.
@@ -234,6 +254,16 @@ export class AuthService {
   async identities(): Promise<LinkedIdentities> {
     const r = await this.authed<Partial<LinkedIdentities>>('GET', '/v1/me/identities');
     return { identities: r?.identities ?? [], has_password: !!r?.has_password };
+  }
+
+  // The signed-in user's roles and permissions on this network.
+  async me(): Promise<AuthMe> {
+    const r = await this.authed<Partial<{ roles: unknown; permissions: unknown }>>('GET', '/v1/me');
+    const perms = Array.isArray(r?.permissions) ? r.permissions.filter((p): p is string => typeof p === 'string') : [];
+    const roles = Array.isArray(r?.roles)
+      ? r.roles.filter((x): x is { id?: string; name: string } => !!x && typeof (x as { name?: unknown }).name === 'string')
+      : [];
+    return { roles, permissions: perms };
   }
 
   // Unlinks one; 409 last_login_method when it's the only way in.

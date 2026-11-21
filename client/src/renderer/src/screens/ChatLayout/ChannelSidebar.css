@@ -167,6 +167,18 @@
   color: var(--danger-fg);
 }
 
+.channel-join-note {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.channel-join-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .channel-join-results-head {
   font-family: var(--font-mono);
   font-size: var(--text-xs);

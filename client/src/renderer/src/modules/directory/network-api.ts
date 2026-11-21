@@ -8,6 +8,7 @@ import type {
   VerifyResponse,
 } from './directory.types';
 import type { DirectorySource } from './sources';
+import { validAutojoinChannels } from './autojoin';
 
 // Client for one directory's /v1 API (the standalone, federated directory at
 // directory.boson.chat and its self-hosted peers). Rows come back mapped onto
@@ -99,6 +100,8 @@ export function networkToServer(n: Json, source?: DirectorySourceRef): ServerWit
     ...(s(n['banner_url']) ? { banner_url: s(n['banner_url']) } : {}),
     ...(s(n['website_url']) ? { website_url: s(n['website_url']) } : {}),
     ...(n['theme'] && typeof n['theme'] === 'object' && !Array.isArray(n['theme']) ? { theme: n['theme'] as Record<string, unknown> } : {}),
+    ...(validAutojoinChannels(n['channels']).length ? { channels: validAutojoinChannels(n['channels']) } : {}),
+    ...(validAutojoinChannels(n['autojoin_channels']).length ? { autojoin_channels: validAutojoinChannels(n['autojoin_channels']) } : {}),
     ...(s(n['legacy_id']) ? { legacy_id: s(n['legacy_id']) } : {}),
     ...(source ? { source } : {}),
     ...(token ? { verification_token: token } : {}),

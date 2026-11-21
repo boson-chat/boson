@@ -32,6 +32,7 @@ import {
 import type { Facets, HostingApi, NetworkSort } from '../../modules/directory/network-api';
 import type { NetworkDirectories } from '../../modules/directory/networks';
 import { findListing } from '../../modules/directory/listing-match';
+import { AUTOJOIN_DELAY_MS, autojoinDone, channelsToAutojoin, markAutojoinDone } from '../../modules/directory/autojoin';
 import { getNetworkAccounts, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
 import { isAccountRequired, isAccountRequiredText, isSaslFailure, resolveIrcLogin } from '../../modules/netauth/irc-login';
 
@@ -325,6 +326,10 @@ export class DirectoryBloc {
   // its engine reaches connected state. Keyed by serverId for forward-compat
   // with multi-server restore.
   private pendingJoins = new Map<string, string[]>();
+  // Listings connected from their card whose default channels
+  // (autojoin_channels) still need joining on this first connect — see
+  // modules/directory/autojoin.ts. Taken when the connection registers.
+  private autojoinWanted = new Map<string, Server>();
   // Guard against double-restoring on repeated state notifications.
   private restored = false;
   // True while a restore is in flight — set when we know a saved session
@@ -1007,6 +1012,7 @@ export class DirectoryBloc {
       this.teardownConnection(existing, { sendDisconnect: false });
       this.connections.delete(server.id);
     }
+    if (server.autojoin_channels?.length && !autojoinDone(server)) this.autojoinWanted.set(server.id, server);
     await this.connectWith(server, { ...opts, carry });
     if (this.serverBrowserOpen) {
       this.serverBrowserOpen = false;
@@ -2266,6 +2272,7 @@ export class DirectoryBloc {
             });
           }
         }
+        this.scheduleAutojoin(server.id);
         if (this.restoring) this.restoring = false;
       }
       if (state === 'disconnected' || state === 'idle') {
@@ -2419,6 +2426,30 @@ export class DirectoryBloc {
   }
 
   // Drop listeners + (optionally) send a per-server disconnect to the engine.
+  // First connect to a listing with default channels: give the network's
+  // own auto-join (RoleServ's SAJOIN) a moment, then join the ones we still
+  // aren't in. Quietly: a refusal is logged, not shown. Not done again for
+  // this network once it ran.
+  private scheduleAutojoin(serverId: string): void {
+    const listing = this.autojoinWanted.get(serverId);
+    if (!listing) return;
+    this.autojoinWanted.delete(serverId);
+    setTimeout(() => {
+      if (this.disposed) return;
+      const conn = this.connections.get(serverId);
+      if (!conn || conn.engineState !== 'connected') {
+        // Dropped meanwhile: try again on the next registration.
+        if (conn) this.autojoinWanted.set(serverId, listing);
+        return;
+      }
+      const have = conn.chat.getState().channels.map((c) => c.name);
+      const todo = channelsToAutojoin(listing.autojoin_channels ?? [], have);
+      markAutojoinDone(listing);
+      if (todo.length > 0) console.info(`[directory] joining ${listing.name}'s default channels: ${todo.join(', ')}`);
+      for (const ch of todo) conn.chat.join(ch, { focus: false, quiet: true });
+    }, AUTOJOIN_DELAY_MS);
+  }
+
   private teardownConnection(c: Connection, opts: { sendDisconnect: boolean }): void {
     c.unsubscribeState();
     c.unsubscribeBouncerUpstream();

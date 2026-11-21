@@ -6,3 +6,4 @@ export { getChanServAdapter, type ChanServAdapter } from './adapters';
 export { chanServErrorText } from './messages';
 export { channelPolicyFromConfig, useChannelPolicy, type ChannelPolicy } from './policy';
 export { sameName } from './text';
+export { ADMINS_ONLY_TEXT, CHANREG_PERMISSION, channelCreationFor, useChannelCreation, type ChannelCreation } from './creation';

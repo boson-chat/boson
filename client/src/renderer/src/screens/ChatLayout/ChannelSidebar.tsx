@@ -13,6 +13,7 @@ import { useChannelReorder, type ReorderSection } from './channel-reorder';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
 import { getChannelLevel, setChannelLevel, type ChannelLevel } from '../../modules/ui/notifications.store';
 import { BottomSheet } from './BottomSheet';
+import { ADMINS_ONLY_TEXT, type ChannelCreation } from '../../modules/chanserv/creation';
 import { isNarrow, useNarrow } from '../../shared/narrow';
 import './ChannelSidebar.css';
 import './ChannelReorder.css';
@@ -45,6 +46,10 @@ interface ChannelSidebarProps {
   // modal's autocomplete. Optional — when absent or empty the modal still
   // works as a plain text input.
   channelDirectory?: ReadonlyArray<{ name: string; userCount: number; topic: string }>;
+  // Who may create channels here (auth /v1/config channel_creation). When
+  // creation is admins-only and the user isn't one, the Join modal says so
+  // and offers the network's channels instead.
+  creation?: ChannelCreation | null;
   // Click handler for the gear button next to the server name. Opens the
   // full-page ServerSettings view for the active server. Button is hidden
   // when not provided.
@@ -81,6 +86,7 @@ export function ChannelSidebar({
   serverId,
   onResetChannelOrder,
   channelDirectory,
+  creation,
   onOpenSettings,
   serverInfo,
   engineState = 'connected',
@@ -279,7 +285,7 @@ export function ChannelSidebar({
             size={narrow ? 'lg' : 'sm'}
             class="channel-add"
             aria-label="Add channel"
-            title="Join a new channel"
+            title={creation?.restricted ? 'Join a channel' : 'Join a new channel'}
             onClick={() => bloc.openJoinModal()}
             icon={<Plus aria-hidden="true" />}
           />
@@ -359,6 +365,8 @@ export function ChannelSidebar({
         <JoinChannelBrowser
           draft={joinDraft}
           directory={channelDirectory}
+          creation={creation}
+          joined={realChannels}
           error={joinError}
           onDraftChange={(v) => bloc.setJoinDraft(v)}
           onSubmit={() => bloc.submitJoin()}
@@ -503,6 +511,9 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder
 interface JoinChannelBrowserProps {
   draft: string;
   directory?: ReadonlyArray<{ name: string; userCount: number; topic: string }>;
+  creation?: ChannelCreation | null;
+  // Channels we're in (not suggested again).
+  joined?: ReadonlyArray<{ name: string; joined?: boolean }>;
   error: string | null;
   onDraftChange: (v: string) => void;
   onSubmit: () => void;
@@ -513,8 +524,15 @@ interface JoinChannelBrowserProps {
 const JOIN_PAGE_SIZE = 50;
 
 function JoinChannelBrowser({
-  draft, directory, error, onDraftChange, onSubmit, onPick, onCancel,
+  draft, directory, creation, joined, error, onDraftChange, onSubmit, onPick, onCancel,
 }: JoinChannelBrowserProps) {
+  const restricted = !!creation?.restricted;
+  // Admins-only creation: the network's channels, as something to join.
+  const suggestions = useMemo(() => {
+    if (!restricted) return [];
+    const have = new Set((joined ?? []).filter((c) => c.joined !== false).map((c) => c.name.toLowerCase()));
+    return (creation?.channels ?? []).filter((c) => !have.has(c.name.toLowerCase()));
+  }, [restricted, creation, joined]);
   const [highlight, setHighlight] = useState(0);
   const [page, setPage] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -627,6 +645,27 @@ function JoinChannelBrowser({
           spellcheck={false}
         />
         {error && <div class="channel-join-error" role="alert">{error}</div>}
+        {restricted && (
+          <p class="channel-join-note" data-testid="channel-create-restricted">
+            {ADMINS_ONLY_TEXT} You can join channels that already exist.
+          </p>
+        )}
+        {suggestions.length > 0 && (
+          <div class="channel-join-suggestions" role="group" aria-label="Network channels">
+            {suggestions.map((c) => (
+              <Button
+                key={c.name}
+                variant="secondary"
+                size="sm"
+                class="channel-join-suggestion"
+                title={c.topic || c.name}
+                onClick={() => onPick(c.name)}
+              >
+                {c.name}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div class="channel-join-results-head">{headerLabel}</div>
@@ -636,7 +675,9 @@ function JoinChannelBrowser({
           <EmptyState class="channel-join-empty">
             {directory === undefined || directory.length === 0
               ? 'Waiting for the server to publish its channel list…'
-              : 'No channels match. Press Enter to join the typed name anyway.'}
+              : restricted
+                ? 'No channels match. Only admins can create new channels here.'
+                : 'No channels match. Press Enter to join the typed name anyway.'}
           </EmptyState>
         ) : (
           visible.map((c, idx) => (

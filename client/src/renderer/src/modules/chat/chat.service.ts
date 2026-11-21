@@ -871,11 +871,15 @@ export class ChatService {
   // restore must not yank the user out of the one they're reading).
   // `byUser`: the user asked for it (/join, the join box) — its JOIN gets
   // a "You joined" line; restores and a bouncer's replay don't.
-  join(channel: string, opts: { focus?: boolean; byUser?: boolean } = {}): void {
+  // `quiet`: a join the app made on its own (a network's default channels):
+  // if the server refuses it, drop it without telling the user.
+  join(channel: string, opts: { focus?: boolean; byUser?: boolean; quiet?: boolean } = {}): void {
     const name = normaliseChannel(channel);
     if (!name) return;
     const key = this.channelKey(name);
     if (opts.byUser) this.announceJoin.add(key);
+    if (opts.quiet) this.quietJoins.add(key);
+    else this.quietJoins.delete(key);
     if (!this.channels.has(key)) {
       // Store the channel keyed by its lowercase form so subsequent server
       // events (which may use different casing) land on the same record.
@@ -915,6 +919,13 @@ export class ChatService {
   // Channels whose next self-JOIN is one the user asked for (join byUser,
   // rejoin): only those say "You joined".
   private readonly announceJoin = new Set<string>();
+  // Joins whose refusal is only logged (join({ quiet: true })).
+  private readonly quietJoins = new Set<string>();
+  // The network's name for messages: the listing's name, else its NETWORK=.
+  private networkLabel(): string {
+    return this.serverScope?.serverName || this.serverInfo.network || '';
+  }
+
   private clearRejoinTimer(key: string): void {
     const t = this.rejoinTimers.get(key);
     if (t) { clearTimeout(t); this.rejoinTimers.delete(key); }
@@ -2682,6 +2693,7 @@ export class ChatService {
           // if the channel record already existed locally (idempotent).
           const existed = this.channels.has(key);
           const joinedCh = this.ensureChannel(e.Target, true);
+          this.quietJoins.delete(key);
           delete joinedCh.joinStatus;
           this.clearRejoinTimer(key);
           joinedCh.namesLoaded = false;
@@ -2805,18 +2817,26 @@ export class ChatService {
         const chan = e.Args?.[0] ?? e.Target ?? '';
         if (!chan.startsWith('#') && !chan.startsWith('&')) break;
         const ch = this.channels.get(this.channelKey(chan));
+        // One of the network's default channels the app joined on its own:
+        // not something the user asked for, so no error for it.
+        if (this.quietJoins.delete(this.channelKey(chan))) {
+          console.info(`[chat] auto-join of ${chan} refused (${e.Kind}): ${e.Message ?? ''}`);
+          if (ch && !ch.joined) this.removeChannel(chan);
+          break;
+        }
+        const reason = joinRefusalText(chan, e.Kind, e.Message, this.networkLabel());
         // A rejoin the user asked for on a listed channel: keep it, with
         // the reason on it (they can try again from there).
         if (ch && !ch.joined && ch.joinStatus) {
           this.clearRejoinTimer(this.channelKey(chan));
-          ch.joinStatus = { state: 'failed', error: e.Message || 'Refused by the server' };
+          ch.joinStatus = { state: 'failed', error: reason ?? (e.Message || 'Refused by the server') };
           this.emit();
           break;
         }
         // Not a join we're waiting on (a 403 for some other command): leave it.
         if (e.Kind === '403' && (!ch || ch.joined)) break;
         if (ch && !ch.joined) this.removeChannel(chan);
-        this.emitFeedback({ kind: 'error', text: `Cannot join ${chan}: ${e.Message || 'refused by the server'}` });
+        this.emitFeedback({ kind: 'error', text: reason ?? `Cannot join ${chan}: ${e.Message || 'refused by the server'}` });
         break;
       }
       case '421': {
@@ -4123,6 +4143,22 @@ export function eventTimestamp(e: IrcEvent): number {
     if (!Number.isNaN(ms)) return ms;
   }
   return Date.now();
+}
+
+// Ergo with channels.operator-only-creation (a network where only admins
+// create channels) refuses a JOIN of a channel that doesn't exist with
+// 403 ERR_NOSUCHCHANNEL "Only server operators can create new channels".
+export function isOperatorOnlyCreation(kind: string, message: string | undefined): boolean {
+  return kind === '403' && /only server operators can create/i.test(message ?? '');
+}
+
+// What to say when the server refused a JOIN, when the raw reason isn't
+// good enough; null = use it.
+export function joinRefusalText(channel: string, kind: string, message: string | undefined, network: string): string | null {
+  if (isOperatorOnlyCreation(kind, message)) {
+    return `${channel} doesn't exist, and only admins can create channels on ${network || 'this network'}.`;
+  }
+  return null;
 }
 
 function normaliseChannel(name: string): string {

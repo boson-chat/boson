@@ -67,6 +67,11 @@ class FakeAuthApi {
         if (nick === 'bad nick') return { status: 400, ok: false, statusText: 'err', text: JSON.stringify({ error: 'invalid_request', field: 'nick', message: 'invalid nick' }) };
         return ok(200, { token: `gt:${nick}:${String(body['guest_id'])}:${JSON.stringify(body['rooms'] ?? null)}`, expires_in: 120, audience: 'quicvoice' });
       }
+      case '/v1/me': {
+        const auth = req.headers?.['Authorization'] ?? '';
+        if (!auth.startsWith('Bearer ')) return err(401, 'invalid_token');
+        return ok(200, { user: {}, session_id: 'ses_1', roles: [{ id: 'rol_1', name: 'Admin' }, { bad: 1 }], permissions: ['irc.chanreg', 7] });
+      }
       case '/v1/email/resend':
       case '/v1/password/forgot':
         return ok(202, {});
@@ -146,6 +151,16 @@ describe('AuthService', () => {
     expect(t.token).toBe('vt:null');
     expect(api.count('/v1/token/refresh')).toBe(1);
     expect(api.voiceAuth).toHaveLength(2);
+  });
+
+  it("reads the account's roles and permissions (GET /v1/me)", async () => {
+    await registered();
+    expect(await svc.me()).toEqual({ roles: [{ id: 'rol_1', name: 'Admin' }], permissions: ['irc.chanreg'] });
+  });
+
+  it('no /v1/me when signed out', async () => {
+    await svc.init();
+    await expect(svc.me()).rejects.toMatchObject({ code: 'signed_out' });
   });
 
   it('no voice token when signed out', async () => {
