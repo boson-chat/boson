@@ -1,3 +1,9 @@
+## [0.89.0](https://github.com/boson-chat/boson/compare/v0.88.2...v0.89.0) (2026-11-21)
+
+### Features
+
+* link previews, Spotify cards and the YouTube wrapper on the web client ([#130](https://github.com/boson-chat/boson/issues/130)) ([0e24e28](https://github.com/boson-chat/boson/commit/0e24e28771b5f18712afb9dc9abd95a9d5570715))
+
 ## [0.88.2](https://github.com/boson-chat/boson/compare/v0.88.1...v0.88.2) (2026-11-21)
 
 ### Bug Fixes
