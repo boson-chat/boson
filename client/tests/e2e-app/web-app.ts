@@ -30,6 +30,8 @@ export async function launchWebApp(
   p: Profile, env: Record<string, string>, args: string[] = [], device: DeviceOptions & { browserName?: BrowserName } = {},
 ): Promise<DesktopLaunch> {
   const logs: string[] = [];
+  const dbg = (m: string): void => { if (process.env['E2E_WEB_DEBUG']) process.stdout.write(`[web-app] ${m}\n`); };
+  dbg('launching');
   const browser = BROWSERS[device.browserName ?? 'chromium'];
   const { browserName: _b, ...dev } = device;
   // Firefox has no mobile emulation (viewport + touch still apply).
@@ -40,16 +42,24 @@ export async function launchWebApp(
     ...dev,
     permissions,
   });
+  dbg('launched');
   await context.addInitScript((e) => { (window as unknown as { bosonWebE2EEnv: unknown }).bosonWebE2EEnv = e; }, pageEnv(env));
   const page: Page = context.pages()[0] ?? (await context.newPage());
-  page.on('console', (m) => logs.push(`[renderer ${m.type()}] ${m.text()}\n`));
-  page.on('pageerror', (e) => logs.push(`[renderer pageerror] ${e.message}\n`));
+  const log = (line: string): void => {
+    logs.push(line);
+    if (process.env['E2E_WEB_DEBUG']) process.stdout.write(line);
+  };
+  page.on('console', (m) => log(`[renderer ${m.type()}] ${m.text()}\n`));
+  page.on('pageerror', (e) => log(`[renderer pageerror] ${e.message}\n`));
+  page.on('crash', () => log('[renderer] the page crashed\n'));
   // A cold start from a link (the desktop gets the boson:// URL as argv):
   // a link to the web app carrying it.
   const link = args.find((a) => a.startsWith('boson://'));
   const url = new URL(STACK.web.url);
   if (link) url.searchParams.set('join', link);
-  await page.goto(url.toString());
+  // Not 'load': that also waits for the Google Fonts stylesheet.
+  await page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
+  dbg('loaded');
   await page.waitForFunction(() => 'bosonShellReady' in window, null, { timeout: 30_000 });
 
   let closed = false;

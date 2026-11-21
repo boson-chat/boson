@@ -3,6 +3,12 @@
 // read out of the browser (only used by this origin's script), so a copy of
 // the profile's storage doesn't reveal the secrets; script running on the
 // origin still could use it, which is what the page's CSP is for.
+//
+// WebKit (Safari) is the exception: it stores a CryptoKey in IndexedDB by
+// wrapping it with a master key from the macOS keychain, which blocks the
+// page (indefinitely in automation, and with a keychain prompt in some
+// setups). There the AES key is kept as raw bytes instead, so its secrets
+// are only as safe as the browser profile itself.
 
 const DB = 'boson-secure';
 const STORE = 'kv';
@@ -42,7 +48,16 @@ function unb64(s: string): Uint8Array {
   return out;
 }
 
-export function createWebSecureStore(idb: IDBFactory = indexedDB, subtle: SubtleCrypto = crypto.subtle): SecureBridge {
+// Safari / WebKit, not Chromium-based browsers (whose UA also says AppleWebKit).
+export function storesKeysAsBytes(ua: string = typeof navigator === 'undefined' ? '' : navigator.userAgent): boolean {
+  return /AppleWebKit/.test(ua) && !/Chrome|Chromium|CriOS|Edg|Firefox|FxiOS/.test(ua);
+}
+
+export function createWebSecureStore(
+  idb: IDBFactory = indexedDB,
+  subtle: SubtleCrypto = crypto.subtle,
+  rawKey: boolean = storesKeysAsBytes(),
+): SecureBridge {
   let db: Promise<IDBDatabase> | null = null;
   let key: Promise<CryptoKey> | null = null;
   const database = (): Promise<IDBDatabase> => (db ??= openDb(idb));
@@ -50,15 +65,32 @@ export function createWebSecureStore(idb: IDBFactory = indexedDB, subtle: Subtle
   const tx = async (mode: IDBTransactionMode): Promise<IDBObjectStore> =>
     (await database()).transaction(STORE, mode).objectStore(STORE);
 
+  const imported = async (stored: unknown): Promise<CryptoKey | null> => {
+    if (!stored) return null;
+    if (stored instanceof Uint8Array || stored instanceof ArrayBuffer) {
+      return subtle.importKey('raw', stored as BufferSource, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    }
+    return rawKey ? null : (stored as CryptoKey);
+  };
+
   const getKey = (): Promise<CryptoKey> => (key ??= (async () => {
-    const existing = await req((await tx('readonly')).get(KEY_ID)) as CryptoKey | undefined;
+    const existing = await imported(await req((await tx('readonly')).get(KEY_ID)));
     if (existing) return existing;
-    const k = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    let k: CryptoKey;
+    let toStore: CryptoKey | Uint8Array;
+    if (rawKey) {
+      const bytes = crypto.getRandomValues(new Uint8Array(32));
+      k = await subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
+      toStore = bytes;
+    } else {
+      k = await subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+      toStore = k;
+    }
     // Another tab may have made one meanwhile: keep the first.
     const store = await tx('readwrite');
-    const again = await req(store.get(KEY_ID)) as CryptoKey | undefined;
+    const again = await imported(await req(store.get(KEY_ID)));
     if (again) return again;
-    await req(store.put(k, KEY_ID));
+    await req(store.put(toStore, KEY_ID));
     return k;
   })().catch((err) => { key = null; throw err; }));
 
