@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import {
   test, expect, STACK, addServerManually, continueAsGuest, loginAs, randomEmail, randomPassword, randomUsername, serverCard, uid,
+  IS_WEB,
 } from './fixtures';
 
 const NET = STACK.selfhost;
@@ -104,9 +105,12 @@ test.describe('network sign-in', () => {
     const appUrl = new URL(page.url()).origin;
     await first.app.close();
     // The relaunch reuses the profile's port: wait until the old app let go.
-    await expect.poll(async () => {
-      try { await fetch(`${appUrl}/health`, { signal: AbortSignal.timeout(1_000) }); return 'up'; } catch { return 'gone'; }
-    }, { timeout: 15_000 }).toBe('gone');
+    // (The web build's page server stays up: nothing to wait for.)
+    if (!IS_WEB) {
+      await expect.poll(async () => {
+        try { await fetch(`${appUrl}/health`, { signal: AbortSignal.timeout(1_000) }); return 'up'; } catch { return 'gone'; }
+      }, { timeout: 15_000 }).toBe('gone');
+    }
     const again = await launchApp({ env });
     await expect(again.page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
     await expect(again.page.locator('.netauth-bar')).toContainText(`${username} on`);

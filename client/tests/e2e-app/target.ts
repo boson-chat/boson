@@ -53,3 +53,13 @@ export async function secureStoreOnDisk(page: import('@playwright/test').Page, u
     };
   }));
 }
+
+// Where images show from: the desktop's image cache route on the app's
+// own origin, or on the web the image itself (a files host URL) or a blob:
+// (theme images, fetched by the branding bridge).
+export const IMG = {
+  theme: IS_WEB ? /^blob:/ : /^\/_boson\/img\?k=theme&/,
+  themeCss: IS_WEB ? 'url("blob:' : '/_boson/img?k=theme',
+  themeVar: IS_WEB ? /^url\("blob:/ : /^url\("\/_boson\/img\?k=theme&/,
+  file: IS_WEB ? /^https?:\/\/[^/]+\/f\// : /^\/_boson\/img\?k=file&/,
+};

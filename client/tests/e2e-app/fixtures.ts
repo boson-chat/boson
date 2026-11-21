@@ -35,7 +35,7 @@ import { launchDesktopApp, type App, type DesktopLaunch } from './desktop-app';
 import { launchWebApp, type BrowserName } from './web-app';
 import { IS_WEB } from './target';
 
-export { IS_WEB, TARGET, webSkip, webBrowserSkip, SECURE_STORE_TAG, secureStoreOnDisk } from './target';
+export { IS_WEB, TARGET, webSkip, webBrowserSkip, SECURE_STORE_TAG, secureStoreOnDisk, IMG } from './target';
 
 export { APP_DIR, STACK };
 

@@ -116,6 +116,8 @@ export default defineConfig({
   resolve: {
     alias: [
       elkJsAlias,
+      // Only the web build has the web shell (and needs its generated engine).
+      ...(webBuild ? [] : [{ find: /^\.\/platform\/web$/, replacement: resolve(__dirname, 'src/renderer/src/platform/web-stub.ts') }]),
       { find: /^boson-engine-wasm/, replacement: join(webGen, 'engine.wasm') },
       { find: /^boson-wasm-exec$/, replacement: join(webGen, 'wasm_exec.js') },
     ],

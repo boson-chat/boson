@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { test, expect, STACK, randomEmail, randomPassword, randomUsername } from './fixtures';
+import { test, expect, STACK, randomEmail, randomPassword, randomUsername, IS_WEB } from './fixtures';
 
 const NET = STACK.selfhost;
 const SHOTS = process.env['OTHERSERVER_SHOTS_DIR'] ?? '';
@@ -93,9 +93,12 @@ test.describe('use another server', () => {
     // A relaunch restores the network session and logs in to ergo2 again.
     const appUrl = new URL(page.url()).origin;
     await first.app.close();
-    await expect.poll(async () => {
-      try { await fetch(`${appUrl}/health`, { signal: AbortSignal.timeout(1_000) }); return 'up'; } catch { return 'gone'; }
-    }, { timeout: 15_000 }).toBe('gone');
+    // (The web build's page server stays up: nothing to wait for.)
+    if (!IS_WEB) {
+      await expect.poll(async () => {
+        try { await fetch(`${appUrl}/health`, { signal: AbortSignal.timeout(1_000) }); return 'up'; } catch { return 'gone'; }
+      }, { timeout: 15_000 }).toBe('gone');
+    }
     const again = await launchApp({ env });
     const p2 = again.page;
     await expect(p2.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
