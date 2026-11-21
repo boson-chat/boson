@@ -7,6 +7,7 @@
   "minio": {"endpoint": "http://127.0.0.1:19000", "accessKey": "minioadmin", "secretKey": "minioadmin", "bucket": "boson"},
   "auth": {"url": "http://127.0.0.1:18180", "mailpitUrl": "http://127.0.0.1:18325", "dbPort": 16433, "admin": {"username": "e2eadmin", "email": "e2eadmin@example.test", "password": "e2e-admin-password"}},
   "backend": {"url": "http://127.0.0.1:13000", "port": 13000, "internalUrl": "http://127.0.0.1:13001", "internalPort": 13001, "internalToken": "e2e-internal-token"},
+  "adminsOnly": {"irc": {"host": "localhost", "port": 16669}, "oper": {"name": "admin", "password": "e2e-oper-pw"}},
   "selfhost": {"irc": {"host": "localhost", "port": 16668}, "auth": {"url": "http://127.0.0.1:18181"}, "dbPort": 16435},
   "directory": {"url": "http://127.0.0.1:18480", "dbPort": 16434, "database": "directory", "user": "directory", "password": "directory"},
   "web": {"url": "http://127.0.0.1:18800", "port": 18800, "gateway": {"url": "ws://127.0.0.1:18801/webirc/websocket/", "port": 18801}},

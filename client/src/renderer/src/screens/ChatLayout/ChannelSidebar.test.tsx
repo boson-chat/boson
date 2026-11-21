@@ -128,3 +128,42 @@ describe('channel join progress', () => {
     expect(row('c').getAttribute('title')).toBeNull();
   });
 });
+
+describe('ChannelSidebar join modal — admins-only channel creation', () => {
+  const open = async () => {
+    const { fireEvent } = await import('@testing-library/preact');
+    fireEvent.click(screen.getByRole('button', { name: 'Add channel' }));
+    return fireEvent;
+  };
+  const lobby = { name: '#lobby', topic: 'Welcome', autojoin: true };
+  const joined = (name: string): ChatChannel => ({ name, joined: true, messages: [] as never, members: [], typing: [], unread: 0, mentions: 0, topic: '' }) as unknown as ChatChannel;
+
+  it('says only admins can create channels, and offers the network channels', async () => {
+    const onJoin = vi.fn();
+    render(<ChannelSidebar {...baseProps} onJoin={onJoin} channelDirectory={[{ name: '#dev', userCount: 3, topic: '' }]} creation={{ restricted: true, channels: [lobby, { name: '#help' }] }} />);
+    expect(screen.getByRole('button', { name: 'Add channel' }).getAttribute('title')).toBe('Join a channel');
+    const fireEvent = await open();
+    expect(screen.getByTestId('channel-create-restricted').textContent).toContain('Only admins can create channels on this network.');
+    fireEvent.input(screen.getByPlaceholderText(/Search channels/), { target: { value: '#brandnew' } });
+    expect(screen.getByText('No channels match. Only admins can create new channels here.')).toBeTruthy();
+    const group = screen.getByRole('group', { name: 'Network channels' });
+    expect(group.textContent).toContain('#lobby');
+    fireEvent.click(screen.getByRole('button', { name: '#help' }));
+    expect(onJoin).toHaveBeenCalledWith('#help');
+  });
+
+  it('does not suggest a network channel we are already in', async () => {
+    render(<ChannelSidebar {...baseProps} channels={[joined('#lobby')]} creation={{ restricted: true, channels: [lobby] }} />);
+    await open();
+    expect(screen.queryByRole('group', { name: 'Network channels' })).toBeNull();
+  });
+
+  it('admins (or open creation) see the ordinary join modal', async () => {
+    render(<ChannelSidebar {...baseProps} creation={{ restricted: false, channels: [lobby] }} />);
+    expect(screen.getByRole('button', { name: 'Add channel' }).getAttribute('title')).toBe('Join a new channel');
+    await open();
+    expect(screen.queryByTestId('channel-create-restricted')).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Network channels' })).toBeNull();
+    expect(screen.getByText('Waiting for the server', { exact: false })).toBeTruthy();
+  });
+});

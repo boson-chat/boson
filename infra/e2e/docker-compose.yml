@@ -36,6 +36,8 @@
 #   auth2-postgres 127.0.0.1:16435  its DB (auth/auth/auth)
 #   ergo2     127.0.0.1:16668  that network's IRC (the boson stack's Ergo image:
 #                              accounts in auth2, SASL OAUTHBEARER, no guests)
+#   ergo3     127.0.0.1:16669  IRC where only operators create channels
+#                              (operator-only-creation; network-channels.spec.ts)
 #
 # The auth service is a private repo, so its image comes from outside:
 # e2e-stack.mjs builds it from a checkout ($AUTH_SRC, default ../auth next
@@ -362,6 +364,24 @@ services:
         condition: service_healthy
       auth:
         condition: service_started
+
+  # ---- admins-only channel creation (network-channels.spec.ts) ----------------
+  # A plain Ergo with channels.operator-only-creation (what auth
+  # `channel_creation: admins` sets on a boson stack); the spec serves the
+  # network's /v1/config itself.
+  ergo3:
+    image: ghcr.io/ergochat/ergo:v2.19.1
+    ports:
+      - '127.0.0.1:16669:6667'
+    tmpfs:
+      - /ircd
+    volumes:
+      - ./ergo3.yaml:/ircd/ircd.yaml:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'nc -z 127.0.0.1 6667']
+      interval: 1s
+      timeout: 2s
+      retries: 30
 
   # ---- a self-hosted network (network-signin.spec.ts) --------------------------
   # Its own auth service (same image as `auth`, separate database and issuer)

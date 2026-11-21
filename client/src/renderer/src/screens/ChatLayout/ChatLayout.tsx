@@ -12,7 +12,7 @@ import { VoiceBar } from './VoiceBar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
 import { ChannelSettings, type ChannelSettingsTab } from './ChannelSettings';
-import { useChannelPolicy, type ChanServState } from '../../modules/chanserv';
+import { useChannelCreation, useChannelPolicy, type ChanServState } from '../../modules/chanserv';
 import { ResizeHandle } from './ResizeHandle';
 import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/panel-sizes';
 import type { ChannelOpActions, NickProfiles } from './nick-actions';
@@ -198,6 +198,8 @@ export function ChatLayout({
   const [csState, setCsState] = useState<ChanServState | null>(() => csCtl?.getState() ?? null);
   useEffect(() => (csCtl ? csCtl.subscribe(setCsState) : setCsState(null)), [csCtl]);
   const channelPolicy = useChannelPolicy(serverHost);
+  // Admins-only channel creation (auth /v1/config channel_creation).
+  const channelCreation = useChannelCreation(serverHost, { oper: state.myOper });
   const myAccount = typeof chat.selfIdentity === 'function' ? chat.selfIdentity().account : undefined;
   const activeJoined = !!active?.joined;
   useEffect(() => {
@@ -406,6 +408,7 @@ export function ChatLayout({
           onReorderChannels={onReorderChannels}
           onResetChannelOrder={onResetChannelOrder}
           channelDirectory={state.channelDirectory.entries}
+          creation={channelCreation}
           onOpenSettings={
             onOpenServerSettings && activeServerId
               ? () => onOpenServerSettings(activeServerId)

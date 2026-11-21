@@ -22,6 +22,11 @@ export interface Server {
   // The listing's network theme (boson-theme/1), as the directory sent it;
   // validated by modules/ui/theme (parseNetworkTheme) before use.
   theme?: Record<string, unknown>;
+  // The network's channels (directory listing `channels`) and the ones it
+  // puts new people in (`autojoin_channels`, e.g. ["#lobby"]). Absent on
+  // directories that predate them.
+  channels?: string[];
+  autojoin_channels?: string[];
   // Multi-directory browse: the directory this row came from (the winner
   // when several list the same hostname:port), the names of the other
   // directories that list it too, and whether the signed-in user owns it

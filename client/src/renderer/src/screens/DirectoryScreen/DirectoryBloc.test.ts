@@ -2511,3 +2511,108 @@ describe('DirectoryBloc', () => {
     });
   });
 });
+
+// A listing's default channels (autojoin_channels): joined by the client on
+// the first connect from its card, ~3s after registration, unless the
+// network's own auto-join already put us there; never again after that.
+describe('DirectoryBloc — a listing\'s default channels', () => {
+  const DONE_KEY = 'boson:autojoin-done:v1';
+  beforeEach(async () => {
+    vi.useRealTimers();
+    localStorage.removeItem(DONE_KEY);
+    setServiceCredentialsStore(new LocalStorageServiceCredentialsStore(memStorage()));
+    setBouncerStore(await fastBouncerStore());
+  });
+  afterEach(() => { vi.useRealTimers(); localStorage.removeItem(DONE_KEY); });
+
+  async function connected(server: Server) {
+    const engine = fakeEngine();
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: fakeDirectory({ user: fakeUser('alice'), servers: [server] }),
+      identity: fakeIdentity(),
+      engine: engine.client,
+      sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises(4);
+    await bloc.connect(server);
+    vi.useFakeTimers();
+    const session = engine.sessionFor(server.id);
+    session._setState('connected');
+    return { bloc, engine, session };
+  }
+
+  const selfJoin = (session: { _emitEvent(e: IrcEvent): void }, channel: string): void =>
+    session._emitEvent({ Kind: 'JOIN', From: 'alice', Target: channel, Message: '', Raw: '' } as IrcEvent);
+
+  it('joins them a few seconds after registration, once per network', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const server = fakeServer('lobbynet', { autojoin_channels: ['#lobby', '#help'] });
+    const { bloc, session } = await connected(server);
+    vi.advanceTimersByTime(2000);
+    expect(session.joinCalls).toEqual([]);
+    vi.advanceTimersByTime(1500);
+    expect(session.joinCalls).toEqual(['#lobby', '#help']);
+    expect(JSON.parse(localStorage.getItem(DONE_KEY)!)).toEqual(['irc.lobbynet:6697']);
+    bloc.disconnect('lobbynet');
+    vi.useRealTimers();
+
+    // Connecting again: nothing more.
+    const again = await connected(server);
+    vi.advanceTimersByTime(5000);
+    expect(again.session.joinCalls).toEqual([]);
+    again.bloc.dispose();
+    bloc.dispose();
+    info.mockRestore();
+  });
+
+  it('skips the ones the server already joined us to', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const server = fakeServer('sajoined', { autojoin_channels: ['#Lobby', '#help'] });
+    const { bloc, session } = await connected(server);
+    selfJoin(session, '#lobby'); // RoleServ's SAJOIN landed first
+    vi.advanceTimersByTime(3000);
+    expect(session.joinCalls).toEqual(['#help']);
+    bloc.dispose();
+    info.mockRestore();
+  });
+
+  it('a refused default channel shows no error', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const server = fakeServer('refuses', { autojoin_channels: ['#lobby'] });
+    const { bloc, session } = await connected(server);
+    vi.advanceTimersByTime(3000);
+    expect(session.joinCalls).toEqual(['#lobby']);
+    const conn = bloc.getState().connections[0]!;
+    const feedback: unknown[] = [];
+    conn.chat.onFeedback((f) => feedback.push(f));
+    session._emitEvent({ Kind: '474', Target: 'alice', Message: 'banned', Args: ['#lobby', 'banned'], From: '', Raw: '' } as IrcEvent);
+    expect(feedback).toEqual([]);
+    expect(conn.chat.getState().channels.map((c) => c.name)).not.toContain('#lobby');
+    bloc.dispose();
+    info.mockRestore();
+  });
+
+  it('listings without default channels, and restores, join nothing extra', async () => {
+    const { bloc, session } = await connected(fakeServer('plain'));
+    vi.advanceTimersByTime(5000);
+    expect(session.joinCalls).toEqual([]);
+    expect(localStorage.getItem(DONE_KEY)).toBeNull();
+    bloc.dispose();
+  });
+
+  it('dropped before the delay: tried on the next registration instead', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const server = fakeServer('flaky', { autojoin_channels: ['#lobby'] });
+    const { bloc, session } = await connected(server);
+    session._setState('disconnected');
+    vi.advanceTimersByTime(3000);
+    expect(session.joinCalls).toEqual([]);
+    expect(localStorage.getItem(DONE_KEY)).toBeNull();
+    session._setState('connected');
+    vi.advanceTimersByTime(3000);
+    expect(session.joinCalls).toEqual(['#lobby']);
+    bloc.dispose();
+    info.mockRestore();
+  });
+});

@@ -25,6 +25,9 @@ export interface StackConfig {
   // internal*: the api's internal listener (config status, nick-claim admin).
   backend: { url: string; port: number; internalUrl: string; internalPort: number; internalToken: string };
   directory: { url: string; dbPort: number; database: string; user: string; password: string };
+  // IRC where only operators create channels (ergo3: operator-only-creation),
+  // with the operator that may.
+  adminsOnly: { irc: { host: string; port: number }; oper: { name: string; password: string } };
   // A self-hosted network: its own auth service and IRC (no guests).
   selfhost: { irc: { host: string; port: number }; auth: { url: string }; dbPort: number };
   // The web build's origin under e2e (tests/e2e-app/web-server.ts) and the

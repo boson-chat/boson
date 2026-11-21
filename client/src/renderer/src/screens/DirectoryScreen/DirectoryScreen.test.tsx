@@ -93,6 +93,17 @@ describe('DirectoryScreen', () => {
     expect(screen.getByText('@alice')).toBeInTheDocument();
   });
 
+  it("shows the channels a listing puts new people in (autojoin_channels)", async () => {
+    const directory = buildDirectory({
+      user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
+      servers: [{ ...fakeServer('Boson'), autojoin_channels: ['#lobby'] }, fakeServer('OFTC')],
+    });
+    renderWith(directory);
+    expect(await screen.findByText('Joins #lobby')).toBeInTheDocument();
+    // A listing without them (or from an older directory) says nothing.
+    expect(document.querySelectorAll('.directory-card-joins')).toHaveLength(1);
+  });
+
   it('shows empty state when there are no servers', async () => {
     const directory = buildDirectory({
       user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
