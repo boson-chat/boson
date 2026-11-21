@@ -1,0 +1,11 @@
+**/node_modules
+**/out
+**/out-e2e
+client/test-results
+client/playwright-report
+client/coverage
+desktop/bin
+desktop/build
+**/.git
+client/src/renderer/src/platform/web/gen
+screens

@@ -22,3 +22,34 @@ export function webSkip(reason: string): void {
 export function webBrowserSkip(browser: 'chromium' | 'firefox' | 'webkit', reason: string): void {
   test.skip(({ browserName }) => IS_WEB && browserName === browser, `web ${browser}: ${reason}`);
 }
+
+// What the secure store keeps on disk, key → stored value: the desktop's
+// identity-store.json, or the web build's IndexedDB (platform/web/
+// secure-store.ts). Values are ciphertext tagged SECURE_STORE_TAG.
+export const SECURE_STORE_TAG = IS_WEB ? /^wb1:/ : /^fb1:/;
+
+export async function secureStoreOnDisk(page: import('@playwright/test').Page, userData: string): Promise<Record<string, string>> {
+  if (!IS_WEB) {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    try { return JSON.parse(readFileSync(join(userData, 'identity-store.json'), 'utf8')) as Record<string, string>; } catch { return {}; }
+  }
+  return page.evaluate(() => new Promise<Record<string, string>>((resolve) => {
+    const r = indexedDB.open('boson-secure');
+    r.onerror = () => resolve({});
+    r.onsuccess = () => {
+      const db = r.result;
+      if (!db.objectStoreNames.contains('kv')) { db.close(); resolve({}); return; }
+      const out: Record<string, string> = {};
+      const c = db.transaction('kv').objectStore('kv').openCursor();
+      c.onsuccess = () => {
+        const cur = c.result;
+        if (!cur) { db.close(); resolve(out); return; }
+        const k = String(cur.key);
+        if (k.startsWith('v:') && typeof cur.value === 'string') out[k.slice(2)] = cur.value;
+        cur.continue();
+      };
+      c.onerror = () => { db.close(); resolve(out); };
+    };
+  }));
+}

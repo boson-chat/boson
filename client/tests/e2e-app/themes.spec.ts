@@ -4,7 +4,7 @@
 // (listed; a broken one is reported).
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { test, expect, uid, continueAsGuest } from './fixtures';
+import { test, expect, uid, continueAsGuest, IS_WEB, webSkip } from './fixtures';
 import type { Page } from '@playwright/test';
 
 const cssVar = (page: Page, name: string): Promise<string> =>
@@ -97,12 +97,21 @@ test.describe('themes', () => {
 
     await dialog.getByRole('button', { name: 'Save as new theme' }).click();
     await expect(dialog.getByRole('radio', { name: /^Picked/ })).toHaveAttribute('aria-checked', 'true');
+    // Saved: a file in the themes folder; in the web build's local storage.
     const file = join(profile.userData, 'themes', 'picked.json');
-    await expect.poll(() => { try { return JSON.parse(readFileSync(file, 'utf8')).colors.accent; } catch { return null; } })
-      .toBe('#10b981');
+    const saved = async (): Promise<string | null> => {
+      if (IS_WEB) {
+        return page.evaluate(() => {
+          try { return JSON.parse(JSON.parse(localStorage.getItem('boson:themes:custom:v1') ?? '{}').picked).colors.accent as string; } catch { return null; }
+        });
+      }
+      try { return JSON.parse(readFileSync(file, 'utf8')).colors.accent; } catch { return null; }
+    };
+    await expect.poll(saved).toBe('#10b981');
   });
 
   test('customize writes a theme file, and editing the file updates the app live', async ({ launchApp, profile }) => {
+    webSkip("the desktop's themes folder and its watcher; the web keeps themes in the browser");
     const { page } = await launchApp();
     await continueAsGuest(page, `th${uid()}`);
     const themesDir = join(profile.userData, 'themes');

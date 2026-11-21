@@ -579,7 +579,9 @@ export class FilesController {
       let body = '';
       let retryAfter: string | null = null;
       try {
-        const res = await sendChunks(doFetch, ticket.path, blob, this.deps.chunkBytes ?? UPLOAD_CHUNK_BYTES, run.abort.signal);
+        const res = bridge.upload
+          ? await bridge.upload(ticket.id, blob, run.abort.signal)
+          : await sendChunks(doFetch, ticket.path, blob, this.deps.chunkBytes ?? UPLOAD_CHUNK_BYTES, run.abort.signal);
         status = res.status;
         retryAfter = res.headers.get('Retry-After');
         body = await res.text();

@@ -923,14 +923,25 @@ function RecoveryCodeSettings({ directory, identity, open }: {
   );
 }
 
+// The browser's name for the About row of the web build.
+export function browserName(ua: string): string {
+  if (/Edg\//.test(ua)) return 'Edge';
+  if (/Firefox\//.test(ua)) return 'Firefox';
+  if (/Chrome\/|Chromium\//.test(ua)) return 'Chrome';
+  if (/Safari\//.test(ua)) return 'Safari';
+  return 'browser';
+}
+
 function AboutSection() {
   // Platform string is set by the shell's bridges (platform/wails.ts,
   // at startup). In a browser preview / e2e harness `bosonPlatform` may not
   // exist — fall back to navigator's hint so we still show something
   // useful instead of "undefined".
-  const platform =
-    (window as unknown as { bosonPlatform?: string }).bosonPlatform
-    ?? (typeof navigator !== 'undefined' ? navigator.platform : 'unknown');
+  // The web build (platform/web) says so: the browser is the platform.
+  const w = window as unknown as { bosonPlatform?: string; bosonShell?: string };
+  const platform = w.bosonShell === 'web'
+    ? `Web (${browserName(typeof navigator === 'undefined' ? '' : navigator.userAgent)})`
+    : w.bosonPlatform ?? (typeof navigator !== 'undefined' ? navigator.platform : 'unknown');
 
   // In-app updates (modules/updater): the shell's state, live, next to the
   // version, with "Check for updates" / "Update" / "Restart to update".

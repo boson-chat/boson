@@ -7,7 +7,9 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { deflateSync, crc32 } from 'node:zlib';
-import { test, expect, randomChannel } from './fixtures';
+import { test, expect, randomChannel, webSkip } from './fixtures';
+
+webSkip("the desktop image disk cache (desktop/imagecache.go); the web uses the browser cache");
 import { connectGuest, connectPeer, conversation, joinViaUi, memberRow, messages } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 

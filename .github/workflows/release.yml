@@ -81,3 +81,4 @@ jobs:
           set -e
           echo "Dispatching downstream builds for $NEW_TAG"
           gh workflow run "Desktop app"            --ref "$NEW_TAG"
+          gh workflow run "Web app"                --ref "$NEW_TAG"

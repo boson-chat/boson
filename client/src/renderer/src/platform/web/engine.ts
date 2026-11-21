@@ -24,6 +24,11 @@ export type SessionMessage = { frame: string } | { closed: true };
 export class WebEngine {
   private worker: Worker | null = null;
   private ready: Promise<void> | null = null;
+  // e2e: the open session's id (0: none), and how to fail the open sockets
+  // when the worker is killed.
+  private seq = 0;
+  private current = 0;
+  private live = new Set<() => void>();
 
   constructor(
     private readonly opts: { wasmUrl: string; gatewayUrl: string; createWorker: WorkerFactory },
@@ -55,6 +60,27 @@ export class WebEngine {
     return this.ready;
   }
 
+  /** The open engine session's id (0: none); a new one after a crash. */
+  session(): number {
+    return this.current;
+  }
+
+  /**
+   * Kills the engine the hard way, as a crashed engine process would: the
+   * worker is terminated (its IRC sockets drop), the renderer's sockets
+   * fail, and the next socket starts a new engine. Returns the ended
+   * session's id. For the e2e suite.
+   */
+  crash(): number {
+    const ended = this.current;
+    this.worker?.terminate();
+    this.worker = null;
+    this.ready = null;
+    this.current = 0;
+    for (const fail of [...this.live]) fail();
+    return ended;
+  }
+
   async openSession(): Promise<MessagePort> {
     await this.start();
     const ch = new MessageChannel();
@@ -74,6 +100,8 @@ export class WebEngine {
       onerror: WebSocketLike['onerror'] = null;
       onmessage: WebSocketLike['onmessage'] = null;
       private port: MessagePort | null = null;
+      private session = 0;
+      private readonly failFn = (): void => this.fail();
 
       constructor(_url: string) {
         engine.openSession().then(
@@ -84,6 +112,9 @@ export class WebEngine {
               return;
             }
             this.port = port;
+            engine.current = ++engine.seq;
+            this.session = engine.current;
+            engine.live.add(this.failFn);
             port.onmessage = (ev: MessageEvent<SessionMessage>) => {
               const m = ev.data;
               if ('frame' in m) {
@@ -120,6 +151,8 @@ export class WebEngine {
       }
 
       private finish(): void {
+        engine.live.delete(this.failFn);
+        if (engine.current === this.session) engine.current = 0;
         this.readyState = 3;
         this.port?.close();
         this.port = null;

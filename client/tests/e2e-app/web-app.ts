@@ -19,22 +19,19 @@ export type BrowserName = 'chromium' | 'firefox' | 'webkit';
 
 const BROWSERS: Record<BrowserName, BrowserType> = { chromium, firefox, webkit };
 
-// The desktop app's test environment, for the page. The page can't read
-// files, so the boson.json documents BOSON_NETWORK_JSON / BOSON_VOICE_JSON
-// name are passed by content (networkJson), and the e2e voice/video
-// servers' self-signed certificate info by host:port (certInfo).
+// The desktop app's test environment, for the page.
+// BOSON_NETWORK_JSON / BOSON_VOICE_JSON name files (path lists); the page
+// gets their text (networkJson), and the e2e voice/video servers'
+// self-signed certificate info by host:port (certInfo).
 function pageEnv(env: Record<string, string>): Record<string, unknown> {
-  const keep = ['BOSON_NETWORK_JSON', 'BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
+  const keep = ['BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
   const out: Record<string, unknown> = {};
   for (const k of keep) if (env[k] !== undefined) out[k] = env[k]!;
   const docs: string[] = [];
   for (const k of ['BOSON_NETWORK_JSON', 'BOSON_VOICE_JSON']) {
-    for (const path of (env[k] ?? '').split(delimiter)) {
-      if (!path) continue;
-      try { docs.push(readFileSync(path, 'utf8')); } catch { /* missing file: like the desktop, skip it */ }
-    }
+    for (const path of (env[k] ?? '').split(delimiter).filter(Boolean)) docs.push(readFileSync(path, 'utf8'));
   }
-  out['networkJson'] = docs;
+  if (docs.length > 0) out['networkJson'] = docs;
   out['certInfo'] = { [STACK.voice.video.addr]: STACK.voice.video.infoUrl };
   return out;
 }
@@ -66,6 +63,8 @@ export async function launchWebApp(
   p: Profile, env: Record<string, string>, args: string[] = [], device: DeviceOptions & { browserName?: BrowserName } = {},
 ): Promise<DesktopLaunch> {
   const logs: string[] = [];
+  const dbg = (m: string): void => { if (process.env['E2E_WEB_DEBUG']) process.stdout.write(`[web-app] ${m}\n`); };
+  dbg('launching');
   const browser = BROWSERS[device.browserName ?? 'chromium'];
   const { browserName: _b, ...dev } = device;
   // Firefox has no mobile emulation (viewport + touch still apply).
@@ -82,16 +81,24 @@ export async function launchWebApp(
     ...(media.args ? { args: media.args } : {}),
     ...(media.firefoxUserPrefs ? { firefoxUserPrefs: media.firefoxUserPrefs } : {}),
   });
+  dbg('launched');
   await context.addInitScript((e) => { (window as unknown as { bosonWebE2EEnv: unknown }).bosonWebE2EEnv = e; }, pageEnv(env));
   const page: Page = context.pages()[0] ?? (await context.newPage());
-  page.on('console', (m) => logs.push(`[renderer ${m.type()}] ${m.text()}\n`));
-  page.on('pageerror', (e) => logs.push(`[renderer pageerror] ${e.message}\n`));
+  const log = (line: string): void => {
+    logs.push(line);
+    if (process.env['E2E_WEB_DEBUG']) process.stdout.write(line);
+  };
+  page.on('console', (m) => log(`[renderer ${m.type()}] ${m.text()}\n`));
+  page.on('pageerror', (e) => log(`[renderer pageerror] ${e.message}\n`));
+  page.on('crash', () => log('[renderer] the page crashed\n'));
   // A cold start from a link (the desktop gets the boson:// URL as argv):
   // a link to the web app carrying it.
   const link = args.find((a) => a.startsWith('boson://'));
   const url = new URL(STACK.web.url);
   if (link) url.searchParams.set('join', link);
-  await page.goto(url.toString());
+  // Not 'load': that also waits for the Google Fonts stylesheet.
+  await page.goto(url.toString(), { waitUntil: 'domcontentloaded' });
+  dbg('loaded');
   await page.waitForFunction(() => 'bosonShellReady' in window, null, { timeout: 30_000 });
 
   let closed = false;
