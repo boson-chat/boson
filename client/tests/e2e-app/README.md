@@ -125,6 +125,13 @@ npm run test:e2e:web -- --project=web-firefox --project=web-firefox-mobile
   profile. It reaches IRC through the gateway (`web.gateway.url`), which
   here may dial loopback and any port ≥ 1024 (production: IRC ports and
   public addresses only).
+- Link previews and Spotify cards come from the e2e backend
+  (`/v1/unfurl`), which fetches the specs' pages on this host through
+  `UNFURL_TEST_HOST_MAP` (infra/e2e/docker-compose.yml): chat-embeds'
+  site under `unfurl.e2e.test`, and Spotify's embed pages from the web
+  server (`bosonE2E.stubSpotify` hands them over). The backend reaches the
+  host as `host.docker.internal`, so on Linux the web server and that site
+  listen on every interface (`E2E_BIND_HOST`).
 - The desktop's test environment reaches the page as
   `window.bosonWebE2EEnv` (BOSON_NETWORK_JSON documents, the API outage
   switch); `bosonE2E` has the hooks the web can do (engine crash, API
@@ -138,8 +145,6 @@ npm run test:e2e:web -- --project=web-firefox --project=web-firefox-mobile
 | app-shell: About update states | no in-app updater (each deploy is the latest) |
 | app-shell: secure store file ×2 | the desktop store file format; the web store is unit-tested (`platform/web/secure-store.test.ts`) |
 | app-shell: API proxy | the desktop's API proxy; the web calls services directly under CORS |
-| app-shell: Spotify | the desktop's Spotify fetcher (no cards on the web) |
-| chat-embeds: website card, YouTube wrapper ×3 | the desktop's unfurl fetcher and YouTube wrapper page |
 | image-cache (file) | the desktop's image disk cache |
 | security: navigation guard | belongs to the desktop window; a web page may navigate |
 | themes: theme file + live edit | the desktop's themes folder and watcher |

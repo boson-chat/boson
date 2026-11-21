@@ -32,7 +32,7 @@ export const E2E_CSP = [
   "font-src 'self' https://fonts.gstatic.com data:",
   'img-src \'self\' data: blob: https: http://localhost:* http://127.0.0.1:*',
   "media-src 'self' https: blob: http://127.0.0.1:*",
-  'frame-src https://www.youtube-nocookie.com https://www.youtube.com',
+  "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com",
   "connect-src 'self' https: wss: http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:*",
 ].join('; ');
 
@@ -47,10 +47,59 @@ export function webConfigScript(): string {
   return `window.bosonWebConfig = ${JSON.stringify(cfg)};\n`;
 }
 
+// The YouTube wrapper's headers (infra/web/nginx.conf).
+const WRAPPER_CSP = "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src https://www.youtube-nocookie.com; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+
+// Spotify's embed pages, for the API's link-preview fetcher: the e2e
+// backend fetches https://open.spotify.com from this server
+// (UNFURL_TEST_HOST_MAP in infra/e2e/docker-compose.yml). A test hands
+// the pages over through bosonE2E.stubSpotify (platform/web/e2e.ts →
+// POST /__e2e/spotify) and reads what was fetched back (GET).
+const spotifyPages = new Map<string, string>();
+const spotifyFetched: string[] = [];
+
+// The backend runs in Docker and reaches this server as host.docker.internal:
+// on Linux that's the docker bridge, so listen on every interface there
+// (Docker Desktop forwards to the host's loopback).
+export const E2E_BIND_HOST = process.platform === 'linux' ? '0.0.0.0' : '127.0.0.1';
+
 export function startWebServer(dir = WEB_DIR, port = STACK.web.port): Promise<Server> {
   const index = readFileSync(join(dir, 'index.html'));
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');
+    if ((req.headers.host ?? '').split(':')[0] === 'open.spotify.com') {
+      const page = `https://open.spotify.com${url.pathname}`;
+      spotifyFetched.push(page);
+      const body = spotifyPages.get(page);
+      res.writeHead(body === undefined ? 404 : 200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(body ?? 'not found');
+      return;
+    }
+    if (url.pathname === '/__e2e/spotify') {
+      if (req.method === 'POST') {
+        let raw = '';
+        req.on('data', (c: Buffer) => { raw += c.toString(); });
+        req.on('end', () => {
+          for (const [k, v] of Object.entries(JSON.parse(raw) as Record<string, string>)) spotifyPages.set(k, v);
+          res.writeHead(204).end();
+        });
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(spotifyFetched));
+      return;
+    }
+    if (url.pathname === '/youtube-embed.html') {
+      res.writeHead(200, {
+        'Content-Type': TYPES['.html']!,
+        'Cache-Control': 'no-cache',
+        'Content-Security-Policy': WRAPPER_CSP,
+        'X-Content-Type-Options': 'nosniff',
+        'Referrer-Policy': 'strict-origin-when-cross-origin',
+      });
+      res.end(readFileSync(join(dir, 'youtube-embed.html')));
+      return;
+    }
     const send = (status: number, type: string, body: Buffer | string, cache = 'no-store'): void => {
       res.writeHead(status, {
         'Content-Type': type,
@@ -73,6 +122,6 @@ export function startWebServer(dir = WEB_DIR, port = STACK.web.port): Promise<Se
   });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, '127.0.0.1', () => resolve(server));
+    server.listen(port, E2E_BIND_HOST, () => resolve(server));
   });
 }

@@ -341,7 +341,7 @@ test.describe('API proxy', () => {
   });
 });
 
-// ---- Spotify (desktop/spotify.go) ------------------------------------------
+// ---- Spotify (desktop/spotify.go; on the web the boson API's /v1/unfurl/spotify) ----
 
 function spotifyEmbedPage(entity: Record<string, unknown>): string {
   const data = { props: { pageProps: { state: { data: { entity } } } } };
@@ -352,9 +352,13 @@ test.describe('Spotify', () => {
   // The app fetches https://open.spotify.com/embed/<type>/<id> — a fixed
   // host (that's its SSRF guard), so the e2e build's StubSpotify hook serves
   // those pages in place of the network instead of redirecting it anywhere.
+  // On the web the API fetches them, from the e2e web server (its
+  // UNFURL_TEST_HOST_MAP; tests/e2e-app/web-server.ts), and the hook hands
+  // the pages to that server.
   test('a Spotify link renders a native card from the embed page; other hosts are never fetched', async ({ launchApp }) => {
-    webSkip("the desktop Spotify fetcher; Spotify cards are unavailable on the web");
     const playlistId = `PL${uid(10)}`;
+    // Per run: on the web, the API's cache outlives a test run.
+    const trackId = `T${uid(10)}`;
     const pages: Record<string, string> = {
       [`https://open.spotify.com/embed/playlist/${playlistId}`]: spotifyEmbedPage({
         type: 'playlist', name: 'E2E Mix', subtitle: 'by boson',
@@ -364,7 +368,7 @@ test.describe('Spotify', () => {
           { title: '', subtitle: 'dropped: no title' },
         ],
       }),
-      'https://open.spotify.com/embed/track/T1': spotifyEmbedPage({
+      [`https://open.spotify.com/embed/track/${trackId}`]: spotifyEmbedPage({
         type: 'track', title: 'Solo', artists: [{ name: 'A' }, { name: 'B' }], duration: 1000,
         audioPreview: { url: 'https://p.scdn.co/mp3-preview/solo' },
         visualIdentity: { image: [{ url: 'https://i.scdn.co/small', maxWidth: 64 }, { url: 'https://i.scdn.co/big', maxWidth: 640 }] },
@@ -381,13 +385,13 @@ test.describe('Spotify', () => {
         page.evaluate((u) => (window as unknown as { bosonSpotify: { fetch: (x: string) => Promise<unknown> } }).bosonSpotify.fetch(u), url);
 
       // The bridge: URL forms normalised to the embed page; parsed fields.
-      expect(await info('https://open.spotify.com/intl-de/track/T1?si=abc')).toEqual({
-        url: 'https://open.spotify.com/intl-de/track/T1?si=abc', type: 'track', title: 'Solo', subtitle: 'A, B',
+      expect(await info(`https://open.spotify.com/intl-de/track/${trackId}?si=abc`)).toEqual({
+        url: `https://open.spotify.com/intl-de/track/${trackId}?si=abc`, type: 'track', title: 'Solo', subtitle: 'A, B',
         cover: 'https://i.scdn.co/big', durationMs: 1000, previewUrl: 'https://p.scdn.co/mp3-preview/solo',
       });
       // Cached: a second ask doesn't refetch.
-      await info('https://open.spotify.com/track/T1');
-      expect((await fetched()).filter((u) => u.endsWith('/track/T1'))).toHaveLength(1);
+      await info(`https://open.spotify.com/track/${trackId}`);
+      expect((await fetched()).filter((u) => u.endsWith(`/track/${trackId}`))).toHaveLength(1);
       // No __NEXT_DATA__ / unknown entity / 404 → null.
       expect(await info('https://open.spotify.com/album/NODATA')).toBeNull();
       expect(await info('https://open.spotify.com/show/MISSING')).toBeNull();

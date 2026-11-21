@@ -17,6 +17,7 @@ import { NetworkDiscoverer, setNetworkDiscoverer } from './discovery';
 import { webNetAuthBridge } from './netauth';
 import { webFilesBridge } from './files';
 import { webBrandingBridge } from './branding';
+import { webUnfurlBridges } from './unfurl';
 
 function originOf(u: string | undefined): string {
   try { return u ? new URL(u).origin : ''; } catch { return ''; }
@@ -54,13 +55,25 @@ export async function installWebBridges(): Promise<void> {
   const discoverer = new NetworkDiscoverer({ allowLoopbackHttp: dev, overrides: dev ? e2eEnv?.networkJson ?? [] : [] });
   setNetworkDiscoverer(discoverer);
   const mainAuthUrl = cfg.authUrl || import.meta.env.VITE_AUTH_URL || 'https://auth.boson.chat';
+  const apiUrl = cfg.apiUrl || import.meta.env.VITE_BOSON_API_URL || 'https://api.boson.chat';
   const appOrigins = [
-    originOf(cfg.apiUrl || import.meta.env.VITE_BOSON_API_URL || 'https://api.boson.chat'),
+    originOf(apiUrl),
     originOf(cfg.directoryUrl || import.meta.env.VITE_DIRECTORY_URL || 'https://directory.boson.chat'),
   ].filter(Boolean);
   w.bosonNetAuth = webNetAuthBridge({ discoverer, mainAuthUrl, appOrigins });
   w.bosonFiles = webFilesBridge({ discoverer, mainAuthUrl, appOrigins });
   w.bosonBranding = webBrandingBridge(dev);
+
+  // Link previews and Spotify cards, fetched by the boson API (its
+  // /v1/unfurl; desktop: the Go shell).
+  const unfurl = webUnfurlBridges(apiUrl);
+  w.bosonUnfurl = unfurl.unfurl;
+  w.bosonSpotify = unfurl.spotify;
+  // YouTube's player is framed by the wrapper page (public/youtube-embed.html)
+  // on the app's own origin, as the desktop frames boson.chat's copy: it
+  // passes on the player's errors, so a video YouTube won't play here
+  // becomes the card that opens it on YouTube.
+  w.bosonYouTube = { wrapperOrigin: location.origin };
 
   // Ask the browser to keep this origin's storage (history, the secure
   // store) under storage pressure. Best-effort; no prompt in most browsers.

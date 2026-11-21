@@ -107,7 +107,7 @@ services:
   # inside the network. Avatars go to MinIO over the network, their URLs
   # (CDN base) are the host's MinIO port so the app can load them.
   backend-migrate:
-    image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.55.0}}
+    image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.57.0}}
     command: ['migrate', 'up']
     environment: &backend-env
       # The web build under e2e (stack.json web.url) calls it cross-origin.
@@ -141,17 +141,27 @@ services:
       CLOUDFLARE_R2_ENDPOINT: http://minio:9000
       CLOUDFLARE_R2_BUCKET: boson
       CLOUDFLARE_CDN_BASE_URL: http://127.0.0.1:19000/boson
+      # Link previews (/v1/unfurl) for the web build. The test pages live on
+      # the host: chat-embeds' site under unfurl.e2e.test (its own port), and
+      # Spotify's embed pages on the e2e web server (stack.json web.port).
+      # Only these names skip the SSRF guard (not in production).
+      UNFURL_TEST_HOST_MAP: unfurl.e2e.test=host.docker.internal,open.spotify.com=host.docker.internal:18800
+      # Every test shares one address.
+      UNFURL_RATE_PER_IP: '0'
     depends_on:
       postgres:
         condition: service_healthy
 
   backend:
-    image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.55.0}}
+    image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.57.0}}
     command: ['serve']
     ports:
       - '127.0.0.1:13000:3000'
       - '127.0.0.1:13001:3001'
     environment: *backend-env
+    # The host's test servers (UNFURL_TEST_HOST_MAP).
+    extra_hosts:
+      - host.docker.internal:host-gateway
     depends_on:
       backend-migrate:
         condition: service_completed_successfully

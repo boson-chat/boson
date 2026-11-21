@@ -64,7 +64,7 @@ jobs:
         env:
           # Public images on Harbor (no private-repo checkout needed).
           AUTH_IMAGE: harbor.floret.dev/boson/auth:1.1.0
-          BACKEND_IMAGE: harbor.floret.dev/boson/backend:0.55.0
+          BACKEND_IMAGE: harbor.floret.dev/boson/backend:0.57.0
         run: |
           ( node client/scripts/e2e-stack.mjs up; echo $? > e2e-stack.exit ) > e2e-stack.log 2>&1 &
 
@@ -199,7 +199,7 @@ jobs:
       - name: Start e2e stack (background)
         env:
           AUTH_IMAGE: harbor.floret.dev/boson/auth:1.1.0
-          BACKEND_IMAGE: harbor.floret.dev/boson/backend:0.55.0
+          BACKEND_IMAGE: harbor.floret.dev/boson/backend:0.57.0
         run: |
           ( node client/scripts/e2e-stack.mjs up; echo $? > e2e-stack.exit ) > e2e-stack.log 2>&1 &
 
