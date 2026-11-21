@@ -83,7 +83,7 @@ test.describe('use another server', () => {
     await settings.getByRole('tab', { name: /Network accounts/ }).click();
     await expect(settings.getByText(username, { exact: false })).toBeVisible();
     // Named as on the login screen, not after its sign-in service's host.
-    await expect(settings.locator('.directories-row-name').first()).toHaveText(/^localhost/);
+    await expect(settings.getByRole('list', { name: 'Network accounts' }).locator('.bds-row-title').first()).toHaveText(/^localhost/);
     await expect(settings.getByText('Signed in', { exact: true })).toBeVisible();
     await shot(page, '06-settings-network-accounts');
     await settings.getByRole('tab', { name: /^Account/ }).click();

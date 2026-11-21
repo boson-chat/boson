@@ -90,7 +90,7 @@ test('two servers: browse modal, rail switching, unread + mentions, details, lea
     // Context menu → Server details for B; selecting another tile from the
     // settings page goes back to chat on that server.
     const settings = await openServerSettings(page, b.name);
-    await expect(settings.locator('.server-settings-title')).toHaveText(b.name);
+    await expect(settings.getByRole('heading', { level: 1 })).toHaveText(b.name);
     await railTile(page, a.name).click();
     await expect(settings).toBeHidden();
     await expect(sidebarServerName(page)).toHaveText(a.name);
