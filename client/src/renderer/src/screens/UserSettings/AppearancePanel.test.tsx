@@ -57,15 +57,17 @@ describe('AppearancePanel', () => {
     await waitFor(() => expect(within(screen.getByRole('group', { name: 'Yours' })).getAllByRole('radio')).toHaveLength(1));
   });
 
-  it('the editor sets corners and font', async () => {
+  it('the editor sets the font, and themes never change corners', async () => {
     render(<AppearancePanel />);
     fireEvent.click(screen.getByRole('button', { name: 'Customize Terminal' }));
-    fireEvent.input(screen.getByRole('slider', { name: 'Corner radius' }), { target: { value: '8' } });
+    expect(screen.queryByRole('slider', { name: 'Corner radius' })).toBeNull();
+
     fireEvent.click(screen.getByRole('radio', { name: 'System font' }));
-    expect(root.style.getPropertyValue('--radius-md')).toBe('16px');
+    // Corners come from the design tokens, never from the theme.
+    expect(root.style.getPropertyValue('--radius-md')).toBe('');
     fireEvent.click(screen.getByRole('button', { name: 'Save as new theme' }));
     await waitFor(() => expect(files['terminal-custom']).toBeDefined());
-    expect(JSON.parse(files['terminal-custom']!)).toMatchObject({ radius: 8, font: 'system' });
+    expect(JSON.parse(files['terminal-custom']!)).toMatchObject({ font: 'system' });
     expect(screen.getByRole('group', { name: 'Yours' })).toBeInTheDocument();
   });
 

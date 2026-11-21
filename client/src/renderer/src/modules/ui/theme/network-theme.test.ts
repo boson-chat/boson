@@ -381,7 +381,7 @@ describe('ThemeStore network overlay', () => {
     });
     expect(prop(root, '--accent')).toBe('#7c3aed');
     expect(prop(root, '--bg')).toBe(nord.colors.bg);
-    expect(prop(root, '--radius-sm')).toBe('4px');
+    expect(prop(root, '--radius-sm')).toBe(''); // a network theme never changes corners
     expect(prop(root, '--pane-messages-image')).toBe('url("blob:app/m")');
     expect(prop(root, '--pane-messages-blur')).toBe('4px');
     expect(prop(root, '--pane-servers-bg')).toBe('#0b0b10');
@@ -398,7 +398,7 @@ describe('ThemeStore network overlay', () => {
 
     store.setNetworkOverlay(null);
     expect(prop(root, '--accent')).toBe(nord.colors.accent);
-    expect(prop(root, '--radius-sm')).toBe(`${nord.radius}px`);
+    expect(prop(root, '--radius-sm')).toBe('');
     expect(prop(root, '--pane-messages-image')).toBe('');
     expect(prop(root, '--pane-servers-bg')).toBe('');
     expect(root.dataset['paneMessagesImage']).toBeUndefined();

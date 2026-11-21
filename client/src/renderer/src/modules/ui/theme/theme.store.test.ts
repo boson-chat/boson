@@ -33,16 +33,17 @@ describe('ThemeStore', () => {
     expect(root.dataset['themeBase']).toBe('dark');
   });
 
-  it("applies a theme's corners and system font, and restores Boson's on the way back", async () => {
+  it("applies a theme's system font but never its corners, and restores Boson's on the way back", async () => {
     const root = document.createElement('div');
     const store = new ThemeStore(null, root);
     await store.init();
     await store.save({ ...mine, radius: 5, font: 'system' });
-    expect([prop(root, '--radius-sm'), prop(root, '--radius-md'), prop(root, '--radius-lg')]).toEqual(['5px', '10px', '15px']);
+    // Shape is Boson's: the radius tokens are never overridden by a theme.
+    expect([prop(root, '--radius-sm'), prop(root, '--radius-md'), prop(root, '--radius-lg')]).toEqual(['', '', '']);
     expect(prop(root, '--font-body')).toContain('-apple-system');
     expect(prop(root, '--font-body')).toContain('Segoe UI');
     store.setActive('terminal');
-    expect(prop(root, '--radius-sm')).toBe('2px');
+    expect(prop(root, '--radius-sm')).toBe('');
     expect(prop(root, '--font-display')).toContain('JetBrains Mono');
   });
 

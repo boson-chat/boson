@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Badge, Button, Card, Input, Segmented, Toggle, useTransientFlag } from '@boson/shared';
 import {
-  MAX_RADIUS, THEME_TOKENS, getThemeStore, isThemeColor, parseTheme, serializeTheme,
+  THEME_TOKENS, getThemeStore, isThemeColor, parseTheme, serializeTheme,
   useNetworkThemes,
   type Theme, type ThemeEntry, type ThemeState, type ThemeToken,
 } from '../../modules/ui/theme';
@@ -213,7 +213,7 @@ function ThemeTile({ entry, selected, onSelect }: { entry: ThemeEntry; selected:
     >
       <span
         class="appearance-swatch"
-        style={{ background: c.bg, borderColor: c.border, borderRadius: `${entry.theme.radius * 2}px` }}
+        style={{ background: c.bg, borderColor: c.border, borderRadius: 'var(--radius-md)' }}
         aria-hidden="true"
       >
         <span class="appearance-swatch-side" style={{ background: c.surface, borderColor: c['border-soft'] }}>
@@ -227,7 +227,7 @@ function ThemeTile({ entry, selected, onSelect }: { entry: ThemeEntry; selected:
           <span style={{ background: c['fg-2'], width: '62%' }} />
           <span
             class="appearance-swatch-input"
-            style={{ background: c['surface-raised'], borderColor: c.border, borderRadius: `${entry.theme.radius}px` }}
+            style={{ background: c['surface-raised'], borderColor: c.border, borderRadius: 'var(--radius-sm)' }}
           />
         </span>
       </span>
@@ -333,22 +333,7 @@ function ThemeEditor({ editing, onCancel, onSaved }: { editing: Editing; onCance
           ))}
 
           <fieldset class="appearance-group">
-            <legend>Corners &amp; font</legend>
-            <label class="appearance-range">
-              <span>Corners</span>
-              <input
-                type="range"
-                min={0}
-                max={MAX_RADIUS}
-                value={draft.radius}
-                aria-label="Corner radius"
-                onInput={(e) => {
-                  const v = Number(e.currentTarget.value);
-                  setDraft((d) => ({ ...d, radius: v }));
-                }}
-              />
-              <span class="appearance-range-value">{draft.radius}px</span>
-            </label>
+            <legend>Font</legend>
             <Segmented
               label="Font"
               fill={false}
