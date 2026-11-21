@@ -117,7 +117,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-right: var(--space-2);
+  /* The same right edge as the rows, so a section's "+" and a row's "+"
+     line up in one column. */
+  padding-right: var(--space-3);
   margin-top: var(--space-1);
 }
 

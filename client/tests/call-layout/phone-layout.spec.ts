@@ -162,4 +162,38 @@ test.describe('swipes', () => {
     await cdp.detach();
     await expect(shell(page)).toHaveClass(/\bphone-home\b/);
   });
+
+  // The conversation is always on top: from the channel list and from the
+  // members it slides in over them; they stay put underneath.
+  for (const [from, start, moves] of [['home', 340, [320, 280, 230, 180]], ['members', 30, [50, 90, 140, 200]]] as const) {
+    test(`mid-swipe from ${from}, the conversation slides in on top`, async ({ page }) => {
+      await page.goto('/shots.html?view=chat&voice=rooms&friends=1&frame=1&platform=ios');
+      await expect(shell(page)).toHaveClass(/\bphone-chat\b/);
+      const cdp = await page.context().newCDPSession(page);
+      const swipe = async (x0: number, xs: readonly number[], end = true): Promise<void> => {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: 420 }] });
+        for (const x of xs) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: 420 }] });
+        if (end) await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      };
+      // Get to the channel list (right) or the members (left) first.
+      if (from === 'home') await swipe(40, [100, 200, 300, 340]);
+      else await swipe(340, [280, 200, 100, 40]);
+      await expect(shell(page)).toHaveClass(new RegExp(`\\bphone-${from}\\b`));
+      await page.waitForTimeout(300);
+      await swipe(start, moves, false);
+      const top = page.locator('.phone-layer-top');
+      await expect(top).toHaveCount(1);
+      await expect(top).toHaveClass(/phone-layer-under/);
+      await expect(top.locator('.chat-area')).toBeVisible();
+      const z = await page.evaluate(() => [...document.querySelectorAll('.phone-layer')].map((e) => ({ top: e.classList.contains('phone-layer-top'), z: Number(getComputedStyle(e).zIndex) || 0, x: e.getBoundingClientRect().x })));
+      const t = z.find((l) => l.top)!;
+      const other = z.find((l) => !l.top)!;
+      expect(t.z).toBeGreaterThan(other.z);
+      expect(other.x).toBe(0);
+      expect(Math.abs(t.x)).toBeGreaterThan(100);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await cdp.detach();
+      await expect(shell(page)).toHaveClass(/\bphone-chat\b/);
+    });
+  }
 });

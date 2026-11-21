@@ -110,6 +110,12 @@ interface Props {
 // Phones: the launch has opened onto the last conversation (once per run).
 let launchShown = false;
 
+// The phone's main area (the conversation, Friends, Calls): it stays on top
+// of the channel list and the members while swiping between them.
+function isMainPage(p: PhonePageId | null | undefined): boolean {
+  return p !== undefined && p !== null && p !== 'members';
+}
+
 export function ChatLayout({
   chat, serverName, serverHost, bannerUrl, logoUrl, onToggleNetworkTheme, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
@@ -539,11 +545,20 @@ export function ChatLayout({
               <div class="phone-stack" ref={phoneRef}>
                 {phoneLayers.map((p) => {
                   const cur = p === phonePage;
-                  const style = cur && swipe.dx !== null
-                    ? { transform: `translateX(${swipe.dx}px)`, transition: swipe.settling ? `transform ${SETTLE_MS}ms ease-out` : 'none' }
+                  // The conversation (the main area) is always on top: from
+                  // the channel list or the members it slides in over them,
+                  // from the conversation the screen beneath shows as it
+                  // slides away.
+                  const mainOnTop = phoneUnder !== undefined && !isMainPage(phonePage) && isMainPage(phoneUnder);
+                  const moving = swipe.dx !== null && (mainOnTop ? !cur : cur);
+                  const width = phoneRef.current?.clientWidth ?? 0;
+                  const x = !moving || swipe.dx === null ? 0
+                    : mainOnTop ? swipe.dx + (swipe.dir === 'forward' ? width : -width) : swipe.dx;
+                  const style = moving
+                    ? { transform: `translateX(${x}px)`, transition: swipe.settling ? `transform ${SETTLE_MS}ms ease-out` : 'none' }
                     : undefined;
                   return (
-                    <div key={p ?? 'home'} class={`phone-layer${cur ? ' phone-layer-cur' : ' phone-layer-under'}`}
+                    <div key={p ?? 'home'} class={`phone-layer${cur ? ' phone-layer-cur' : ' phone-layer-under'}${moving ? ' phone-layer-top' : ''}`}
                       style={style} inert={!cur} aria-hidden={cur ? undefined : true}>
                       {phoneScreen(p)}
                     </div>

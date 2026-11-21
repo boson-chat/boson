@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from 'preact/hooks';
+import { Plus } from 'lucide-preact';
 import { Button } from '@boson/shared';
+import { useNarrow } from '../../shared/narrow';
 import type { EngineState } from '../../modules/engine';
 import { useAuthState } from '../../modules/auth';
 import { type VoiceRoom } from '../../modules/voice';
@@ -33,6 +35,7 @@ interface VoiceSectionProps {
 // for a server without voice, outside the app (a browser), and for guests
 // unless the server's auth service allows guest voice (server.guest).
 export function VoiceSection({ host, serverName, engineState, avatarFor, channels = [], nick }: VoiceSectionProps) {
+  const narrow = useNarrow();
   const { voice, snap, key, server } = useVoiceServer(host);
   const { session } = useAuthState();
   const signedIn = !!session;
@@ -105,15 +108,15 @@ export function VoiceSection({ host, serverName, engineState, avatarFor, channel
           {guest && <span class="voice-section-guest"><GuestBadge title="You're in voice as a guest, under your IRC nick. Sign in to make voice channels." /></span>}
         </div>
         {canAddHere && !guest && (
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size={narrow ? 'lg' : 'sm'}
             class="channel-add"
             aria-label="Create a voice channel"
             title="Create a voice channel"
             onClick={() => setVoiceUi({ dialog: { kind: 'create', host: key, parent: null } })}
-          >
-            +
-          </button>
+            icon={<Plus aria-hidden="true" />}
+          />
         )}
       </div>
       {!server.audio && (
