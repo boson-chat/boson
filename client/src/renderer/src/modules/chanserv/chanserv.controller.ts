@@ -41,6 +41,10 @@ export interface ChanServState {
 export interface ChanServDeps {
   signals(): DialectSignals;
   myAccount(): string | undefined;
+  // Ask the server who we're logged in as (a WHOIS on ourselves). Many
+  // networks never send RPL_LOGGEDIN (900) when you IDENTIFY to NickServ,
+  // so the account can be unknown even though ChanServ knows it.
+  checkAccount?(): void;
   now?: () => number;
 }
 
@@ -127,6 +131,7 @@ export class ChanServController {
 
   // Fetch INFO unless we have a fresh answer (or a lookup running).
   ensureInfo(channel: string): void {
+    if (!this.deps.myAccount()) this.deps.checkAccount?.();
     const c = this.channel(channel);
     if (c.infoStatus === 'loading') return;
     if (c.infoStatus === 'ready' && c.fetchedAt !== undefined && this.now() - c.fetchedAt < STALE_MS) return;
@@ -175,7 +180,8 @@ export class ChanServController {
   async register(channel: string, description?: string): Promise<ChanServResult> {
     const a = this.adapter;
     if (!a?.register) return unsupported();
-    if (!this.deps.myAccount()) return { kind: 'error', code: 'not-logged-in', lines: [] };
+    // Not knowing our account isn't a reason to refuse: ChanServ is the
+    // authority, and says so if we aren't identified.
     const r = await this.runner.run(a.serviceNick, a.register(channel, description));
     if (r.kind === 'done' || (r.kind === 'error' && r.code === 'already-registered')) void this.refresh(channel);
     return r;

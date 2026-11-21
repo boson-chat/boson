@@ -618,6 +618,7 @@ export class ChatService {
       {
         signals: () => ({ framework: this.servicesFramework, version: this.serverInfo.version, network: this.serverInfo.network }),
         myAccount: () => this.myAccount,
+        checkAccount: () => { if (this.welcomed && this.myNick) this.requestWhois(this.myNick); },
       },
     );
     // Bouncer upstream state (is ZNC connected to the real network?).
@@ -2273,6 +2274,13 @@ export class ChatService {
     const base = cur ?? { nick, loading: true, requestedAt: Date.now() };
     const next = applyWhoisReply(base, e.Kind, args, e.Message ?? '');
     this.setWhois(key, next);
+    // Our own WHOIS: who we're logged in as. 330 names the account; 307
+    // ("is identified for this nick", Anope on Unreal/InspIRCd without
+    // IRCv3 account names) means our nick is the account.
+    if (this.isMe(nick)) {
+      if (e.Kind === '330' && args[1]) this.updateSelfIdentity(undefined, args[1]);
+      else if (e.Kind === '307' && !this.myAccount) this.updateSelfIdentity(undefined, nick);
+    }
     if (e.Kind === '318' && !next.notFound && next.host) {
       // A finished WHOIS: who they are right now. No 330 means logged out.
       this.seen.note(next.nick, {

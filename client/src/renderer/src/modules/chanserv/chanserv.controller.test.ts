@@ -164,12 +164,26 @@ describe('ChanServController', () => {
     expect(ctl.getState().caps).toMatchObject({ register: false, access: false, transfer: null });
   });
 
-  it('register refuses guests without asking', async () => {
+  it('register asks ChanServ even when our account is unknown (many networks never send 900)', async () => {
     account = undefined;
-    const net = fakeNet(() => null);
+    const net = fakeNet((_t, body) => body === 'REGISTER #dev' ? ['Channel #dev successfully registered'] : ['Channel #dev is not registered']);
     const ctl = make(net);
-    expect(await ctl.register('#dev')).toMatchObject({ kind: 'error', code: 'not-logged-in' });
-    expect(net.sent).toEqual([]);
+    const p = ctl.register('#dev');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(await p).toMatchObject({ kind: 'done' });
+    expect(net.sent.some(([, body]) => body === 'REGISTER #dev')).toBe(true);
+  });
+
+  it('checks who we are (WHOIS on ourselves) when the account is unknown', () => {
+    account = undefined;
+    const checkAccount = vi.fn();
+    const ctl = new ChanServController(fakeNet(() => null).send, { signals: () => signals, myAccount: () => account, checkAccount }, { quietMs: 50, timeoutMs: 2000 });
+    ctl.ensureInfo('#dev');
+    expect(checkAccount).toHaveBeenCalledTimes(1);
+    account = 'ada';
+    ctl.ensureInfo('#ops');
+    expect(checkAccount).toHaveBeenCalledTimes(1);
+    ctl.dispose();
   });
 
   it('register then refreshes the status', async () => {

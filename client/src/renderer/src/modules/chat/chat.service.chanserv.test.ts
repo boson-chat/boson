@@ -91,6 +91,21 @@ describe('ChatService ChanServ wiring', () => {
     expect(chat.selfIdentity().account).toBeUndefined();
   });
 
+  it('learns our account from a WHOIS on ourselves when the network never sent 900 (330, or Anope 307)', () => {
+    const { chat, session } = buildChat();
+    session.emit({ Kind: '001', From: 'irc.test', Target: 'Nyan', Message: 'Welcome', Args: ['Nyan', 'Welcome'], Raw: '' });
+    expect(chat.selfIdentity().account).toBeUndefined();
+    chat.chanserv()!.ensureInfo('#dev'); // unknown account: asks who we are
+    expect(session.rawLines).toContain('WHOIS Nyan');
+    session.emit({ Kind: '307', From: 'irc.test', Target: 'Nyan', Message: 'is identified for this nick', Args: ['Nyan', 'is identified for this nick'], Raw: '' });
+    expect(chat.selfIdentity().account).toBe('Nyan');
+    session.emit({ Kind: '330', From: 'irc.test', Target: 'Nyan', Message: 'is logged in as', Args: ['Nyan', 'nyanacct', 'is logged in as'], Raw: '' });
+    expect(chat.selfIdentity().account).toBe('nyanacct');
+    // Someone else's 330 doesn't touch ours.
+    session.emit({ Kind: '330', From: 'irc.test', Target: 'Nyan', Message: 'is logged in as', Args: ['Bob', 'bobacct', 'is logged in as'], Raw: '' });
+    expect(chat.selfIdentity().account).toBe('nyanacct');
+  });
+
   it('keeps background ChanServ lookups out of the Server log, but not other ChanServ notices', async () => {
     vi.useFakeTimers();
     const { chat, session } = buildChat();
