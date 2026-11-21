@@ -128,6 +128,19 @@ content="web">` in the web build's `index.html` (as `is-wails.ts` checks
   `AudioDecoder` per speaker → jitter buffer → mixer worklet → the chosen
   output (`setSinkId` where supported). VAD/PTT, mute/deafen, per-user
   volume, mic test and levels mirror the desktop's state shape.
+- **Sending, and saying when it doesn't go out**: the capture worklet
+  reaches the destination through a silent gain (WebKit runs only nodes
+  the destination pulls), the audio context's `resume()` doesn't hold the
+  join (a context made without a fresh gesture, e.g. a call answered on
+  the other side, starts suspended) and any click or key resumes it.
+  Capture `<video>` elements (the self-view, and the publisher where there's
+  no main-thread `MediaStreamTrackProcessor`: Safari) live in the document,
+  hidden: WebKit gives a detached one no frames. With no camera chosen the
+  web opens the apps' default (built-in, external, iPhone, then virtual
+  cameras), not the browser's first. Our own tile says what's wrong
+  (`.video-notice-self`): the browser paused the sound, the mic gives no
+  frames or digital silence, the camera or encoder gives no pictures for
+  5 s, or the system paused a track.
 - **Browsers without WebTransport or Opus WebCodecs** (Linux WebKit,
   older Safari): chat works, the call buttons say "Calls need a browser with
   WebTransport (Chrome, Edge or Firefox)" (`audio: false` + `audioError`).

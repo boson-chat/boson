@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { getVideoController, type VideoController, type VideoSnapshot } from './video.controller';
-import { EMPTY_VIDEO_STATE } from './video.types';
+import { EMPTY_VIDEO_STATE, type VideoShareState } from './video.types';
 
 const EMPTY: VideoSnapshot = { state: EMPTY_VIDEO_STATE, open: false, pinned: 0 };
 
@@ -46,4 +46,32 @@ export function trackNotice(st: { status: string; reason?: string } | undefined)
     default:
       return null;
   }
+}
+
+// What our own camera tile should say: why our video isn't going out, or
+// that the camera hasn't given a picture yet. Null while the self-view
+// shows pictures. Polled once a second.
+export function useSelfNotice(video: VideoController | null, camera: VideoShareState | undefined, on: boolean): string | null {
+  const [notice, setNotice] = useState<string | null>(null);
+  const error = camera?.error;
+  useEffect(() => {
+    if (!video || !on) {
+      setNotice(null);
+      return;
+    }
+    const since = Date.now();
+    const tick = () => setNotice(selfNotice(error, video.lastPreviewAt(), Date.now() - since, Date.now()));
+    tick();
+    const t = setInterval(tick, 1000);
+    return () => clearInterval(t);
+  }, [video, on, error]);
+  return notice;
+}
+
+// previewAt and now on the controller's clock (Date.now).
+export function selfNotice(error: string | undefined, previewAt: number, onForMs: number, now: number): string | null {
+  if (error) return error;
+  const fresh = previewAt > 0 && now - previewAt < 3000;
+  if (fresh) return null;
+  return onForMs < 6000 ? 'Starting your camera…' : 'No picture from your camera yet…';
 }

@@ -60,3 +60,17 @@ export function cameraKind(label: string): 'builtin' | 'external' | 'continuity'
   if (/facetime|built-in|builtin|integrated|internal/.test(l)) return 'builtin';
   return 'external';
 }
+
+/** The apps' camera preference (quicvideo DefaultCamera): lower is better. */
+export function cameraRank(kind: ReturnType<typeof cameraKind>): number {
+  return kind === 'builtin' ? 0 : kind === 'external' ? 1 : kind === 'continuity' ? 2 : 3;
+}
+
+/** The best camera by that preference; null while labels are hidden
+ * (before the site may use the camera) or with no cameras. */
+export function bestCamera<T extends { deviceId: string; label: string }>(cams: T[]): T | null {
+  if (cams.length === 0 || cams.some((c) => !c.label || !c.deviceId)) return null;
+  let best = cams[0]!;
+  for (const c of cams) if (cameraRank(cameraKind(c.label)) < cameraRank(cameraKind(best.label))) best = c;
+  return best;
+}

@@ -21,6 +21,15 @@ export interface EngineStats {
   transmitting: boolean;
   speaking: Map<number, boolean>;
   lossPercent: number;
+  // The audio context runs (a suspended one captures and plays nothing).
+  audioRunning?: boolean;
+  // ms since the mic's last 20 ms frame (since start when none yet).
+  captureIdleMs?: number;
+  // ms since the mic's last frame that wasn't digital silence.
+  silentMs?: number;
+  // The mic in use (its label), and whether the system muted its track.
+  micName?: string;
+  micMuted?: boolean;
 }
 
 export interface AudioDeviceInfo { id: string; name: string; isDefault: boolean }
@@ -121,9 +130,16 @@ export class WebAudioEngine {
     try {
       await ctx.audioWorklet.addModule(captureUrl);
       await ctx.audioWorklet.addModule(mixerUrl);
-      const capture = new AudioWorkletNode(ctx, 'boson-capture', { numberOfInputs: 1, numberOfOutputs: 0 });
+      // The capture node reaches the destination through a silent gain:
+      // WebKit (Safari) only runs nodes the destination pulls, so an
+      // output-less worklet node there never saw the mic.
+      const capture = new AudioWorkletNode(ctx, 'boson-capture', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
       const mixer = new AudioWorkletNode(ctx, 'boson-mixer', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+      const silent = ctx.createGain();
+      silent.gain.value = 0;
       ctx.createMediaStreamSource(mic).connect(capture);
+      capture.connect(silent);
+      silent.connect(ctx.destination);
       mixer.connect(ctx.destination);
       capture.port.onmessage = (ev: MessageEvent<{ pcm: Float32Array; at: number }>) => this.onCaptured(ev.data.pcm);
       mixer.port.onmessage = (ev: MessageEvent<{ type: string; at: number; playing: Array<{ sid: number; ts: number }> }>) => {
@@ -134,7 +150,15 @@ export class WebAudioEngine {
       this.capture = capture;
       this.mixer = mixer;
       this.post({ type: 'deafen', on: this.deafened });
-      if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+      this.startedAt = performance.now();
+      this.lastCapture = 0;
+      this.lastSound = 0;
+      // A context made without a recent user gesture (a call answered from
+      // the other side, Safari's stricter rule) starts suspended, and its
+      // resume() waits for a gesture: don't hold the join on it; the next
+      // click or key anywhere resumes it (watchGestures).
+      if (ctx.state !== 'running') void ctx.resume().catch(() => {});
+      this.watchGestures();
       await this.applyOutput(outputId);
     } catch (e) {
       for (const t of mic.getTracks()) t.stop();
@@ -143,7 +167,37 @@ export class WebAudioEngine {
     }
   }
 
+  private startedAt = 0;
+  private lastCapture = 0;
+  private lastSound = 0;
+  private offGestures: (() => void) | null = null;
+
+  /** Resumes a suspended (or Safari "interrupted") context on any user gesture. */
+  private watchGestures(): void {
+    this.offGestures?.();
+    if (typeof document === 'undefined') return;
+    const resume = (): void => {
+      const ctx = this.ctx;
+      if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') void ctx.resume().catch(() => {});
+    };
+    const evs = ['pointerdown', 'keydown', 'touchend'] as const;
+    for (const ev of evs) document.addEventListener(ev, resume, { capture: true });
+    document.addEventListener('visibilitychange', resume);
+    this.offGestures = () => {
+      for (const ev of evs) document.removeEventListener(ev, resume, { capture: true });
+      document.removeEventListener('visibilitychange', resume);
+    };
+  }
+
+  /** Tries to start a suspended context (from a user gesture). */
+  resume(): void {
+    const ctx = this.ctx;
+    if (ctx && ctx.state !== 'running' && ctx.state !== 'closed') void ctx.resume().catch(() => {});
+  }
+
   stop(): void {
+    this.offGestures?.();
+    this.offGestures = null;
     this.post({ type: 'stop' });
     this.capture?.port.postMessage({ type: 'stop' });
     for (const t of this.mic?.getTracks() ?? []) t.stop();
@@ -226,7 +280,14 @@ export class WebAudioEngine {
     const now = performance.now();
     const speaking = new Map<number, boolean>();
     for (const [sid, r] of this.receivers) speaking.set(sid, now - r.lastVoice < SPEAKING_WINDOW_MS);
-    return { micLevel: this.micLevel, transmitting: this.transmitting, speaking, lossPercent: this.loss };
+    return {
+      micLevel: this.micLevel, transmitting: this.transmitting, speaking, lossPercent: this.loss,
+      audioRunning: this.ctx?.state === 'running',
+      captureIdleMs: now - (this.lastCapture || this.startedAt),
+      silentMs: now - (this.lastSound || this.startedAt),
+      micName: this.mic?.getAudioTracks()[0]?.label,
+      micMuted: !!this.mic?.getAudioTracks()[0]?.muted,
+    };
   }
 
   // ---- receiving ----
@@ -336,9 +397,11 @@ export class WebAudioEngine {
   }
 
   private onCaptured(frame: Float32Array): void {
+    this.lastCapture = performance.now();
     const captureUS = nowUS() - 20_000;
     const level = rmsUnit(frame);
     this.micLevel = level;
+    if (level > 0) this.lastSound = this.lastCapture;
     const voiced = level >= this.vad;
     if (voiced) this.hang = VAD_HANGOVER;
     else if (this.hang > 0) this.hang--;

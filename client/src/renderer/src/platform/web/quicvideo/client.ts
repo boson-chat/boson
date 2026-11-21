@@ -308,11 +308,55 @@ class RemoteTrack {
   }
 }
 
+/** boson: a hidden, in-document home for capture <video> elements. WebKit
+ * (Safari) doesn't advance the frames of a <video> that isn't in the
+ * document, so a detached one gives no pictures. */
+export function mediaHost(): HTMLElement {
+  const id = "boson-media-host";
+  let el = document.getElementById(id);
+  if (!el) {
+    el = document.createElement("div");
+    el.id = id;
+    el.setAttribute("aria-hidden", "true");
+    el.style.cssText = "position:fixed;left:0;top:0;width:2px;height:2px;overflow:hidden;opacity:0.01;pointer-events:none;z-index:-1";
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+/** boson: a muted, inline <video> playing a stream, in the document. */
+export function captureVideo(stream: MediaStream): HTMLVideoElement {
+  const video = document.createElement("video");
+  video.muted = true;
+  video.defaultMuted = true;
+  video.playsInline = true;
+  video.autoplay = true;
+  video.setAttribute("muted", "");
+  video.setAttribute("playsinline", "");
+  video.width = 2;
+  video.height = 2;
+  video.srcObject = stream;
+  mediaHost().appendChild(video);
+  return video;
+}
+
+/** boson: a capture <video> done with. */
+export function releaseVideo(video: HTMLVideoElement): void {
+  video.pause();
+  video.srcObject = null;
+  video.remove();
+}
+
 /** A published track: one VideoEncoder per active layer. */
 export class Publication {
   private encoders = new Map<number, LayerEncoder>();
   private running = true;
   private lastFrameAt = 0;
+  // boson: frames captured and sent, and why sending failed (shown on the tile).
+  captured = 0;
+  failure = "";
+  onFailure: ((reason: string) => void) | null = null;
+  private video: HTMLVideoElement | null = null;
   constructor(
     private c: QuicVideoClient,
     readonly trackId: number,
@@ -320,7 +364,21 @@ export class Publication {
     private media: MediaStreamTrack,
     readonly layers: LayerSpec[],
   ) {
-    void this.pump();
+    this.pump().catch((e) => this.fail(`the camera gave no pictures (${e instanceof Error ? e.message : String(e)})`));
+  }
+
+  /** boson: frames encoded and sent, over all layers. */
+  sent(): number {
+    let n = 0;
+    for (const e of this.encoders.values()) n += e.sent;
+    return n;
+  }
+
+  /** boson: a send failure, once. */
+  fail(reason: string): void {
+    if (this.failure || !this.running) return;
+    this.failure = reason;
+    this.onFailure?.(reason);
   }
 
   /** boson: ms since the last captured frame (a stalled capture). */
@@ -336,7 +394,13 @@ export class Publication {
     const spec = this.layers.find((l) => l.id === layer);
     if (!spec) return;
     if (active && !this.encoders.has(layer)) {
-      this.encoders.set(layer, new LayerEncoder(this.c, this.trackId, spec, this.kind === TrackKind.SCREEN));
+      // boson: a config the encoder refuses (here or later) is reported, not
+      // thrown into the control loop (that ended the whole session).
+      try {
+        this.encoders.set(layer, new LayerEncoder(this.c, this.trackId, spec, this.kind === TrackKind.SCREEN, (r) => this.fail(r)));
+      } catch (e) {
+        this.fail(`the video encoder refused ${spec.width}×${spec.height}: ${e instanceof Error ? e.message : String(e)}`);
+      }
     } else if (!active) {
       this.encoders.get(layer)?.close();
       this.encoders.delete(layer);
@@ -363,13 +427,24 @@ export class Publication {
       }
       return;
     }
-    const video = document.createElement("video");
-    video.muted = true;
-    video.srcObject = new MediaStream([this.media]);
+    // boson: Safari (no MediaStreamTrackProcessor outside workers): a
+    // <video> in the document (a detached one gives WebKit no frames),
+    // read on each new picture where requestVideoFrameCallback exists.
+    const video = captureVideo(new MediaStream([this.media]));
+    this.video = video;
     await video.play();
+    const rvfc = typeof (video as HTMLVideoElement & { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback === "function";
     while (this.running) {
-      await new Promise((r) => setTimeout(r, 1000 / top));
-      if (video.videoWidth === 0) continue;
+      if (rvfc) {
+        await Promise.race([
+          new Promise<void>((r) => video.requestVideoFrameCallback(() => r())),
+          new Promise<void>((r) => setTimeout(r, 250)),
+        ]);
+      } else {
+        await new Promise((r) => setTimeout(r, 1000 / top));
+      }
+      if (!this.running) break;
+      if (video.videoWidth === 0 || video.readyState < 2) continue;
       const f = new VideoFrame(video, { timestamp: Number(nowUS()) });
       this.feed(f, top);
       f.close();
@@ -378,12 +453,15 @@ export class Publication {
 
   private feed(f: VideoFrame, _top: number): void {
     this.lastFrameAt = performance.now();
+    this.captured++;
     const us = nowUS();
     for (const e of this.encoders.values()) e.encode(f, us);
   }
 
   stop(): void {
     this.running = false;
+    if (this.video) releaseVideo(this.video);
+    this.video = null;
     for (const e of this.encoders.values()) e.close();
     this.encoders.clear();
     this.media.stop();
@@ -403,7 +481,10 @@ class LayerEncoder {
   private lastUS = 0n;
   private captureOf = new Map<number, bigint>();
 
-  constructor(private c: QuicVideoClient, private trackId: number, private spec: LayerSpec, screen: boolean) {
+  sent = 0; // boson: frames written to the server
+
+  constructor(private c: QuicVideoClient, private trackId: number, private spec: LayerSpec, screen: boolean,
+    private onFail: (reason: string) => void = () => {}) {
     this.canvas = new OffscreenCanvas(spec.width, spec.height);
     this.ctx = this.canvas.getContext("2d")!;
     const base = {
@@ -437,18 +518,30 @@ class LayerEncoder {
         this.produced = true;
         void this.output(chunk);
       },
-      error: () => {
+      error: (e) => {
         if (enc !== this.enc || this.closed) return;
         if (!this.produced) {
           // This config never worked: try the next, or give up (no encoder).
-          if (this.configIdx === this.configs.length - 1) return;
+          if (this.configIdx === this.configs.length - 1) {
+            this.onFail(`the video encoder failed (${e?.message || "H.264 at " + this.spec.width + "×" + this.spec.height})`); // boson
+            return;
+          }
           this.configIdx++;
         }
         this.force = true;
         this.enc = this.newEncoder();
       },
     });
-    enc.configure(this.configs[this.configIdx]);
+    // boson: configure() throws on a config it can't take (e.g. a codec
+    // string or size the platform's encoder refuses): the next config.
+    try {
+      enc.configure(this.configs[this.configIdx]);
+    } catch (e) {
+      if (this.configIdx === this.configs.length - 1) throw e;
+      try { enc.close(); } catch { /* not configured */ }
+      this.configIdx++;
+      return this.newEncoder();
+    }
     return enc;
   }
 
@@ -510,6 +603,7 @@ class LayerEncoder {
       void w.write(frameHeader(key, us, aud.length + data.length));
       void w.write(aud);
       void w.write(data);
+      this.sent++; // boson
     } catch {
       this.stream = null;
       this.force = true;

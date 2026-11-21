@@ -124,6 +124,9 @@ export interface VoiceState {
   pushToTalk: boolean;
   micTest: boolean;
   micTestError?: string;
+  // In a call: why our mic isn't reaching it (the browser paused the
+  // sound, no frames, digital silence); shown on our tile. Web only.
+  micProblem?: string;
   // 0..1 over -60..0 dBFS.
   micLevel: number;
   transmitting: boolean;

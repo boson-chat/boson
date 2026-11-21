@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { Headphones, HeadphoneOff, LayoutGrid, Lock, Mic, MicOff, PanelLeft, PhoneOff, Volume2 } from 'lucide-preact';
 import { Button } from '@boson/shared';
-import { getVideoController, useTrackNotice, useVideo } from '../../modules/video';
+import { getVideoController, useSelfNotice, useTrackNotice, useVideo } from '../../modules/video';
+import type { VideoShareState } from '../../modules/video/video.types';
 import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { CallVideoButtons } from './CallControls';
@@ -55,6 +56,7 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
     const el = (
       <StageTile key={t.key} tile={t} size={size} avatar={avatarFor?.(t.name)} mirror={t.selfCamera && vstate.camera.facing !== 'back'}
         onPin={size === 'big' ? undefined : () => pin(t.key)} onSize={onSize}
+        camera={t.self ? vstate.camera : undefined} micProblem={t.self ? call.micProblem : undefined}
         canvasRef={(c) => { if (t.track) video?.attachCanvas(t.track.trackId, c); else if (t.selfCamera) video?.attachPreview(c); }} />
     );
     // A share with its sound: its volume and mute, next to the tile.
@@ -116,9 +118,11 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
   );
 }
 
-function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef }: {
+function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef, camera, micProblem }: {
   tile: CallTileInfo; size: 'big' | 'strip' | 'grid'; avatar?: string; mirror: boolean;
   onPin?: () => void; onSize: (key: string, w: number, h: number) => void; canvasRef: (el: HTMLCanvasElement | null) => void;
+  // Our own tile: the camera's state (its self-view notice) and why our mic isn't heard.
+  camera?: VideoShareState; micProblem?: string;
 }) {
   const [el, setEl] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -131,6 +135,9 @@ function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef }: {
   }, [el, tile.key]);
   const video = !!tile.track || tile.selfCamera;
   const notice = useTrackNotice(getVideoController(), tile.track?.trackId);
+  // Ours: what's wrong with what we send (the camera first, then the mic).
+  const selfCam = useSelfNotice(getVideoController(), camera, tile.selfCamera);
+  const selfNotice = tile.self ? (selfCam ?? micProblem ?? null) : null;
   const body = (
     <>
       {video ? (
@@ -139,6 +146,7 @@ function StageTile({ tile, size, avatar, mirror, onPin, onSize, canvasRef }: {
         <span class="stage-avatar"><Avatar nick={tile.name} url={avatar} size={size === 'big' ? 110 : size === 'strip' ? 46 : 76} /></span>
       )}
       {tile.track && notice && <span class="video-notice" role="status">{notice}</span>}
+      {selfNotice && <span class="video-notice video-notice-self" role="status">{selfNotice}</span>}
       <span class="stage-tag">
         {tile.screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
         {tile.label}
