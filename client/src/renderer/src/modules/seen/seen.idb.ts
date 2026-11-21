@@ -105,6 +105,17 @@ export async function wipeSeenForUser(userId: string): Promise<void> {
   try { await sharedBackend()?.clear(prefix); } catch { /* best-effort */ }
 }
 
+/** Sign-out: forget the user's (and guest's) sightings, in memory and on disk. */
+export async function wipeSeenForSignOut(userId: string | null): Promise<void> {
+  const prefixes = [...(userId ? [`${userId}::`] : []), 'guest::'];
+  const doomed = [...stores.entries()].filter(([ns]) => prefixes.some((p) => ns.startsWith(p)));
+  await Promise.all(doomed.map(([, s]) => s.clear()));
+  for (const [ns] of doomed) stores.delete(ns);
+  for (const p of prefixes) {
+    try { await sharedBackend()?.clear(p); } catch { /* best-effort */ }
+  }
+}
+
 let unloadHooked = false;
 function ensureUnloadFlush(): void {
   if (unloadHooked) return;

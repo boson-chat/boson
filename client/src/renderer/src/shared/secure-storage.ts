@@ -11,6 +11,10 @@ export interface SecureStorage {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
+  // Removes every key starting with prefix (sign-out: the per-user and
+  // per-network keys). Optional: without it the sign-out removes the keys it
+  // can name one by one.
+  removePrefix?(prefix: string): Promise<void>;
 }
 
 // The shape installed by `platform/wails.ts` (backed by desktop/securestore.go).
@@ -21,6 +25,8 @@ interface BosonSecureBridge {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<void>;
   remove(key: string): Promise<void>;
+  // Absent on shells built before sign-out cleanup.
+  removePrefix?(prefix: string): Promise<void>;
 }
 
 declare global {
@@ -97,6 +103,16 @@ class WindowSecureStorage implements SecureStorage {
     }
     await b.remove(key);
   }
+
+  async removePrefix(prefix: string): Promise<void> {
+    const b = this.bridge();
+    if (!b) {
+      for (const k of Array.from(this.fallback.keys())) if (k.startsWith(prefix)) this.fallback.delete(k);
+      return;
+    }
+    if (!b.removePrefix) throw new Error('secure store: removePrefix unsupported by this shell');
+    await b.removePrefix(prefix);
+  }
 }
 
 // Singleton so the fallback Map is shared per-tab. Production callers should
@@ -114,4 +130,8 @@ export class InMemorySecureStorage implements SecureStorage {
   async get(key: string): Promise<string | null> { return this.map.get(key) ?? null; }
   async set(key: string, value: string): Promise<void> { this.map.set(key, value); }
   async remove(key: string): Promise<void> { this.map.delete(key); }
+  async removePrefix(prefix: string): Promise<void> {
+    for (const k of Array.from(this.map.keys())) if (k.startsWith(prefix)) this.map.delete(k);
+  }
+  keys(): string[] { return Array.from(this.map.keys()); }
 }

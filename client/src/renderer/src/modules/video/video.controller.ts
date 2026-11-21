@@ -394,6 +394,20 @@ export class VideoController {
     return screens.length ? screens[screens.length - 1].trackId : 0;
   }
 
+  /** Sign-out: camera, preview, screen share and the picker off, the call
+   * view closed (leaving voice ends the call's video in the shell). */
+  async clearForSignOut(): Promise<void> {
+    this.setCameraOnJoin(false);
+    this.stopThumbnails();
+    this.setOpen(false);
+    this.publish({ pinned: 0 });
+    await Promise.all([
+      this.previewCamera(false),
+      this.snapshot.state.camera.on ? this.setCamera(false).catch(() => null) : null,
+      this.snapshot.state.screen.on ? this.setScreen(false).catch(() => null) : null,
+    ]);
+  }
+
   setCamera(on: boolean, cameraId = ''): Promise<VideoState> {
     return this.bridge.setCamera(on, cameraId).then((s) => { this.setState(s); return s; });
   }

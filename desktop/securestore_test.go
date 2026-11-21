@@ -95,3 +95,38 @@ func TestSecureStoreRejectsMalformedCalls(t *testing.T) {
 		t.Errorf("remove empty: %v", err)
 	}
 }
+
+func TestSecureStoreRemovePrefix(t *testing.T) {
+	dir := t.TempDir()
+	s := NewSecureStore(dir, "derived")
+	for _, k := range []string{"boson.identity.usr_a", "boson.identity.usr_b", "boson.netauth.session:https://auth.x", "boson.bouncer.v1"} {
+		if err := s.Set(k, "v"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.RemovePrefix("boson.identity."); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]bool{"boson.identity.usr_a": false, "boson.identity.usr_b": false, "boson.netauth.session:https://auth.x": true, "boson.bouncer.v1": true} {
+		if v, _ := s.Get(k); (v != nil) != want {
+			t.Fatalf("%s present=%v, want %v", k, v != nil, want)
+		}
+	}
+	// Persisted: a fresh store (next launch) agrees.
+	if v, _ := NewSecureStore(dir, "derived").Get("boson.identity.usr_a"); v != nil {
+		t.Fatal("prefix removal not persisted")
+	}
+	// No match: nothing to do.
+	if err := s.RemovePrefix("boson.nothing."); err != nil {
+		t.Fatal(err)
+	}
+	// Too short / wrong type is refused rather than emptying the store.
+	for _, bad := range []any{"", "b", "boson", 3, nil} {
+		if err := s.RemovePrefix(bad); err == nil {
+			t.Fatalf("RemovePrefix(%v) accepted", bad)
+		}
+	}
+	if v, _ := s.Get("boson.bouncer.v1"); v == nil {
+		t.Fatal("unrelated key removed")
+	}
+}

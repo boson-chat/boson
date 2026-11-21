@@ -521,6 +521,37 @@ export class NetworkAccounts {
     }
   }
 
+  // Sign-out: sign out of every network account (each revokes its refresh
+  // token server-side), then forget the networks, the guest choices and any
+  // sign-in prompt. Discovery (which hosts use which auth service) is public
+  // and stays cached.
+  async clearForSignOut(): Promise<void> {
+    const keys = new Set([...this.services.keys(), ...this.known.map((k) => normalizeAuthBase(k.authUrl))]);
+    keys.delete(this.main);
+    await Promise.all(Array.from(keys).map((k) => this.service(k).signOut().catch(() => {})));
+    this.pending?.resolve('cancel');
+    this.pending = null;
+    for (const q of this.queue.splice(0)) q.resolve('cancel');
+    this.unsub.forEach((off) => off());
+    this.unsub.clear();
+    this.services.clear();
+    this.inits.clear();
+    this.configs.clear();
+    this.sessions = {};
+    this.known = [];
+    try {
+      this.local()?.removeItem(KNOWN_KEY);
+      this.local()?.removeItem(GUEST_KEY);
+    } catch { /* storage off */ }
+    this.emit();
+  }
+
+  // The remembered networks' auth URLs (the sign-out wipe names their
+  // keychain sessions when the store can't remove by prefix).
+  knownAuthUrls(): string[] {
+    return this.known.map((k) => normalizeAuthBase(k.authUrl));
+  }
+
   dispose(): void {
     this.unsub.forEach((off) => off());
     this.unsub.clear();

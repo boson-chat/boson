@@ -5,6 +5,7 @@ import {
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { HttpError } from '../../shared/http/http.client';
+import { signOut } from '../../modules/signout/sign-out';
 
 export type LoginMode = 'login' | 'signup';
 
@@ -186,10 +187,11 @@ export class LoginBloc {
     }
   }
 
-  // Back out of the passphrase step: signs the provider session out.
+  // Back out of the passphrase step: signs the provider session out (the
+  // app-wide sign-out, like any other).
   async abandonIdentityPrompt(): Promise<void> {
     this.setState({ ...this.state, identityPrompt: null, password: '', confirmPassword: '', error: null, recoverable: null, unrecoverable: null });
-    await this.auth.signOut().catch(() => {});
+    await signOut({ auth: this.auth, identity: this.identity }).catch(() => {});
   }
 
   getState(): LoginState {

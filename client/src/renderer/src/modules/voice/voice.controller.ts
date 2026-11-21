@@ -515,6 +515,19 @@ export class VoiceController {
     await this.bridge.leave().catch(() => {});
   }
 
+  // Sign-out: leave the call (the shell's leave also ends its video) and
+  // forget the account's tokens, nicks and room lists (fetched with its
+  // access). Which hosts have voice (public discovery) stays.
+  async clearForSignOut(): Promise<void> {
+    await this.leave();
+    this.listTokens.clear();
+    this.guestCfg.clear();
+    this.nicks = {};
+    for (const host of Object.keys(this.servers)) {
+      this.patchServer(host, { rooms: null, roomsError: null, roomsErrorKind: null, permissions: NO_ROOM_PERMISSIONS });
+    }
+  }
+
   async dismissError(): Promise<void> {
     if (!this.bridge) return;
     this.setCall({ ...this.call, status: 'idle', host: '', room: '', roomName: '', error: undefined, errorKind: undefined });

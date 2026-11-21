@@ -37,3 +37,17 @@ describe('NotificationFeed', () => {
     expect(again.getSnapshot().items).toEqual([]);
   });
 });
+
+describe('NotificationFeed.clearForSignOut', () => {
+  beforeEach(() => localStorage.clear());
+  it("drops the account's toasts and list from memory, and the next account starts empty", () => {
+    const f = new NotificationFeed();
+    f.setUserId('u1');
+    f.toast(toast(1));
+    f.add({ id: 'c1', kind: 'call', sub: 'missed', title: 'bob', where: '', body: 'missed call', nick: 'bob' });
+    f.clearForSignOut();
+    expect(f.getSnapshot()).toEqual({ toasts: [], items: [] });
+    f.setUserId('u2');
+    expect(f.getSnapshot().items).toEqual([]);
+  });
+});

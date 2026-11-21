@@ -130,6 +130,22 @@ describe('VoiceController', () => {
     expect(snap.callServerName).toBe('boson');
   });
 
+  it('sign-out leaves the call and forgets the room lists and tokens', async () => {
+    const { c, bridge, voiceToken } = setup();
+    await c.discover('irc.boson.chat');
+    await c.refreshRooms('irc.boson.chat', true);
+    await c.join('irc.boson.chat', GENERAL, 'boson');
+    expect(c.getSnapshot().servers['irc.boson.chat']?.rooms).not.toBeNull();
+    await c.clearForSignOut();
+    expect(bridge.calls.some((x) => x.method === 'leave')).toBe(true);
+    expect(c.getSnapshot().call.status).toBe('idle');
+    expect(c.getSnapshot().servers['irc.boson.chat']).toMatchObject({ discovery: 'available', rooms: null });
+    // The next account's list asks for a new token.
+    const before = voiceToken.mock.calls.length;
+    await c.refreshRooms('irc.boson.chat', true);
+    expect(voiceToken.mock.calls.length).toBeGreaterThan(before);
+  });
+
   it('a token failure on join is an inline error', async () => {
     const { c, bridge, voiceToken } = setup();
     voiceToken.mockRejectedValueOnce(Object.assign(new Error('offline'), { code: 'network' }));

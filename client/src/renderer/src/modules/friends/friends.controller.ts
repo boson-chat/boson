@@ -146,6 +146,17 @@ export class FriendsController {
     this.sync();
   }
 
+  // Sign-out: end this account's call (an active one is hung up, an outgoing
+  // one cancelled; both end server-side), stop the event feed and drop the
+  // lists, requests, missed calls and toasts.
+  async clearForSignOut(): Promise<void> {
+    if (this.snap.active) await this.hangup().catch(() => {});
+    if (this.snap.calling) await this.cancelCall().catch(() => {});
+    this.stopFeed();
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.set(EMPTY);
+  }
+
   dispose(): void {
     this.offs.forEach((off) => off());
     this.offs = [];

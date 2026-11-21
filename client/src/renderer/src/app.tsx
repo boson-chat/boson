@@ -1,8 +1,8 @@
 import type preact from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { AuthProvider, AuthService, useAuthState } from './modules/auth';
-import { signOutAndForget } from './modules/auth/sign-out';
-import { SessionStore } from './modules/session';
+import { configureSignOut, isSigningOut, onSignOutChange, signOut } from './modules/signout/sign-out';
+import { registerAppSignOut } from './modules/signout/participants';
 import { DirectoryService } from './modules/directory';
 import { NetworkDirectories } from './modules/directory/networks';
 import { configureDirectorySources, syncDirectoriesToShell } from './modules/directory/sources';
@@ -130,10 +130,9 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
         onClose={() => setSettingsOpen(false)}
         authedHandle={authedHandle}
         authedEmail={session?.user?.email ?? null}
-        // Same device cleanup as the directory's Sign out button: a bare
-        // auth.signOut() would leave the identity secret in the keychain
-        // and the saved session + scrollback behind for the next account.
-        onSignOut={() => { void signOutAndForget({ auth, identity, history, sessionStore: new SessionStore() }); }}
+        // The app-wide sign-out (modules/signout): disconnects, leaves calls
+        // and forgets the account's data on this device.
+        onSignOut={() => { void signOut(); }}
         directory={directory}
         identity={identity}
         auth={auth}
@@ -159,7 +158,7 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
 // `key` on the wrapper so swapping between login / directory / loading
 // states re-mounts the wrapper and replays the CSS entrance animation —
 // same trick the marketing site uses (see boson-chat/website's src/app.tsx).
-type RouteKey = 'loading' | 'restoring' | 'auth-error' | 'guest' | 'login' | 'app';
+type RouteKey = 'loading' | 'restoring' | 'signing-out' | 'auth-error' | 'guest' | 'login' | 'app';
 
 function Router({ directory, engine, identity, history, networks }: {
   directory: DirectoryService;
@@ -171,6 +170,7 @@ function Router({ directory, engine, identity, history, networks }: {
   const { session, loading, error } = useAuthState();
   const identityUnlocked = useIdentityUnlocked(identity);
   const guest = useGuestSession();
+  const signingOut = useSigningOut();
   // When the user has a persisted session, try the OS-keychain
   // restore path before showing the login form. `null` means "haven't tried
   // yet"; we render a loading shim during the single IPC round-trip. After
@@ -188,7 +188,11 @@ function Router({ directory, engine, identity, history, networks }: {
 
   let key: RouteKey;
   let content: preact.ComponentChildren;
-  if (error) {
+  if (signingOut) {
+    // Until the wipe is done: the next sign-in mustn't race it.
+    key = 'signing-out';
+    content = <div class="loading"><AtomLoader size={40} label="Signing out" /><span>Signing out…</span></div>;
+  } else if (error) {
     key = 'auth-error';
     content = <div class="loading" style="color: var(--danger)">Auth init failed: {error}</div>;
   } else if (loading) {
@@ -229,6 +233,12 @@ function useGuestSession(): GuestSession | null {
   const [guest, setGuest] = useState<GuestSession | null>(() => loadGuestSession());
   useEffect(() => onGuestChange(() => setGuest(loadGuestSession())), []);
   return guest;
+}
+
+function useSigningOut(): boolean {
+  const [on, setOn] = useState(isSigningOut());
+  useEffect(() => onSignOutChange(() => setOn(isSigningOut())), []);
+  return on;
 }
 
 function useIdentityUnlocked(identity: IdentityService): boolean {
@@ -318,11 +328,18 @@ export function buildApp(opts: BuildAppOptions): AppProps {
   // (pull/merge) and credential-store changes (debounced push), and no-ops
   // while locked or when the keychain backing is unavailable. The identity
   // subscription keeps it referenced for the app's lifetime.
-  new NickservSyncService(identity, directory).start();
+  const nickservSync = new NickservSyncService(identity, directory);
+  nickservSync.start();
 
   // Sync the global bouncer (ZNC/BNC) profile (E2E-encrypted) the same way —
   // pull on unlock, debounced push on change, no-op while locked.
-  new BouncerSyncService(identity, directory).start();
+  const bouncerSync = new BouncerSyncService(identity, directory);
+  bouncerSync.start();
+
+  // Sign-out, from any of its buttons: one path (modules/signout) through
+  // every module's clearForSignOut().
+  configureSignOut({ auth, identity });
+  registerAppSignOut({ engine, identity, history, secure: windowSecureStorage, syncs: [nickservSync, bouncerSync] });
 
   return { auth, directory, engine, identity, history, networks };
 }

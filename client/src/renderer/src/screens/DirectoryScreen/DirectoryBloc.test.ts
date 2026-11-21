@@ -974,6 +974,30 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it("signOut() really disconnects (no adoption by the next account) and doesn't sync the cleared session to the account", async () => {
+    const engine = fakeEngine();
+    const server = fakeServer('s1');
+    const directory = fakeDirectory({ user: fakeUser(), servers: [server] });
+    const sessionStore = new SessionStore(memoryStorage());
+    const auth = fakeAuth();
+    const bloc = new DirectoryBloc({ auth, directory, identity: fakeIdentity(), engine: engine.client, sessionStore });
+    await flushPromises(4);
+    await bloc.connect(server);
+    engine.sessionFor('s1')._setState('connected');
+    // The saved-session sync is live and has pushed s1.
+    await vi.waitFor(() => expect(directory.putSavedSession).toHaveBeenCalled(), { timeout: 2000 });
+    const pushes = (directory.putSavedSession as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    await bloc.signOut();
+    expect(engine.sessionFor('s1').disconnectCalls).toBe(1);
+    expect(sessionStore.load()).toBeNull();
+    expect(auth.signOut).toHaveBeenCalled();
+    // Past the sync's debounce: the wipe never reached /me/session.
+    await new Promise((r) => setTimeout(r, 900));
+    expect((directory.putSavedSession as ReturnType<typeof vi.fn>).mock.calls.length).toBe(pushes);
+    bloc.dispose();
+  });
+
   it('per-server engine state changes are reflected in the connection without ejecting the user to the directory', async () => {
     const engine = fakeEngine();
     const server = fakeServer('s1');

@@ -89,6 +89,23 @@ export class Notifier {
   private started = false;
   private onActivate?: (serverId: string, channel: string) => void;
   private recent = new Map<string, number>();
+  // System notifications still up (sign-out takes them down).
+  private shown = new Set<Notification>();
+
+  private track(n: Notification): void {
+    this.shown.add(n);
+    const prev = n.onclose;
+    n.onclose = (ev) => { this.shown.delete(n); if (typeof prev === 'function') prev.call(n, ev); };
+    if (this.shown.size > 50) { const first = this.shown.values().next().value; if (first) this.shown.delete(first); }
+  }
+
+  // Sign-out: take down the system notifications this account's messages
+  // put up, and forget what was recently shown.
+  clearForSignOut(): void {
+    for (const n of this.shown) { try { n.close(); } catch { /* gone */ } }
+    this.shown.clear();
+    this.recent.clear();
+  }
 
   // Begin tracking window focus + ensure permission. Idempotent.
   start(): void {
@@ -184,6 +201,7 @@ export class Notifier {
         this.onActivate?.(ev.serverId, ev.channel);
         n.close();
       };
+      this.track(n);
     } catch { /* OS refused / no display */ }
   }
 
@@ -203,6 +221,7 @@ export class Notifier {
         n.onClick?.();
         sys.close();
       };
+      this.track(sys);
       return true;
     } catch { return false; }
   }

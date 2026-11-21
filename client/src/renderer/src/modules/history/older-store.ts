@@ -55,6 +55,11 @@ class HeldIndex {
   private readonly counts = new Map<string, number>();
   private readonly hashes = new Map<string, Set<number>>();
 
+  clear(): void {
+    this.counts.clear();
+    this.hashes.clear();
+  }
+
   // Marks m held; false when it already was.
   add(key: string, m: ChatMessage): boolean {
     let set = this.hashes.get(key);
@@ -167,6 +172,36 @@ function wipeOnce(idb: IDBFactory): Promise<void> {
   return wiped;
 }
 
+// Live stores, so sign-out can drop what they still hold in memory.
+const live = new Set<IDBOlderStore>();
+
+// Sign-out: forget every held line, in memory and on disk (the database is
+// otherwise only emptied at the next launch).
+export async function clearOlderSpill(idb: IDBFactory | null = typeof indexedDB === 'undefined' ? null : indexedDB): Promise<void> {
+  for (const s of live) s.discard();
+  if (!idb) return;
+  await wipeOnce(idb);
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    const req = idb.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: '_pk' });
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('aborted'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
 export class IDBOlderStore implements OlderStore {
   private readonly index = new HeldIndex();
   private db: Promise<IDBDatabase> | null = null;
@@ -176,7 +211,17 @@ export class IDBOlderStore implements OlderStore {
   private flushing: Promise<void> = Promise.resolve();
 
   // ns: which server's conversations (one store per server).
-  constructor(private readonly ns: string, private readonly cap = OLDER_STORE_CAP, private readonly idb: IDBFactory = indexedDB) {}
+  constructor(private readonly ns: string, private readonly cap = OLDER_STORE_CAP, private readonly idb: IDBFactory = indexedDB) {
+    live.add(this);
+  }
+
+  // Drops everything held and stops writing (sign-out; see clearOlderSpill).
+  discard(): void {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    this.buffer = [];
+    this.index.clear();
+    live.delete(this);
+  }
 
   private open(): Promise<IDBDatabase> {
     if (!this.db) {

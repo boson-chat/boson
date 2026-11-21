@@ -24,6 +24,20 @@ describe('web secure store', () => {
     });
   }
 
+  it('removes every key under a prefix and keeps the rest and the key', async () => {
+    const idb = new IDBFactory();
+    const s = createWebSecureStore(idb, subtle, false);
+    for (const k of ['boson.identity.usr_a', 'boson.identity.usr_b', 'boson.identityX', 'boson.bouncer.v1']) await s.set(k, 'v');
+    await s.removePrefix('boson.identity.');
+    expect(await s.get('boson.identity.usr_a')).toBeNull();
+    expect(await s.get('boson.identity.usr_b')).toBeNull();
+    expect(await s.get('boson.identityX')).toBe('v');
+    // The AES key survives (a new value still round-trips on a reopened store).
+    expect(await createWebSecureStore(idb, subtle, false).get('boson.bouncer.v1')).toBe('v');
+    await expect(s.removePrefix('bos')).rejects.toThrow(/too short/);
+    await expect(s.removePrefix('')).rejects.toThrow(/non-empty string key/);
+  });
+
   it('rejects malformed calls like the desktop store', async () => {
     const s = createWebSecureStore(new IDBFactory(), subtle, false);
     await expect(s.get('')).rejects.toThrow(/non-empty string key/);

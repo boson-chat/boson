@@ -107,3 +107,18 @@ describe('DirectorySources', () => {
     expect(s.list()[0]).toMatchObject({ name: 'Boson Network Directory', operator: 'boson', isDefault: true });
   });
 });
+
+describe('DirectorySources.clearForSignOut', () => {
+  it('goes back to the default directory alone, turned on', async () => {
+    const storage = memStorage();
+    const s = new DirectorySources({ storage, transport: fakeTransport([fakeDirectory('https://dir.mine.example', 'Mine', [])]) });
+    await s.add('dir.mine.example');
+    s.setEnabled(s.defaultSourceUrl, false);
+    const seen: number[] = [];
+    s.subscribe((l) => seen.push(l.length));
+    s.clearForSignOut();
+    expect(s.list()).toEqual([expect.objectContaining({ isDefault: true, enabled: true })]);
+    expect(seen).toEqual([1]);
+    expect(new DirectorySources({ storage }).list()).toHaveLength(1);
+  });
+});

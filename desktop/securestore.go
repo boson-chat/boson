@@ -131,6 +131,38 @@ func (s *SecureStore) Remove(key any) error {
 	return s.remove(k)
 }
 
+// RemovePrefix deletes every key starting with prefix (sign-out: the
+// per-user and per-network keys, whose full names the renderer can't list).
+// The prefix must be at least "boson." long so a bad call can't empty the
+// whole store.
+func (s *SecureStore) RemovePrefix(prefix any) error {
+	p, err := storeKey("removePrefix", prefix)
+	if err != nil {
+		return err
+	}
+	if len(p) < len("boson.") {
+		return errors.New("secureStore:removePrefix prefix too short")
+	}
+	return s.removePrefix(p)
+}
+
+func (s *SecureStore) removePrefix(prefix string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data := s.load()
+	changed := false
+	for k := range data {
+		if strings.HasPrefix(k, prefix) {
+			delete(data, k)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return s.persist(data)
+}
+
 // get returns the value, or nil when it's missing or can't be decrypted
 // (another user's or machine's ciphertext, a corrupt file).
 func (s *SecureStore) get(key string) *string {

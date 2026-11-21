@@ -138,6 +138,12 @@ function loadLevels(): Record<string, ChannelLevel> {
   return levels;
 }
 
+// Sign-out: forget the per-channel levels held in memory (the storage wipe
+// removes the saved copy). The global preferences are this device's and stay.
+export function clearChannelLevelsForSignOut(): void {
+  levels = null;
+}
+
 export function defaultChannelLevel(channel: string): ChannelLevel {
   return /^[#&]/.test(channel) ? 'mentions' : 'all';
 }

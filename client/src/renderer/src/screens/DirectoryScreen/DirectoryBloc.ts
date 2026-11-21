@@ -2,7 +2,8 @@ import type { AuthService } from '../../modules/auth';
 import { ChatService, type ChatState } from '../../modules/chat';
 import { DEFAULT_WINDOWS } from '../../modules/chat/chat.service';
 import { createOlderStore, type OlderStore } from '../../modules/history/older-store';
-import { seenNamespace, seenStoreFor, wipeSeenForUser } from '../../modules/seen';
+import { seenNamespace, seenStoreFor } from '../../modules/seen';
+import { registerForSignOut, signOut as signOutEverywhere } from '../../modules/signout/sign-out';
 import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
@@ -408,7 +409,49 @@ export class DirectoryBloc {
       window.addEventListener('online', this.onNetworkChange);
     }
 
+    // Sign-out (from anywhere): stop pushing the saved session first, so the
+    // wipe isn't synced to the account as an empty one; then disconnect.
+    this.offSignOut = [
+      registerForSignOut({ name: 'directory.session-sync', phase: 'stop', clearForSignOut: () => this.stopSessionSync() }),
+      registerForSignOut({ name: 'directory.connections', phase: 'disconnect', clearForSignOut: () => this.disconnectForSignOut() }),
+    ];
+
     void this.loadInitial();
+  }
+
+  private offSignOut: Array<() => void> = [];
+
+  private stopSessionSync(): void {
+    if (this.sessionSyncTimer) {
+      clearTimeout(this.sessionSyncTimer);
+      this.sessionSyncTimer = null;
+    }
+    this.unsubscribeSessionSync?.();
+    this.unsubscribeSessionSync = null;
+    // Not re-attached by a late /me/session answer.
+    this.remoteSessionPending = false;
+  }
+
+  // Every connection: a real disconnect (QUIT), not dispose()'s detach,
+  // which leaves the engine's sessions up for a later bloc to adopt. Then
+  // nothing reconnects, and the saved servers are forgotten.
+  private disconnectForSignOut(): void {
+    this.stopSessionSync();
+    for (const ar of this.autoReconnect.values()) {
+      if (ar.nextAttemptTimer !== null) clearTimeout(ar.nextAttemptTimer);
+      ar.nextAttemptTimer = null;
+      ar.cancelled = true;
+    }
+    this.autoReconnect.clear();
+    for (const c of Array.from(this.connections.values())) {
+      this.teardownConnection(c, { sendDisconnect: true });
+    }
+    this.connections.clear();
+    for (const s of this.olderStores.values()) (s as { discard?: () => void }).discard?.();
+    this.olderStores.clear();
+    this.autojoinWanted.clear();
+    this.sessionStore.clear();
+    this.dispose();
   }
 
   private unsubscribeBouncerProfile: (() => void) | null = null;
@@ -541,6 +584,8 @@ export class DirectoryBloc {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    for (const off of this.offSignOut) off();
+    this.offSignOut = [];
     this.unsubscribeSources?.();
     this.unsubscribeSources = null;
     this.unsubscribeBouncerProfile?.();
@@ -1276,29 +1321,10 @@ export class DirectoryBloc {
     return !ar.cancelled;
   }
 
+  // The directory's Sign out button: the app-wide sign-out
+  // (modules/signout), which disconnects this bloc's connections too.
   async signOut(): Promise<void> {
-    this.sessionStore.clear();
-    // Clear the OS-keychain–persisted user_secret BEFORE auth.signOut so the
-    // userId is still available. Then drop the in-memory secret and finally
-    // tear down the auth session. Order matters: if auth.signOut fired
-    // first, we'd lose the userId needed to namespace the keychain key.
-    const userId = this.auth.getState().session?.user?.id;
-    if (userId) {
-      await this.identity.clearStorage(userId);
-      void wipeSeenForUser(userId).catch(() => {});
-      // Drop every persisted chat scrollback for this user across all servers.
-      // Sign-out is the user explicitly saying "forget about me"; leaving old
-      // logs behind would leak history into the next account on this device.
-      if (this.history) {
-        try {
-          await this.history.wipeAllForUser(userId);
-        } catch {
-          // Best-effort — proceeding with sign-out even if storage hiccups.
-        }
-      }
-    }
-    this.identity.lock();
-    await this.auth.signOut();
+    await signOutEverywhere({ auth: this.auth, identity: this.identity });
   }
 
   // ---- Internals ----

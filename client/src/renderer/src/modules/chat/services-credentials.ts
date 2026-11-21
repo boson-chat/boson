@@ -123,6 +123,8 @@ export interface ServiceCredentialsStore {
   get(serverId: string): ServiceCredentials | null;
   set(serverId: string, creds: ServiceCredentials): void;
   clear(serverId: string): void;
+  // Sign-out: forget every server's credentials, in memory and on disk.
+  clearForSignOut?(): Promise<void>;
   // Subscribe to per-server changes. The listener is invoked synch-
   // ronously on every mutation that hits the given serverId; the
   // initial fire delivers the current value (or null) so consumers
@@ -317,6 +319,20 @@ export class SecureServiceCredentialsStore implements ServiceCredentialsStore {
     this.cache.delete(serverId);
     this.emit(serverId, null);
     this.queuePersist();
+  }
+
+  async clearForSignOut(): Promise<void> {
+    // After hydration (and its legacy migration), so a late load can't bring
+    // them back.
+    await this.hydrating;
+    const ids = Array.from(this.cache.keys());
+    this.cache.clear();
+    for (const id of ids) this.emit(id, null);
+    this.writeChain = this.writeChain
+      .catch(() => { /* keep the chain alive */ })
+      .then(() => this.secure.remove(SECURE_KEY))
+      .catch(() => { /* best effort; the sign-out wipe removes it too */ });
+    await this.writeChain;
   }
 
   subscribe(serverId: string, fn: ServiceCredentialsListener): () => void {
