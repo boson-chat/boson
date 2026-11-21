@@ -7,7 +7,7 @@
 // checks the responsive layout; WebKit and the native shells are checked
 // by hand.
 import type { Page } from '@playwright/test';
-import { test, expect, uid, IRC_HOST, IRC_PORT, continueAsGuest, addServerManually, serverCard, joinChannel } from './fixtures';
+import { test, expect, uid, IRC_HOST, IRC_PORT, continueAsGuest, addServerManually, serverCard, joinChannel, webBrowserSkip, webBrowserFixme } from './fixtures';
 
 const shell = (page: Page) => page.locator('.app-shell');
 const screenIs = (page: Page, d: 'home' | 'chat' | 'members') =>
@@ -38,6 +38,8 @@ async function connectGuestPhone(page: Page): Promise<string> {
 
 test.describe('phone layout', () => {
   test('the rail and channel list, then a channel full screen with a back arrow', async ({ launchApp }) => {
+    webBrowserSkip('firefox', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
+    webBrowserSkip('webkit', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
     const { page } = await launchApp();
     await connectGuestPhone(page);
     const { width } = page.viewportSize()!;
@@ -106,6 +108,7 @@ test.describe('phone layout', () => {
   });
 
   test('a relaunch opens straight onto the last channel', async ({ launchApp }) => {
+    webBrowserFixme('webkit', 'WebKit phone emulation: the add-server sheet never settles; to fix');
     const first = await launchApp();
     await connectGuestPhone(first.page);
     const channel = `#phone-${uid(6)}`;

@@ -174,7 +174,7 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
     }
     if (joinable) setVoiceUi({ view: { host, roomId: room.id, serverName, expanded } });
   };
-  const title = !server.audio ? "Voice audio isn't available in this build"
+  const title = !server.audio ? (server.audioError || "Voice audio isn't available in this build")
     : locked ? lockReason(room)
       : inThis ? 'Connected'
         : listenOnly ? `Join ${room.name} to listen (talking needs ${roleShort(room.speakRole)})`

@@ -20,7 +20,7 @@ import { hostname, userInfo } from 'node:os';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import {
-  test, expect, uid, IRC_HOST, IRC_PORT, field,
+  test, expect, uid, IRC_HOST, IRC_PORT, field, IS_WEB, webSkip,
   continueAsGuest, addServerManually, serverCard, joinChannel, messageList,
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
@@ -55,7 +55,13 @@ test.describe('app shell', () => {
     await expect(bar.getByRole('button', { name: 'Notifications' })).toBeVisible();
     await expect(bar.getByRole('button', { name: 'User settings' })).toContainText('guest');
 
-    if (process.platform === 'darwin') {
+    if (IS_WEB) {
+      // A browser tab: no window to control, and no macOS traffic lights.
+      await expect(bar).not.toHaveClass(/title-bar-darwin/);
+      for (const name of ['Minimize', 'Maximize', 'Restore', 'Close']) {
+        await expect(bar.getByRole('button', { name, exact: true })).toHaveCount(0);
+      }
+    } else if (process.platform === 'darwin') {
       // macOS keeps the native traffic lights (hiddenInset): no drawn controls.
       await expect(bar).toHaveClass(/title-bar-darwin/);
       for (const name of ['Minimize', 'Maximize', 'Restore', 'Close']) {
@@ -74,6 +80,7 @@ test.describe('app shell', () => {
   });
 
   test('About: update states pushed from main drive the version row', async ({ launchApp }) => {
+    webSkip("no in-app updater (each deploy is the latest)");
     const { app, page, openedExternally } = await launchApp();
     await continueAsGuest(page, `up${uid()}`);
     const dialog = await openUserSettings(page, /^About/);
@@ -198,6 +205,7 @@ function fallbackEncrypt(plaintext: string): string {
 
 test.describe('secure store', () => {
   test('values written by the derived-key fallback still load; unreadable ones count as missing', async ({ launchApp, profile }) => {
+    webSkip("the desktop store file (desktop/securestore.go); the web store is unit-tested in platform/web");
     const host = `fallback-${uid()}.example.test`;
     writeFileSync(join(profile.userData, 'identity-store.json'), JSON.stringify({
       'boson.bouncer.v1': fallbackEncrypt(JSON.stringify({
@@ -227,6 +235,7 @@ test.describe('secure store', () => {
   });
 
   test('a corrupt store file is replaced on the next write; the bridge rejects malformed calls', async ({ launchApp, profile }) => {
+    webSkip("the desktop store file (desktop/securestore.go); the web store is unit-tested in platform/web");
     writeFileSync(join(profile.userData, 'identity-store.json'), '{ this is not json', { mode: 0o600 });
     const { page } = await launchApp();
     await continueAsGuest(page, `sc${uid()}`);
@@ -270,6 +279,7 @@ function listen(handler: (req: IncomingMessage, res: ServerResponse, body: strin
 
 test.describe('API proxy', () => {
   test('only reaches allowlisted origins, re-checks every redirect hop, strips credentials across origins', async ({ launchApp }) => {
+    webSkip("the desktop API proxy (desktop/apiproxy.go); the web calls services directly under their CORS");
     const seenB: Seen[] = [];
     const b = await listen((req, res, body) => {
       seenB.push({ method: req.method!, url: req.url!, headers: req.headers, body });
@@ -343,6 +353,7 @@ test.describe('Spotify', () => {
   // host (that's its SSRF guard), so the e2e build's StubSpotify hook serves
   // those pages in place of the network instead of redirecting it anywhere.
   test('a Spotify link renders a native card from the embed page; other hosts are never fetched', async ({ launchApp }) => {
+    webSkip("the desktop Spotify fetcher; Spotify cards are unavailable on the web");
     const playlistId = `PL${uid(10)}`;
     const pages: Record<string, string> = {
       [`https://open.spotify.com/embed/playlist/${playlistId}`]: spotifyEmbedPage({

@@ -49,6 +49,11 @@ export interface FilesBridge {
   beginUpload(req: { filesUrl: string; auth?: string; name: string; type?: string; size: number }): Promise<FilesUploadTicket>;
   cancelUpload(id: string): Promise<void>;
   onProgress(fn: (p: FilesProgress) => void): () => void;
+  // The web build: uploads the whole file to the files host itself (no
+  // shell to stream through), resolving with the files host's answer.
+  upload?(id: string, file: Blob, signal: AbortSignal): Promise<Response>;
+  // The web build: where a file previews from (the files host itself).
+  viewUrl?(url: string): string;
 }
 
 export function filesBridge(): FilesBridge | null {
@@ -57,5 +62,7 @@ export function filesBridge(): FilesBridge | null {
 
 // Where the shell previews a file (desktop/files.go serveView).
 export function filesViewUrl(url: string): string {
+  const view = filesBridge()?.viewUrl;
+  if (view) return view(url);
   return `/_boson/files/view?u=${encodeURIComponent(url)}`;
 }

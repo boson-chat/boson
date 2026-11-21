@@ -19,9 +19,14 @@ import './styles.css';
 // The Wails shell's bridges (platform/wails.ts) are installed asynchronously;
 // everything below that reads a window.boson* bridge waits for them. In a
 // plain browser (vite dev) there are no bridges, so it all runs now.
-const shellReady: Promise<void> | null = isWailsPage()
+// The web build (chat.boson.chat, VITE_BOSON_SHELL=web) installs its own
+// browser-backed bridges (platform/web); the branch is dropped from the
+// desktop bundle at build time.
+const shellReady: Promise<void> | null = import.meta.env.VITE_BOSON_SHELL !== 'web' && isWailsPage()
   ? import('./platform/wails').then((m) => m.installWailsBridges())
-  : null;
+  : import.meta.env.VITE_BOSON_SHELL === 'web'
+    ? import('./platform/web').then((m) => m.installWebBridges())
+    : null;
 
 function withBridges(fn: () => void): void {
   if (shellReady) void shellReady.then(fn);
@@ -49,8 +54,11 @@ installDropGuard();
 // defaults, so a build made without CI's env (package-ios.sh, a local
 // package.sh) talks to them, not to localhost (which the shell's API proxy
 // blocks: "Blocked host"); client/.env points dev builds at local ones.
-const authUrl = import.meta.env.VITE_AUTH_URL ?? 'https://auth.boson.chat';
-const bosonUrl = import.meta.env.VITE_BOSON_API_URL ?? 'https://api.boson.chat';
+// The web build reads them at runtime (window.bosonWebConfig, from the web
+// container's /boson-config.js), so one build serves any stack.
+const webCfg = (window as { bosonWebConfig?: { authUrl?: string; apiUrl?: string; directoryUrl?: string } }).bosonWebConfig;
+const authUrl = webCfg?.authUrl || (import.meta.env.VITE_AUTH_URL ?? 'https://auth.boson.chat');
+const bosonUrl = webCfg?.apiUrl || (import.meta.env.VITE_BOSON_API_URL ?? 'https://api.boson.chat');
 
 const root = document.getElementById('app')!;
 
@@ -81,7 +89,7 @@ void (async () => {
   const props = buildApp({
     authUrl,
     bosonUrl,
-    directoryUrl: import.meta.env.VITE_DIRECTORY_URL || undefined,
+    directoryUrl: webCfg?.directoryUrl || import.meta.env.VITE_DIRECTORY_URL || undefined,
     // e2e builds of the app (the shell's E2E bridge) count as dev: they
     // browse test directories served on loopback.
     dev: import.meta.env.DEV || 'bosonE2E' in window,
@@ -162,7 +170,10 @@ void (async () => {
     // Video in voice channels (desktop/video.go): hidden until a call's
     // server offers it.
     const vb = videoBridge();
-    if (vb) setVideoController(new VideoController(vb));
+    // The web build hands frames over an in-page socket (bosonVideo.frameSocket)
+    // instead of the desktop's loopback WebSocket.
+    const frameSocket = (vb as { frameSocket?: typeof WebSocket } | null)?.frameSocket;
+    if (vb) setVideoController(new VideoController(vb, frameSocket ? { WebSocket: frameSocket } : undefined));
   }
   // Friends and private calls on the app's account (its auth service): the
   // event feed rings this app while it's open.

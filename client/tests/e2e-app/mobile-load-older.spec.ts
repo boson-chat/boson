@@ -11,7 +11,7 @@
 // The e2e app runs in Chromium: this drives touch scrolling (flings) and
 // taps, not WebKit's rubber-band bounce, which is checked by hand on iOS.
 import type { CDPSession, Page } from '@playwright/test';
-import { test, expect, randomChannel, joinChannel } from './fixtures';
+import { test, expect, randomChannel, joinChannel, webBrowserSkip } from './fixtures';
 import { connectGuest, connectPeer, messages } from './helpers/chat';
 import { startHistoryProxy, type HistoryProxy } from './helpers/history-proxy';
 import type { IrcPeer } from './irc-peer';
@@ -95,6 +95,8 @@ test.describe('phone: older messages', () => {
   });
 
   test('flicking up pages back through the server history (CHATHISTORY) to its start', async ({ launchApp }) => {
+    webBrowserSkip('firefox', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
+    webBrowserSkip('webkit', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
     test.setTimeout(180_000);
     proxy = await startHistoryProxy();
     const ch = randomChannel('phist');
@@ -119,6 +121,8 @@ test.describe('phone: older messages', () => {
   });
 
   test('the ribbon\'s button works with a tap, and the row being read stays in place', async ({ launchApp }) => {
+    webBrowserSkip('firefox', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
+    webBrowserSkip('webkit', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
     test.setTimeout(180_000);
     proxy = await startHistoryProxy();
     const ch = randomChannel('ptap');
@@ -156,6 +160,8 @@ test.describe('phone: older messages', () => {
   });
 
   test('flicking up brings back lines trimmed into the older store', async ({ launchApp }) => {
+    webBrowserSkip('firefox', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
+    webBrowserSkip('webkit', 'touch gestures go through the Chromium DevTools protocol (Input.dispatchTouchEvent), which Playwright has only in Chromium');
     test.setTimeout(240_000);
     const N = 500;
     const ch = randomChannel('pstore');

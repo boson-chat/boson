@@ -15,6 +15,7 @@ import type { Locator, Page } from '@playwright/test';
 import {
   test, expect, STACK, IRC_HOST, IRC_PORT, addServerManually, continueAsGuest, joinChannel, randomChannel,
   randomEmail, randomPassword, randomUsername, serverCard, uid,
+  IMG,
 } from './fixtures';
 import { expectConnected, png } from './helpers/directory';
 import { filesNetworkJson, startFakeFiles, type FakeFiles } from './helpers/files-server';
@@ -139,10 +140,10 @@ test.describe('file uploads', () => {
     const url = `${files.url}/f/${up.id}/sunset%20at%20the%20bay.png`;
     await expect(page.locator('.message-row-text').filter({ hasText: `Tonight ${url}` })).toBeVisible({ timeout: 15_000 });
     const embed = page.locator('[data-testid="files-embed"][data-media="image"]');
-    await expect(embed.locator('img')).toHaveAttribute('src', /^\/_boson\/img\?k=file&/, { timeout: 15_000 });
+    await expect(embed.locator('img')).toHaveAttribute('src', IMG.file, { timeout: 15_000 });
     await expect.poll(() => embed.locator('img').evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBe(320);
     await embed.getByRole('button', { name: 'Open sunset at the bay.png' }).click();
-    await expect(page.locator('.embed-lightbox img')).toHaveAttribute('src', /^\/_boson\/img\?k=file&/);
+    await expect(page.locator('.embed-lightbox img')).toHaveAttribute('src', IMG.file);
     await page.keyboard.press('Escape');
     await expect(page.locator('.embed-lightbox')).toBeHidden();
 
@@ -195,14 +196,19 @@ test.describe('file uploads', () => {
     await box.evaluate((el, b64) => {
       const data = new DataTransfer();
       data.items.add(new File([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], 'image.png', { type: 'image/png' }));
-      el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+      // Firefox ignores clipboardData in the ClipboardEvent constructor (an
+      // empty one):
+      // give the event its data the way a real paste carries it.
+      const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clipboardData', { value: data });
+      el.dispatchEvent(ev);
     }, png(64, 64, [200, 60, 60]).toString('base64'));
     await expect(sheet(page)).toBeVisible();
     await sheet(page).getByRole('button', { name: 'Send' }).click();
     await expect.poll(() => files.files.length, { timeout: 20_000 }).toBe(1);
     expect(files.files[0]!.auth).toMatch(/^Guest guest-1-/);
     expect(files.guestTokens).toBe(1);
-    await expect(page.locator('[data-testid="files-embed"][data-media="image"] img')).toHaveAttribute('src', /^\/_boson\/img\?k=file&/, { timeout: 15_000 });
+    await expect(page.locator('[data-testid="files-embed"][data-media="image"] img')).toHaveAttribute('src', IMG.file, { timeout: 15_000 });
 
     // A second upload reuses the token.
     await page.getByTestId('attach-input').setInputFiles({ name: 'b.txt', mimeType: 'text/plain', buffer: Buffer.from('b') });

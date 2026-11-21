@@ -2,9 +2,9 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/preact';
 import { TitleBar } from './TitleBar';
 
-const w = window as unknown as { bosonPlatform?: string };
+const w = window as unknown as { bosonPlatform?: string; bosonShell?: string };
 
-afterEach(() => { delete w.bosonPlatform; });
+afterEach(() => { delete w.bosonPlatform; delete w.bosonShell; });
 
 describe('TitleBar window controls', () => {
   it('draws minimize/maximize/close on Windows and Linux', () => {
@@ -18,6 +18,14 @@ describe('TitleBar window controls', () => {
     w.bosonPlatform = 'darwin';
     render(<TitleBar />);
     expect(screen.queryByRole('button', { name: 'Minimize' })).toBeNull();
+  });
+
+  it('has none in the web build, where the browser has its own', () => {
+    w.bosonShell = 'web';
+    render(<TitleBar />);
+    for (const name of ['Minimize', 'Maximize', 'Restore', 'Close']) {
+      expect(screen.queryByRole('button', { name })).toBeNull();
+    }
   });
 
   for (const platform of ['ios', 'android']) {

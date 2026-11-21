@@ -3,11 +3,12 @@
 // encrypted on disk), and — for a signed-in user — end-to-end-encrypted sync
 // through the backend's /me/bouncer to another device of the same account
 // (last writer wins; Clear removes the server copy).
-import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import {
   test, expect, uid, field, continueAsGuest, configureBouncerProfile, loginAs, type Profile,
+  SECURE_STORE_TAG, secureStoreOnDisk,
 } from './fixtures';
 
 async function openBouncerSettings(page: Page): Promise<Locator> {
@@ -39,11 +40,6 @@ function makeProfile(): Profile {
 }
 
 interface BouncerDTO { ciphertext: string; updated_at: string }
-
-// Secure-store tag on disk: the e2e build runs the store in its derived-key
-// mode (BOSON_SECURE_STORE=derived), whose values are "fb1:" ciphertext,
-// never plain text.
-const STORE_TAG = /^fb1:/;
 
 test.describe('bouncer profile', () => {
   test('validation, toggles, Clear, and persistence across a relaunch (encrypted at rest)', async ({ launchApp, profile }) => {
@@ -94,14 +90,14 @@ test.describe('bouncer profile', () => {
     await expect(page.getByText(`${host}:7000`)).toBeVisible();
     await expect(page.getByRole('button', { name: 'Pull from bouncer' })).toBeVisible();
 
-    // On disk it's only ciphertext (secure store → OS keychain encryption).
-    await expect.poll(() => {
-      try { return readFileSync(join(profile.userData, 'identity-store.json'), 'utf8'); } catch { return ''; }
-    }).toContain('boson.bouncer.v1');
-    const onDisk = readFileSync(join(profile.userData, 'identity-store.json'), 'utf8');
+    // On disk it's only ciphertext (secure store → OS keychain encryption;
+    // the web build's IndexedDB under a WebCrypto key).
+    await expect.poll(async () => JSON.stringify(await secureStoreOnDisk(page, profile.userData))).toContain('boson.bouncer.v1');
+    const stored = await secureStoreOnDisk(page, profile.userData);
+    const onDisk = JSON.stringify(stored);
     expect(onDisk).not.toContain(password);
     expect(onDisk).not.toContain(host);
-    expect(JSON.parse(onDisk)['boson.bouncer.v1']).toMatch(STORE_TAG);
+    expect(stored['boson.bouncer.v1']).toMatch(SECURE_STORE_TAG);
 
     // Relaunch: still there, trimmed values and toggles intact.
     await first.app.close();
@@ -124,7 +120,7 @@ test.describe('bouncer profile', () => {
     await closeSettings(dialog);
     await page.getByRole('tab', { name: 'Bouncer' }).click();
     await expect(page.getByText('No bouncer enabled')).toBeVisible();
-    await expect.poll(() => readFileSync(join(profile.userData, 'identity-store.json'), 'utf8')).not.toContain('boson.bouncer.v1');
+    await expect.poll(async () => JSON.stringify(await secureStoreOnDisk(page, profile.userData))).not.toContain('boson.bouncer.v1');
   });
 
   test('signed in: the profile syncs E2E-encrypted to another device; last writer wins; Clear removes it', async ({ launchApp, account, backendApi, zncUser }) => {

@@ -29,6 +29,7 @@ import type { Page } from '@playwright/test';
 import {
   test, expect, STACK, IRC_HOST, IRC_PORT, addServerManually, continueAsGuest, randomEmail, randomPassword,
   randomChannel, randomUsername, sendMessage, joinChannel, serverCard, uid,
+  IMG,
 } from './fixtures';
 import {
   cardIn, expectConnected, openServerSettings, railContextMenu, railTile, searchDirectory, settingsTab,
@@ -256,8 +257,8 @@ test.describe('network themes', () => {
     await expect(dialog).toBeVisible({ timeout: 20_000 });
     const hero = dialog.getByTestId('network-brand-hero');
     await expect(hero).toBeVisible({ timeout: 15_000 });
-    await expect(hero.getByRole('img', { name: `${name} logo` })).toHaveAttribute('src', /^\/_boson\/img\?k=theme&/);
-    await expect.poll(() => hero.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain('/_boson/img?k=theme');
+    await expect(hero.getByRole('img', { name: `${name} logo` })).toHaveAttribute('src', IMG.theme);
+    await expect.poll(() => hero.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(IMG.themeCss);
     await shot(page, '01-sign-in-dialog');
 
     await dialog.getByPlaceholder('username or email', { exact: true }).fill(user.username);
@@ -272,7 +273,7 @@ test.describe('network themes', () => {
     // The network's theme sets radius 4, but themes never change shape.
     expect(await cssVar(page, '--radius-sm')).toBe('2px');
     expect(await cssVar(page, '--pane-servers-bg')).toBe('#160f2a');
-    await expect.poll(() => cssVar(page, '--pane-messages-image')).toMatch(/^url\("\/_boson\/img\?k=theme&/);
+    await expect.poll(() => cssVar(page, '--pane-messages-image')).toMatch(IMG.themeVar);
     expect(await cssVar(page, '--pane-messages-blur')).toBe('6px');
     expect(await cssVar(page, '--pane-messages-dim')).toBe('0.55');
     expect(await page.evaluate(() => document.documentElement.dataset['networkTheme'])).toBe('localhost');
@@ -281,12 +282,12 @@ test.describe('network themes', () => {
       const after = getComputedStyle(el, '::after');
       return { image: before.backgroundImage, filter: before.filter, dim: after.opacity };
     });
-    expect(layer.image).toContain('/_boson/img?k=theme');
+    expect(layer.image).toContain(IMG.themeCss);
     expect(layer.filter).toBe('blur(6px)');
     expect(layer.dim).toBe('0.55');
     expect(await page.locator('.server-rail').evaluate((el) => getComputedStyle(el).backgroundColor)).toBe('rgb(22, 15, 42)');
-    await expect(railTile(page, name).locator('img.server-item-icon')).toHaveAttribute('src', /^\/_boson\/img\?k=theme&/);
-    await expect(page.locator('.channel-sidebar-logo')).toHaveAttribute('src', /^\/_boson\/img\?k=theme&/);
+    await expect(railTile(page, name).locator('img.server-item-icon')).toHaveAttribute('src', IMG.theme);
+    await expect(page.locator('.channel-sidebar-logo')).toHaveAttribute('src', IMG.theme);
     // Messages read over the picture.
     const channel = randomChannel('nth');
     await joinChannel(page, channel);
@@ -308,7 +309,7 @@ test.describe('network themes', () => {
     expect(await page.evaluate(() => document.documentElement.dataset['networkTheme'])).toBeUndefined();
     await expect(page.locator('.channel-sidebar-logo')).toHaveCount(0);
     // Its rail tile keeps the network's logo.
-    await expect(railTile(page, name).locator('img.server-item-icon')).toHaveAttribute('src', /^\/_boson\/img\?k=theme&/);
+    await expect(railTile(page, name).locator('img.server-item-icon')).toHaveAttribute('src', IMG.theme);
     await shot(page, '03-other-server-own-theme');
 
     // Back: the network's theme again.
@@ -368,8 +369,8 @@ test.describe('network themes', () => {
     await expect(page.locator('.otherserver-network')).toBeVisible({ timeout: 15_000 });
     const screen = page.locator('.login-screen-branded');
     await expect(screen).toBeVisible({ timeout: 15_000 });
-    expect(await screen.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain('/_boson/img?k=theme');
-    await expect(page.locator('.login-network-logo img')).toHaveAttribute('src', /^\/_boson\/img\?k=theme&/);
+    expect(await screen.evaluate((el) => getComputedStyle(el).backgroundImage)).toContain(IMG.themeCss);
+    await expect(page.locator('.login-network-logo img')).toHaveAttribute('src', IMG.theme);
     await shot(page, '06-login-other-server');
 
     // Back to boson.chat: its own look again.
@@ -382,8 +383,8 @@ test.describe('network themes', () => {
     const { page } = await launchApp();
     await connectToListing(page, brand);
     await expect.poll(() => accent(page)).toBe(DIR_ACCENT);
-    await expect(railTile(page, brand.listing.name).locator('img.server-item-icon')).toHaveAttribute('src', /^\/_boson\/img\?k=theme&/, { timeout: 15_000 });
-    await expect(page.locator('.channel-sidebar-logo')).toHaveAttribute('src', /^\/_boson\/img\?k=theme&/);
+    await expect(railTile(page, brand.listing.name).locator('img.server-item-icon')).toHaveAttribute('src', IMG.theme, { timeout: 15_000 });
+    await expect(page.locator('.channel-sidebar-logo')).toHaveAttribute('src', IMG.theme);
     await shot(page, '07-directory-listing-theme');
   });
 

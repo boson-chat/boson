@@ -67,7 +67,7 @@ export async function startFakeFiles(o: FakeFilesOptions = {}): Promise<FakeFile
     close: () => new Promise<void>((r) => server.close(() => r())),
   };
   const json = (res: ServerResponse, status: number, body: unknown): void => {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'Retry-After' });
     res.end(JSON.stringify(body));
   };
   // When the oldest uploads leave the window (fixed, as a real ledger's).
@@ -82,6 +82,18 @@ export async function startFakeFiles(o: FakeFilesOptions = {}): Promise<FakeFile
   });
 
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    // The web build calls it cross-origin, like the real files host
+    // (boson-chat/files: CORS *, bearer/guest tokens).
+    if (req.method === 'OPTIONS' && req.headers['access-control-request-method']) {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, HEAD, POST, DELETE',
+        'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Filename, Range',
+        'Access-Control-Max-Age': '600',
+      });
+      res.end();
+      return;
+    }
     const path = decodeURI((req.url ?? '/').split('?')[0]!);
     const auth = String(req.headers['authorization'] ?? '');
     state.requests.push({ method: req.method ?? '', path, auth });
@@ -139,8 +151,8 @@ export async function startFakeFiles(o: FakeFilesOptions = {}): Promise<FakeFile
     const m = /^\/f\/([A-Za-z0-9]{22,})\/([^/]+)$/.exec(path);
     if (m && (req.method === 'GET' || req.method === 'HEAD')) {
       const f = state.files.find((x) => x.id === m[1]);
-      if (!f) { res.writeHead(404); res.end(); return; }
-      if (f.expired) { res.writeHead(410, { 'Content-Type': 'text/html' }); res.end('<p>This file expired.</p>'); return; }
+      if (!f) { res.writeHead(404, { 'Access-Control-Allow-Origin': '*' }); res.end(); return; }
+      if (f.expired) { res.writeHead(410, { 'Content-Type': 'text/html', 'Access-Control-Allow-Origin': '*' }); res.end('<p>This file expired.</p>'); return; }
       const ext = f.name.split('.').pop()!.toLowerCase();
       const left = Math.max(0, Math.round(opts.retentionSeconds - (Date.now() - f.createdAt) / 1000));
       const expiresAt = new Date(f.createdAt + opts.retentionSeconds * 1000).toISOString();

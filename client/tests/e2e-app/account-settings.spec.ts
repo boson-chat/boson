@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Locator, Page } from '@playwright/test';
 import {
-  test, expect, STACK,
+  test, expect, STACK, IS_WEB,
   backendSql, continueAsGuest, field, loginAs, randomPassword, recoverWithCode, setAuthPassword, signInWithPassword, signOut,
   submitLogin, uid,
 } from './fixtures';
@@ -284,10 +284,16 @@ test('appearance and about: theme picker, version, update check and the source l
   await dialog.getByRole('tab', { name: /^About/ }).click();
   const version = (JSON.parse(readFileSync(join(CLIENT_DIR, 'package.json'), 'utf8')) as { version: string }).version;
   await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Version' })).toContainText(`v${version}`);
-  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).toContainText(process.platform);
-  // Unpackaged builds have no updater feed: a manual check reports up to date.
-  await dialog.getByRole('button', { name: 'Check for updates' }).click();
-  await expect(dialog.getByText('Up to date.')).toBeVisible();
+  if (IS_WEB) {
+    // The browser is the platform, and each deploy is the latest: no updater.
+    await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).toContainText('Web (');
+    await expect(dialog.getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
+  } else {
+    await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).toContainText(process.platform);
+    // Unpackaged builds have no updater feed: a manual check reports up to date.
+    await dialog.getByRole('button', { name: 'Check for updates' }).click();
+    await expect(dialog.getByText('Up to date.')).toBeVisible();
+  }
 
   await dialog.getByRole('link', { name: 'github.com/boson-chat/boson' }).click();
   await expect.poll(openedExternally).toContain('https://github.com/boson-chat/boson');

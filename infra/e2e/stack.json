@@ -1,12 +1,14 @@
 {
   "$comment": "Endpoints of the real-app e2e stack (client/scripts/e2e-stack.mjs, client/tests/e2e-app/stack.ts, client/scripts/build-e2e.mjs). Ports must match docker-compose.yml next to this file. auth.admin is a throwaway admin account e2e-stack.mjs creates in the tmpfs-only auth service (the tests use it to look users up).",
-  "irc": { "host": "127.0.0.1", "port": 16667 },
-  "znc": { "host": "127.0.0.1", "port": 16501, "users": ["tester1", "tester2", "tester3", "tester4", "tester5", "tester6", "tester7", "tester8"], "password": "pw", "network": "ergo" },
-  "postgres": { "host": "127.0.0.1", "port": 16432, "database": "boson", "user": "boson", "password": "boson" },
-  "catchallMail": { "smtpPort": 11025, "pop3Port": 11110, "pop3User": "e2e", "pop3Password": "e2e", "apiUrl": "http://127.0.0.1:18025", "archiveApiUrl": "http://127.0.0.1:18026" },
-  "minio": { "endpoint": "http://127.0.0.1:19000", "accessKey": "minioadmin", "secretKey": "minioadmin", "bucket": "boson" },
-  "auth": { "url": "http://127.0.0.1:18180", "mailpitUrl": "http://127.0.0.1:18325", "dbPort": 16433, "admin": { "username": "e2eadmin", "email": "e2eadmin@example.test", "password": "e2e-admin-password" } },
-  "backend": { "url": "http://127.0.0.1:13000", "port": 13000, "internalUrl": "http://127.0.0.1:13001", "internalPort": 13001, "internalToken": "e2e-internal-token" },
-  "selfhost": { "irc": { "host": "localhost", "port": 16668 }, "auth": { "url": "http://127.0.0.1:18181" }, "dbPort": 16435 },
-  "directory": { "url": "http://127.0.0.1:18480", "dbPort": 16434, "database": "directory", "user": "directory", "password": "directory" }
+  "irc": {"host": "127.0.0.1", "port": 16667},
+  "znc": {"host": "127.0.0.1", "port": 16501, "users": ["tester1", "tester2", "tester3", "tester4", "tester5", "tester6", "tester7", "tester8"], "password": "pw", "network": "ergo"},
+  "postgres": {"host": "127.0.0.1", "port": 16432, "database": "boson", "user": "boson", "password": "boson"},
+  "catchallMail": {"smtpPort": 11025, "pop3Port": 11110, "pop3User": "e2e", "pop3Password": "e2e", "apiUrl": "http://127.0.0.1:18025", "archiveApiUrl": "http://127.0.0.1:18026"},
+  "minio": {"endpoint": "http://127.0.0.1:19000", "accessKey": "minioadmin", "secretKey": "minioadmin", "bucket": "boson"},
+  "auth": {"url": "http://127.0.0.1:18180", "mailpitUrl": "http://127.0.0.1:18325", "dbPort": 16433, "admin": {"username": "e2eadmin", "email": "e2eadmin@example.test", "password": "e2e-admin-password"}},
+  "backend": {"url": "http://127.0.0.1:13000", "port": 13000, "internalUrl": "http://127.0.0.1:13001", "internalPort": 13001, "internalToken": "e2e-internal-token"},
+  "selfhost": {"irc": {"host": "localhost", "port": 16668}, "auth": {"url": "http://127.0.0.1:18181"}, "dbPort": 16435},
+  "directory": {"url": "http://127.0.0.1:18480", "dbPort": 16434, "database": "directory", "user": "directory", "password": "directory"},
+  "web": {"url": "http://127.0.0.1:18800", "port": 18800, "gateway": {"url": "ws://127.0.0.1:18801/webirc/websocket/", "port": 18801}},
+  "voice": {"addr": "127.0.0.1:17700", "url": "http://127.0.0.1:18890", "video": {"addr": "127.0.0.1:17710", "infoUrl": "http://127.0.0.1:18891/v1/info"}}
 }

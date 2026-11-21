@@ -27,6 +27,12 @@ export interface StackConfig {
   directory: { url: string; dbPort: number; database: string; user: string; password: string };
   // A self-hosted network: its own auth service and IRC (no guests).
   selfhost: { irc: { host: string; port: number }; auth: { url: string }; dbPort: number };
+  // The web build's origin under e2e (tests/e2e-app/web-server.ts) and the
+  // IRC gateway it dials (webircgateway, e2e-stack.mjs).
+  web: { url: string; port: number; gateway: { url: string; port: number } };
+  // quicvoiced + quicvideod (web-calls.spec.ts): dev certificates, so
+  // browsers pin them by hash (/v1/info).
+  voice: { addr: string; url: string; video: { addr: string; infoUrl: string } };
 }
 
 export const STACK = JSON.parse(readFileSync(join(E2E_INFRA_DIR, 'stack.json'), 'utf8')) as StackConfig;

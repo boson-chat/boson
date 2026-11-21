@@ -110,6 +110,8 @@ services:
     image: ${BACKEND_IMAGE:-harbor.floret.dev/boson/backend:${BACKEND_IMAGE_TAG:-0.55.0}}
     command: ['migrate', 'up']
     environment: &backend-env
+      # The web build under e2e (stack.json web.url) calls it cross-origin.
+      ALLOWED_ORIGINS: http://127.0.0.1:18800
       ENV: e2e
       PORT: '3000'
       DBHOST: postgres
@@ -277,6 +279,9 @@ services:
     environment:
       ENV: development
       PUBLIC_URL: http://127.0.0.1:18180
+      # The web build under e2e (stack.json web.url) calls it cross-origin.
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:18180,http://127.0.0.1:18800
+      SSO_RETURN_TO_ALLOWED: http://127.0.0.1:*,http://[::1]:*,boson://,http://127.0.0.1:18800/sso/callback
       COOKIE_SECURE: 'false'
       DATABASE_URL: postgres://auth:auth@auth-postgres:5432/auth?sslmode=disable
       AUTH_KEY_ENCRYPTION_KEY: ZTJlLW9ubHkta2V5LWZvci10aGUtdG1wZnMtc3RhY2s=
@@ -326,6 +331,7 @@ services:
     environment:
       ENV: development
       DIRECTORY_PUBLIC_URL: http://127.0.0.1:18480
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:18800
       DATABASE_URL: postgres://directory:directory@directory-postgres:5432/directory?sslmode=disable
       # Tokens carry the issuer the app signs in with (the host URL); the keys
       # are fetched inside the network.
@@ -376,6 +382,7 @@ services:
     environment:
       ENV: development
       PUBLIC_URL: http://127.0.0.1:18181
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:18181,http://127.0.0.1:18800
       COOKIE_SECURE: 'false'
       DATABASE_URL: postgres://auth:auth@auth2-postgres:5432/auth?sslmode=disable
       AUTH_KEY_ENCRYPTION_KEY: ZTJlLXNlbGZob3N0LW5ldHdvcmsta2V5LXRtcGZzISE=
@@ -415,3 +422,55 @@ services:
       timeout: 2s
       retries: 30
 
+
+  # ---- voice + video (the web build's calls: web-calls.spec.ts) --------------
+  # quicvoiced and quicvideod with their self-signed dev certificates (no
+  # TLS_CERT_FILE): browsers reach them over WebTransport by the
+  # certificate's hash (/v1/info dev_cert_hash). Voice tokens come from the
+  # e2e auth service (aud quicvoice); video tickets from quicvoiced.
+  quicvoiced:
+    image: ${QUICVOICE_IMAGE:-harbor.floret.dev/boson/quicvoice:1.15.0}
+    ports:
+      - '127.0.0.1:17700:7700/udp'
+      - '127.0.0.1:18890:8090'
+    environment:
+      ENV: development
+      QUIC_ADDR: ':7700'
+      HTTP_ADDR: ':8080'
+      PUBLIC_HTTP_ADDR: ':8090'
+      DEV_HOSTNAME: 127.0.0.1
+      AUTH_JWKS_URL: http://auth:8080/.well-known/jwks.json
+      AUTH_ISSUER: http://127.0.0.1:18180
+      AUTH_AUDIENCE: quicvoice
+      VOICE_ROOMS: general:General,lounge:Lounge
+      VOICE_ROOMS_STRICT: 'true'
+      WEBTRANSPORT_ORIGINS: http://127.0.0.1:18800
+      VIDEO_QUIC_URL: quic://127.0.0.1:17710
+      VIDEO_WEBTRANSPORT_URL: https://127.0.0.1:17710/wt
+      VIDEO_TICKET_KEY_FILE: /data/video-ticket.key
+      VIDEO_CONTROL_URL: http://quicvideod:8091
+      VIDEO_CONTROL_TOKEN: e2e-video-control
+    tmpfs:
+      - /data:mode=1777
+    depends_on:
+      auth:
+        condition: service_started
+
+  quicvideod:
+    image: ${QUICVIDEO_IMAGE:-harbor.floret.dev/boson/quicvideo:1.14.0}
+    ports:
+      - '127.0.0.1:17710:7710/udp'
+      - '127.0.0.1:18891:8090'
+    environment:
+      ENV: development
+      QUIC_ADDR: ':7710'
+      HTTP_ADDR: ':8080'
+      PUBLIC_HTTP_ADDR: ':8090'
+      CONTROL_HTTP_ADDR: ':8091'
+      CONTROL_TOKEN: e2e-video-control
+      VOICE_SYNC: 'true'
+      DEV_HOSTNAME: 127.0.0.1
+      AUTH_JWKS_URL: http://quicvoiced:8090/.well-known/video-jwks.json
+      AUTH_ISSUER: voice
+      AUTH_AUDIENCE: quicvideo
+      WEBTRANSPORT_ORIGINS: http://127.0.0.1:18800

@@ -1,283 +1,227 @@
-# Boson in the browser: the engine as WebAssembly, the app at boson.chat/chat
+# Boson in the browser: chat.boson.chat
 
-Status: **plan for review**. No code until it's agreed.
-Starting point: main at 0.39.1 — the Wails desktop app (`desktop/`), the
-renderer (`client/`), the Go engine (`engine/`), the marketing site
-(`website/`, a Cloudflare Worker with static assets on boson.chat).
+Status: **built** (decided by James, 2026-11-21; boson#127). This replaces the
+October plan (the engine relayed through the boson.chat Cloudflare Worker,
+the app at boson.chat/chat): the stack now runs on our own VPS, so the
+gateway, the static app and the call servers live there too.
 
 ## Goal
 
-The same app as the desktop client, running in a browser at
-**https://boson.chat/chat**, for accounts and guests. The engine — the Go
-IRC logic — runs inside the page as WebAssembly, as it runs in-process in
-the desktop app. For development: the website's dev server, with the chat
-app, pointed at the local Supabase and backend.
+The whole app in a browser at **https://chat.boson.chat**: accounts and
+guests, any IRC network, the directory, friends, uploads, themes, voice and
+video calls. It is the same renderer (`client/`) the desktop and phone apps
+run, with the same components and design system: no web-only restyling.
+Self-hosters get it from the stack's `web` profile at their own `WEB_HOST`.
 
-## The constraint that shapes everything
+## Decisions
 
-A browser page (JavaScript or WebAssembly alike) can't open a TCP
-connection. Its network APIs are `fetch`, WebSocket, WebRTC and
-WebTransport; IRC servers listen on plain TCP (6667, 6697, …). Chrome's
-Direct Sockets API is limited to installed Isolated Web Apps, not websites.
-So the engine runs in the page, but its IRC connections need something
-WebSocket-shaped at the other end:
-
-1. **Direct IRC-over-WebSocket**, for servers and bouncers that offer it:
-   Ergo (our default local server; `websockets` listener), soju, and the
-   UnrealIRCd/InspIRCd networks that enable their websocket module. Nothing
-   in between; costs nothing.
-2. **A relay on the boson.chat Cloudflare Worker** for every other server:
-   WebSocket in, TCP out (Workers' `connect()` sockets API). No server of
-   ours to run — it's the Worker that already serves the website.
-
-**TLS stays end-to-end.** The engine does the TLS handshake itself (Go's
-`crypto/tls` works in WebAssembly) over the relayed byte stream, so for
-TLS servers the relay only ever forwards ciphertext; it can't read or alter
-IRC traffic. Plain-text servers are as exposed as they are on the desktop.
-
-Decided (2026-10-16): relay on the Cloudflare Worker + direct WebSocket;
-accounts and guests.
-
-### What the relay costs
-
-Workers Free allows 10 ms of CPU per request; a WebSocket is one request that
-lives as long as the IRC session, so the relay needs **Workers Paid: $5/month
-minimum**, which includes 10M requests and 30M CPU-ms a month (then
-$0.02/million CPU-ms). WebSocket messages aren't billed as requests and
-time spent waiting on the network isn't CPU time. Forwarding bytes is cheap:
-roughly 1,000 users chatting 8 h/day at ~1 IRC line/s ≈ 40M CPU-ms/month ≈
-$5.20 total (an estimate). Open: how outbound `connect()` sockets are priced
-(not in the pricing docs), and the 5-minute CPU cap per invocation — a very
-long, very busy session could reach it and reconnect (the engine already
-reconnects). Sources: [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
-[Workers limits](https://developers.cloudflare.com/workers/platform/limits/).
-
-### The relay's IP is everyone's IP
-
-Through the relay, every web user connects from Cloudflare's egress
-addresses. Networks limit connections per IP and ban abusive ranges, so:
-
-- **Per-IP limits** on big networks (Libera, OFTC, …) may cap how many web
-  users can be on at once. WEBIRC (passing the real user IP to the network)
-  needs a fixed gateway IP and an agreement with each network — Cloudflare's
-  egress IPs aren't fixed, so WEBIRC isn't available through the Worker.
-- **One abuser can get the range banned** for everyone on that network.
-
-Mitigations: the relay's own limits (below), direct WebSocket wherever a
-network offers it, and bouncer users connecting to their bouncer (one
-connection, from the bouncer's IP, to the network). If a big network objects,
-the fallback is a small relay with a fixed IP and WEBIRC agreements — the
-thing this plan avoids hosting; noted as the escape hatch, not planned.
-
-## Architecture in the browser
-
-```
-boson.chat/chat (page)                       Cloudflare Worker (boson.chat)
-┌──────────────────────────────┐             ┌──────────────────────────────┐
-│ renderer (client/, Preact)   │             │ static assets (website + app)│
-│   window.boson* web bridges  │             │ /irc  WebSocket ↔ TCP relay  │
-│        ▲ MessagePort         │             │ /unfurl, /spotify  fetchers  │
-│ SharedWorker                 │  WebSocket  └──────────────┬───────────────┘
-│   engine.wasm (Go)  ─────────┼─────────────►  relay ───────┼──► IRC server :6697
-│     dial: direct WS or relay ┼─────────────────────────────┼──► IRC server (WS)
-└──────────────────────────────┘                             │
-         │ fetch (CORS)                                      │
-         └──────────────────────────► api.boson.chat (backend), Supabase
-```
-
-### The engine: WebAssembly in a SharedWorker
-
-- `GOOS=js GOARCH=wasm` build of a new `engine/cmd/wasm` main. The engine
-  already compiles for it unchanged (checked). Size: **11 MB raw, 2.1 MB
-  brotli** (2.9 MB gzip) — Cloudflare serves brotli; it's fetched once and
-  cached. TinyGo would be smaller but doesn't support everything girc and
-  the engine use; not worth it up front.
-- It runs in a **SharedWorker**, one per browser profile, not in the page:
-  - off the UI thread (IRC bursts, parsing, history);
-  - **one engine for all tabs** — two tabs must not open two IRC
-    connections with the same nick. Each tab talks to the shared engine over
-    a `MessagePort`. Safari supports SharedWorker since 16; where it's
-    missing, fall back to a dedicated Worker plus a single-tab lock (Web
-    Locks API) that tells a second tab the app is open elsewhere.
-- The protocol is the existing one: `ipc.ServeSession` over a `Transport`
-  (the transport split from the Wails work), here backed by `MessagePort`s instead of a WebSocket or
-  Wails events. The renderer keeps using its `WebSocketLike` engine socket
-  (`platform/web.ts` provides one over the port, as `platform/wails.ts` does
-  over Wails events).
-- **Multiple sessions on one engine:** today one session owns its IRC
-  connections and quits them when it closes. With several tabs on one
-  SharedWorker the engine needs connections that outlive a tab: owned by the
-  worker, attached to by sessions (each tab subscribes to events and can
-  send commands), quitting only when the last tab goes away. This is the one
-  real engine change; it's also what a future "app keeps running in the
-  background" mode on desktop would want.
-
-### Dialing: `engine/irc` gets a pluggable dialer
-
-`irc.dial` is the one place the engine opens a connection (TCP + optional
-TLS + a line filter). It becomes `Config.Dial` (default: today's `net.Dialer`
-code), and the wasm build plugs in a browser dialer that returns a `net.Conn`
-over a JS WebSocket:
-
-- **Direct**, when the server is known to speak IRC-over-WebSocket:
-  `wss://host:port/…` with the IRC text subprotocol. Messages are lines, so
-  that `net.Conn` frames lines rather than bytes, and TLS is the browser's
-  (wss). Known how: a per-server flag/URL — in the directory entry for
-  listed servers (new column), and an "IRC over WebSocket" option when adding
-  a server by hand. No probing of random ports.
-- **Relayed**, for everything else: `wss://boson.chat/irc?host=…&port=…`
-  carrying raw bytes (binary frames); the engine's TLS runs over it as it
-  does over TCP.
-
-The desktop app keeps dialing TCP directly; nothing changes there.
-
-### The relay (on the existing Worker)
-
-`website/` gains a Worker script (`main` in `wrangler.toml`, assets still
-served as today, `run_worker_first` only for `/irc*`, `/unfurl`, `/spotify`):
-
-- `GET /irc?host&port` with `Upgrade: websocket` → `connect({hostname, port})`
-  → pipe both directions (streams, so the Worker barely touches the bytes).
-- **Guards** (this is an open TCP proxy otherwise):
-  - **Who:** a short-lived relay token. Signed-in users get one from the
-    backend (`POST /relay-token`, signed with a secret the Worker shares,
-    ~5 min, single host:port); guests get one after a **Turnstile** check
-    (free, invisible for most people). No token, no relay.
-  - **Where:** IRC ports only (6660–6669, 6697, 7000, 7070, 9999 and the
-    ports of directory-listed servers); hostnames only (no IP literals);
-    never private, loopback, link-local or reserved ranges after resolution
-    (Workers can't reach Cloudflare's own addresses or port 25 anyway).
-  - **How much:** connections per user / per guest / per client IP
-    (Workers Rate Limiting binding), a byte budget per connection, an idle
-    timeout, and an abuse report path (logs keep host, port, user id, time;
-    never content).
-- The 5-minute CPU cap per invocation: the relay closes cleanly near it and
-  the engine reconnects; with streaming pipes it's unlikely to be reached.
-
-### The native services, web versions
-
-The renderer reaches native features through `window.boson*` bridges. The
-web build installs `platform/web.ts` (as the desktop app installs
-`platform/wails.ts`), chosen at startup the same way (`is-wails.ts` → a small
-`platform/detect.ts`). Most already have browser fallbacks:
-
-| Bridge | Desktop (Go) | Web |
+| Question | Decision | Why |
 |---|---|---|
-| `bosonEngine` | in-process engine over Wails events | engine.wasm in a SharedWorker over MessagePort |
-| `bosonApi` | Go proxy (CORS) | direct `fetch` (existing fallback); backend CORS gains `https://boson.chat` (already there) and the dev origin |
-| `bosonSecure` | file + OS keychain key | IndexedDB + a non-extractable WebCrypto AES-GCM key (same `fb1:`-style envelope idea; new `wb1:` tag). Without it the renderer turns identity persistence off (today's memory fallback). |
-| `bosonUnfurl`, `bosonSpotify` | Go fetchers with SSRF guard | the Worker's `/unfurl` and `/spotify` (same rules; Workers can't reach private networks); rate-limited per IP |
-| `bosonThemes` | themes folder + watcher | already falls back to browser storage (no folder) |
-| `bosonYouTube` | wrapper from boson.chat | none needed: the page *is* boson.chat, so YouTube embeds directly |
-| notifications | native | Web Notification API (asks permission on first mention, not on load) |
-| `bosonDeepLink` | `boson://` from the OS | `boson.chat/chat?join=…` links; `/auth/confirmed` redirects into `/chat` instead of `boson://` |
-| `bosonWindow`, title bar | native window | no custom title bar; the browser's |
-| `bosonUpdater` | release check | none (the web app is always the latest deploy) |
-| `bosonE2E` | e2e hooks | e2e build only (see Tests) |
+| Engine | **The Go engine compiled to WebAssembly** (`GOOS=js GOARCH=wasm`), in a dedicated Web Worker | Reuses all of `engine/` (IRC, CAP/SASL, bouncer detection and replay, services automation, send queue, keepalive) and its tests, unchanged. It compiles as is (checked). A TypeScript port would rewrite ~5,000 lines and duplicate ~4,000 lines of tests, then drift. |
+| IRC transport | **WebSocket → webircgateway → TCP/TLS**, for every network | Browsers can't open TCP. One dialer in the engine, one place for limits and WEBIRC. |
+| Boson's own Ergo | **Through the gateway too**, not Ergo's native WebSocket listener | One code path for every network (the e2e suite tests the path third-party networks use), the gateway's per-IP limits and abuse controls cover our network as well, and Ergo still sees the real user IP via WEBIRC from the trusted gateway. The gateway reaches Ergo on the compose network (no hairpin through Traefik). The `wss://irc.boson.chat/webirc` route stays for other WebSocket clients. |
+| Calls | **WebTransport** straight to quicvoiced (new) and quicvideod (has it) | No WebRTC gateway to run. Datagrams for Opus, the same control stream as native clients. |
+| Hosting | The stack's **`web` profile**: a static client container + the gateway container, behind Traefik at `WEB_HOST` | Same box, same certs, same config file; self-hosters get it too. |
 
-Security for the page: a strict CSP (no inline script; `connect-src` for the
-API, Supabase, `wss://boson.chat`, and `wss:` for direct IRC-over-WebSocket),
-since the secure store and session tokens live in the page's origin now.
+### Engine: size and startup
 
-### Mounting the app at /chat
+- `engine/cmd/wasm` (new): `ipc.ServeSession` over a `MessagePort`
+  transport instead of a WebSocket or Wails events: the protocol the
+  renderer already speaks.
+- Size (measured, `-trimpath -ldflags=-s -w`): **11.6 MB raw, 2.2 MB
+  brotli, 3.0 MB gzip**. Served with a content hash in its name and
+  `Cache-Control: immutable`, so it is downloaded once per release.
+- Startup: `WebAssembly.instantiateStreaming` compiles while it downloads;
+  on a desktop machine compile + start is ~150–300 ms on a warm cache. The
+  page renders immediately (the renderer doesn't wait for the engine to
+  draw the directory); the engine socket opens when the worker is ready.
+- In a Worker: IRC bursts, parsing and backlog replay stay off the UI
+  thread. One engine per tab. A second tab of the same browser profile runs
+  its own engine; v1 accepts that (the second tab's nick collides and gets
+  the alternate nick); a single-tab lock or a SharedWorker is a later step.
 
-- The renderer builds a second time with `base: '/chat/'` into
-  `website/dist/chat/` (one `npm run build` for the site does both). The
-  marketing site's Vite build stays as is.
-- The Worker routes `/chat` and `/chat/*` to `/chat/index.html` (the app's
-  own client-side state; it has no URL routes today), everything else as now
-  (the site's SPA fallback).
-- Website nav gets "Open in browser" next to Download.
+### Dialing
 
-### Dev setup
+`irc.dial` is the one place the engine opens a connection. It becomes a
+build-tagged seam: native builds keep `net.Dialer` + `crypto/tls`; the wasm
+build returns a `net.Conn` over a browser WebSocket to the gateway:
 
-- `make web-dev`: like `make client-env` it reads the local Supabase URL and
-  anon key (`supabase status`) and starts the **website dev server**
-  (`:5174`) with the chat app at `/chat`, using the Cloudflare Vite plugin
-  so the Worker's routes (`/irc` relay, `/unfurl`) run locally in workerd
-  with hot reload. The relay in dev needs no token (dev builds only).
-- Local backend on `:3000` (`make run`) with `ALLOWED_ORIGINS` including
-  `http://localhost:5174`; local Supabase's auth redirect URLs gain
-  `http://localhost:5174/chat`.
-- The local ergo (`make ergo-up`) gets its `websockets` listener enabled, so
-  dev exercises the direct path; any other server goes through the local
-  relay.
-- The engine: `make web-engine` builds `engine.wasm` (and copies Go's
-  `wasm_exec.js`) into the app's public dir; `web-dev` rebuilds it on
-  `engine/` changes.
+```
+renderer ──postMessage──► Worker: engine.wasm ──wss://WEB_HOST/webirc/websocket/──► webircgateway ──TCP/TLS──► irc.example.net:6697
+```
 
-## Phases
+- After the socket opens the engine sends `HOST irc.example.net:+6697`
+  (webircgateway's gateway mode; `+` = TLS upstream), then registers as
+  usual (PASS/CAP/SASL/NICK/USER). One WebSocket text message per IRC line.
+- **TLS is the gateway's**, not end-to-end: the browser has TLS to the
+  gateway (wss), the gateway has TLS to the network. That is how every web
+  IRC client works (KiwiIRC, The Lounge, gamja through a gateway). The
+  gateway is operator-run infrastructure, logs no message content, and
+  **verifies upstream certificates** (upstream webircgateway skips
+  verification; our patch turns it on). "Accept self-signed certificate"
+  on a server is passed as `HOST host:+port insecure` and is the only way
+  to skip it.
+- The gateway URL comes from the build (`VITE_WEB_GATEWAY_URL`, default
+  same origin `/webirc/websocket/`).
 
-### Phase 0: spikes (go/no-go, ~3 days)
-1. engine.wasm in a SharedWorker, connecting to the local ergo over its
-   WebSocket listener, joining a channel, from a bare test page.
-2. The same through a Worker relay (`wrangler dev`) to a TLS server, TLS in
-   the engine. Measure CPU per relayed MB.
-3. One relay connection to a big network (Libera) and a check of its policy
-   on connections from Cloudflare ranges.
-4. Load time on a cold cache with the 2.1 MB engine; startup to "connected".
+## Architecture
 
-### Phase 1: engine (~1 week)
-- `Config.Dial` and the browser dialers (direct, relayed); line-framed conn
-  for direct WebSocket.
-- Sessions attach to worker-owned connections (several tabs, one engine).
-- `engine/cmd/wasm`: the JS glue (MessagePort transport, start/stop).
-- Go tests for the dialer seam and multi-session ownership; the existing
-  engine tests keep running natively.
+```
+chat.boson.chat (page)                                     boson VPS (stack, profile web)
+┌───────────────────────────────────────────┐             ┌────────────────────────────────┐
+│ renderer (client/, Preact) — unchanged UI │             │ Traefik ─► web (static, nginx) │
+│ platform/web.ts installs window.boson*    │             │        ─► /webirc ─► gateway ──┼─► any IRC network (WEBIRC where trusted)
+│   bosonEngine ─MessagePort─► Worker(wasm) ┼─ wss ──────►│                     └──────────┼─► ergo:6667 (WEBIRC trusted)
+│   bosonVoice  ─ WebTransport datagrams ───┼─ h3 ───────►│ quicvoiced :7700/udp /wt       │
+│   bosonVideo  ─ WebTransport streams ─────┼─ h3 ───────►│ quicvideod :7710/udp /wt       │
+│   fetch (CORS) ───────────────────────────┼─ https ────►│ auth, api, directory, files    │
+└───────────────────────────────────────────┘             └────────────────────────────────┘
+```
 
-### Phase 2: relay + Worker routes (~1 week)
-- Worker script with assets + `/irc`, `/unfurl`, `/spotify`; guards, rate
-  limits, logging; Turnstile for guests; backend `POST /relay-token` and the
-  shared secret.
-- Directory: an "IRC over WebSocket" URL per server; manual add option.
-- Tests: Worker unit tests (Vitest + workerd pool) for every guard.
+### The seam: `window.boson*` bridges
 
-### Phase 3: the web shell (~1–2 weeks)
-- `platform/web.ts`: engine over MessagePort, secure store (IndexedDB +
-  WebCrypto), unfurl/Spotify via the Worker, notifications, deep links via
-  URL, no title bar/updater.
-- The `/chat` build and routing; auth redirects; website nav link.
-- `make web-dev`, ergo websockets in dev.
+The renderer reaches native features only through `window.boson*` bridges,
+installed by `platform/wails.ts` in the desktop/phone shell, and already has
+a browser fallback for each one that's absent. The web build adds
+`platform/web.ts`, chosen at startup by `<meta name="boson-shell"
+content="web">` in the web build's `index.html` (as `is-wails.ts` checks
+`wails`). Each bridge, desktop vs web:
 
-### Phase 4: tests and CI (~1 week)
-- The real-app e2e suite gets a second target: the web build in Chromium,
-  Firefox and WebKit (Playwright drives all three here — browsers are its
-  home turf), against the e2e stack with ergo's WebSocket listener and a
-  local relay. Specs that are desktop-only (window, native notifications)
-  skip there.
-- CI: the web e2e job alongside the desktop one; the website deploy builds
-  the engine and the app.
+| Bridge | Desktop / phones (Go) | Web |
+|---|---|---|
+| `bosonEngine` | in-process engine over Wails events | engine.wasm in a Worker over a `MessagePort` (same JSON frames) |
+| `bosonApi` | Go proxy (the wails:// origin has no CORS) | none: the existing direct-`fetch` fallback; CORS on api/auth/directory/files allows `WEB_HOST` |
+| `bosonSecure` | file + OS keychain key | IndexedDB holding values encrypted with a **non-extractable** WebCrypto AES-GCM key (also in IndexedDB). Protects at-rest copies; script on the origin can still use the key, hence the CSP below. |
+| `bosonThemes` | themes folder + watcher | localStorage-backed list/write/remove; no "open folder" (import a file instead) |
+| `bosonUnfurl`, `bosonSpotify` | Go fetchers with an SSRF guard | **unavailable**: link previews and Spotify cards aren't shown (a page can't fetch other sites; a server-side fetcher is a later step). YouTube embeds work directly (the page is https). |
+| `bosonImages` | on-disk image cache | none: the browser HTTP cache |
+| `bosonBranding` | Go fetch + blob: images | direct `fetch` of the network's theme (auth `/v1/branding` sends CORS) |
+| `bosonNetAuth` | boson.json + QUIC probe | `fetch https://<domain>/.well-known/boson.json` (needs `Access-Control-Allow-Origin: *` on the website), then `auth.<domain>/v1/config` |
+| `bosonFiles` | uploads streamed by Go | direct `fetch` uploads to the files host (CORS `*`, bearer token), progress via upload streams/XHR |
+| `bosonSSO` | loopback listener (RFC 8252) | a popup to the provider with `return_to = https://WEB_HOST/sso/callback?s=…`; the callback page hands the code back over `BroadcastChannel`; the PKCE exchange is unchanged. The auth service's `SSO_RETURN_TO_ALLOWED` gains `https://WEB_HOST/sso/callback`. |
+| `bosonVoice` | Go VoiceService (QUIC, libopus, native audio) | TypeScript VoiceService: WebTransport, `getUserMedia` + AudioWorklet, Opus via WebCodecs, jitter buffer + mixer ported from `quicvoice/client/voice`; lip-sync AudioClock reports as on desktop |
+| `bosonVideo` | Go VideoService (native capture/encode) | TypeScript VideoService on quicvideo's web client (WebCodecs H.264): camera via `getUserMedia`, screen via `getDisplayMedia` (the browser's own picker replaces ours; the "You're sharing" bar stays). Frames reach the existing `video.controller.ts` through the same frame-message format, over an in-page socket instead of the loopback WebSocket. |
+| Notifications | native (`NotifyService`) | the Web Notification API (desktop browsers), plus in-app toasts as today |
+| `bosonDeepLink` | `boson://` from the OS | `https://WEB_HOST/?join=<boson://join?…>` (and `/join?host=…`) read once on load |
+| `bosonWindow` | custom title bar on Windows/Linux | none (the browser's own chrome) |
+| `bosonUpdater` | in-app updates | none (each deploy is the latest) |
+| `bosonYouTube` | wrapper origin | none needed |
+| `bosonE2E` | e2e hooks (desktop/e2e.go) | an e2e build's in-page hooks for what the web can do (opened links, the API outage switch through a test proxy); the rest skip |
 
-### Phase 5: rollout
-- Ship to boson.chat/chat behind a "beta" label; watch relay CPU, errors
-  and per-network rejections; then link it from the homepage.
+### Calls over WebTransport
 
-Rough size: 5–6 weeks. The largest parts are the multi-tab engine sessions
-and the relay's guards, not the WebAssembly build itself.
+- **quicvoice** gets an HTTP/3 + WebTransport listener on its QUIC port
+  (ALPN `h3` next to `quicvoice/1`, path `/wt`), reusing quicvideo's
+  vendored, patched `webtransport-go`. A session carries the same
+  bidirectional control stream (varint-framed protobuf) and the same audio
+  datagrams as native QUIC. `WEBTRANSPORT_ORIGINS` narrows which pages may
+  open sessions; the token in `Hello` is still what authorizes. The public
+  HTTP API (`/v1/rooms`) gains CORS for those origins.
+- **Browser tokens**: the same voice tokens the desktop gets from the auth
+  service (`POST /v1/voice/token`, guests `/v1/voice/guest-token`), fetched
+  with the page's session. quicvideo tickets come from quicvoiced over the
+  control stream as today.
+- **Audio**: capture 48 kHz mono in an AudioWorklet (echo cancellation,
+  noise suppression and AGC from `getUserMedia` — the browser gives us AEC,
+  which the desktop lacks), 20 ms frames → `AudioEncoder` (Opus, the
+  channel's bitrate cap) → uplink datagrams. Downlink datagrams → one
+  `AudioDecoder` per speaker → jitter buffer → mixer worklet → the chosen
+  output (`setSinkId` where supported). VAD/PTT, mute/deafen, per-user
+  volume, mic test and levels mirror the desktop's state shape.
+- **Browsers without WebTransport or Opus WebCodecs** (Linux WebKit,
+  older Safari): chat works, the call buttons say "Calls need a browser with
+  WebTransport (Chrome, Edge or Firefox)" (`audio: false` + `audioError`).
 
-## Risks
+### Auth, tokens and CORS
 
-- **Network policy on shared IPs** (above) — the biggest unknown; Phase 0
-  checks it before anything else is built.
-- **Background tabs.** Browsers throttle timers in background tabs; the
-  engine in a (Shared)Worker is less affected, but closing the last tab
-  ends the IRC session (QUIT) — unlike the desktop app, which keeps running.
-  Bouncer users keep their presence through the bouncer.
-- **Storage eviction.** IndexedDB can be evicted under storage pressure;
-  request persistent storage (`navigator.storage.persist()`) and keep the
-  account's encrypted identity recoverable from the backend, as today.
-- **Secrets in a web origin.** XSS on boson.chat would reach the secure
-  store; the strict CSP, no third-party scripts on `/chat`, and the
-  non-extractable key (it can be used by injected script but not exported)
-  are the mitigations.
-- **Workers platform limits** (CPU per invocation, connect() pricing) —
-  checked in Phase 0.
+- Session and refresh tokens live where the renderer already keeps them,
+  through `bosonSecure` (encrypted IndexedDB above). No cookies; every call
+  is `Authorization: Bearer`, so CORS needs no credentials mode.
+- CORS allow-lists gain `https://WEB_HOST`: auth (`CORS_ALLOWED_ORIGINS`),
+  api (`ALLOWED_ORIGINS`), directory (public GETs are `*`; owner calls need
+  the origin), files (`*` already), quicvoice (new, this work), quicvideo
+  WebTransport (`WEBTRANSPORT_ORIGINS`). The stack derives them from
+  `WEB_HOST`.
+- **CSP** (served by the web container): `default-src 'self'`; scripts only
+  `'self'` + `'wasm-unsafe-eval'`; `connect-src 'self'` + the stack's
+  https/wss/WebTransport hosts; `frame-src` YouTube; no inline script. With
+  tokens and the identity key in the origin, XSS is the risk that matters:
+  no third-party scripts, DOMPurify for rendered markdown (as today).
 
-## Open questions for review
+## Unavailable or different on the web
 
-1. **Relay costs:** fine to move the account to Workers Paid ($5/month+)?
-2. **Guests and the relay:** Turnstile for guests, plus lower caps — or
-   guests on direct-WebSocket servers only?
-3. **Which IRC ports** the relay allows beyond the common ones.
-4. **Closing the last tab quits IRC.** Acceptable for v1, or should the web
-   app push people towards a bouncer (or a hosted one) from the start?
+| Feature | Web |
+|---|---|
+| Link previews, Spotify cards | not shown (no server-side fetcher yet) |
+| Image disk cache, its settings | browser cache; the Settings row is hidden |
+| Theme folder ("Open folder", live file watch) | stored in the browser; import/export instead |
+| Native screen-share picker (thumbnails, window list) | the browser's picker |
+| Screen-share sound | not yet (sending or playing) |
+| OS notifications when the tab is closed | none (Web Notifications only while the tab is open) |
+| Custom title bar, updater | none |
+| `boson://` links | `https://WEB_HOST/?join=…` |
+| Background running | closing the tab disconnects (bouncer users keep presence) |
+| Calls without WebTransport (Linux WebKit) | chat only, with the message above |
+
+## The gateway and its security
+
+webircgateway (kiwiirc) built from a pinned commit with our patches and a
+policy file compiled in (`stack/images/webircgateway/`). Without guards a
+WebSocket→TCP gateway is an open proxy; the guards:
+
+- **Ports**: IRC ports only: 6660–6669, 6697, 7000, 7070, 9999, plus
+  `WEBIRC_EXTRA_PORTS`. Anything else is refused before dialing.
+- **Addresses**: the destination is resolved and checked at connect time
+  (a `net.Dialer.Control` hook, so DNS rebinding can't slip past):
+  loopback, private, link-local, CGNAT, multicast and reserved ranges are
+  refused, except named internal aliases (`irc.boson.chat` → `ergo:6667`)
+  the operator configures.
+- **Allow/deny lists**: `WEBIRC_UPSTREAM_ALLOW` (empty = any public
+  network) and `WEBIRC_UPSTREAM_DENY` (globs), checked on the hostname.
+- **Per-IP limits**: concurrent connections per client IP (default 5),
+  new connections per IP per minute (default 10), lines per second from the
+  client (webircgateway's throttle, default 2/s sustained with a burst).
+  The real IP is read from `X-Forwarded-For` only from Traefik.
+- **Origins**: only `https://WEB_HOST` pages may open the WebSocket.
+- **WEBIRC**: sent with the user's real IP to networks that list the
+  gateway (`[gateway.webirc]` passwords); Boson's own Ergo trusts it from
+  the gateway's compose address with `WEBIRC_PASSWORD`. Other networks see
+  the VPS IP; they may cap connections from it.
+- **Upstream TLS verified** (patch) unless the user marked the server
+  self-signed.
+- **Logs**: host, port, client IP, time, close reason; never line content.
+
+## E2E plan
+
+The real-app suite (`client/tests/e2e-app`, ~110 specs) and the call-layout
+specs run against the web build too, through the **launcher**, not copies:
+
+- `launchApp()` (fixtures.ts) picks the target from `E2E_TARGET`:
+  `desktop` (today: the server-mode binary) or `web` (the static web build
+  served by a tiny Node server on a fixed port, opened in a persistent
+  context of `E2E_BROWSER` = chromium | firefox | webkit). The e2e stack
+  gains a webircgateway container (same image as production, e2e policy:
+  loopback/compose aliases allowed) and CORS for the web origin.
+- Specs that can't apply on the web are tagged once (`webSkip(reason)`;
+  `webBrowserFixme` marks known gaps in one browser) — only
+  native-only behaviour: the native screen picker, OS notifications /
+  focus restore, second-instance argv, the on-disk image cache, the theme
+  folder watcher, link-preview/Spotify fetchers, the updater. The list is
+  in the README next to the specs.
+- Playwright projects: `web-chromium`, `web-firefox`, `web-webkit`. Calls
+  are checked where WebTransport exists (Chromium, Firefox; WebKit only
+  where it has it) against a local quicvoiced/quicvideod with a 13-day
+  ECDSA dev cert (`serverCertificateHashes`).
+- CI: a `web` job in `e2e.yml` (matrix over the three browsers) next to the
+  unchanged desktop job.
+
+## Releases and deploy
+
+- boson: `harbor.floret.dev/boson/web` image (static build + nginx with the
+  CSP and caching headers), built by the release workflow.
+- quicvoice: a minor release with WebTransport + CORS.
+- stack: `web` profile (`web`, `webircgateway`), `WEB_HOST`, Ergo WEBIRC
+  trust, CORS and SSO return_to derived from `WEB_HOST`, docs, CI smoke.
+- Deploy (main session): DNS `chat.boson.chat` → the VPS, `.env`
+  `WEB_HOST`, `COMPOSE_PROFILES` + `web`, `CERT_HOSTS` + `chat.boson.chat`,
+  `WEBIRC_PASSWORD`, new image pins.

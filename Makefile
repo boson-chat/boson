@@ -4,7 +4,7 @@
         client-install client-env client-dev client-build desktop-dev desktop-build \
         engine-build engine-connect engine-serve engine-env \
         test test-go test-client test-e2e hooks-install \
-        test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage \
+        test-e2e-app test-e2e-app-up test-e2e-app-down test-e2e-app-coverage test-e2e-web web-image \
         test-e2e-services test-e2e-services-ergo test-e2e-services-anope test-e2e-services-atheme test-e2e-chanserv
 
 # The backend (API server, migrations) and the website live in their own
@@ -242,7 +242,20 @@ test-e2e-app-coverage: test-e2e-app-up
 	cd client && npm run test:e2e:app:coverage
 
 test-e2e-app-down:
+	-node client/scripts/e2e-gateway.mjs down
 	$(E2E_STACK) down
+
+# The same suite against the web build (chat.boson.chat), through the IRC
+# gateway, in each browser (client/tests/e2e-app/README.md, "Web target").
+# E2E_WEB_PROJECTS narrows it, e.g. "--project=web-firefox".
+test-e2e-web: test-e2e-app-up
+	node client/scripts/e2e-gateway.mjs up
+	cd client && npm run build:e2e-web
+	cd client && npm run test:e2e:web -- $(E2E_WEB_PROJECTS)
+
+# The web client image (infra/web): harbor.floret.dev/boson/web.
+web-image:
+	docker build -f infra/web/Dockerfile -t boson-web:dev .
 
 # ----- Services e2e (live IRC services packages) -----
 #

@@ -70,6 +70,40 @@ function injectFreshEngineDiscovery(): Plugin {
   };
 }
 
+// The web build (chat.boson.chat; `npm run build:web`): the same renderer
+// with platform/web's browser bridges and the engine as WebAssembly. Its
+// CSP comes from the server that serves it (the web container sets the
+// stack's hosts), so the desktop's meta CSP is dropped; /boson-config.js
+// (runtime settings, rewritten by the container) loads before the app.
+const webBuild = process.env['VITE_BOSON_SHELL'] === 'web';
+const webGen = resolve(__dirname, 'src/renderer/src/platform/web/gen');
+
+function webShell(): Plugin {
+  return {
+    name: 'boson-web-shell',
+    apply: () => webBuild,
+    transformIndexHtml(html: string) {
+      return html
+        .replace(/\s*<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?\/>/i, '')
+        .replace(/(<script type="module")/, '<script src="./boson-config.js"></script>\n    $1');
+    },
+    generateBundle() {
+      // Defaults from the build's env; the web container overwrites it.
+      const cfg = {
+        authUrl: process.env['VITE_AUTH_URL'] || undefined,
+        apiUrl: process.env['VITE_BOSON_API_URL'] || undefined,
+        directoryUrl: process.env['VITE_DIRECTORY_URL'] || undefined,
+        gatewayUrl: process.env['VITE_WEB_GATEWAY_URL'] || undefined,
+      };
+      this.emitFile({
+        type: 'asset',
+        fileName: 'boson-config.js',
+        source: `window.bosonWebConfig = ${JSON.stringify(cfg)};\n`,
+      });
+    },
+  };
+}
+
 // Coverage builds for the real-app e2e suite (E2E_COVERAGE=1) keep source
 // maps and skip minifying, so V8 coverage maps back onto src/ lines.
 const coverageBuild = process.env['E2E_COVERAGE'] === '1';
@@ -77,13 +111,23 @@ const coverageBuild = process.env['E2E_COVERAGE'] === '1';
 export default defineConfig({
   root: resolve(__dirname, 'src/renderer'),
   envDir: resolve(__dirname), // client/.env, not src/renderer/.env
-  plugins: [preact(), injectFreshEngineDiscovery(), noElkLayouts()],
+  plugins: [preact(), injectFreshEngineDiscovery(), noElkLayouts(), webShell()],
   // elkjs (EPL-2.0) never reaches the bundle: see src/build/no-elk.ts.
-  resolve: { alias: [elkJsAlias] },
+  resolve: {
+    alias: [
+      elkJsAlias,
+      // Only the web build has the web shell (and needs its generated engine).
+      ...(webBuild ? [] : [{ find: /^\.\/platform\/web$/, replacement: resolve(__dirname, 'src/renderer/src/platform/web-stub.ts') }]),
+      { find: /^boson-engine-wasm/, replacement: join(webGen, 'engine.wasm') },
+      { find: /^boson-wasm-exec$/, replacement: join(webGen, 'wasm_exec.js') },
+    ],
+  },
+  publicDir: webBuild ? resolve(__dirname, 'web/public') : 'public',
+  worker: { format: 'es' },
   optimizeDeps: { esbuildOptions: { plugins: [noElkLayoutsEsbuild()] } },
   server: { port: 5173, strictPort: true },
   build: {
-    outDir: resolve(__dirname, process.env['RENDERER_OUT_DIR'] || 'out/renderer'),
+    outDir: resolve(__dirname, process.env['RENDERER_OUT_DIR'] || (webBuild ? 'out/web' : 'out/renderer')),
     emptyOutDir: true,
     ...(coverageBuild ? { sourcemap: true, minify: false } : {}),
   },

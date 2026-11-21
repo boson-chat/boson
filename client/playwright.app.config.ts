@@ -18,7 +18,7 @@ export default defineConfig({
   // Writes the coverage reports when E2E_COVERAGE=1.
   globalTeardown: './tests/e2e-app/global-teardown.ts',
   // Separate per concurrently running author (like E2E_OUT_DIR).
-  outputDir: process.env['E2E_RESULTS_DIR'] || './test-results/e2e-app',
+  outputDir: process.env['E2E_RESULTS_DIR'] || (process.env['E2E_TARGET'] === 'web' ? './test-results/e2e-web' : './test-results/e2e-app'),
   // Each test boots the app (and its engine) at least once; bouncer flows
   // wait on ZNC's reconnect pacing.
   timeout: 120_000,
@@ -33,19 +33,39 @@ export default defineConfig({
   // desktop: every spec at a desktop window size. mobile: the phone-layout
   // specs (mobile-*.spec.ts) at an iPhone's viewport, with touch — the e2e
   // app runs in Chromium, so this checks the responsive layout, not WebKit.
-  projects: [
-    { name: 'desktop', testIgnore: /mobile-.*\.spec\.ts/ },
-    {
-      name: 'mobile',
-      testMatch: /mobile-.*\.spec\.ts/,
-      use: {
-        viewport: devices['iPhone 15'].viewport,
-        deviceScaleFactor: devices['iPhone 15'].deviceScaleFactor,
-        isMobile: true,
-        hasTouch: true,
+  //
+  // E2E_TARGET=web (`npm run test:e2e:web`): the same specs against the web
+  // build (tests/e2e-app/web-app.ts) in each browser — web-chromium,
+  // web-firefox, web-webkit, plus their phone-layout projects. Pick some
+  // with --project.
+  projects: process.env['E2E_TARGET'] === 'web'
+    ? (['chromium', 'firefox', 'webkit'] as const).flatMap((browserName) => [
+      { name: `web-${browserName}`, testIgnore: /mobile-.*\.spec\.ts/, use: { browserName } },
+      {
+        name: `web-${browserName}-mobile`,
+        testMatch: /mobile-.*\.spec\.ts/,
+        use: {
+          browserName,
+          viewport: devices['iPhone 15'].viewport,
+          deviceScaleFactor: devices['iPhone 15'].deviceScaleFactor,
+          isMobile: browserName !== 'firefox',
+          hasTouch: true,
+        },
       },
-    },
-  ],
+    ])
+    : [
+      { name: 'desktop', testIgnore: /mobile-.*\.spec\.ts/ },
+      {
+        name: 'mobile',
+        testMatch: /mobile-.*\.spec\.ts/,
+        use: {
+          viewport: devices['iPhone 15'].viewport,
+          deviceScaleFactor: devices['iPhone 15'].deviceScaleFactor,
+          isMobile: true,
+          hasTouch: true,
+        },
+      },
+    ],
   reporter: process.env['CI']
     ? [['github'], ['list'], ['html', { open: 'never', outputFolder: 'playwright-report/e2e-app' }]]
     : [['list']],

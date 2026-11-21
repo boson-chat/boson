@@ -47,6 +47,7 @@ export function TitleBar({
   updateReady, onOpenUpdate,
 }: TitleBarProps = {}) {
   const darwin = isDarwin();
+  const web = (window as { bosonShell?: string }).bosonShell === 'web';
   const mobile = isMobile();
   // Phones (and narrow windows): the phone's top bar, the same bar as the
   // desktop's, taller, with your avatar in place of your name.
@@ -140,7 +141,8 @@ export function TitleBar({
           ))}
         </div>
       )}
-      {!darwin && !mobile && (
+      {/* No window to control in the web build: the browser has its own. */}
+      {!darwin && !mobile && !web && (
         <div class="title-bar-controls">
           <button
             type="button"
