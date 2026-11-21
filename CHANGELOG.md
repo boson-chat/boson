@@ -1,3 +1,9 @@
+## [0.88.1](https://github.com/boson-chat/boson/compare/v0.88.0...v0.88.1) (2026-11-21)
+
+### Bug Fixes
+
+* login password hint says what it unlocks, without the keychain ([#128](https://github.com/boson-chat/boson/issues/128)) ([f2370ed](https://github.com/boson-chat/boson/commit/f2370edd9e24cd59d441d4f7a66017877916cf56))
+
 ## [0.88.0](https://github.com/boson-chat/boson/compare/v0.87.3...v0.88.0) (2026-11-21)
 
 ### Features
