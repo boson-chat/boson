@@ -129,10 +129,16 @@ for (const [w, h, name] of SIZES.filter(([, , n]) => n !== 'desktop')) {
     await page.goto(`${BASE}${platform(name)}&notify=mention`);
     const msg = (await page.locator('.ntoast').first().boundingBox())!;
     await incoming(page, 'banner');
+    // Measure the banner where it lands, not while it slides in from the
+    // top (mid-animation its box is still above the screen, which made the
+    // buttons look like they spilled out of it). Reduced motion places it
+    // at once; the Accept pulse class is still asserted below.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(`${BASE}${platform(name)}&notify=ring`);
     const ring = page.getByRole('alertdialog', { name: 'kestrel is calling' });
     await expect(ring).toBeVisible();
     await expect(ring).toContainText('video call');
+    await expect.poll(async () => (await ring.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(0);
     const box = (await ring.boundingBox())!;
     // A one-line message banner's height (44px row + padding); a longer
     // message wraps and grows, the call banner never does.
