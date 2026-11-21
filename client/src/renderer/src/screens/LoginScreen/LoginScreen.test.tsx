@@ -69,6 +69,14 @@ describe('LoginScreen', () => {
     expect(screen.getByRole('button', { name: 'Sign up' })).toBeInTheDocument();
   });
 
+  // The key is stored encrypted with the password (same on web, where there's
+  // no keychain), so the hint says what the password unlocks, not where from.
+  it('explains what the password unlocks without mentioning a keychain', () => {
+    renderWith(buildFakeAuth(), buildFakeDirectory(), buildFakeIdentity());
+    expect(screen.getByText(/also unlocks your identity key, which signs you in to IRC servers/)).toBeInTheDocument();
+    expect(screen.queryByText(/keychain/i)).toBeNull();
+  });
+
   it('Sign in with no /me row initializes a new identity (signup-style)', async () => {
     const signIn = vi.fn(async () => {});
     const getMe = vi.fn(async () => null);
