@@ -170,7 +170,10 @@ void (async () => {
     // Video in voice channels (desktop/video.go): hidden until a call's
     // server offers it.
     const vb = videoBridge();
-    if (vb) setVideoController(new VideoController(vb));
+    // The web build hands frames over an in-page socket (bosonVideo.frameSocket)
+    // instead of the desktop's loopback WebSocket.
+    const frameSocket = (vb as { frameSocket?: typeof WebSocket } | null)?.frameSocket;
+    if (vb) setVideoController(new VideoController(vb, frameSocket ? { WebSocket: frameSocket } : undefined));
   }
   // Friends and private calls on the app's account (its auth service): the
   // event feed rings this app while it's open.

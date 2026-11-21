@@ -12,6 +12,7 @@ import { WebEngine } from './engine';
 import { createWebSecureStore } from './secure-store';
 import { webSSOBridge } from './sso';
 import { installWebE2E } from './e2e';
+import { installCalls } from './calls';
 
 export async function installWebBridges(): Promise<void> {
   const w = window as unknown as Record<string, unknown>;
@@ -39,6 +40,18 @@ export async function installWebBridges(): Promise<void> {
   void navigator.storage?.persist?.().catch(() => {});
 
   if (cfg.e2e) installWebE2E(w, { deliverDeepLink: deepLink.deliver });
+
+  // Voice and video channels (WebTransport). Dev/e2e builds take test
+  // networks' boson.json documents and self-signed servers' cert info from
+  // the e2e launcher (tests/e2e-app/web-app.ts).
+  const e2eEnv = (window as { bosonWebE2EEnv?: { networkJson?: string[]; certInfo?: Record<string, string> } }).bosonWebE2EEnv;
+  const dev = !!cfg.e2e || /^(localhost|127\.\d+\.\d+\.\d+|\[::1\])$/.test(location.hostname);
+  await installCalls(w, {
+    authBase: cfg.authUrl || import.meta.env.VITE_AUTH_URL || 'https://auth.boson.chat',
+    dev,
+    networkJson: dev ? e2eEnv?.networkJson : undefined,
+    certInfo: dev ? e2eEnv?.certInfo : undefined,
+  }).catch((err) => console.warn('calls: not available', err));
 
   // Last: everything above is in place (e2e launches wait for this).
   w.bosonShell = 'web';
