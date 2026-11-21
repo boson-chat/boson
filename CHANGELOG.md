@@ -1,3 +1,9 @@
+## [0.86.0](https://github.com/boson-chat/boson/compare/v0.85.0...v0.86.0) (2026-11-21)
+
+### Features
+
+* design system foundation: DESIGN.md and one shared component per kind of thing ([#116](https://github.com/boson-chat/boson/issues/116)) ([e2f6847](https://github.com/boson-chat/boson/commit/e2f6847dc263ed1a947b213459b34b17e9495214))
+
 ## [0.85.0](https://github.com/boson-chat/boson/compare/v0.84.0...v0.85.0) (2026-11-20)
 
 ### Features
