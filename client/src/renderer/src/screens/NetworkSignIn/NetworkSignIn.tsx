@@ -4,7 +4,7 @@ import {
   AuthError, SSO_CANCELLED, describeAuthError, guestAccessAllowed, signInWithProvider, ssoBridge, validateUsername,
   type AuthConfig, type AuthService, type SSOProvider,
 } from '../../modules/auth';
-import { clearGuestSession, emitGuestChange } from '../../modules/guest/guest';
+import { signOut } from '../../modules/signout/sign-out';
 import {
   getNetworkAccounts, hostOf, type NetworkAccounts, type NetworkAccountsSnapshot, type SignInPrompt,
 } from '../../modules/netauth/network-accounts';
@@ -82,7 +82,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
             <Button
               variant="primary"
               fullWidth
-              onClick={() => { onDone('cancel'); clearGuestSession(); emitGuestChange(); }}
+              onClick={() => { onDone('cancel'); void signOut(); }}
             >
               Sign in to boson.chat
             </Button>
