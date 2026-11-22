@@ -1,3 +1,9 @@
+## [0.90.2](https://github.com/boson-chat/boson/compare/v0.90.1...v0.90.2) (2026-11-22)
+
+### Bug Fixes
+
+* leaving guest mode is a full sign-out ([#133](https://github.com/boson-chat/boson/issues/133)) ([1612cfa](https://github.com/boson-chat/boson/commit/1612cfa551d3ea38deb55de79e483dc2b95d1931))
+
 ## [0.90.1](https://github.com/boson-chat/boson/compare/v0.90.0...v0.90.1) (2026-11-21)
 
 ### Bug Fixes
