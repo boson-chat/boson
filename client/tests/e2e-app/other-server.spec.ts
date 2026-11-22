@@ -8,8 +8,8 @@
 // offers, who sees the password); signing up there lands in the app in
 // guest mode for boson.chat with ergo2 added and connected with the new
 // account (ergo2 lets nobody in without it); the account is listed under
-// Network accounts; a relaunch restores the connection; and the login
-// screen offers to continue to that network as that user.
+// Network accounts; a relaunch restores the connection; and leaving guest
+// mode signs out of it all (nothing is offered to the next person).
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -104,19 +104,19 @@ test.describe('use another server', () => {
     await expect(p2.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
     await expect(p2.locator('.netauth-bar')).toContainText(`${username} on`);
 
-    // Leaving guest mode: the login screen offers the network again.
+    // Leaving guest mode is a full sign-out: the network's session and
+    // its server go too, so the login screen doesn't offer to continue as
+    // that user (the next person on this device starts clean).
     await p2.getByRole('button', { name: 'User settings' }).click();
     const s2 = p2.getByRole('dialog', { name: 'User settings' });
     await s2.getByRole('tab', { name: /^Account/ }).click();
     await s2.getByRole('button', { name: 'Switch to an account' }).click();
-    const resume = p2.getByRole('button', { name: new RegExp(`^Continue to .+ as ${username}$`) });
-    await expect(resume).toBeVisible({ timeout: 20_000 });
-    await shot(p2, '07-login-continue-shortcut');
-    await resume.click();
-    // Back in, connected to the network with its account (the server rail
-    // labels a server that isn't connected).
-    const rail = p2.getByRole('navigation', { name: 'Servers' });
-    await expect(rail.getByRole('button', { name: /^localhost/ })).toHaveAccessibleName('localhost', { timeout: 45_000 });
-    await expect(p2.locator('.netauth-bar')).toContainText(`${username} on`);
+    await expect(p2.locator('.login-screen')).toBeVisible({ timeout: 30_000 });
+    await expect(p2.locator('.login-server-host')).toHaveText('boson.chat');
+    await shot(p2, '07-login-after-guest');
+    await p2.waitForTimeout(2_000);
+    await expect(p2.getByRole('button', { name: /^Continue to / })).toHaveCount(0);
+    const left = await p2.evaluate(() => Object.keys(localStorage).filter((k) => /^(boson:guest:|boson\.netauth\.|boson\.login\.|boson:local-servers:)/.test(k)));
+    expect(left).toEqual([]);
   });
 });

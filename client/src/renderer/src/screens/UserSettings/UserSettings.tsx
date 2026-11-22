@@ -14,11 +14,11 @@ import { Avatar } from '../../shared/Avatar/Avatar';
 import { FileDropArea, FileDropHint } from '../../shared/FileDrop/FileDropArea';
 import { publishOwnAvatar } from '../../modules/chat/avatar-cache';
 import {
-  clearGuestSession,
   emitGuestChange,
   loadGuestSession,
   saveGuestSession,
 } from '../../modules/guest/guest';
+import { signOut } from '../../modules/signout/sign-out';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
@@ -741,9 +741,11 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
           <Button
             variant="primary"
             onClick={() => {
-              clearGuestSession();
-              emitGuestChange();
+              // Leaving guest mode is a full sign-out: the guest's
+              // connections, servers and data don't carry over to the
+              // account that signs in next (a shared device).
               onClose();
+              void signOut();
             }}
           >
             Switch to an account

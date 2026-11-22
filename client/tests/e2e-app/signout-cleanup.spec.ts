@@ -3,7 +3,7 @@
 // in on the same app profile and finds none of A's connections, servers,
 // credentials, history or keys — while A's account keeps its synced copies.
 import type { Page } from '@playwright/test';
-import { test, expect, loginAs, randomChannel, secureStoreOnDisk, uid, configureBouncerProfile, field } from './fixtures';
+import { test, expect, loginAs, randomChannel, secureStoreOnDisk, uid, configureBouncerProfile, field, continueAsGuest } from './fixtures';
 import { addServerAndConnect, connectPeer, joinViaUi, memberRow, messages, say, waitCmd } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 
@@ -126,5 +126,42 @@ test.describe('sign-out cleanup', () => {
     expect(secure.filter((k) => k.includes(a.id))).toEqual([]);
     expect((await localKeys(page)).filter((k) => k.includes(a.id))).toEqual([]);
     expect(await historyRows(page, a.id)).toBe(0);
+  });
+
+  test('leaving guest mode is a full sign-out: the guest\'s servers and connections never reach the account', async ({ launchApp, profile, createAccount }) => {
+    test.setTimeout(180_000);
+    const b = await createAccount({ handle: true });
+    const channel = randomChannel('guestout');
+    const serverName = `Guest Ergo ${uid(4)}`;
+    const nick = `g${uid(6)}`;
+    const peer = await connectPeer();
+    peers.push(peer);
+    await peer.join(channel);
+
+    // ---- a guest connects and talks ----
+    const { page } = await launchApp();
+    await continueAsGuest(page, nick);
+    await addServerAndConnect(page, serverName);
+    await joinViaUi(page, channel, nick);
+    await expect(memberRow(page, peer.nick)).toBeVisible();
+    await say(page, 'guest was here');
+    await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'guest was here');
+
+    // ---- "Switch to an account" ----
+    const mark = peer.mark();
+    await signOutFromSettings(page, 'Switch to an account');
+    await peer.waitFor((l) => l.command === 'QUIT' && l.prefix.split('!')[0] === nick, 20_000, `QUIT from ${nick}`, mark);
+    await expect.poll(async () => (await localKeys(page)).filter((k) => PERSONAL_LOCAL.test(k)), { timeout: 15_000 }).toEqual([]);
+    await expect.poll(async () => Object.keys(await secureStoreOnDisk(page, profile.userData)).filter((k) => PERSONAL_SECURE.test(k)), { timeout: 15_000 })
+      .toEqual([]);
+
+    // ---- the account signs in: none of the guest's servers came along ----
+    expect(await loginAs(page, b)).toBe('directory');
+    await page.waitForTimeout(3_000);
+    await expect(page.getByRole('navigation', { name: 'Servers' })).toBeHidden();
+    await expect(page.getByText(serverName)).toHaveCount(0);
+    const names = await peer.names(channel);
+    expect(names).not.toContain(nick);
+    expect(names).not.toContain(b.handle);
   });
 });
