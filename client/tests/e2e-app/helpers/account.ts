@@ -112,6 +112,10 @@ export async function recoverWithCode(page: Page, recoveryCode: string): Promise
 }
 
 export async function signOut(page: Page): Promise<void> {
-  await page.locator('.directory-topbar').getByRole('button', { name: 'Sign out' }).click();
+  // Sign out lives in User settings → Account.
+  await page.getByRole('button', { name: 'User settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'User settings' });
+  await settings.getByRole('tab', { name: /^Account/ }).click();
+  await settings.getByRole('button', { name: 'Sign out' }).click();
   await expect(loginScreen(page)).toBeVisible({ timeout: 20_000 });
 }

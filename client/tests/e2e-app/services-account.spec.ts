@@ -219,21 +219,22 @@ function commandRow(settings: Locator, label: string): Locator {
     .locator('xpath=..');
 }
 
-// Directory → Advanced → "+ Add server manually" with the optional login
+// Directory → "Add by address" with the optional login
 // fields filled → Connect.
 async function addAndConnectWithLogin(
   page: Page,
   login: { saslUser?: string; saslPass?: string; nickservPass?: string },
 ): Promise<string> {
   const name = `Login Ergo ${uid(4)}`;
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-  await page.getByRole('button', { name: '+ Add server manually' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add a server manually' });
+  await page.getByRole('button', { name: 'Add by address' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a server by address' });
   await field(dialog, 'Hostname').fill(IRC_HOST);
   await field(dialog, 'Port').fill(String(IRC_PORT));
   await field(dialog, 'Display name').fill(name);
+  await dialog.getByRole('button', { name: /More options/ }).click();
   const tls = dialog.getByRole('checkbox', { name: 'Use TLS (recommended)' });
   if (await tls.isChecked()) await dialog.getByText('Use TLS (recommended)').click();
+  await field(dialog, 'Port').fill(String(IRC_PORT));
   if (login.saslUser) await field(dialog, 'SASL account').fill(login.saslUser);
   if (login.saslPass) await field(dialog, 'SASL password').fill(login.saslPass);
   if (login.nickservPass) await field(dialog, 'NickServ password').fill(login.nickservPass);

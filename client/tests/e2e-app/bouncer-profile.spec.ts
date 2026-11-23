@@ -118,8 +118,8 @@ test.describe('bouncer profile', () => {
     await expect(field(dialog, 'Host')).toHaveValue('');
     await expect(dialog.getByRole('checkbox', { name: 'Use a bouncer', exact: true })).not.toBeChecked();
     await closeSettings(dialog);
-    await page.getByRole('tab', { name: 'Bouncer' }).click();
-    await expect(page.getByText('No bouncer enabled')).toBeVisible();
+    // No bouncer and no bouncer networks: the directory has no Bouncer tab.
+    await expect(page.getByRole('tab', { name: 'Bouncer' })).toHaveCount(0);
     await expect.poll(async () => JSON.stringify(await secureStoreOnDisk(page, profile.userData))).not.toContain('boson.bouncer.v1');
   });
 

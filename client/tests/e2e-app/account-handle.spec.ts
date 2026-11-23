@@ -44,7 +44,7 @@ test('first sign-in handle setup rejects short and taken handles, then accepts a
   await expect(page.getByLabel('recovery code', { exact: true })).toBeVisible({ timeout: 20_000 });
   await page.getByText('I’ve saved my recovery code somewhere safe.').click();
   await page.locator('.recovery-code-reveal').getByRole('button').last().click();
-  await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(handle);
   const me = await (await backendApi(fresh)).get<{ handle: string; encrypted_user_secret_recovery: string }>('/me');
   expect(me.handle).toBe(handle);
   expect(me.encrypted_user_secret_recovery.length).toBeGreaterThan(40);

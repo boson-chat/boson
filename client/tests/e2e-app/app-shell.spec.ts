@@ -128,14 +128,14 @@ test.describe('app shell', () => {
       .bosonUpdater.getState())).toMatchObject({ kind: 'up-to-date' });
   });
 
-  test('Notifications empty states and the idle engine pill', async ({ launchApp }) => {
+  test('Notifications empty states; one top bar over the directory', async ({ launchApp }) => {
     const { page } = await launchApp();
     await continueAsGuest(page, `ib${uid()}`);
-    // Directory top bar: no servers yet → the engine pill is idle and inert.
-    const pill = page.locator('.engine-pill');
-    await expect(pill).toHaveText('engine · idle');
-    await expect(pill).toBeDisabled();
-    await expect(pill).toHaveAttribute('title', 'Engine: idle');
+    // The directory has no bar of its own under the title bar (no engine
+    // pill, no second Sign out).
+    await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible();
+    await expect(page.locator('.engine-pill')).toHaveCount(0);
+    await expect(page.locator('.directory-screen').getByRole('button', { name: 'Sign out' })).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Notifications', exact: true }).click();
     const inbox = page.getByRole('dialog', { name: 'Notifications' });

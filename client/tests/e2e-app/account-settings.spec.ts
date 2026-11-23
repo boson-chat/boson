@@ -164,7 +164,7 @@ test('regenerating the recovery code replaces the wrap: the old code stops worki
   await expect(page.locator('.login-error')).toContainText('Recovery code rejected');
   await page.getByPlaceholder('xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx').fill('');
   await recoverWithCode(page, newCode);
-  await expect(page.locator('.directory-handle')).toHaveText(`@${account.handle}`);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle);
 });
 
 test('an account without a recovery code can set one up from settings', async ({ launchApp, account, backendApi }) => {

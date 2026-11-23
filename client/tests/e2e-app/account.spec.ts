@@ -50,7 +50,6 @@ test('sign up, confirm by email, set a handle, chat on a directory server, and s
     const card = serverCard(page, seeded.name);
     await expect(card).toBeVisible({ timeout: 20_000 });
     await expect(card.getByText('VERIFIED', { exact: true })).toBeVisible();
-    await expect(card.locator('.directory-card-host')).toHaveText(`${seeded.hostname}:${seeded.port}`);
 
     // ---- connect as the handle and chat ----
     await card.getByRole('button', { name: 'Connect' }).click();
@@ -94,5 +93,5 @@ test('sign up, confirm by email, set a handle, chat on a directory server, and s
 test('a provisioned account signs straight into the directory', async ({ launchApp, account }) => {
   const { page } = await launchApp();
   expect(await loginAs(page, account)).toBe('directory');
-  await expect(page.locator('.directory-handle')).toHaveText(`@${account.handle}`);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle);
 });
