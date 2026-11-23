@@ -4,7 +4,8 @@
 // account on this device (the latest 100).
 import type { Friend } from '../friends/friends.types';
 
-export type ToastKind = 'mention' | 'dm' | 'message' | 'friend' | 'accepted' | 'missed' | 'started';
+// 'undo': something you just did, with Undo (left a channel).
+export type ToastKind = 'mention' | 'dm' | 'message' | 'friend' | 'accepted' | 'missed' | 'started' | 'undo';
 
 export interface ToastRoom { host: string; roomId: string; name: string; serverName: string }
 
@@ -30,6 +31,8 @@ export interface Toast {
   room?: ToastRoom;
   // The feed item (or memo) it's for: opening it marks that read.
   feedId?: string;
+  // An 'undo' toast: puts back what was just done.
+  undo?: () => void;
 }
 
 export type FeedKind = 'friend' | 'call';
@@ -111,7 +114,11 @@ export class NotificationFeed {
 
   has(id: string): boolean { return this.items.some((i) => i.id === id); }
 
-  markRead(id: string): void { this.update((i) => (i.id === id && !i.read ? { ...i, read: true } : i)); }
+  /** Marks one item (by id) or every item matching a test read. */
+  markRead(which: string | ((i: FeedItem) => boolean)): void {
+    const hit = typeof which === 'string' ? (i: FeedItem) => i.id === which : which;
+    this.update((i) => (!i.read && hit(i) ? { ...i, read: true } : i));
+  }
   markAllRead(): void { this.update((i) => (i.read ? i : { ...i, read: true })); }
 
   remove(id: string): void {

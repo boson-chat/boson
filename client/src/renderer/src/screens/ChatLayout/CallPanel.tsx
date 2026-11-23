@@ -1,21 +1,17 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { MicOff, Video } from 'lucide-preact';
-import { EmptyState, Input, Tabs } from '@boson/shared';
+import { EmptyState, Input } from '@boson/shared';
 import type { ChatMessage } from '../../modules/chat/chat.types';
 import { nickColor } from '../../modules/chat/nick-color';
-import { useVideo } from '../../modules/video';
-import { useVoice } from '../../modules/voice';
 import { Avatar } from '../../shared/Avatar/Avatar';
-import { roomPeople } from './VoiceRooms';
-import { isGuestParticipant } from '../../modules/voice/guest-id';
 import { GuestBadge } from './GuestBadge';
 import './CallPanel.css';
 
 // The right panel on the voice channel you're in (desktop), in place of
-// MEMBERS: IN CALL — who's in, speakers first (with LIVE, camera and
-// muted icons), and CHAT — the messages of the text channel the voice
-// channel is under, with a composer. A voice channel that isn't under a
-// text channel has no chat: IN CALL alone.
+// MEMBERS: the CHAT of the text channel the voice channel is under, with a
+// composer. Who's in the call is on the stage's tiles (and under the voice
+// channel in the sidebar), so it isn't listed a third time here; a voice
+// channel that isn't under a text channel has no panel at all.
 
 export interface CallChat {
   channel: string; // '#dev'
@@ -23,53 +19,63 @@ export interface CallChat {
   onSend: (text: string) => void;
 }
 
-export function CallPanel({ chat, avatarFor, width }: {
-  chat?: CallChat | null;
+export function CallPanel({ chat, width }: { chat: CallChat; width?: number }) {
+  return (
+    <aside class="callpanel" aria-label={`Chat in ${chat.channel}`} style={width ? { width: `${width}px` } : undefined}>
+      <div class="callpanel-head">Chat · {chat.channel}</div>
+      <CallChatTab chat={chat} />
+    </aside>
+  );
+}
+
+// Who's in a voice channel, speakers first (with LIVE, camera, muted and
+// guest marks): the right panel while you look at a voice channel before
+// joining it (VoicePreJoin), in place of the text channel's members.
+export interface PanelPerson {
+  key: string;
+  name: string;
+  self?: boolean;
+  guest?: boolean;
+  speaking?: boolean;
+  muted?: boolean;
+  camera?: boolean;
+  screen?: boolean;
+}
+
+export function PeoplePanel({ title, people, avatarFor, width, empty }: {
+  title: string;
+  people: readonly PanelPerson[];
   avatarFor?: (nick: string) => string | undefined;
   width?: number;
+  empty?: string;
 }) {
-  const { snap } = useVoice();
-  const { snap: vsnap } = useVideo();
-  const call = snap.call;
-  const [tab, setTab] = useState<'people' | 'chat'>('people');
-  const showChat = tab === 'chat' && !!chat;
-  const { people } = roomPeople(call.participants, vsnap.state.tracks, vsnap.state.camera.on, vsnap.state.screen.on);
-  const speakers = people.filter((x) => x.p.speaking);
-  const quiet = people.filter((x) => !x.p.speaking);
-  const row = (x: typeof people[number]) => (
-    <li key={`${x.p.sessionId}:${x.p.userId}`} class="callpanel-person" data-speaking={x.p.speaking || undefined} data-self={x.self || undefined}
-      aria-label={`${x.p.name}${x.self ? ' (you)' : ''}${isGuestParticipant(x.p) ? ', guest' : ''}${x.p.speaking ? ', speaking' : ''}${x.screen ? ', sharing their screen' : ''}${x.camera ? ', camera on' : ''}${x.p.muted || x.p.deafened ? ', muted' : ''}`}>
-      <span class="callpanel-face"><Avatar nick={x.p.name} url={avatarFor?.(x.p.name)} size={24} /></span>
-      <span class="callpanel-name">{x.p.name}</span>
-      {isGuestParticipant(x.p) && <GuestBadge />}
+  const speakers = people.filter((x) => x.speaking);
+  const quiet = people.filter((x) => !x.speaking);
+  const row = (x: PanelPerson) => (
+    <li key={x.key} class="callpanel-person" data-speaking={x.speaking || undefined} data-self={x.self || undefined}
+      aria-label={`${x.name}${x.self ? ' (you)' : ''}${x.guest ? ', guest' : ''}${x.speaking ? ', speaking' : ''}${x.screen ? ', sharing their screen' : ''}${x.camera ? ', camera on' : ''}${x.muted ? ', muted' : ''}`}>
+      <span class="callpanel-face"><Avatar nick={x.name} url={avatarFor?.(x.name)} size={24} /></span>
+      <span class="callpanel-name">{x.name}</span>
+      {x.guest && <GuestBadge />}
       {x.screen && <span class="voice-live" aria-hidden="true">LIVE</span>}
       {x.camera && <Video size={13} class="callpanel-cam" aria-hidden="true" />}
-      {(x.p.muted || x.p.deafened) && <MicOff size={13} class="callpanel-muted" aria-hidden="true" />}
+      {x.muted && <MicOff size={13} class="callpanel-muted" aria-hidden="true" />}
     </li>
   );
   return (
-    <aside class="callpanel" aria-label="Call" style={width ? { width: `${width}px` } : undefined}>
-      <div class="callpanel-tabs">
-        <Tabs
-          tabs={chat ? [{ id: 'people', label: `IN CALL — ${people.length}` }, { id: 'chat', label: 'CHAT' }] : [{ id: 'people', label: `IN CALL — ${people.length}` }]}
-          active={showChat ? 'chat' : 'people'}
-          onChange={(id) => setTab(id === 'chat' ? 'chat' : 'people')}
-        />
+    <aside class="callpanel" aria-label={title} style={width ? { width: `${width}px` } : undefined}>
+      <div class="callpanel-head">{title} — {people.length}</div>
+      <div class="callpanel-people">
+        {people.length === 0 && empty && <EmptyState class="callpanel-empty">{empty}</EmptyState>}
+        {speakers.length > 0 && (
+          <>
+            <div class="callpanel-section">SPEAKING</div>
+            <ul class="callpanel-list">{speakers.map(row)}</ul>
+          </>
+        )}
+        {quiet.length > 0 && speakers.length > 0 && <div class="callpanel-section">LISTENING</div>}
+        <ul class="callpanel-list">{quiet.map(row)}</ul>
       </div>
-      {!showChat ? (
-        <div class="callpanel-people" role="tabpanel">
-          {speakers.length > 0 && (
-            <>
-              <div class="callpanel-section">SPEAKING</div>
-              <ul class="callpanel-list">{speakers.map(row)}</ul>
-            </>
-          )}
-          <div class="callpanel-section">IN CALL</div>
-          <ul class="callpanel-list">{quiet.map(row)}</ul>
-        </div>
-      ) : (
-        <CallChatTab chat={chat!} />
-      )}
     </aside>
   );
 }

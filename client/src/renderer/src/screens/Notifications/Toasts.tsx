@@ -67,6 +67,7 @@ export function openToast(t: Toast): void {
     case 'friend': case 'accepted': openFriends(); return;
     case 'missed': openCalls(); return;
     case 'started': if (t.room) joinVoice(t.room); return;
+    case 'undo': return;
   }
 }
 
@@ -108,6 +109,8 @@ function ToastCard({ t, phone, onClose }: { t: Toast; phone: boolean; onClose: (
         onClick={() => { void friends.call(t.call!.peer, t.call!.video); onClose(); }}>Call back</Button>
       <Button variant="secondary" size={size} onClick={onClose}>Dismiss</Button>
     </>
+  ) : t.kind === 'undo' && t.undo ? (
+    <Button variant="secondary" size={size} onClick={() => { t.undo!(); onClose(); }}>Undo</Button>
   ) : t.kind === 'started' && t.room ? (
     <>
       <Button variant="success" size={size} aria-label={`Join ${t.room.name}`} onClick={() => openToast(t)}>Join</Button>
@@ -118,10 +121,12 @@ function ToastCard({ t, phone, onClose }: { t: Toast; phone: boolean; onClose: (
     <ToastBox
       class="ntoast" surface={phone ? 'phone' : 'desktop'} role="group" ariaLabel={label}
       boxProps={{ onMouseEnter: timer.pause, onMouseLeave: timer.resume, onFocusIn: timer.pause, onFocusOut: timer.resume }}
-      onOpen={() => openToast(t)} openLabel={`${label}: ${t.body}. Open`}
+      onOpen={t.kind === 'undo' ? undefined : () => openToast(t)} openLabel={`${label}: ${t.body}. Open`}
       leading={t.nick
         ? <Avatar nick={t.nick} serverId={t.serverId} accountUrl={t.friend?.avatarUrl} size={phone ? 36 : 34} />
-        : <Tile size={34} initial="◉" color="var(--success)" />}
+        : t.kind === 'undo'
+          ? <Tile size={34} initial="#" color="var(--fg-3)" />
+          : <Tile size={34} initial="◉" color="var(--success)" />}
       title={t.title} meta={t.where || undefined} body={t.body}
       actions={actions ?? undefined}
       onDismiss={onClose} dismissIcon={<X aria-hidden="true" />}

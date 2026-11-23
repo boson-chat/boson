@@ -319,9 +319,16 @@
   white-space: nowrap;
 }
 
-/* Leave (a ghost Button): shown on hover, kept inside the row's height. */
-.channel-leave { margin: -4px 0; opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
-.channel-item:hover .channel-leave, .channel-leave:focus-visible { opacity: 1; }
+/* A DM's avatar, where a channel's # sits. */
+.channel-lead { width: 24px; flex-shrink: 0; display: inline-flex; justify-content: center; }
+
+/* The row's menu (a ghost "…" Button): shown on hover, kept inside the
+   row's height. */
+.channel-more { margin: -4px 0; opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
+.channel-item:hover .channel-more, .channel-more:focus-visible { opacity: 1; }
+
+/* "All" beside DIRECT MESSAGES: every server's DMs, in You. */
+.channel-section-link { margin: -6px 0; }
 
 /* Join progress. Not yet joined: faint name, a dashed ring in place of the
    #. Joined but the member list / away status still arriving: dimmed name,
@@ -370,8 +377,9 @@
   font-weight: 600;
 }
 
-/* Touch screens: with no hover to reveal it, the leave button stays hidden
-   (an invisible button at the row's edge is a trap). */
+/* Touch screens: with no hover to reveal it, the "…" stays hidden (an
+   invisible button at the row's edge is a trap); a long press opens the
+   same menu. */
 @media (hover: none) {
-  .channel-leave { display: none; }
+  .channel-more { display: none; }
 }

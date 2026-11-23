@@ -5,7 +5,7 @@ import { createFakeVoiceBridge, type FakeVoiceBridge } from '../../modules/voice
 import { __resetVoiceSettings } from '../../modules/voice/voice.settings';
 import { EMPTY_VIDEO_STATE, VideoController, setVideoController, type VideoBridge, type VideoState } from '../../modules/video';
 import { CallStage } from './CallStage';
-import { CallPanel } from './CallPanel';
+import { CallPanel, PeoplePanel } from './CallPanel';
 import { InCallStrip } from './InCallStrip';
 import { formatClock, gridShape } from './call-shared';
 import { setVoiceUi, useVoiceUi } from './VoiceRooms';
@@ -56,13 +56,13 @@ describe('call-shared', () => {
 });
 
 describe('guest badges in the call', () => {
-  it('marks guests on the stage and in the people list', async () => {
+  it('marks guests on the stage and in a people list', async () => {
     await setup(3, []);
     act(() => bridge.push({ participants: [...crowd(3), { sessionId: 9, userId: 'guest:abcdefabcdefabcd', name: 'kit', self: false, muted: false, deafened: false, speaking: false, volume: 100 }] }));
-    render(<><CallStage /><CallPanel /></>);
-    const tile = await screen.findByLabelText('Focus kit');
+    render(<><CallStage /><PeoplePanel title="In this call" people={[{ key: 'k', name: 'kit', guest: true }]} /></>);
+    const tile = await screen.findByLabelText(/^(Focus )?kit$/);
     expect(tile.querySelector('.guest-badge')).toBeTruthy();
-    expect(screen.getByLabelText('Focus mira').querySelector('.guest-badge')).toBeNull();
+    expect(screen.getByLabelText(/^(Focus )?mira$/).querySelector('.guest-badge')).toBeNull();
     expect(screen.getByLabelText('kit, guest')).toBeTruthy();
   });
 });
@@ -89,6 +89,27 @@ describe('the call stage (desktop)', () => {
     expect(document.querySelector('.stage-big .stage-tile')!.getAttribute('aria-label')).toBe('juno');
   });
 
+  it("focuses whoever's talking, not you; it stays on them through a pause", async () => {
+    await setup(4, []);
+    render(<CallStage />);
+    await screen.findByText('General');
+    // mira is speaking (crowd()): she's big, you're in the strip.
+    expect(document.querySelector('.stage-big .stage-tile')!.getAttribute('aria-label')).toBe('mira');
+    expect(screen.getByRole('button', { name: 'Focus you' })).toBeTruthy();
+    act(() => bridge.push({ participants: crowd(4).map((p) => ({ ...p, speaking: false })) }));
+    expect(document.querySelector('.stage-big .stage-tile')!.getAttribute('aria-label')).toBe('mira');
+    act(() => bridge.push({ participants: crowd(4).map((p) => ({ ...p, speaking: p.name === 'juno' })) }));
+    expect(document.querySelector('.stage-big .stage-tile')!.getAttribute('aria-label')).toBe('juno');
+  });
+
+  it('nobody talking yet: someone else is big, not you', async () => {
+    await setup(3, []);
+    act(() => bridge.push({ participants: crowd(3).map((p) => ({ ...p, speaking: false })) }));
+    render(<CallStage />);
+    await screen.findByText('General');
+    expect(document.querySelector('.stage-big .stage-tile')!.getAttribute('aria-label')).not.toBe('you');
+  });
+
   it('scrolls a crowd in fixed rows, and tints the dock red for muted and camera off', async () => {
     await setup(16, []);
     render(<CallStage />);
@@ -104,23 +125,27 @@ describe('the call stage (desktop)', () => {
 });
 
 describe('the call panel', () => {
-  it('lists speakers first, and has CHAT only for a voice channel under a text channel', async () => {
+  it("is the voice channel's text chat only (the tiles show who's in)", async () => {
     await setup(4);
     const send = vi.fn();
-    const { rerender } = render(<CallPanel chat={null} />);
-    await screen.findByText('IN CALL — 4');
-    const sections = [...document.querySelectorAll('.callpanel-section')].map((e) => e.textContent);
-    expect(sections).toEqual(['SPEAKING', 'IN CALL']);
-    expect(document.querySelector('.callpanel-list .callpanel-name')!.textContent).toBe('mira');
-    expect(screen.getByLabelText(/kestrel, sharing their screen/)).toBeTruthy();
-    expect(screen.queryByRole('tab', { name: 'CHAT' })).toBeNull();
-    rerender(<CallPanel chat={{ channel: '#dev', messages: [{ id: '1', kind: 'message', from: 'mira', text: 'nice', timestamp: 1 }], onSend: send }} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'CHAT' }));
+    render(<CallPanel chat={{ channel: '#dev', messages: [{ id: '1', kind: 'message', from: 'mira', text: 'nice', timestamp: 1 }], onSend: send }} />);
+    expect(screen.getByRole('complementary', { name: 'Chat in #dev' })).toBeTruthy();
+    expect(document.querySelector('.callpanel-person')).toBeNull();
     expect(screen.getByText('nice')).toBeTruthy();
     const input = screen.getByLabelText('Message #dev');
     fireEvent.input(input, { target: { value: 'hello' } });
     fireEvent.submit(input.closest('form')!);
     expect(send).toHaveBeenCalledWith('hello');
+  });
+
+  it('a people list puts speakers first', () => {
+    render(<PeoplePanel title="In this call" people={[
+      { key: 'a', name: 'kestrel' }, { key: 'b', name: 'mira', speaking: true }, { key: 'c', name: 'juno', muted: true },
+    ]} />);
+    expect(screen.getByText('In this call — 3')).toBeTruthy();
+    expect([...document.querySelectorAll('.callpanel-section')].map((e) => e.textContent)).toEqual(['SPEAKING', 'LISTENING']);
+    expect(document.querySelector('.callpanel-list .callpanel-name')!.textContent).toBe('mira');
+    expect(screen.getByLabelText('juno, muted')).toBeTruthy();
   });
 });
 

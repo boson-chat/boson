@@ -86,6 +86,18 @@ describe('CallVideoButtons', () => {
     expect(screen.getByRole('button', { name: 'Show the call' })).toBeTruthy();
   });
 
+  it('on the call screen (alwaysShow): Camera and Share stay, disabled with the reason', async () => {
+    render(<CallVideoButtons alwaysShow withCallToggle={false} />);
+    const cam = await screen.findByRole('button', { name: /^Camera unavailable: this voice server/ });
+    expect((cam as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /^Screen sharing unavailable/ }) as HTMLButtonElement).disabled).toBe(true);
+    // Video, but a device that can't share its screen.
+    setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: false });
+    await screen.findByRole('button', { name: 'Turn camera on' });
+    const share = screen.getByRole('button', { name: 'Screen sharing isn’t available on this device' }) as HTMLButtonElement;
+    expect(share.disabled).toBe(true);
+  });
+
   it('turns the camera on, says when it is starting, and cancels', async () => {
     render(<CallVideoButtons />);
     setVideo({ available: true, status: 'connected', canCapture: true, canPublish: true, canShareScreen: true });

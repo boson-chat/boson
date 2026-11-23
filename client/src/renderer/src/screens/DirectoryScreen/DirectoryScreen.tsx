@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { SlidersHorizontal } from 'lucide-preact';
 import { useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
@@ -415,9 +416,12 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
 
   const displayHandle = me?.handle ? `@${me.handle}` : authState.session?.user.email ?? '';
 
+  // Phones: no second top bar under the app's. Sign out is in Settings →
+  // Account; the engine pill stays only while it leads back to a chat.
+  const topbar = !narrow || connections.length > 0;
   return (
     <div class="directory-screen">
-      <header class="directory-topbar">
+      {topbar && <header class="directory-topbar">
         <div class="directory-topbar-left">
           {engine && (
             <EnginePill
@@ -429,11 +433,13 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
             />
           )}
         </div>
-        <div class="directory-topbar-right">
-          <span class="directory-handle">{displayHandle}</span>
-          <Button variant="ghost" onClick={() => { void bloc.signOut(); }}>Sign out</Button>
-        </div>
-      </header>
+        {!narrow && (
+          <div class="directory-topbar-right">
+            <span class="directory-handle">{displayHandle}</span>
+            <Button variant="ghost" onClick={() => { void bloc.signOut(); }}>Sign out</Button>
+          </div>
+        )}
+      </header>}
 
       <div class="directory-container">
         <DirectoryBody
@@ -497,6 +503,12 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
     setAddOpen(true);
   }), []);
   const [hostOpen, setHostOpen] = useState(false);
+  // Phones: the filters fold behind a Filters button, so the first server
+  // shows without scrolling; the button says how many are set.
+  const narrow = useNarrow();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilters = (language !== 'all' ? 1 : 0) + (tag ? 1 : 0) + (sort ? 1 : 0) + (showNsfw ? 1 : 0);
+  const filtersShown = !narrow || filtersOpen;
   // Top-level view: the public directory, or the user's bouncer networks.
   const [view, setView] = useState<'directory' | 'bouncer'>('directory');
   return (
@@ -542,12 +554,14 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
             )}
           </div>
         </div>
-        <p class="directory-desc">
-          Discover and join self-hosted IRC servers. Browse, search, and find communities that match your interests.
-        </p>
+        {!narrow && (
+          <p class="directory-desc">
+            Discover and join self-hosted IRC servers. Browse, search, and find communities that match your interests.
+          </p>
+        )}
       </div>
 
-      <div class="directory-filters">
+      <div class={`directory-filters${narrow ? ' directory-filters-phone' : ''}`}>
         <Input
           type="text"
           placeholder="Search servers…"
@@ -556,6 +570,31 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           aria-label="Search servers"
         />
 
+        {narrow && (
+          <div class="directory-filters-bar">
+            <Button
+              variant="secondary"
+              pressed={filtersOpen}
+              aria-expanded={filtersOpen}
+              aria-controls="directory-filter-panel"
+              icon={<SlidersHorizontal aria-hidden="true" />}
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              {activeFilters > 0 ? `Filters · ${activeFilters}` : 'Filters'}
+            </Button>
+            <Button
+              variant="ghost"
+              pressed={advanced}
+              class="directory-advanced-toggle"
+              onClick={() => setAdvanced((v) => !v)}
+              title="Show advanced controls (add a server manually)"
+            >
+              Advanced
+            </Button>
+          </div>
+        )}
+
+        {filtersShown && (<div class="directory-filter-panel" id="directory-filter-panel">
         <div class="directory-lang-chips" role="tablist" aria-label="Filter by language">
           {languageChips(facets, language).map((f) => (
             <Button
@@ -599,17 +638,20 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
         )}
 
         <Toggle checked={showNsfw} onChange={(v) => bloc.setShowNsfw(v)} label="Show NSFW" />
+        </div>)}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          pressed={advanced}
-          class="directory-advanced-toggle"
-          onClick={() => setAdvanced((v) => !v)}
-          title="Show advanced controls (add a server manually)"
-        >
-          Advanced
-        </Button>
+        {!narrow && (
+          <Button
+            variant="ghost"
+            size="sm"
+            pressed={advanced}
+            class="directory-advanced-toggle"
+            onClick={() => setAdvanced((v) => !v)}
+            title="Show advanced controls (add a server manually)"
+          >
+            Advanced
+          </Button>
+        )}
       </div>
 
       {advanced && (

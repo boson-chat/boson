@@ -187,3 +187,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Phones: the title bar steps aside on the members page too (TitleBar.css). */
+.app-shell.is-narrow .user-panel-header { padding-top: calc(var(--space-4) + env(safe-area-inset-top, 0px)); }

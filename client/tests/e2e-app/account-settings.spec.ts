@@ -9,7 +9,7 @@ import type { Locator, Page } from '@playwright/test';
 import {
   test, expect, STACK, IS_WEB,
   backendSql, continueAsGuest, field, loginAs, randomPassword, recoverWithCode, setAuthPassword, signInWithPassword, signOut,
-  submitLogin, uid,
+  submitLogin, uid, confirmLeaveGuest,
 } from './fixtures';
 import { CLIENT_DIR } from './stack';
 
@@ -346,6 +346,13 @@ test('guest settings: rename the nick, bouncer form validation, and switch to an
   // Account → "Switch to an account" leaves guest mode for the login screen.
   await dialog.getByRole('tab', { name: /^Account/ }).click();
   await dialog.getByRole('button', { name: 'Switch to an account' }).click();
+  // It asks first (the guest's data is erased); Cancel keeps everything.
+  const ask = page.getByRole('dialog', { name: 'Leave guest mode?' });
+  await ask.getByRole('button', { name: 'Cancel' }).click();
+  await expect(ask).toBeHidden();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Switch to an account' }).click();
+  await confirmLeaveGuest(page);
   await expect(dialog).toBeHidden();
   await expect(page.locator('.login-screen')).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Login' })).toBeVisible();

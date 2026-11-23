@@ -19,6 +19,7 @@ import { DirectoryScreen } from './screens/DirectoryScreen';
 import { TitleBar } from './screens/TitleBar/TitleBar';
 import { UserSettings } from './screens/UserSettings/UserSettings';
 import { NotificationsPanel, useUnreadNotes } from './screens/Notifications/NotificationsPanel';
+import { setNotificationsOpener } from './modules/ui/open-notifications';
 import { Toasts } from './screens/Notifications/Toasts';
 import { getNotificationFeed } from './modules/notifications/feed';
 import { useNarrow } from './shared/narrow';
@@ -74,6 +75,11 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
   }, [session?.user?.id, guest]);
   // The bell's badge: unread mentions, DMs, memos, friend and call events.
   const unreadCount = useUnreadNotes();
+  // A phone's conversation header has the bell too (the title bar steps aside).
+  useEffect(() => {
+    setNotificationsOpener(() => setNotesOpen(true));
+    return () => setNotificationsOpener(null);
+  }, []);
   // The signed-in user's Boson handle (their nick) and profile image, from
   // the backend profile (/me); refreshed when settings close, where both can
   // be changed. The session's metadata cache starts empty on every sign-in,

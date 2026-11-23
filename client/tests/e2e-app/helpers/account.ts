@@ -115,3 +115,10 @@ export async function signOut(page: Page): Promise<void> {
   await page.locator('.directory-topbar').getByRole('button', { name: 'Sign out' }).click();
   await expect(loginScreen(page)).toBeVisible({ timeout: 20_000 });
 }
+
+// Leaving guest mode ("Switch to an account", "Sign in to boson.chat") asks
+// first, since it erases the guest's data: confirm it, for the login tab.
+export async function confirmLeaveGuest(page: Page): Promise<void> {
+  const ask = page.getByRole('dialog', { name: 'Leave guest mode?' });
+  await ask.getByRole('button', { name: 'Erase and sign in' }).click();
+}

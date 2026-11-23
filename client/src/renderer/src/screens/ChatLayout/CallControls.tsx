@@ -9,8 +9,11 @@ import { useVoice } from '../../modules/voice';
 // Camera, screen share and "show the call" for the voice bar and the call
 // view. Nothing renders until the call's voice server offers video.
 // size / fullWidth: the dock's 44px buttons, or the voice panel's grid.
-export function CallVideoButtons({ withCallToggle = true, size = 'sm', fullWidth = false }: {
-  withCallToggle?: boolean; size?: ButtonSize; fullWidth?: boolean;
+// alwaysShow (the call screen's dock): Camera and Share stay, disabled with
+// the reason, where they can't be used (no video on this voice server, a
+// build that can't send), so they don't just vanish.
+export function CallVideoButtons({ withCallToggle = true, size = 'sm', fullWidth = false, alwaysShow = false }: {
+  withCallToggle?: boolean; size?: ButtonSize; fullWidth?: boolean; alwaysShow?: boolean;
 }) {
   const { video, snap } = useVideo();
   const { snap: vsnap } = useVoice();
@@ -18,7 +21,19 @@ export function CallVideoButtons({ withCallToggle = true, size = 'sm', fullWidth
   const [cams, setCams] = useState<VideoCamera[]>([]);
   const [srcs, setSrcs] = useState<VideoSource[]>([]);
   const st = snap.state;
-  if (!video || !st.available || vsnap.call.status !== 'connected') return null;
+  if (vsnap.call.status !== 'connected') return null;
+  if (!video || !st.available) {
+    if (!alwaysShow) return null;
+    const why = 'this voice server doesn’t offer video';
+    return (
+      <span class="call-video-buttons">
+        <Button variant="secondary" size={size} fullWidth={fullWidth} class="call-cam-btn" disabled
+          aria-label={`Camera unavailable: ${why}`} title={`Camera unavailable: ${why}`} icon={<VideoOff aria-hidden="true" />} />
+        <Button variant="secondary" size={size} fullWidth={fullWidth} class="call-screen-btn" disabled
+          aria-label={`Screen sharing unavailable: ${why}`} title={`Screen sharing unavailable: ${why}`} icon={<MonitorUp aria-hidden="true" />} />
+      </span>
+    );
+  }
   const canSend = st.canCapture && st.canPublish && !vsnap.call.listener;
   const sendTitle = !st.canCapture
     ? 'This version of the app can’t send video'
@@ -26,6 +41,7 @@ export function CallVideoButtons({ withCallToggle = true, size = 'sm', fullWidth
       ? 'Sending video in this channel needs the speak role'
       : '';
 
+  const shareTitle = canSend ? 'Screen sharing isn’t available on this device' : sendTitle;
   const cam = st.camera;
   const scr = st.screen;
   // Paused: stopped by the system (the Mac slept); it comes back on its own.
@@ -72,15 +88,18 @@ export function CallVideoButtons({ withCallToggle = true, size = 'sm', fullWidth
     <span class="call-video-buttons">
       {/* Builds that can't send (phones for now, Linux release builds)
           watch only: no send buttons. */}
-      {st.canCapture && (<>
+      {(st.canCapture || alwaysShow) && (<>
       <Button variant="secondary" size={size} fullWidth={fullWidth} class="call-cam-btn" pressed={camLive} data-paused={cam.paused || undefined}
         data-starting={cam.starting || undefined} disabled={!canSend} aria-label={canSend ? camLabel : sendTitle}
         title={canSend ? camLabel : sendTitle} onClick={toggleCamera} onContextMenu={(e) => { e.preventDefault(); void pickCamera(); }}
         icon={camLive ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />} />
-      {st.canShareScreen && <Button variant="secondary" size={size} fullWidth={fullWidth} class="call-screen-btn" pressed={scr.on}
-        data-starting={scr.starting || undefined} disabled={!canSend} aria-label={canSend ? scrLabel : sendTitle}
-        title={canSend ? scrLabel : sendTitle} onClick={() => { void toggleScreen(); }}
-        icon={scr.on || scr.starting ? <MonitorX aria-hidden="true" /> : <MonitorUp aria-hidden="true" />} />}
+      {(st.canShareScreen || alwaysShow) && (
+        <Button variant="secondary" size={size} fullWidth={fullWidth} class="call-screen-btn" pressed={scr.on}
+          data-starting={scr.starting || undefined} disabled={!canSend || !st.canShareScreen}
+          aria-label={canSend && st.canShareScreen ? scrLabel : shareTitle}
+          title={canSend && st.canShareScreen ? scrLabel : shareTitle} onClick={() => { void toggleScreen(); }}
+          icon={scr.on || scr.starting ? <MonitorX aria-hidden="true" /> : <MonitorUp aria-hidden="true" />} />
+      )}
       </>)}
       {withCallToggle && (
         <Button variant="secondary" size={size} fullWidth={fullWidth} pressed={snap.open}

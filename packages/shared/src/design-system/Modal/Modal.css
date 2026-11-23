@@ -99,6 +99,11 @@
   overflow-y: auto;
 }
 
+/* Compact — a short question (ConfirmDialog): a few lines and buttons. */
+.bds-modal-compact {
+  width: min(440px, calc(100vw - 64px));
+}
+
 /* Phones (and narrow windows): a dialog is a full-screen sheet, not a
    floating card, and keeps clear of the status bar and home indicator
    (the app draws edge to edge; the insets are 0 elsewhere). */
@@ -120,4 +125,14 @@
   .bds-modal-header { padding: var(--space-3) var(--space-4); }
   .bds-modal-body { padding: var(--space-4); flex: 1; }
   .bds-modal-close { width: 44px; height: 44px; }
+  /* A short question docks to the bottom like a Sheet: the screen behind
+     stays in view, and the buttons sit under the thumb. */
+  .bds-modal-backdrop:has(.bds-modal-compact) { align-items: flex-end; }
+  .bds-modal.bds-modal-compact {
+    height: auto;
+    max-height: 90vh;
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-top: 0;
+  }
 }

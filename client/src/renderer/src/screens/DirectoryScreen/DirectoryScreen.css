@@ -102,6 +102,22 @@
   min-height: var(--control-sm);
 }
 
+/* The filters: part of the filter row on desktop; on phones a panel the
+   Filters button opens (DirectoryBody). */
+.directory-filter-panel { display: contents; }
+.directory-filters-bar { display: flex; gap: var(--space-2); width: 100%; }
+.directory-filters-phone .directory-filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
 /* Directory | Bouncer: sized to its two tabs, on a full-width rule. */
 .directory-viewtabs {
   display: flex;

@@ -34,3 +34,6 @@ export type { SheetAction } from './Sheet/Sheet';
 export { Menu, MenuItem, MenuLabel, MenuSeparator } from './Menu/Menu';
 export { Select } from './Select/Select';
 export type { SelectOption, SelectProps } from './Select/Select';
+export { ConfirmDialog } from './ConfirmDialog/ConfirmDialog';
+export type { ConfirmDialogProps } from './ConfirmDialog/ConfirmDialog';
+export { Layer } from './Layer/Layer';

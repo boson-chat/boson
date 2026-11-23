@@ -120,3 +120,9 @@ function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+
+// Right-click a rail tile → Leave server → confirm it.
+export async function leaveServer(page: Page, name: string): Promise<void> {
+  await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
+  await page.getByRole('dialog', { name: /^Leave .*\?$/ }).getByRole('button', { name: 'Leave server' }).click();
+}

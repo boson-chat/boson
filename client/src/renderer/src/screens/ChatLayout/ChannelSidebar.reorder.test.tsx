@@ -107,7 +107,7 @@ describe('ChannelSidebar reorder', () => {
     const { row, onReorderChannels, onResetChannelOrder } = renderSidebar({ channelOrder: ['#b', '#a'] });
     fireEvent.contextMenu(row('#a'), { clientX: 10, clientY: 10 });
     const items = Array.from(document.querySelectorAll('.nick-context-menu-item')).map((b) => b.textContent);
-    expect(items).toEqual(['Move up', 'Move down', 'Reset order']);
+    expect(items).toEqual(['Move up', 'Move down', 'Reset order', 'Leave channel']);
     fireEvent.click(Array.from(document.querySelectorAll('.nick-context-menu-item')).find((b) => b.textContent === 'Move up')!);
     expect(onReorderChannels).toHaveBeenCalledWith(['#a', '#b', '#c']);
     fireEvent.contextMenu(row('#c'), { clientX: 10, clientY: 10 });
@@ -119,7 +119,7 @@ describe('ChannelSidebar reorder', () => {
     const { row } = renderSidebar();
     fireEvent.contextMenu(row('#a'), { clientX: 10, clientY: 10 });
     const items = Array.from(document.querySelectorAll('.nick-context-menu-item')).map((b) => b.textContent);
-    expect(items).toEqual(['Move down']);
+    expect(items).toEqual(['Move down', 'Leave channel']);
   });
 
   it('touch: press and hold lifts the row, dragging moves it', () => {

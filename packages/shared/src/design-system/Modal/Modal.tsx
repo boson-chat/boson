@@ -10,8 +10,9 @@ interface ModalProps {
   closeOnBackdropClick?: boolean;
   // 'default' (~720px) for forms + settings; 'wide' (~960px) for content
   // that benefits from extra horizontal room — e.g. the server directory
-  // card grid needs room for 2-3 columns.
-  size?: 'default' | 'wide';
+  // card grid needs room for 2-3 columns; 'compact' (~440px) for a short
+  // question (ConfirmDialog), docked to the bottom on phones, not full screen.
+  size?: 'default' | 'wide' | 'compact';
 }
 
 // EXIT_DURATION_MS must match the CSS `.bds-modal-backdrop` exit
@@ -75,7 +76,7 @@ export function Modal({ open, onClose, title, children, closeOnBackdropClick = t
       onClick={() => { if (closeOnBackdropClick) onClose(); }}
     >
       <div
-        class={`bds-modal ${size === 'wide' ? 'bds-modal-wide' : ''}`}
+        class={`bds-modal ${size === 'wide' ? 'bds-modal-wide' : size === 'compact' ? 'bds-modal-compact' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-label={title}

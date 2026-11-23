@@ -8,6 +8,7 @@ import { BottomSheet } from './BottomSheet';
 import { setVoiceUi, useVoiceServer, useVoiceUi, type VoiceView } from './VoiceRooms';
 import { isGuestParticipant } from '../../modules/voice/guest-id';
 import { GuestBadge } from './GuestBadge';
+import { PeoplePanel, type PanelPerson } from './CallPanel';
 import './PreJoin.css';
 
 // Before joining a voice channel: who's there, your camera preview (or
@@ -223,4 +224,17 @@ export function VoiceJoinSheet({ self, avatarFor }: { self: string; avatarFor?: 
       </div>
     </BottomSheet>
   );
+}
+
+// The right panel while you look at a voice channel before joining it: who
+// is in this call (not the text channel's members).
+export function PreJoinPeople({ avatarFor, width }: { avatarFor?: (nick: string) => string | undefined; width?: number }) {
+  const { view } = useVoiceUi();
+  const { server } = useVoiceServer(view?.host ?? '');
+  if (!view) return null;
+  const room = server?.rooms?.find((r) => r.id === view.roomId);
+  const people: PanelPerson[] = (room?.participants ?? []).map((p) => ({
+    key: `${p.sessionId}:${p.userId}`, name: p.name, guest: isGuestParticipant(p), speaking: p.speaking, muted: p.muted || p.deafened,
+  }));
+  return <PeoplePanel title="In this call" people={people} avatarFor={avatarFor} width={width} empty="Nobody's here yet." />;
 }

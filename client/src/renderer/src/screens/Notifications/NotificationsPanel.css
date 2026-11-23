@@ -58,3 +58,25 @@
 .notes-desktop .notes-item:hover .notes-x, .notes-desktop .notes-x:focus-visible { opacity: 1; }
 .notes-empty { list-style: none; }
 .notes-foot { display: flex; justify-content: center; padding: var(--space-2); list-style: none; }
+/* After Clear: what went, with Undo, for a few seconds. */
+.notes-undo {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-raised);
+  font: 500 var(--text-sm) var(--font-mono);
+  color: var(--fg-2);
+}
+/* A row's own buttons (Accept / Ignore, Call back, Join), under its text. */
+.notes-actions { display: flex; gap: var(--space-2); padding: 0 0 10px calc(32px + var(--space-3)); }
+.notes-phone .notes-actions { padding-left: calc(38px + var(--space-3)); }
+/* Opened from a phone's conversation header, with the title bar stepped
+   aside: from the top of the screen. */
+body:has(.title-bar-yields):has(.app-shell.is-narrow.phone-chat, .app-shell.is-narrow.phone-members) .notes-phone {
+  top: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+}

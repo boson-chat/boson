@@ -72,7 +72,8 @@ test('drag channels into a new order; it survives a reload and a relaunch', asyn
   await joinChannel(page, d);
   await expect.poll(() => order(page)).toEqual([c, b, a, d]);
   await row(page, b).hover();
-  await row(page, b).getByRole('button', { name: `Leave ${b}` }).click();
+  await row(page, b).getByRole('button', { name: `More for ${b}` }).click();
+  await page.getByRole('menuitem', { name: 'Leave channel' }).click();
   await expect.poll(() => order(page)).toEqual([c, a, d]);
 
   // Reset order (row menu): back to the default, join order.

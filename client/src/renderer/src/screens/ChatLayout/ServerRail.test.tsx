@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/preact';
+import { render, screen, fireEvent, within } from '@testing-library/preact';
 import { ServerRail, type ServerRailTile } from './ServerRail';
 
 // ServerRail renders one tile per connected server. A tile shows the owner's
@@ -61,7 +61,7 @@ describe('ServerRail hover name flyout', () => {
 });
 
 describe('ServerRail context menu — bouncer network items', () => {
-  function openMenu(t: ServerRailTile, handlers: { onBouncerConnect?: (id: string) => void; onBouncerDisconnect?: (id: string) => void } = {}) {
+  function openMenu(t: ServerRailTile, handlers: { onBouncerConnect?: (id: string) => void; onBouncerDisconnect?: (id: string) => void; onLeaveServer?: (id: string) => void } = {}) {
     render(
       <ServerRail
         servers={[t]}
@@ -76,6 +76,20 @@ describe('ServerRail context menu — bouncer network items', () => {
     const btn = document.querySelector('.server-item:not(.server-item-add)') as HTMLElement;
     fireEvent.contextMenu(btn);
   }
+
+  it('Leave server asks first; Cancel keeps the server', () => {
+    const onLeaveServer = vi.fn();
+    openMenu(tile(), { onLeaveServer });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Leave server' }));
+    expect(onLeaveServer).not.toHaveBeenCalled();
+    const ask = screen.getByRole('dialog', { name: 'Leave boson?' });
+    fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+    expect(onLeaveServer).not.toHaveBeenCalled();
+    fireEvent.contextMenu(document.querySelector('.server-item:not(.server-item-add)') as HTMLElement);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Leave server' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Leave boson?' })).getByRole('button', { name: 'Leave server' }));
+    expect(onLeaveServer).toHaveBeenCalledWith('s1');
+  });
 
   it('upstream disconnected → "Connect network"', () => {
     const onBouncerConnect = vi.fn();

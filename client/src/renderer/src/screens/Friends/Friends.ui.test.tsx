@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/preact';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/preact';
 import { VoiceController, setVoiceController } from '../../modules/voice';
 import { createFakeVoiceBridge } from '../../modules/voice/voice.fake';
 import { FriendsController, setFriendsController } from '../../modules/friends';
@@ -104,10 +104,42 @@ describe('PersonMenu', () => {
 });
 
 describe('FriendsView', () => {
-  it('phone: each friend has Remove friend', async () => {
+  it('phone: each friend has Remove friend, which asks first', async () => {
     render(<FriendsView layout="phone" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Remove kestrel from friends' }));
+    const ask = await screen.findByRole('dialog', { name: 'Remove kestrel?' });
+    // Cancel keeps them.
+    fireEvent.click(within(ask).getByRole('button', { name: 'Cancel' }));
+    expect(ctl.getSnapshot().friends.map((f) => f.username)).toContain('kestrel');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove kestrel from friends' }));
+    fireEvent.click(within(await screen.findByRole('dialog', { name: 'Remove kestrel?' })).getByRole('button', { name: 'Remove friend' }));
     await waitFor(() => expect(ctl.getSnapshot().friends.map((f) => f.username)).not.toContain('kestrel'));
+  });
+
+  it('says loading, not "sign in", while a signed-in account is still asking; and when its server has no friends', async () => {
+    const api404 = new FakeFriendsApi({ people: [] });
+    let fail = false;
+    let release: () => void = () => {};
+    api404.poll = () => new Promise((res, rej) => { release = () => (fail ? rej(Object.assign(new Error('404'), { status: 404 })) : res({ cursor: '', reset: false, events: [], snapshot: null })); });
+    const c = new FriendsController({
+      api: api404, authUrl: 'https://auth.boson.chat', signedIn: () => true, me: () => 'ada', onAccessChange: () => () => {},
+      voice: () => null, video: () => null, openCall: () => {}, unsupportedRetryMs: 60_000,
+    });
+    setFriendsController(c);
+    c.start();
+    render(<FriendsView layout="desktop" />);
+    expect(await screen.findByText('Loading friends…')).toBeTruthy();
+    expect(screen.queryByText(/Sign in to your Boson account/)).toBeNull();
+    fail = true;
+    await act(async () => { release(); await new Promise((r) => setTimeout(r, 10)); });
+    expect(await screen.findByText(/aren't available with your account's server/)).toBeTruthy();
+    c.dispose();
+  });
+
+  it('a guest is told to sign in', () => {
+    setFriendsController(null);
+    render(<FriendsView layout="desktop" />);
+    expect(screen.getByText(/Sign in to your Boson account/)).toBeTruthy();
   });
 
   it('desktop: friends with their switch, pending, blocked, add by handle', async () => {
@@ -199,6 +231,12 @@ describe('MY', () => {
     expect(tile.textContent).toContain('A');
     fireEvent.click(tile);
     expect(clicked).toBe(1);
+  });
+
+  it("the rail tile's badge counts unread direct messages too (what MY lists)", async () => {
+    const { container } = render(<MyRailTile nick="ada" presence="online" active={false} onClick={() => {}} unreadDms={2} />);
+    await screen.findByRole('button', { name: 'You: friends, calls and messages (Online; 1 friend request, 2 unread direct messages)' });
+    expect(container.querySelector('.my-tile-badge')?.textContent).toBe('3');
   });
 
   it('the sidebar has Friends and Calls above the direct messages, and opens them', async () => {

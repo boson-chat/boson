@@ -42,6 +42,15 @@ interface TitleBarProps {
 // via CSS so the user can drag the window from any non-button area. Each
 // button overrides to `no-drag` so clicks register.
 
+/**
+ * Whether the title bar steps aside in a phone's conversation (its header
+ * carries the bell then): only where it holds no window controls or drag
+ * region (the iOS / Android app, the web build).
+ */
+export function titleBarYields(): boolean {
+  return isMobile() || (window as { bosonShell?: string }).bosonShell === 'web';
+}
+
 export function TitleBar({
   onOpenSettings, userLabel, userMode, avatarUrl, onOpenNotifications, notificationsCount = 0, notificationsOpen = false,
   updateReady, onOpenUpdate,
@@ -67,7 +76,7 @@ export function TitleBar({
   }, [bridge]);
 
   return (
-    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''} ${mobile ? 'title-bar-mobile' : ''} ${phone ? 'title-bar-phone' : ''}`}>
+    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''} ${mobile ? 'title-bar-mobile' : ''} ${phone ? 'title-bar-phone' : ''} ${phone && titleBarYields() ? 'title-bar-yields' : ''}`}>
       <div class="title-bar-drag">
         <BosonGlyph size={phone ? 20 : 16} class="title-bar-mark" />
         <span class="title-bar-title">Boson</span>

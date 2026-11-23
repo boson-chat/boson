@@ -4,7 +4,7 @@ import {
   AuthError, SSO_CANCELLED, describeAuthError, guestAccessAllowed, signInWithProvider, ssoBridge, validateUsername,
   type AuthConfig, type AuthService, type SSOProvider,
 } from '../../modules/auth';
-import { signOut } from '../../modules/signout/sign-out';
+import { LeaveGuestConfirm } from '../../components/LeaveGuestConfirm';
 import {
   getNetworkAccounts, hostOf, type NetworkAccounts, type NetworkAccountsSnapshot, type SignInPrompt,
 } from '../../modules/netauth/network-accounts';
@@ -67,6 +67,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
   const guestOk = prompt.allowGuest && guestAccessAllowed(cfg);
   const registration = cfg?.registration ?? 'open';
   const canSignUp = registration !== 'closed';
+  const [leaveGuest, setLeaveGuest] = useState(false);
 
   if (link.main) {
     // The app's own network while in guest mode: its account is the
@@ -79,16 +80,15 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
           {!guestOk && <p class="netauth-required" role="status">{name} requires an account. Guests can't connect.</p>}
           <p class="netauth-lede">This network uses your boson.chat account. Signing in leaves guest mode on this device.</p>
           <div class="netauth-actions">
-            <Button
-              variant="primary"
-              fullWidth
-              onClick={() => { onDone('cancel'); void signOut(); }}
-            >
+            <Button variant="primary" fullWidth onClick={() => setLeaveGuest(true)}>
               Sign in to boson.chat
             </Button>
             {guestOk && <Button variant="ghost" fullWidth onClick={() => onDone('guest')}>Continue as guest</Button>}
           </div>
         </div>
+        {/* Signing in leaves guest mode, which erases the guest's data here. */}
+        <LeaveGuestConfirm open={leaveGuest} onCancel={() => setLeaveGuest(false)}
+          onLeave={() => { setLeaveGuest(false); onDone('cancel'); }} />
       </Modal>
     );
   }

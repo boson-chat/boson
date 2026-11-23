@@ -19,6 +19,7 @@ import { getFiles, ircTextBudget, MAX_BATCH_FILES, type FilesUsage } from '../..
 import { useFileDrop } from '../../shared/FileDrop/file-drop';
 import { stripIrcFormatting } from './markdown';
 import type { NickActions } from './UserPanel';
+import { HeaderBell } from '../Notifications/HeaderBell';
 import './ChatArea.css';
 
 // Re-exported from its own module so message-render.tsx can import the resolver
@@ -461,6 +462,7 @@ export function ChatArea({
               icon={<Settings aria-hidden="true" />}
             />
           )}
+          {narrow && <HeaderBell />}
         </div>
       </div>
       {callStrip}
