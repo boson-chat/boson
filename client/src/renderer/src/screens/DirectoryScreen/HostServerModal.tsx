@@ -55,7 +55,7 @@ export function HostServerModal({ open, onClose, directory, networks }: HostServ
               class="host-server-directory-select"
               label="Directory"
               value={targetUrl}
-              options={hostable.map((h) => ({ value: h.url, label: `${h.name} (${new URL(h.url).host})` }))}
+              options={hostable.map((h) => ({ value: h.url, label: h.name, description: new URL(h.url).host }))}
               onChange={setTarget}
             />
           </Field>

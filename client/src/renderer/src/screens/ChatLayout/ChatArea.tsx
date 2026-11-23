@@ -120,6 +120,8 @@ interface ChatAreaProps {
   // full screen. Absent on wide layouts.
   onBack?: () => void;
   onShowMembers?: () => void;
+  /** Mid width: whether the member list overlay is open (the button toggles it). */
+  membersShown?: boolean;
   // The active server's IRC host: file uploads go to its network's files
   // host (none → no attach button).
   serverHost?: string;
@@ -170,6 +172,7 @@ export function ChatArea({
   onRejectBouncerCert,
   onBack,
   onShowMembers,
+  membersShown,
   serverHost,
   onSendTo,
 }: ChatAreaProps) {
@@ -445,6 +448,7 @@ export function ChatArea({
               size={narrow ? 'lg' : 'sm'}
               class="chat-pane-members"
               onClick={onShowMembers}
+              pressed={membersShown}
               title="Members"
               aria-label={`Members (${channel.members.length})`}
               icon={<Users aria-hidden="true" />}

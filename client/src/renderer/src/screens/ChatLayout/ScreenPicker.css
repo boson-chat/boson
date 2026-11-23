@@ -27,6 +27,9 @@
 .picker-tabs-row { display: flex; align-items: flex-end; gap: 4px; padding: 6px 20px 0; border-bottom: 1px solid var(--border); }
 /* The tabs' own line sits on the row's. */
 .picker-tabs { display: flex; margin-bottom: -1px; }
+/* Each tab as wide as its label plus side padding, so "SCREENS · 2" and
+   "WINDOWS · 4" never run together. */
+.picker-tabs .bds-tab { flex: none; padding: var(--space-3) 14px; white-space: nowrap; }
 .picker-spacer { flex: 1; }
 .picker-search { width: 220px; margin-bottom: 6px; }
 .picker-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 16px 8px; }

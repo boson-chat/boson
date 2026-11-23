@@ -15,6 +15,7 @@ import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
 import { windowSecureStorage } from './shared/secure-storage';
 import './styles.css';
+import './shared/modal-portal';
 
 // The Wails shell's bridges (platform/wails.ts) are installed asynchronously;
 // everything below that reads a window.boson* bridge waits for them. In a

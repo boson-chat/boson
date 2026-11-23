@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import { Headphones, HeadphoneOff, LayoutGrid, Lock, Mic, MicOff, PanelLeft, PhoneOff, Volume2 } from 'lucide-preact';
+import { Headphones, HeadphoneOff, LayoutGrid, Lock, Mic, MicOff, PanelLeft, PhoneOff, Users, Volume2 } from 'lucide-preact';
 import { Button } from '@boson/shared';
 import { getVideoController, useSelfNotice, useTrackNotice, useVideo } from '../../modules/video';
 import type { VideoShareState } from '../../modules/video/video.types';
@@ -17,7 +17,12 @@ import './CallStage.css';
 // else in a strip that scrolls sideways; click a tile to pin it) or grid
 // mode (2, 3 or 4 columns by how many tiles; past 12, fixed rows that
 // scroll). The dock: mic, camera, screen, deafen, then leave.
-export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string | undefined }) {
+// `people`: mid width only, where the call panel (people, chat) is an
+// overlay this button opens and closes.
+export function CallStage({ avatarFor, people }: {
+  avatarFor?: (nick: string) => string | undefined;
+  people?: { open: boolean; toggle: () => void };
+}) {
   const { video, snap: vsnap } = useVideo();
   const { voice, snap } = useVoice();
   const call = snap.call;
@@ -78,6 +83,10 @@ export function CallStage({ avatarFor }: { avatarFor?: (nick: string) => string 
         <span class="stage-title">{call.roomName || call.room}</span>
         <span class="stage-meta">{[isPrivateCall(call.room) ? 'private · 1:1' : `${call.participants.length} in call`, rtt, clock].filter(Boolean).join(' · ')}</span>
         <span class="stage-spacer" />
+        {people && (
+          <Button variant="secondary" pressed={people.open} aria-label="People and chat" title="People and chat"
+            onClick={people.toggle} icon={<Users aria-hidden="true" />} />
+        )}
         <div role="group" aria-label="Layout" class="stage-layout">
           <Button variant="secondary" pressed={mode === 'focus'} aria-label="Focus layout" title="Focus" onClick={() => setMode('focus')}
             icon={<PanelLeft aria-hidden="true" />} />

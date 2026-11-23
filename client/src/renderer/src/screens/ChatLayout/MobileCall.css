@@ -122,6 +122,23 @@ button.mcall-t { cursor: pointer; }
   color: var(--fg);
 }
 
+/* Phones in landscape: a shorter head and dock; a share sits beside a
+   vertical strip of the cameras instead of squeezing them under it. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .mcall-head { height: 44px; }
+  .mcall-dock { height: 64px; padding-bottom: 0; }
+  .mcall-stage[data-share] { flex-direction: row; }
+  .mcall-stage[data-share] > .mcall-screen { height: auto; flex: 1 1 auto; min-width: 0; }
+  .mcall-stage[data-share] > .mcall-grid {
+    flex: none;
+    width: clamp(140px, 24vw, 220px);
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: 96px !important;
+    padding-bottom: 104px;
+  }
+  .mcall-pip { width: 72px; height: 96px; }
+}
+
 .mcall-ptt { flex: none; display: flex; justify-content: center; padding: 6px 12px 0; }
 
 /* The dock: mic, camera, flip (camera on), more, leave. */

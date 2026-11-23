@@ -6,7 +6,7 @@ export { Tabs } from './Tabs/Tabs';
 export { Card } from './Card/Card';
 export { Badge } from './Badge/Badge';
 export type { BadgeTone } from './Badge/Badge';
-export { Modal } from './Modal/Modal';
+export { Modal, setModalPortal } from './Modal/Modal';
 export { Toggle, Toggle as Switch } from './Toggle/Toggle';
 export { SwitchRow } from './Toggle/SwitchRow';
 export { Divider } from './Divider/Divider';

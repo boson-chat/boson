@@ -133,3 +133,23 @@
 .phone-layer-top { z-index: 2; will-change: transform; box-shadow: var(--shadow-menu); }
 .phone-layer > .chat-area,
 .phone-layer > .user-panel { flex: 1 1 auto; min-width: 0; min-height: 0; width: auto !important; }
+
+/* Mid width (tablet portrait, narrow windows): the member list / call panel
+   is an overlay on the right, opened from the Members / People buttons. */
+.app-shell.is-mid { position: relative; }
+.mid-panel-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+  background: color-mix(in oklab, var(--bg), transparent 55%);
+}
+.mid-panel {
+  display: flex;
+  max-width: calc(100% - 48px);
+  height: 100%;
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
+}
+.mid-panel > .user-panel,
+.mid-panel > .callpanel { height: 100%; max-width: 100%; }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { ComponentChildren } from 'preact';
+import type { ComponentChildren, VNode } from 'preact';
 import './Modal.css';
 
 interface ModalProps {
@@ -21,6 +21,18 @@ interface ModalProps {
 // here in the same PR. Source of truth lives in Modal.css's
 // `.bds-modal-backdrop-exit` block.
 const EXIT_DURATION_MS = 220;
+
+// Where an open dialog renders. The shared package has no preact/compat (it
+// changes how every onChange behaves), so by default a Modal renders in
+// place. The app hands in preact/compat's createPortal at startup so every
+// dialog lands at the end of <body>: a transformed or stacked ancestor (the
+// phone layout's sliding layers) can then neither trap it under the title
+// bar nor clip it. Context still flows through a portal.
+type ModalPortal = (node: VNode, container: Element) => VNode;
+let modalPortal: ModalPortal | null = null;
+export function setModalPortal(portal: ModalPortal | null): void {
+  modalPortal = portal;
+}
 
 export function Modal({ open, onClose, title, children, closeOnBackdropClick = true, size = 'default' }: ModalProps) {
   // Hold the latest onClose in a ref so the keydown effect doesn't re-bind
@@ -69,7 +81,7 @@ export function Modal({ open, onClose, title, children, closeOnBackdropClick = t
 
   if (!mounted) return null;
 
-  return (
+  const dialog = (
     <div
       class={`bds-modal-backdrop ${visible ? 'is-open' : ''}`}
       onClick={() => { if (closeOnBackdropClick) onClose(); }}
@@ -91,4 +103,5 @@ export function Modal({ open, onClose, title, children, closeOnBackdropClick = t
       </div>
     </div>
   );
+  return modalPortal && typeof document !== 'undefined' ? modalPortal(dialog, document.body) : dialog;
 }

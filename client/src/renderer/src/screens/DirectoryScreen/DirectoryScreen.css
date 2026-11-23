@@ -221,9 +221,8 @@
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--fg-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  /* Wraps rather than cutting the port off; breaks inside a long name. */
+  overflow-wrap: anywhere;
 }
 
 .directory-card-body {

@@ -1111,8 +1111,12 @@
   vertical-align: top;
   border-bottom: 1px solid var(--border);
   white-space: pre-wrap;
-  word-break: break-word;
+  /* Wrap between words only: a narrow screen scrolls the table sideways
+     (.message-table-wrap) rather than breaking "Column" into "Colu/mn". */
+  word-break: normal;
+  overflow-wrap: break-word;
 }
+.message-table thead th { white-space: nowrap; }
 .message-table thead th {
   font-weight: 600;
   color: var(--fg);
@@ -1233,6 +1237,8 @@
 }
 
 /* ---- Phone layout (.is-narrow, shared/narrow.ts) ---- */
+/* The ~handle repeats the nick: on a phone it only halves a long nick's room. */
+.is-narrow .message-row-header .message-row-handle { display: none; }
 
 /* Denser: a phone's width goes to the text, not the margins. */
 .app-shell.is-narrow .messages-inner { padding: var(--space-3) var(--space-4); }

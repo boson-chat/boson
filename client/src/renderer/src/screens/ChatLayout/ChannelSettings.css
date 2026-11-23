@@ -4,6 +4,11 @@
   gap: var(--space-6);
   min-width: 380px;
 }
+/* Phones: the dialog is a full-screen sheet narrower than that floor; let
+   the rows fit it instead of scrolling the body sideways. */
+@media (max-width: 700px) {
+  .chan-settings { min-width: 0; }
+}
 .chan-settings-note {
   font-size: var(--text-xs);
   color: var(--fg-3);
