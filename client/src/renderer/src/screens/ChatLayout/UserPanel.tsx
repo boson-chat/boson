@@ -6,7 +6,7 @@ import type { ChatChannel, ChatMember } from '../../modules/chat';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
-import { NickProfileCard, RoleBadge, anchorOf, memberActivity, prefixClass, profileRows, useFitInWindow, type ProfileAnchor } from './nick-profile';
+import { NickProfileCard, RoleBadge, anchorOf, memberActivity, prefixClass, primaryRows, profileRows, useFitInWindow, type ProfileAnchor } from './nick-profile';
 import { isNarrow, useNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
 import './UserPanel.css';
@@ -215,7 +215,7 @@ function NickHoverCard({ member, rowTop, rowLeft }: {
   rowTop: number;
   rowLeft: number;
 }) {
-  const meta = profileRows(member.nick, member);
+  const meta = primaryRows(profileRows(member.nick, member));
   const activity = memberActivity(member);
   // Position: card's RIGHT edge sits 8px to the left of the hovered row,
   // vertically aligned at the row's top, and kept inside the window (a row

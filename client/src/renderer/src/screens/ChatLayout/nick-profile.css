@@ -124,3 +124,15 @@
 @media (prefers-reduced-motion: reduce) {
   .nick-profile-card { animation: none; }
 }
+
+/* Technical details (user@host, server, idle…), folded away. */
+.nick-profile-details { margin-top: var(--space-3); }
+.nick-profile-details-summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  user-select: none;
+  width: fit-content;
+}
+.nick-profile-details-summary:hover { color: var(--fg-2); }
+.nick-profile-details > .nick-profile-meta { margin-top: var(--space-2); }

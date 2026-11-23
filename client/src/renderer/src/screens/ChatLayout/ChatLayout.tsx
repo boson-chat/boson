@@ -110,6 +110,26 @@ interface Props {
 // Phones: the launch has opened onto the last conversation (once per run).
 let launchShown = false;
 
+// Below this window width the desktop member list starts hidden.
+export const MEMBERS_AUTO_WIDTH = 1200;
+const MEMBERS_AUTO_QUERY = `(min-width: ${MEMBERS_AUTO_WIDTH}px)`;
+
+// Whether the desktop member list is shown: by default when the window is
+// wide enough; the user's toggle holds until the window crosses the width.
+function useMembersOpen(): { open: boolean; toggle: () => void } {
+  const wide = (): boolean => typeof window === 'undefined' || typeof window.matchMedia !== 'function'
+    || window.matchMedia(MEMBERS_AUTO_QUERY).matches;
+  const [open, setOpen] = useState(wide);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(MEMBERS_AUTO_QUERY);
+    const onChange = (): void => setOpen(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return { open, toggle: () => setOpen((v) => !v) };
+}
+
 // The phone's main area (the conversation, Friends, Calls): it stays on top
 // of the channel list and the members while swiping between them.
 function isMainPage(p: PhonePageId | null | undefined): boolean {
@@ -157,6 +177,10 @@ export function ChatLayout({
   const [membersW, setMembersW] = useState(() => getPanelWidth('members'));
 
   const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
+  // Desktop: the member list beside the conversation. Hidden by default in
+  // a window under MEMBERS_AUTO_WIDTH (two side columns would squeeze the
+  // conversation); the header's members button shows / hides it.
+  const membersOpen = useMembersOpen();
 
   // Phones (and narrow windows) show one screen at a time, like the
   // desktop's columns in turn: the rail with the channel list, or a page
@@ -496,6 +520,8 @@ export function ChatLayout({
           onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
           onBack={narrow ? () => setFriendsUi({ phone: null }) : undefined}
           onShowMembers={narrow && isChannel ? () => setFriendsUi({ phone: 'members' }) : undefined}
+          membersShown={!narrow && isChannel ? membersOpen.open : undefined}
+          onToggleMembers={!narrow && isChannel ? membersOpen.toggle : undefined}
         />
   );
   const userPanel = (
@@ -594,7 +620,7 @@ export function ChatLayout({
                 : myView === 'calls' ? calls('desktop')
                   : chatArea}
             {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />
-              : myView === 'chat' ? (
+              : myView === 'chat' && membersOpen.open ? (
                 <>
                   <ResizeHandle
                     side="right"
@@ -625,17 +651,20 @@ export function ChatLayout({
             ariaLabel="Resize channel list"
           />
           {stageOpen ? <CallStage avatarFor={avatarFor} /> : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
-          <ResizeHandle
-            side="right"
-            width={membersW}
-            min={PANEL_BOUNDS.members.min}
-            max={PANEL_BOUNDS.members.max}
-            onChange={setMembersW}
-            onCommit={(w) => setMembersW(setPanelWidth('members', w))}
-            onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
-            ariaLabel="Resize member list"
-          />
-          {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} /> : userPanel}
+          {(stageOpen || membersOpen.open) && (
+            <ResizeHandle
+              side="right"
+              width={membersW}
+              min={PANEL_BOUNDS.members.min}
+              max={PANEL_BOUNDS.members.max}
+              onChange={setMembersW}
+              onCommit={(w) => setMembersW(setPanelWidth('members', w))}
+              onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
+              ariaLabel="Resize member list"
+            />
+          )}
+          {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />
+            : membersOpen.open ? userPanel : null}
           <ScreenPicker />
         </>
       )}

@@ -120,6 +120,9 @@ interface ChatAreaProps {
   // full screen. Absent on wide layouts.
   onBack?: () => void;
   onShowMembers?: () => void;
+  // Desktop: show / hide the member list beside the conversation.
+  membersShown?: boolean;
+  onToggleMembers?: () => void;
   // The active server's IRC host: file uploads go to its network's files
   // host (none → no attach button).
   serverHost?: string;
@@ -170,6 +173,8 @@ export function ChatArea({
   onRejectBouncerCert,
   onBack,
   onShowMembers,
+  membersShown,
+  onToggleMembers,
   serverHost,
   onSendTo,
 }: ChatAreaProps) {
@@ -450,6 +455,18 @@ export function ChatArea({
               icon={<Users aria-hidden="true" />}
             />
           )}
+          {!onShowMembers && onToggleMembers && (
+            <Button
+              variant="ghost"
+              size="sm"
+              class="chat-members-toggle"
+              pressed={!!membersShown}
+              onClick={onToggleMembers}
+              title={membersShown ? 'Hide members' : 'Show members'}
+              aria-label={`${membersShown ? 'Hide' : 'Show'} members (${channel.members.length})`}
+              icon={<Users aria-hidden="true" />}
+            />
+          )}
           {onOpenChannelSettings && (
             <Button
               variant="ghost"
@@ -518,6 +535,9 @@ export function ChatArea({
         historyLoading={channel.history?.loading}
         historyExhausted={channel.history?.exhausted}
         historyError={channel.history?.error}
+        beginningNote={channel.name.startsWith('~') ? undefined : prefix === '#'
+          ? "Messages from before you joined aren't available on this server."
+          : "Earlier messages in this conversation aren't available on this server."}
       />
 
       <UploadProgress
