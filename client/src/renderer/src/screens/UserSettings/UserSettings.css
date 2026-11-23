@@ -485,6 +485,7 @@
   font-size: var(--text-sm);
   color: var(--fg-2);
 }
+.user-settings-image-cache-select { width: auto; min-width: 96px; min-height: 30px; }
 
 /* Notifications: the per-channel note under the switches. */
 .user-settings-notify-note { margin: 0; font-size: 12px; color: var(--fg-3); }

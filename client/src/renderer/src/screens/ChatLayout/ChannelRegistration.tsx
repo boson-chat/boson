@@ -6,7 +6,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { RefreshCw, ShieldCheck, ShieldOff, ShieldAlert } from 'lucide-preact';
-import { Button, Input, ListRow, SwitchRow } from '@boson/shared';
+import { Button, Input, ListRow, Select, SwitchRow } from '@boson/shared';
 import {
   CHAN_ROLES, chanServErrorText, sameName,
   type AccessEntry, type ChanRole, type ChanServController, type ChanServResult, type ChanServState, type ChannelPolicy,
@@ -285,9 +285,8 @@ function RolesSection({ channel, ctl, founder, roles, access, status, error }: {
           onInput={(e) => setAccount((e.target as HTMLInputElement).value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void add(); }}
         />
-        <select class="bds-input bds-input-sm chan-role-select" aria-label="Role" value={role} onChange={(e) => setRole((e.target as HTMLSelectElement).value as ChanRole)}>
-          {roles.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-        </select>
+        <Select size="sm" class="chan-role-select" label="Role" value={role} onChange={setRole}
+          options={roles.map((r) => ({ value: r, label: ROLE_LABEL[r] }))} />
         <Button variant="secondary" size="sm" loading={busy} disabled={!account.trim()} onClick={() => void add()}>Add</Button>
       </div>
       <Outcome result={result} />
@@ -304,15 +303,11 @@ function RoleRow({ channel, ctl, entry, roles }: { channel: string; ctl: ChanSer
       title={entry.account}
       trailing={<>
         {entry.role ? (
-          <select
-            class="bds-input bds-input-sm chan-role-select" aria-label={`Role for ${entry.account}`} value={entry.role} disabled={busy}
-            onChange={(e) => {
-              const next = (e.target as HTMLSelectElement).value as ChanRole;
-              void run(() => ctl.setAccess(channel, entry.account, next, entry.role));
-            }}
-          >
-            {CHAN_ROLES.filter((r) => roles.includes(r)).map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
-          </select>
+          <Select
+            size="sm" class="chan-role-select" label={`Role for ${entry.account}`} value={entry.role} disabled={busy}
+            options={CHAN_ROLES.filter((r) => roles.includes(r)).map((r) => ({ value: r, label: ROLE_LABEL[r] }))}
+            onChange={(next) => void run(() => ctl.setAccess(channel, entry.account, next, entry.role))}
+          />
         ) : (
           <span class="chan-role-fixed" title="A custom access level, managed with ChanServ directly">{entry.raw}</span>
         )}
@@ -337,14 +332,12 @@ function OptionRow({ channel, ctl, option, info }: {
     const value = info.values?.[option.id];
     return (
       <div class="chan-mode-row chan-option-choice">
-        <label class="chan-param-label" for={`cs-opt-${option.id}`}>{option.label}</label>
-        <select
-          id={`cs-opt-${option.id}`} class="bds-input bds-input-sm chan-role-select" value={value ?? ''} disabled={busy}
-          onChange={(e) => void run(() => ctl.setOption(channel, option.id, (e.target as HTMLSelectElement).value))}
-        >
-          {value === undefined && <option value="" disabled>Unknown</option>}
-          {option.choices.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
+        <label class="chan-param-label" id={`cs-opt-${option.id}-label`} for={`cs-opt-${option.id}`}>{option.label}</label>
+        <Select
+          id={`cs-opt-${option.id}`} labelledBy={`cs-opt-${option.id}-label`} size="sm" class="chan-role-select" value={value ?? ''} disabled={busy}
+          options={[...(value === undefined ? [{ value: '', label: 'Unknown', disabled: true }] : []), ...option.choices]}
+          onChange={(v) => void run(() => ctl.setOption(channel, option.id, v))}
+        />
         <span class="chan-mode-hint">{option.hint}</span>
         {result?.kind === 'error' && <span class="chan-role-error">{chanServErrorText(result.code)}</span>}
       </div>

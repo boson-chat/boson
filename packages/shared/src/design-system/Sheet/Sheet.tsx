@@ -21,6 +21,8 @@ interface SheetProps {
   children?: ComponentChildren;
   actions: readonly SheetAction[];
   onClose: () => void;
+  /** Filled with the sheet's animated close, for a body that closes it itself (a Select's options). */
+  closeRef?: { current: (() => void) | null };
 }
 
 // Swipe-to-dismiss: a drag past this share of the sheet's height, or a
@@ -44,7 +46,7 @@ const CLOSE_MS = 220;
 // It slides in, and slides out on a backdrop tap, Escape, an action, or a
 // swipe down. Drag position is written straight to the DOM (no re-render
 // per pointer move).
-export function Sheet({ label, header, children, actions, onClose }: SheetProps) {
+export function Sheet({ label, header, children, actions, onClose, closeRef }: SheetProps) {
   const backdropRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const closing = useRef(false);
@@ -71,6 +73,7 @@ export function Sheet({ label, header, children, actions, onClose }: SheetProps)
     sheet.style.transform = 'translateY(100%)';
     backdrop.style.opacity = '0';
   }, [onClose]);
+  if (closeRef) closeRef.current = close;
 
   useLayoutEffect(() => {
     const onKey = (e: KeyboardEvent): void => {

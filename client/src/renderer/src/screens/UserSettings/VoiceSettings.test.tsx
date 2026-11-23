@@ -37,8 +37,8 @@ describe('Settings → Voice', () => {
 
   it('lists devices and saves the choice', async () => {
     render(<VoiceSettingsSection open />);
-    await screen.findByText('Shure MV7');
-    fireEvent.change(screen.getByLabelText('Input device'), { target: { value: 'mic2' } });
+    fireEvent.click(screen.getByLabelText('Input device'));
+    fireEvent.click(await screen.findByRole('option', { name: /Shure MV7/ }));
     expect(getVoiceSettings().inputId).toBe('mic2');
     expect(bridge.calls).toContainEqual({ method: 'setDevices', args: ['mic2', ''] });
   });

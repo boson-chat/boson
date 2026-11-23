@@ -474,8 +474,6 @@
 
 /* Tag + sort controls beside the language chips. */
 .directory-select {
-  appearance: auto;
-  cursor: pointer;
   width: auto;
   min-height: var(--control-sm);
   max-width: 200px;
@@ -510,8 +508,6 @@
 
 /* Hosting modal: which directory the listing goes to. */
 .host-server-directory-select {
-  appearance: auto;
-  cursor: pointer;
   min-height: 32px;
 }
 .host-server-directory-note {

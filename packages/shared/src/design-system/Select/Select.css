@@ -1,0 +1,89 @@
+/* Select: an Input-looking trigger; the list is the Menu's surface and items
+   (Menu.css), in a layer at the end of <body>. Corners come from the Input
+   and Menu (--radius-md / --radius-lg); nothing here sets a radius. */
+.bds-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.bds-select:focus-visible,
+.bds-select-open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+@media (hover: hover) {
+  .bds-select:hover:not(:disabled):not(.bds-select-open) { border-color: var(--fg-3); }
+}
+.bds-select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bds-select-placeholder { color: var(--fg-3); }
+.bds-select-chevron {
+  flex: none;
+  color: var(--fg-3);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+.bds-select-open .bds-select-chevron { transform: rotate(180deg); }
+
+/* Above Modals (1000) and Sheets (300): the list opens from inside them. */
+.bds-select-layer {
+  position: relative;
+  z-index: 1100;
+}
+
+.bds-select-list {
+  position: fixed;
+  top: 0;
+  left: 0;
+  max-width: calc(100vw - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+.bds-select-list.bds-select-up { transform-origin: bottom center; }
+.bds-select-list:focus-visible { box-shadow: var(--shadow-menu), var(--focus-ring); }
+
+.bds-select-option { user-select: none; -webkit-user-select: none; }
+.bds-select-option.bds-select-active { background: var(--surface-hover); }
+.bds-select-option[aria-disabled='true'] { opacity: 0.45; cursor: not-allowed; }
+.bds-select-option[aria-disabled='true'].bds-select-active { background: transparent; }
+.bds-select-option[aria-selected='true'] .bds-menu-text { color: var(--accent); }
+.bds-select-option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.bds-select-option-desc { padding-top: var(--space-1); padding-bottom: var(--space-1); }
+.bds-select-option-description {
+  font: 400 var(--text-xs) / 1.35 var(--font-body);
+  color: var(--fg-3);
+  white-space: normal;
+}
+
+/* Phones: the same options, 44px, in a Sheet. */
+.bds-select-sheet-title {
+  font: 400 var(--text-xs) var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-3);
+}
+.bds-select-sheet-list {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  outline: none;
+}

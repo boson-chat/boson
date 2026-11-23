@@ -84,13 +84,11 @@ describe('voice channel management', () => {
     fireEvent.click(await screen.findByLabelText('Create a voice channel in #dev'));
     await screen.findByText('Create a voice channel');
     fireEvent.input(screen.getByPlaceholderText('Game night'), { target: { value: 'Game night' } });
-    // A real change event (testing-library/preact's fireEvent.change sends input).
+    // Open the dropdown, then press the option with that value.
     const pick = (label: string, value: string): void => {
-      const el = screen.getByLabelText(label) as HTMLSelectElement;
-      act(() => {
-        el.value = value;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      });
+      fireEvent.click(screen.getByLabelText(label));
+      const option = screen.getAllByRole('option').find((o) => o.getAttribute('data-value') === value)!;
+      fireEvent.click(option);
     };
     pick('Who can join', 'voice');
     pick('Who can talk', 'op');
@@ -107,8 +105,8 @@ describe('voice channel management', () => {
     expect(screen.queryByLabelText('Create a voice channel in #dev')).toBeNull();
     // The VOICE "+" offers the founded channel.
     fireEvent.click(screen.getByLabelText('Create a voice channel'));
-    const select = await screen.findByLabelText('Text channel') as HTMLSelectElement;
-    expect([...select.options].map((o) => o.value)).toEqual(['#design']);
+    fireEvent.click(await screen.findByLabelText('Text channel'));
+    expect(screen.getAllByRole('option').map((o) => o.getAttribute('data-value'))).toEqual(['#design']);
   });
 
   it('shows the server error when a name is taken', async () => {

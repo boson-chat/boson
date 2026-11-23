@@ -32,3 +32,5 @@ export { EmptyState } from './EmptyState/EmptyState';
 export { Sheet } from './Sheet/Sheet';
 export type { SheetAction } from './Sheet/Sheet';
 export { Menu, MenuItem, MenuLabel, MenuSeparator } from './Menu/Menu';
+export { Select } from './Select/Select';
+export type { SelectOption, SelectProps } from './Select/Select';

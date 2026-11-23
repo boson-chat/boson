@@ -975,6 +975,15 @@ function settingsView(): void {
       ...(q.get('ds') ? { dataSaver: q.get('ds') as 'auto' } : {}),
     });
   }
+  // ?images=1: the shell's image cache (Content → Keep up to …).
+  if (q.get('images')) {
+    let limitBytes = 500 * 1048576;
+    const stats = async () => ({ usedBytes: 182 * 1048576, limitBytes, entries: 412 });
+    (window as { bosonImages?: unknown }).bosonImages = {
+      route: '/img', stats, clear: stats,
+      setLimitMB: async (mb: number) => { limitBytes = mb * 1048576; return stats(); },
+    };
+  }
   const vstate: VideoState = { ...EMPTY_VIDEO_STATE, metered: q.get('metered') === '1' };
   setVideoController(new VideoController({
     state: async () => vstate, onState: () => () => {}, subscribe: async () => {}, unsubscribe: async () => {},
