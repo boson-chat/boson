@@ -1,7 +1,7 @@
 import { NetworkAccountBar } from '../NetworkSignIn/NetworkAccountBar';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatService, ChatState } from '../../modules/chat';
-import { banMask } from '../../modules/chat';
+import { banMask, OP } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
 import { Button, Input, Modal } from '@boson/shared';
 import { ServerRail, type ServerRailTile } from './ServerRail';
@@ -242,7 +242,13 @@ export function ChatLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [csCtl, isChannel, active?.name, activeJoined, csState?.dialect, csState?.present]);
   const regInfo = csCtl && active && isChannel && csState?.present !== false ? csCtl.channel(active.name).info : undefined;
+  // An operator of a channel that isn't registered loses it when everyone
+  // leaves (whoever re-creates it gets operator): say so, and offer to
+  // register it — when this network's ChanServ can.
+  const canRegisterHere = !!csState?.caps?.register;
+  const regAtRisk = !!regInfo && !regInfo.registered && !regInfo.closed && canRegisterHere;
   const registrationBadge = regInfo && !regInfo.closed ? { registered: regInfo.registered, founder: regInfo.founder } : null;
+  const [regPromptDismissed, setRegPromptDismissed] = useState<ReadonlySet<string>>(() => new Set());
 
   const supportsOwnerAdmin = /[qa]/.test(state.serverInfo.prefix?.modes ?? 'qa');
   // Our rank in the active channel. `typeof` guard keeps hand-rolled test fakes
@@ -525,7 +531,11 @@ export function ChatLayout({
             active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
           }
           onOpenChannelSettings={isChannel ? () => { setChannelSettingsTab('channel'); setChannelSettingsOpen(true); } : undefined}
-          registration={registrationBadge}
+          registration={registrationBadge && { ...registrationBadge, atRisk: regAtRisk && myRankHere >= OP }}
+          registerPrompt={regAtRisk && myRankHere >= OP && active && !regPromptDismissed.has(active.name.toLowerCase()) ? {
+            onRegister: () => { setChannelSettingsTab('registration'); setChannelSettingsOpen(true); },
+            onDismiss: () => setRegPromptDismissed((s) => new Set(s).add(active.name.toLowerCase())),
+          } : null}
           onOpenRegistration={isChannel ? () => { setChannelSettingsTab('registration'); setChannelSettingsOpen(true); } : undefined}
           // `typeof` guard: hand-rolled test fakes have no bouncerConnect.
           onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
@@ -759,6 +769,7 @@ export function ChatLayout({
           <ChannelSettings
             channel={active}
             myRank={myRankHere}
+            myNick={state.myNick || myNick}
             onSetMode={(fragment) => chat.setChannelMode(active.name, fragment)}
             onSetTopic={(text) => chat.setTopic(active.name, text)}
             onAddBan={(mask) => chat.ban(active.name, mask)}

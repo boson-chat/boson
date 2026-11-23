@@ -40,23 +40,23 @@ test.describe('channel operation', () => {
 
     // Boolean modes: the switch flips at once and the server confirms.
     for (const [label, flag] of [
-      ['Moderated (+m)', 'm'],
-      ['Invite only (+i)', 'i'],
-      ['Topic locked (+t)', 't'],
-      ['No external messages (+n)', 'n'],
-      ['Secret (+s)', 's'],
+      ['Only people with a voice can talk', 'm'],
+      ['Invite only', 'i'],
+      ['Only operators can change the topic', 't'],
+      ['Only members can post', 'n'],
+      ['Hidden channel', 's'],
     ] as const) {
       await expect(toggle(label)).not.toBeChecked();
       await dialog.getByText(label, { exact: true }).click();
       await expect(toggle(label)).toBeChecked();
       await mode(`+${flag}`);
     }
-    await dialog.getByText('Moderated (+m)', { exact: true }).click();
+    await dialog.getByText('Only people with a voice can talk', { exact: true }).click();
     await mode('-m');
-    await expect(toggle('Moderated (+m)')).not.toBeChecked();
+    await expect(toggle('Only people with a voice can talk')).not.toBeChecked();
 
     // Key: set + clear.
-    const keyRow = dialog.locator('.chan-param-row').filter({ hasText: 'Key (+k)' });
+    const keyRow = dialog.locator('.chan-param-row').filter({ hasText: 'Password' });
     await keyRow.getByRole('textbox').fill('sekrit');
     await keyRow.getByRole('button', { name: 'Set' }).click();
     await mode('+k', 'sekrit');
@@ -65,7 +65,7 @@ test.describe('channel operation', () => {
     await mode('-k');
 
     // Limit: digits only, set + clear.
-    const limitRow = dialog.locator('.chan-param-row').filter({ hasText: 'Limit (+l)' });
+    const limitRow = dialog.locator('.chan-param-row').filter({ hasText: 'Member limit' });
     await limitRow.getByRole('spinbutton').fill('25');
     await limitRow.getByRole('button', { name: 'Set' }).click();
     await mode('+l', '25');
@@ -82,7 +82,21 @@ test.describe('channel operation', () => {
     expect(t.params).toEqual([channel, 'Set from the settings modal']);
     await expect(page.locator('.chat-channel-topic')).toHaveText('Set from the settings modal');
 
-    // Bans: add one by mask, see it listed, remove it.
+    // Bans: pick someone in the channel and ban them (by their host).
+    await dialog.getByRole('button', { name: /^Person to ban/ }).click();
+    await page.getByRole('option', { name: peer.nick }).click();
+    await dialog.getByRole('button', { name: 'Ban', exact: true }).click();
+    const picked = await waitCmd(peer, 'MODE', nick, (l) => l.params[0] === channel && l.params[1] === '+b');
+    const pickedMask = picked.params[2]!;
+    expect(pickedMask).toMatch(/^\*!\*@\S+$/);
+    const pickedRow = dialog.locator('.chan-ban-row').filter({ hasText: pickedMask });
+    await expect(pickedRow).toContainText('Anyone from');
+    await pickedRow.getByRole('button', { name: 'Remove' }).click();
+    await mode('-b', pickedMask);
+    await expect(pickedRow).toHaveCount(0);
+
+    // …or by mask (Advanced): see it listed, remove it.
+    await dialog.getByText('Ban by address (advanced)').click();
     await dialog.getByPlaceholder('nick!user@host').fill('troll!*@*');
     await dialog.getByRole('button', { name: 'Add ban' }).click();
     await mode('+b', 'troll!*@*');
@@ -105,9 +119,9 @@ test.describe('channel operation', () => {
     const kept = dialog.locator('.chan-ban-row').filter({ hasText: 'spammer!*@*' });
     await expect(kept.locator('.chan-ban-meta')).toHaveText(new RegExp(`^by ${nick}`));
     await expect(dialog.getByRole('heading', { name: 'Bans (1)' })).toBeVisible();
-    await expect(toggle('Secret (+s)')).toBeChecked();
-    await expect(toggle('Invite only (+i)')).toBeChecked();
-    await expect(toggle('Moderated (+m)')).not.toBeChecked();
+    await expect(toggle('Hidden channel')).toBeChecked();
+    await expect(toggle('Invite only')).toBeChecked();
+    await expect(toggle('Only people with a voice can talk')).not.toBeChecked();
   });
 
   test('a non-operator sees read-only channel settings', async ({ launchApp }) => {
@@ -126,8 +140,8 @@ test.describe('channel operation', () => {
     await page.getByRole('button', { name: 'Channel settings' }).click();
     const dialog = page.getByRole('dialog', { name: `Channel settings — ${channel}` });
     await expect(dialog.getByText('You need channel operator (@) to change these.')).toBeVisible();
-    await expect(dialog.getByRole('checkbox', { name: 'Topic locked (+t)' })).toBeChecked();
-    await expect(dialog.getByRole('checkbox', { name: 'Moderated (+m)' })).toBeDisabled();
+    await expect(dialog.getByRole('checkbox', { name: 'Only operators can change the topic' })).toBeChecked();
+    await expect(dialog.getByRole('checkbox', { name: 'Only people with a voice can talk' })).toBeDisabled();
     await expect(dialog.locator('textarea.chan-topic')).toBeDisabled();
     await expect(dialog.getByRole('button', { name: 'Add ban' })).toBeDisabled();
     await page.keyboard.press('Escape');

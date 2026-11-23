@@ -106,7 +106,12 @@ interface ChatAreaProps {
   onOpenChannelSettings?: () => void;
   // ChanServ registration of the active channel, when known: a small shield
   // next to its name that opens the Registration tab.
-  registration?: { registered: boolean; founder?: string } | null;
+  // `atRisk`: we're an operator of an unregistered channel — say so in
+  // words ("Unregistered"), as the ops are lost once everyone leaves.
+  registration?: { registered: boolean; founder?: string; atRisk?: boolean } | null;
+  // Shown under the header while atRisk until dismissed: register it so it
+  // stays yours.
+  registerPrompt?: { onRegister: () => void; onDismiss: () => void } | null;
   onOpenRegistration?: () => void;
   // Ask the active server's bouncer to connect its upstream network. Drives
   // the bouncer-upstream strip's [Connect] button; when omitted the strip
@@ -170,6 +175,7 @@ export function ChatArea({
   messagesSignal,
   onOpenChannelSettings,
   registration,
+  registerPrompt,
   onOpenRegistration,
   onBouncerConnect,
   onTrustBouncerCert,
@@ -424,7 +430,19 @@ export function ChatArea({
           <PaneBackButton onBack={onBack} />
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
-          {registration && prefix === '#' && (
+          {registration && prefix === '#' && registration.atRisk ? (
+            <Button
+              variant="ghost"
+              size={narrow ? 'lg' : 'sm'}
+              class="chat-reg-badge chat-reg-chip"
+              onClick={onOpenRegistration}
+              disabled={!onOpenRegistration}
+              title="Not registered: you lose operator once everyone leaves. Register it so it stays yours."
+              icon={<ShieldOff aria-hidden="true" />}
+            >
+              Unregistered
+            </Button>
+          ) : registration && prefix === '#' && (
             <Button
               variant="ghost"
               size={narrow ? 'lg' : 'sm'}
@@ -508,6 +526,20 @@ export function ChatArea({
               <Button variant="secondary" size="sm" class="chat-connection-strip-btn" onClick={() => onRejoin(channel.name)}>Try again</Button>
             </span>
           )}
+        </div>
+      )}
+
+      {registerPrompt && prefix === '#' && (
+        <div class="chat-connection-strip chat-reg-strip" role="status">
+          <ShieldAlert aria-hidden="true" class="chat-reg-strip-icon" />
+          <span class="chat-reg-strip-text">
+            <strong>{prefix}{display}</strong> isn't registered. When everyone leaves, whoever joins first gets operator.
+            Register it so it stays yours.
+          </span>
+          <span class="chat-connection-strip-actions">
+            <Button variant="primary" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onRegister}>Register {prefix}{display}</Button>
+            <Button variant="ghost" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onDismiss}>Not now</Button>
+          </span>
         </div>
       )}
 
