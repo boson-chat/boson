@@ -144,7 +144,7 @@ export function banner(page: Page): Locator {
 // with us in its member list.
 export async function joinViaUi(page: Page, channel: string, myNick: string): Promise<void> {
   await page.getByRole('button', { name: 'Add channel' }).click();
-  const box = page.getByPlaceholder('Search channels by name or topic — or type #channel to join directly');
+  const box = page.getByRole('textbox', { name: 'Channel name' });
   await box.fill(channel);
   await box.press('Enter');
   await expect(page.getByPlaceholder(new RegExp(`^Message #${escapeRe(channel.replace(/^#/, ''))}$`, 'i'))).toBeVisible({ timeout: 20_000 });

@@ -120,6 +120,9 @@ interface ChatAreaProps {
   // full screen. Absent on wide layouts.
   onBack?: () => void;
   onShowMembers?: () => void;
+  // Shown in place of "Select a channel…" while you're in no channel of
+  // this server (ServerWelcome).
+  welcome?: ComponentChildren;
   // Desktop: show / hide the member list beside the conversation.
   membersShown?: boolean;
   onToggleMembers?: () => void;
@@ -175,6 +178,7 @@ export function ChatArea({
   onShowMembers,
   membersShown,
   onToggleMembers,
+  welcome,
   serverHost,
   onSendTo,
 }: ChatAreaProps) {
@@ -391,7 +395,7 @@ export function ChatArea({
           onTrustCert={onTrustBouncerCert}
           onRejectCert={onRejectBouncerCert}
         />
-        <EmptyState class="chat-area-empty-state">Select a channel from the sidebar, or join one to start chatting.</EmptyState>
+        {welcome ?? <EmptyState class="chat-area-empty-state">Select a channel from the sidebar, or join one to start chatting.</EmptyState>}
       </main>
     );
   }

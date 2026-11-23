@@ -11,6 +11,7 @@ import { ChannelVoiceAdd, ChannelVoiceRooms } from './VoiceRooms';
 import { VoiceBar } from './VoiceBar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
+import { ServerWelcome, welcomeChannels } from './ServerWelcome';
 import { ChannelSettings, type ChannelSettingsTab } from './ChannelSettings';
 import { useChannelCreation, useChannelPolicy, type ChanServState } from '../../modules/chanserv';
 import { ResizeHandle } from './ResizeHandle';
@@ -105,6 +106,10 @@ interface Props {
   // its server becomes the active one, with the conversation open.
   myDms?: readonly MyDm[];
   onOpenDm?: (serverId: string, name: string) => void;
+  // The active server's directory listing: its description (under its
+  // name, and on its welcome) and channels (suggested on the welcome).
+  serverDescription?: string;
+  serverChannels?: readonly string[];
 }
 
 // Phones: the launch has opened onto the last conversation (once per run).
@@ -141,6 +146,7 @@ export function ChatLayout({
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
   onReorderServers, channelOrder, onReorderChannels, onResetChannelOrder, myDms, onOpenDm,
+  serverDescription, serverChannels,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -181,6 +187,11 @@ export function ChatLayout({
   // a window under MEMBERS_AUTO_WIDTH (two side columns would squeeze the
   // conversation); the header's members button shows / hides it.
   const membersOpen = useMembersOpen();
+  // In no channel (or conversation) of this server yet: the chat area
+  // welcomes you to it instead of an empty room. Bumping joinRequest opens
+  // the sidebar's channel browser.
+  const hasConversations = state.channels.some((c) => !c.name.startsWith('~'));
+  const [joinRequest, setJoinRequest] = useState(0);
 
   // Phones (and narrow windows) show one screen at a time, like the
   // desktop's columns in turn: the rail with the channel list, or a page
@@ -433,6 +444,8 @@ export function ChatLayout({
           onResetChannelOrder={onResetChannelOrder}
           channelDirectory={state.channelDirectory.entries}
           creation={channelCreation}
+          serverDescription={serverDescription}
+          openJoinRequest={joinRequest}
           onOpenSettings={
             onOpenServerSettings && activeServerId
               ? () => onOpenServerSettings(activeServerId)
@@ -520,6 +533,15 @@ export function ChatLayout({
           onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
           onBack={narrow ? () => setFriendsUi({ phone: null }) : undefined}
           onShowMembers={narrow && isChannel ? () => setFriendsUi({ phone: 'members' }) : undefined}
+          welcome={engineState === 'connected' && !hasConversations ? (
+            <ServerWelcome
+              serverName={serverName}
+              description={serverDescription}
+              channels={welcomeChannels(serverChannels ?? [], state.channelDirectory.entries)}
+              onJoin={(name) => chat.join(name, { byUser: true })}
+              onBrowse={() => setJoinRequest((n) => n + 1)}
+            />
+          ) : undefined}
           membersShown={!narrow && isChannel ? membersOpen.open : undefined}
           onToggleMembers={!narrow && isChannel ? membersOpen.toggle : undefined}
         />

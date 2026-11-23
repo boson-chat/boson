@@ -20,7 +20,7 @@ test('after a password reset the recovery code unlocks the identity and re-wraps
   await submitLogin(page, { email: account.email, password: newPassword });
   await expect(page.locator('.login-error')).toContainText('enter your recovery code');
   await recoverWithCode(page, account.recoveryCode!);
-  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
 
   // Re-wrapped under the new password on the backend …
   await expect.poll(() => backendSql(`SELECT encode(encrypted_user_secret, 'base64') FROM users WHERE id = '${account.bosonId}'`))

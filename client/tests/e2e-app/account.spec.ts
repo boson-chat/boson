@@ -93,5 +93,5 @@ test('sign up, confirm by email, set a handle, chat on a directory server, and s
 test('a provisioned account signs straight into the directory', async ({ launchApp, account }) => {
   const { page } = await launchApp();
   expect(await loginAs(page, account)).toBe('directory');
-  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
 });

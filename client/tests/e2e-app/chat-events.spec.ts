@@ -80,7 +80,8 @@ test.describe('channel events from others', () => {
     // …and then the app itself: the channel leaves the sidebar.
     alice.send(`KICK ${channel} ${nick} :your turn`);
     await expect(conversation(page, channel)).toHaveCount(0);
-    await expect(page.getByText('Select a channel from the sidebar, or join one to start chatting.')).toBeVisible();
+    // In no channel of the server now: its welcome, with channels to join.
+    await expect(page.getByRole('region', { name: /^Welcome to / })).toBeVisible();
   });
 
   test('DMs, unread + mention badges, channel switching and desktop notifications', async ({ launchApp }) => {

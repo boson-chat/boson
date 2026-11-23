@@ -346,6 +346,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   }
 
   if (showChat && active && me?.handle) {
+    const activeListing = resolveListing(active, state.servers, state.listings[active.serverId]);
     return (
       <>
         <ChatLayout
@@ -375,6 +376,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           channelOrder={bloc.channelOrder(active.serverId)}
           onReorderChannels={(names) => bloc.reorderChannels(active.serverId, names)}
           onResetChannelOrder={() => bloc.resetChannelOrder(active.serverId)}
+          serverDescription={activeListing?.description}
+          serverChannels={activeListing ? [...(activeListing.autojoin_channels ?? []), ...(activeListing.channels ?? [])] : undefined}
         />
         <Modal
           open={serverBrowserOpen}

@@ -70,6 +70,11 @@ interface ChannelSidebarProps {
   // and an extra button on the row (the voice "+").
   channelVoice?: (channel: string) => ComponentChildren;
   channelAction?: (channel: string) => ComponentChildren;
+  // The server's directory description: under its name in place of the
+  // daemon's version (which stays in the tooltip).
+  serverDescription?: string;
+  // Bumped to open the channel browser (the welcome's "Browse all channels").
+  openJoinRequest?: number;
 }
 
 export function ChannelSidebar({
@@ -96,6 +101,8 @@ export function ChannelSidebar({
   account,
   channelVoice,
   channelAction,
+  serverDescription,
+  openJoinRequest = 0,
 }: ChannelSidebarProps) {
   // Ref-backed view of the channels prop so the bloc always reads the latest
   // list without us rebuilding it on every render. Same pattern as ChatArea
@@ -128,6 +135,8 @@ export function ChannelSidebar({
   useEffect(() => {
     bloc.notifyChannelsChanged();
   }, [channels, orderSig, bloc]);
+
+  useEffect(() => { if (openJoinRequest > 0) bloc.openJoinModal(); }, [openJoinRequest, bloc]);
 
   const [state, setState] = useState<ChannelSidebarState>(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
@@ -195,7 +204,8 @@ export function ChannelSidebar({
   };
   // Compact daemon label under the server name (e.g. "ngircd-27"); network +
   // hostname stay in the title tooltip rather than crowding the sidebar.
-  const serverMeta = serverInfo?.version ?? serverInfo?.serverName ?? '';
+  const daemon = serverInfo?.version ?? serverInfo?.serverName ?? '';
+  const serverMeta = serverDescription?.trim() || daemon;
   // On a bouncer link, engine 'connected' only means the bouncer is reachable;
   // whether the bouncer is attached to the real network is `bouncerUpstream`.
   // A configured bouncer whose upstream isn't reported yet is still being
@@ -217,6 +227,7 @@ export function ChannelSidebar({
     : upstream === 'connecting' ? 'connecting'
       : engineState;
   const metaTooltip = [
+    serverDescription?.trim() ? daemon : '',
     serverInfo?.serverName,
     serverInfo?.network ? `Network: ${serverInfo.network}` : '',
     serverInfo?.bouncer && !upstream ? 'Connected via bouncer' : '',
@@ -275,7 +286,12 @@ export function ChannelSidebar({
         onDrop={reorder.list.onDrop}
       >
         {realChannels.length === 0 && dms.length === 0 && (
-          <EmptyState class="channel-empty">No channels joined yet.</EmptyState>
+          <EmptyState
+            class="channel-empty"
+            action={<Button variant="secondary" size={narrow ? 'lg' : 'sm'} onClick={() => bloc.openJoinModal()}>Browse channels</Button>}
+          >
+            No channels joined yet.
+          </EmptyState>
         )}
 
         <div class="channel-section-header">
@@ -361,7 +377,7 @@ export function ChannelSidebar({
 
       {footer}
 
-      <Modal open={joinModalOpen} onClose={() => bloc.closeJoinModal()} title="Join a channel">
+      <Modal open={joinModalOpen} onClose={() => bloc.closeJoinModal()} title={creation?.restricted ? 'Join a channel' : 'Join or create a channel'}>
         <JoinChannelBrowser
           draft={joinDraft}
           directory={channelDirectory}
@@ -533,7 +549,10 @@ function JoinChannelBrowser({
     const have = new Set((joined ?? []).filter((c) => c.joined !== false).map((c) => c.name.toLowerCase()));
     return (creation?.channels ?? []).filter((c) => !have.has(c.name.toLowerCase()));
   }, [restricted, creation, joined]);
-  const [highlight, setHighlight] = useState(0);
+  // Nothing is highlighted until the arrow keys (or the mouse) pick a
+  // row: Enter / the main button act on what was typed, not on whatever
+  // happened to be first in the list.
+  const [highlight, setHighlight] = useState(-1);
   const [page, setPage] = useState(0);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -555,7 +574,7 @@ function JoinChannelBrowser({
   // Reset page + highlight when the result set changes (new query etc).
   useEffect(() => {
     setPage(0);
-    setHighlight(0);
+    setHighlight(-1);
   }, [needle, all.length]);
   // Keep page in bounds if matches shrink underneath us.
   useEffect(() => {
@@ -567,8 +586,26 @@ function JoinChannelBrowser({
 
   // Keep the highlight inside the visible page.
   useEffect(() => {
-    setHighlight((h) => (visible.length === 0 ? 0 : Math.min(h, visible.length - 1)));
+    setHighlight((h) => (visible.length === 0 ? -1 : Math.min(h, visible.length - 1)));
   }, [visible.length]);
+
+  // The typed name as a channel, and whether the list has it.
+  const typedName = draft.trim() ? (/^[#&]/.test(draft.trim()) ? draft.trim() : `#${draft.trim()}`) : '';
+  const exact = typedName ? matches.find((c) => c.name.toLowerCase() === typedName.toLowerCase()) : undefined;
+  const listKnown = all.length > 0;
+  // A name that isn't in the list: creating it (it may be hidden or the
+  // list not in yet, so "join or create" until we know).
+  const offerCreate = !!typedName && !exact && !restricted && !/\s/.test(typedName);
+  const picked = highlight >= 0 ? visible[highlight] : undefined;
+  const act = (): void => {
+    if (picked) onPick(picked.name);
+    else if (exact) onPick(exact.name);
+    else if (draft.trim()) onSubmit();
+  };
+  const actLabel = picked ? `Join ${picked.name}`
+    : exact ? `Join ${exact.name}`
+      : typedName ? (offerCreate && listKnown ? `Create ${typedName}` : `Join ${typedName}`)
+        : 'Join';
 
   // Scroll the highlighted row into view as the user arrow-keys through.
   useEffect(() => {
@@ -593,7 +630,9 @@ function JoinChannelBrowser({
     if (e.key === 'ArrowDown') {
       e.preventDefault();
       if (visible.length === 0) return;
-      if (highlight === visible.length - 1 && page < totalPages - 1) {
+      if (highlight < 0) {
+        setHighlight(0);
+      } else if (highlight === visible.length - 1 && page < totalPages - 1) {
         // Cross-page navigation: roll forward to the first row of next page.
         goNext();
       } else {
@@ -602,7 +641,10 @@ function JoinChannelBrowser({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (visible.length === 0) return;
-      if (highlight === 0 && page > 0) {
+      if (highlight <= 0 && page === 0) {
+        // Back up to the typed name.
+        setHighlight(-1);
+      } else if (highlight === 0 && page > 0) {
         // Roll backward — land on the LAST row of the previous page.
         setPage(page - 1);
         setHighlight(JOIN_PAGE_SIZE - 1);
@@ -617,18 +659,14 @@ function JoinChannelBrowser({
       goPrev();
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      if (visible.length > 0 && visible[highlight]) {
-        onPick(visible[highlight].name);
-      } else if (draft.trim()) {
-        onSubmit();
-      }
+      act();
     } else if (e.key === 'Escape') {
       onCancel();
     }
   };
 
   const headerLabel = directory === undefined || directory.length === 0
-    ? 'Channel list not yet available — type a channel name and press Enter.'
+    ? 'Channel list not in yet — type a channel name and press Enter.'
     : needle === ''
       ? `${all.length.toLocaleString()} channels`
       : `${matches.length.toLocaleString()} match${matches.length === 1 ? '' : 'es'} for "${needle}"`;
@@ -637,7 +675,8 @@ function JoinChannelBrowser({
     <div class="channel-join-browser" onKeyDown={onKeyDown}>
       <div class="channel-join-search">
         <Input
-          placeholder="Search channels by name or topic — or type #channel to join directly"
+          placeholder={restricted ? 'Search channels by name or topic' : 'Search channels, or type a new #name to create it'}
+          aria-label="Channel name"
           value={draft}
           onInput={(e) => onDraftChange((e.target as HTMLInputElement).value)}
           autoFocus
@@ -668,6 +707,15 @@ function JoinChannelBrowser({
         )}
       </div>
 
+      {offerCreate && (
+        <button type="button" class="channel-join-create" onClick={onSubmit}>
+          <Plus aria-hidden="true" class="channel-join-create-icon" />
+          <span class="channel-join-create-label">
+            {listKnown ? <>Create <strong>{typedName}</strong></> : <>Join or create <strong>{typedName}</strong></>}
+          </span>
+        </button>
+      )}
+
       <div class="channel-join-results-head">{headerLabel}</div>
 
       <div class="channel-join-results" ref={listRef} role="listbox">
@@ -677,7 +725,7 @@ function JoinChannelBrowser({
               ? 'Waiting for the server to publish its channel list…'
               : restricted
                 ? 'No channels match. Only admins can create new channels here.'
-                : 'No channels match. Press Enter to join the typed name anyway.'}
+                : 'No channels match.'}
           </EmptyState>
         ) : (
           visible.map((c, idx) => (
@@ -741,13 +789,10 @@ function JoinChannelBrowser({
         <Button
           variant="primary"
           type="button"
-          disabled={!draft.trim() && visible.length === 0}
-          onClick={() => {
-            if (visible.length > 0 && visible[highlight]) onPick(visible[highlight].name);
-            else if (draft.trim()) onSubmit();
-          }}
+          disabled={!picked && !draft.trim()}
+          onClick={act}
         >
-          {visible.length > 0 ? `Join ${visible[highlight]?.name ?? ''}` : 'Join'}
+          {actLabel}
         </Button>
       </div>
     </div>

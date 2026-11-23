@@ -278,7 +278,7 @@ export function serverCard(page: Page, name: string): Locator {
 // is the active conversation (composer placeholder names it).
 export async function joinChannel(page: Page, channel: string): Promise<void> {
   await page.getByRole('button', { name: 'Add channel' }).click();
-  const input = page.getByPlaceholder('Search channels by name or topic — or type #channel to join directly');
+  const input = page.getByRole('textbox', { name: 'Channel name' });
   await input.fill(channel);
   await input.press('Enter');
   await expect(composer(page, channel)).toBeVisible({ timeout: 20_000 });

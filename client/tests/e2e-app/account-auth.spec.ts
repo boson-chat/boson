@@ -118,7 +118,7 @@ test.describe('sign in', () => {
 
     // By username instead of email.
     expect(await loginAs(page, { email: account.username, password: account.password })).toBe('directory');
-    await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle);
+    await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
   });
 
   test('sign out and back in, and a relaunch after sign-out asks for the password again', async ({ launchApp, account }) => {
@@ -167,7 +167,7 @@ test.describe('sign in', () => {
     await expect(page.locator('.login-screen')).toBeVisible();
 
     await recoverWithCode(page, account.recoveryCode!);
-    await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle);
+    await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
   });
 });
 
@@ -225,7 +225,7 @@ test('forgot password: the reset mail sets a new password, and the recovery code
   await submitLogin(page, { email: account.email, password: newPassword });
   await expect(loginError(page)).toContainText('enter your recovery code');
   await recoverWithCode(page, account.recoveryCode!);
-  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
   await expect.poll(() => backendSql(`SELECT encode(encrypted_user_secret, 'base64') FROM users WHERE id = '${account.bosonId}'`))
     .not.toBe(wrapBefore);
 
