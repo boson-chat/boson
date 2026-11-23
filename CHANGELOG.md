@@ -1,3 +1,9 @@
+## [0.91.0](https://github.com/boson-chat/boson/compare/v0.90.2...v0.91.0) (2026-11-23)
+
+### Features
+
+* design-system Select replaces every native <select> ([#134](https://github.com/boson-chat/boson/issues/134)) ([4d1a4cf](https://github.com/boson-chat/boson/commit/4d1a4cfe2db08b0c29d8ac496f36d8a2e072fdc1))
+
 ## [0.90.2](https://github.com/boson-chat/boson/compare/v0.90.1...v0.90.2) (2026-11-22)
 
 ### Bug Fixes
