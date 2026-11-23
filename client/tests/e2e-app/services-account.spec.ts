@@ -257,7 +257,7 @@ test('SASL PLAIN credentials from the add-server dialog log in during registrati
     await addAndConnectWithLogin(page, { saslUser: account, saslPass: password });
     // Logged in to the account (not the nick) before any NickServ traffic.
     await expectWhoisAccount(peer, nick, account);
-    const settings = await openServerSettings(page, 'Info');
+    const settings = await openServerSettings(page, 'Software');
     await expect(settings.getByText('sasl', { exact: true })).toBeVisible();
   } finally {
     await peer.quit();

@@ -153,8 +153,10 @@ test('Info, Operators, Log and Actions (reconnect, disconnect)', async ({ launch
 
     const settings = await openServerSettings(page, name);
 
-    // Info: what ergo said during registration / CAP negotiation.
-    await expect(settingsTab(settings, 'Info')).toHaveAttribute('aria-selected', 'true');
+    // About leads; Software: what ergo said during registration / CAP negotiation.
+    await expect(settingsTab(settings, 'About')).toHaveAttribute('aria-selected', 'true');
+    await expect(settings.getByRole('heading', { name: `About ${name}` })).toBeVisible();
+    await settingsTab(settings, 'Software').click();
     const row = (label: string) => settings.locator('.server-settings-row').filter({ has: page.locator('dt', { hasText: new RegExp(`^${label}$`) }) }).locator('dd');
     await expect(row('Version')).toContainText(/ergo/i);
     await expect(row('Network')).not.toHaveText('unknown');
@@ -214,7 +216,7 @@ test('a non-owner gets no owner tabs', async ({ launchApp }) => {
   await serverCard(page, seeded.name).getByRole('button', { name: 'Connect' }).click();
   await expectConnected(page, seeded.name);
   const settings = await openServerSettings(page, seeded.name);
-  for (const tab of ['Info', 'Identity', 'Bouncer', 'Actions', 'Log', 'Advanced']) {
+  for (const tab of ['About', 'Identity', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']) {
     await expect(settingsTab(settings, tab)).toBeVisible();
   }
   await expect(settingsTab(settings, 'Edit')).toHaveCount(0);

@@ -261,6 +261,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
       setServerSettingsForId(null);
     } else {
       const chatState = target.chat.getState();
+      const listing = resolveListing(target, state.servers, state.listings[target.serverId]);
       return (
         <div class="app-shell">
           {!narrow && <ServerRail
@@ -282,6 +283,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           />}
           <ServerSettings
             serverDisplayName={target.server.name}
+            serverDescription={listing?.description}
+            serverWebsite={listing?.website_url}
             myNick={chatState.myNick || me.handle}
             serverInfo={chatState.serverInfo}
             serverLog={chatState.serverLog}
