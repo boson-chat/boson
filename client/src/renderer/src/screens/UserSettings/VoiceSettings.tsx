@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, Button, Card, Divider, Field, Segmented, Toggle, WarningBanner } from '@boson/shared';
+import { Badge, Button, Card, Divider, Field, Segmented, Select, Toggle, WarningBanner } from '@boson/shared';
 import {
   VAD_MAX_DB, VAD_MIN_DB, getVoiceSettings, keyLabel, onVoiceSettingsChange, setVoiceSettings, useVoice,
   type VoiceDevices, type VoiceSettings,
@@ -287,17 +287,17 @@ function DeviceSelect({ label, value, devices, onChange }: {
 }) {
   const known = value === '' || devices.some((d) => d.id === value);
   return (
-    <select
-      class="bds-input bds-input-sm voice-settings-select"
-      aria-label={label}
+    <Select
+      size="sm"
+      class="voice-settings-select"
+      label={label}
       value={value}
-      onChange={(e) => onChange((e.target as HTMLSelectElement).value)}
-    >
-      <option value="">System default</option>
-      {devices.map((d) => (
-        <option key={d.id} value={d.id}>{d.name}{d.isDefault ? ' (default)' : ''}</option>
-      ))}
-      {!known && <option value={value}>Unavailable device</option>}
-    </select>
+      options={[
+        { value: '', label: 'System default' },
+        ...devices.map((d) => ({ value: d.id, label: `${d.name}${d.isDefault ? ' (default)' : ''}` })),
+        ...(known ? [] : [{ value, label: 'Unavailable device' }]),
+      ]}
+      onChange={onChange}
+    />
   );
 }

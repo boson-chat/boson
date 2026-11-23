@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Button, Field, Input, Modal, Toggle } from '@boson/shared';
+import { Button, Field, Input, Modal, Select, Toggle } from '@boson/shared';
 import {
   VOICE_ROLES, type VoiceController, type VoiceRole, type VoiceRoom, type VoiceRoomInput, type VoiceServerView,
 } from '../../modules/voice';
@@ -172,37 +172,34 @@ export function VoiceRoomDialog({ voice, dialog, server, joinedChannels, isNetwo
           <p class="voice-dialog-where">In <strong>{parent}</strong>.</p>
         ) : parentChoices.length > 1 || (parentChoices.length === 1 && parentChoices[0] !== '') ? (
           <Field label="Text channel" hint="Where it shows in the channel list. This can't be changed later.">
-            <select
-              class="bds-input voice-dialog-select"
-              aria-label="Text channel"
+            <Select
+              class="voice-dialog-select"
+              label="Text channel"
               value={parent}
-              onChange={(e) => onParent((e.target as HTMLSelectElement).value)}
-            >
-              {parentChoices.map((p) => <option key={p} value={p}>{p || 'None (top level)'}</option>)}
-            </select>
+              options={parentChoices.map((p) => ({ value: p, label: p || 'None (top level)' }))}
+              onChange={onParent}
+            />
           </Field>
         ) : null}
 
         <div class="voice-dialog-locks">
           <Field label="Who can join" hint={topLevel ? undefined : `By their role in ${parent}.`}>
-            <select
-              class="bds-input voice-dialog-select"
-              aria-label="Who can join"
+            <Select
+              class="voice-dialog-select"
+              label="Who can join"
               value={minRole}
-              onChange={(e) => onMinRole((e.target as HTMLSelectElement).value as VoiceRole)}
-            >
-              {roles.map((r) => <option key={r} value={r}>{label(r)}</option>)}
-            </select>
+              options={roles.map((r) => ({ value: r, label: label(r) }))}
+              onChange={onMinRole}
+            />
           </Field>
           <Field label="Who can talk" hint="Everyone else who can join listens.">
-            <select
-              class="bds-input voice-dialog-select"
-              aria-label="Who can talk"
+            <Select
+              class="voice-dialog-select"
+              label="Who can talk"
               value={speakRole}
-              onChange={(e) => setSpeakRole((e.target as HTMLSelectElement).value as VoiceRole)}
-            >
-              {speakRoles.map((r) => <option key={r} value={r}>{label(r)}</option>)}
-            </select>
+              options={speakRoles.map((r) => ({ value: r, label: label(r) }))}
+              onChange={setSpeakRole}
+            />
           </Field>
         </div>
 

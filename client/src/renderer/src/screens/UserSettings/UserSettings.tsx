@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { getUpdater, useUpdateState, type UpdateState } from '../../modules/updater/updater';
-import { Badge, Button, Card, Divider, Field, Input, ListRow, Modal, SwitchRow, Toggle, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, Divider, Field, Input, ListRow, Modal, Select, SwitchRow, Toggle, useTransientFlag } from '@boson/shared';
 import { getBouncerStore, type BouncerProfile } from '../../modules/chat/bouncer.store';
 import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
 import { IncomingCallsSetting } from '../Notifications/IncomingCalls';
@@ -552,17 +552,17 @@ function ImageCacheCard() {
           {stats && !stats.error && <> Using <strong>{formatBytes(stats.usedBytes)}</strong> of {formatBytes(stats.limitBytes)}.</>}
         </p>
         <div class="user-settings-image-cache-actions">
-          <label class="user-settings-image-cache-label">
+          <span class="user-settings-image-cache-label">
             Keep up to
-            <select
-              class="bds-input bds-input-sm"
-              aria-label="Image cache size"
+            <Select
+              size="sm"
+              class="user-settings-image-cache-select"
+              label="Image cache size"
               value={String(limitMB)}
-              onChange={(e) => { void bridge.setLimitMB(Number((e.target as HTMLSelectElement).value)).then(setStats); }}
-            >
-              {sizes.map((mb) => <option key={mb} value={String(mb)}>{mb >= 1000 ? `${mb / 1000} GB` : `${mb} MB`}</option>)}
-            </select>
-          </label>
+              options={sizes.map((mb) => ({ value: String(mb), label: mb >= 1000 ? `${mb / 1000} GB` : `${mb} MB` }))}
+              onChange={(v) => { void bridge.setLimitMB(Number(v)).then(setStats); }}
+            />
+          </span>
           <Button
             variant="secondary"
             size="sm"

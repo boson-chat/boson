@@ -62,6 +62,7 @@ component can't do what a screen needs, extend the component.
 | Toast, banner, status pop-up | `Toast` | `surface` desktop (card, slides in) · phone (banner, drops from the top); `layout` stack (buttons under the text) · row (one line: the incoming-call banner); `onOpen`, `onDismiss`, `timerMs` + `paused` (time-left bar), `ringing` (green glow), `status` (centred text only) | `--radius-lg`, `--shadow-toast` |
 | Empty state | `EmptyState` | `icon`, `title`, `action` | centred, 13px `--fg-3` |
 | Menu (right-click, "…") | `Menu`, `MenuItem`, `MenuLabel`, `MenuSeparator` | item `danger`, `checked`, `icon` + `iconTone`, `size` md 32 · lg 44 | `--radius-lg` surface, `--radius-md` items, `--shadow-menu` |
+| Dropdown (one of a list) | `Select` — never a native `<select>` (a test fails on one) | `options` (`label`, `description`, `disabled`); `size` sm · md (the Input's); `label` or `labelledBy`; `placeholder`; `presentation` auto (a popover; a Sheet below the phone breakpoint) · popover · sheet | trigger: the Input's `--radius-md`; list: the Menu's surface and items |
 | Phone sheet | `Sheet` (app: `BottomSheet`, which portals it) | header, body, `actions` (MenuItems, 44px) | `--radius-lg` top corners |
 | Dialog | `Modal` | `size` default · wide | `--radius-lg` |
 | Text input | `Input`, `Field` | — | `--radius-md` |

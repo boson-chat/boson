@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { AtomLoader, Badge, Button, Card, ChipInput, Field, Input, Modal, Toggle, useTransientFlag } from '@boson/shared';
+import { AtomLoader, Badge, Button, Card, ChipInput, Field, Input, Modal, Select, Toggle, useTransientFlag } from '@boson/shared';
 import type { NetworkDirectories } from '../../modules/directory/networks';
 import type {
   DirectoryService,
@@ -50,15 +50,14 @@ export function HostServerModal({ open, onClose, directory, networks }: HostServ
         </p>
         {state.screen === 'list' && hostable.length > 1 && (
           <Field label="Directory" hint="Where your server is listed. Other directories that import this one will pick it up too.">
-            <select
-              class="bds-input bds-input-sm host-server-directory-select"
+            <Select
+              size="sm"
+              class="host-server-directory-select"
+              label="Directory"
               value={targetUrl}
-              onChange={(e) => setTarget((e.target as HTMLSelectElement).value)}
-            >
-              {hostable.map((h) => (
-                <option key={h.url} value={h.url}>{h.name} ({new URL(h.url).host})</option>
-              ))}
-            </select>
+              options={hostable.map((h) => ({ value: h.url, label: `${h.name} (${new URL(h.url).host})` }))}
+              onChange={setTarget}
+            />
           </Field>
         )}
         {state.screen === 'list' && hostable.length === 1 && targetSource && (

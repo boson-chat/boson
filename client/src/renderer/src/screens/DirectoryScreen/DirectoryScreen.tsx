@@ -17,7 +17,7 @@ import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
 import { useNarrow } from '../../shared/narrow';
 import { getVoiceController } from '../../modules/voice';
-import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
+import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, Select, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
 import { joinsLabel } from '../../modules/directory/autojoin';
@@ -573,29 +573,29 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
         </div>
 
         {serverFilters && facets && facets.tags.length > 0 && (
-          <select
-            class="bds-input bds-input-sm directory-select"
-            aria-label="Filter by topic"
+          <Select
+            size="sm"
+            class="directory-select"
+            label="Filter by topic"
             value={tag}
-            onChange={(e) => bloc.setTag((e.target as HTMLSelectElement).value)}
-          >
-            <option value="">Any topic</option>
-            {facets.tags.slice(0, 40).map((t) => (
-              <option key={t.value} value={t.value}>{t.value}{t.count ? ` (${t.count})` : ''}</option>
-            ))}
-            {tag && !facets.tags.slice(0, 40).some((t) => t.value === tag) && <option value={tag}>{tag}</option>}
-          </select>
+            options={[
+              { value: '', label: 'Any topic' },
+              ...facets.tags.slice(0, 40).map((t) => ({ value: t.value, label: `${t.value}${t.count ? ` (${t.count})` : ''}` })),
+              ...(tag && !facets.tags.slice(0, 40).some((t) => t.value === tag) ? [{ value: tag, label: tag }] : []),
+            ]}
+            onChange={(v) => bloc.setTag(v)}
+          />
         )}
 
         {serverFilters && (
-          <select
-            class="bds-input bds-input-sm directory-select"
-            aria-label="Sort servers"
+          <Select
+            size="sm"
+            class="directory-select"
+            label="Sort servers"
             value={sort}
-            onChange={(e) => bloc.setSort((e.target as HTMLSelectElement).value as NetworkSort | '')}
-          >
-            {SORTS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-          </select>
+            options={SORTS.map((o) => ({ value: o.id, label: o.label }))}
+            onChange={(v) => bloc.setSort(v)}
+          />
         )}
 
         <Toggle checked={showNsfw} onChange={(v) => bloc.setShowNsfw(v)} label="Show NSFW" />
