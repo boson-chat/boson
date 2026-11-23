@@ -11,7 +11,8 @@
 //                        recovery code reveal → directory
 //   recoverWithCode      the recovery-code unlock offered when the password
 //                        no longer decrypts the identity
-//   signOut              directory top bar → Sign out
+//   signOut              Settings → Account → Sign out (the directory's
+//                        top bar no longer has one)
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { secondInstance, type App } from '../desktop-app';
@@ -95,7 +96,6 @@ export async function completeHandleSetup(page: Page, handle: string): Promise<s
   const code = page.getByLabel('recovery code', { exact: true });
   await expect(code).toBeVisible({ timeout: 20_000 });
   const recoveryCode = (await code.innerText()).trim();
-  await page.getByText('I’ve saved my recovery code somewhere safe.').click();
   await page.locator('.recovery-code-reveal').getByRole('button').last().click();
   await expect(directoryHeading(page)).toBeVisible({ timeout: 20_000 });
   await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
@@ -112,6 +112,9 @@ export async function recoverWithCode(page: Page, recoveryCode: string): Promise
 }
 
 export async function signOut(page: Page): Promise<void> {
-  await page.locator('.directory-topbar').getByRole('button', { name: 'Sign out' }).click();
+  await page.getByRole('button', { name: 'User settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'User settings' });
+  await settings.getByRole('tab', { name: /^Account/ }).click();
+  await settings.getByRole('button', { name: 'Sign out', exact: true }).click();
   await expect(loginScreen(page)).toBeVisible({ timeout: 20_000 });
 }

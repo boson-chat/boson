@@ -3,7 +3,7 @@
 // invalid handles, with the result checked in the backend (users +
 // handle_changes, whose redirect window is 90 days).
 import type { Page } from '@playwright/test';
-import { test, expect, backendSql, field, loginAs, randomHandle } from './fixtures';
+import { test, expect, backendSql, field, loginAs, randomHandle, signOut } from './fixtures';
 
 async function openIdentitySettings(page: Page) {
   await page.getByRole('button', { name: 'User settings' }).click();
@@ -25,16 +25,17 @@ test('first sign-in handle setup rejects short and taken handles, then accepts a
   await input.fill('ab');
   await expect(save).toBeDisabled();
 
-  // Padded to 3+ chars client-side, but the backend trims → 400.
+  // Padded to 3+ chars: trimmed and refused before anything is sent.
   await input.fill('  ab  ');
-  await expect(save).toBeEnabled();
-  await save.click();
-  await expect(setupError).toContainText('handle must be at least 3 characters');
+  await expect(save).toBeDisabled();
+  // Not a valid nick (the handle is the IRC nick too).
+  await input.fill('no spaces here');
+  await expect(setupError).toContainText('No spaces.');
 
   // Taken — case-insensitively.
   await input.fill(other.handle!.toUpperCase());
   await save.click();
-  await expect(setupError).toContainText('handle taken');
+  await expect(setupError).toContainText('That handle is taken');
   expect(backendSql(`SELECT count(*) FROM users WHERE id = '${fresh.bosonId}'`)).toBe('0');
 
   // The pending identity survives the failed attempts: a free handle works.
@@ -42,12 +43,50 @@ test('first sign-in handle setup rejects short and taken handles, then accepts a
   await input.fill(handle);
   await save.click();
   await expect(page.getByLabel('recovery code', { exact: true })).toBeVisible({ timeout: 20_000 });
-  await page.getByText('I’ve saved my recovery code somewhere safe.').click();
   await page.locator('.recovery-code-reveal').getByRole('button').last().click();
   await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
   const me = await (await backendApi(fresh)).get<{ handle: string; encrypted_user_secret_recovery: string }>('/me');
   expect(me.handle).toBe(handle);
   expect(me.encrypted_user_secret_recovery.length).toBeGreaterThan(40);
+});
+
+test('the handle starts as the username; a reload during setup asks for the password, and one on the recovery code shows a new code', async ({ launchApp, createAccount, backendApi }) => {
+  const fresh = await createAccount();
+  const { page } = await launchApp();
+  await loginAs(page, fresh);
+  const input = page.getByPlaceholder('handle', { exact: true });
+  await expect(input).toHaveValue(fresh.username, { timeout: 20_000 });
+
+  // Reload on the handle step: the in-memory key wrap is gone, so the
+  // password is asked for instead of "identity not initialized".
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Finish setting up your account' })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText(/Enter your password once more/)).toBeVisible();
+  const handle = randomHandle('reload');
+  await input.fill(handle);
+  await page.getByPlaceholder('password', { exact: true }).fill('not-the-password');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText("That password isn't right.")).toBeVisible({ timeout: 20_000 });
+  await page.getByPlaceholder('password', { exact: true }).fill(fresh.password);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  const code = page.getByLabel('recovery code', { exact: true });
+  await expect(code).toBeVisible({ timeout: 20_000 });
+  const first = (await code.innerText()).trim();
+
+  // Reload on the recovery code: it comes back, with a new code.
+  await page.reload();
+  await expect(code).toBeVisible({ timeout: 20_000 });
+  const second = (await code.innerText()).trim();
+  expect(second).toMatch(/^[a-z0-9]{4}(-[a-z0-9]{4}){7}$/);
+  expect(second).not.toBe(first);
+  await page.locator('.recovery-code-reveal').getByRole('button').last().click();
+  await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
+  const me = await (await backendApi(fresh)).get<{ handle: string; encrypted_user_secret_recovery: string }>('/me');
+  expect(me.handle).toBe(handle);
+
+  // The password wrap made after the reload unlocks on a fresh sign-in.
+  await signOut(page);
+  expect(await loginAs(page, fresh)).toBe('directory');
 });
 
 test('renaming the handle in settings: taken and too-short are refused, a free one is saved with a 90-day redirect', async ({ launchApp, createAccount, backendApi }) => {
@@ -58,7 +97,7 @@ test('renaming the handle in settings: taken and too-short are refused, a free o
   expect(await loginAs(page, me)).toBe('directory');
 
   const dialog = await openIdentitySettings(page);
-  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Mode' })).toContainText('Account');
+  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Account' })).toContainText('Boson account');
   const input = field(dialog, 'Handle');
   const save = dialog.getByRole('button', { name: 'Save', exact: true });
   const error = dialog.locator('.user-settings-error');

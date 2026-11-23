@@ -47,7 +47,7 @@ async function signOutFromSettings(page: Page, button = 'Sign out'): Promise<voi
 }
 
 // The ACCOUNT keys of modules/signout/storage-keys.ts (what must be gone).
-const PERSONAL_LOCAL = /^(boson:session:|boson:local-servers:|boson:directories:|boson:autojoin-done:|boson:guest:|boson:notifications:channels:|boson\.netauth\.|boson\.login\.|boson\.memos\.|boson:notify-feed:|boson\.voice\.guestId:|boson\.services-creds\.)/;
+const PERSONAL_LOCAL = /^(boson:session:|boson:local-servers:|boson:directories:|boson:autojoin-done:|boson:guest:|boson:notifications:channels:|boson\.netauth\.|boson\.login\.|boson\.memos\.|boson:notify-feed:|boson\.voice\.guestId:|boson\.services-creds\.|boson:recovery-pending:)/;
 const PERSONAL_SECURE = /^(boson\.auth\.session|boson\.identity\.|boson\.netauth\.session:|boson\.services-creds\.v1|boson\.bouncer\.v1|boson\.nickserv-sync\.meta|boson\.bouncer-sync\.meta)/;
 
 test.describe('sign-out cleanup', () => {

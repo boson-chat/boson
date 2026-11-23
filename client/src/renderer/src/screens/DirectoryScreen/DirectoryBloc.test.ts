@@ -134,6 +134,8 @@ class FakeServerSession {
   disconnect(): void { this.disconnectCalls++; }
   nickservIdentify(password: string): void { this.nickservIdentifyCalls.push(password); }
   raw(line: string): void { this.rawCalls.push(line); }
+  nickCalls: string[] = [];
+  nick(n: string): void { this.nickCalls.push(n); }
   isDisposed(): boolean { return this.disposed_; }
   // setForeground is invoked by DirectoryBloc.applyForegroundState; ignore.
   setForeground(_v: boolean): void { /* no-op */ }
@@ -995,6 +997,21 @@ describe('DirectoryBloc', () => {
     // Past the sync's debounce: the wipe never reached /me/session.
     await new Promise((r) => setTimeout(r, 900));
     expect((directory.putSavedSession as ReturnType<typeof vi.fn>).mock.calls.length).toBe(pushes);
+    bloc.dispose();
+  });
+
+  it('a handle renamed in Settings renames the nick on connected servers right away', async () => {
+    const engine = fakeEngine();
+    const server = fakeServer('s1');
+    const directory = fakeDirectory({ user: fakeUser(), servers: [server] });
+    const bloc = new DirectoryBloc({ auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore: new SessionStore(memoryStorage()) });
+    await flushPromises(4);
+    await bloc.connect(server);
+    engine.sessionFor('s1')._setState('connected');
+    const handle = bloc.getState().me!.handle;
+    bloc.setHandle(`${handle}2`);
+    expect(engine.sessionFor('s1').nickCalls).toEqual([`${handle}2`]);
+    expect(bloc.getState().me!.handle).toBe(`${handle}2`);
     bloc.dispose();
   });
 

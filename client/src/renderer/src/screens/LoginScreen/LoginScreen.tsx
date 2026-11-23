@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'preact/hooks';
 import { guestAccessAllowed, useAuthService, useAuthState } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
-import { Button, Card, Field, Input, Logo, Tabs, WarningBanner } from '@boson/shared';
+import { Button, Card, Field, Input, Logo, Tabs } from '@boson/shared';
+import { PASSWORD_MIN } from '../../modules/auth/signup-rules';
 import { LoginBloc, type LoginMode } from './LoginBloc';
 import { emitGuestChange, saveGuestSession } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
@@ -29,17 +30,18 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
 
   const {
     mode, login, username, email, password, confirmPassword, error, unrecoverable, recoverable, busy,
-    awaitingConfirmation, forgotOpen, notice, ssoProviders, ssoPending, identityPrompt,
+    awaitingConfirmation, forgotOpen, notice, ssoProviders, ssoPending, identityPrompt, fieldErrors,
   } = state;
-  const { session } = useAuthState();
+  const { session, signedOutReason } = useAuthState();
   useEffect(() => { void bloc.loadProviders(); }, [bloc]);
   useEffect(() => () => bloc.cancelSignInWith(), [bloc]);
   const usernameProblem = bloc.usernameProblem();
   const [recoveryInput, setRecoveryInput] = useState('');
 
-  // Guest-mode local state. The user clicks "Continue as guest" to reveal a
-  // single nick field; submitting it writes a localStorage record and emits
-  // an event that the App router picks up to swap into the directory.
+  // Guest mode: "Continue without an account" swaps the sign-in form for
+  // its own step (a name, what's kept, Back); submitting it writes a
+  // localStorage record and emits an event that the App router picks up to
+  // swap into the directory.
   const [guestPrompt, setGuestPrompt] = useState(false);
   const [guestNick, setGuestNick] = useState('');
   // boson.chat's own IRC may take no guests (guest_access: false). Guest
@@ -72,7 +74,12 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   const backdrop = loginBackdrop(brand);
   const logo = brand?.applied && (brand.logo || brand.logoWide)
     ? <NetworkLoginLogo brand={brand} name={brandName} />
-    : <Logo />;
+    : (
+      <div class="login-hero">
+        <Logo tagline="" />
+        <p class="login-pitch">Chat, voice and video with your communities, in one app.</p>
+      </div>
+    );
 
   const onSubmit = (kind: 'signin' | 'signup', e: Event) => {
     e.preventDefault();
@@ -86,6 +93,22 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
     saveGuestSession({ nick });
     emitGuestChange();
   };
+
+  // Waiting on the emailed link: when the user comes back to the app (after
+  // opening it in the browser), try signing in by itself.
+  const awaiting = awaitingConfirmation !== null;
+  useEffect(() => {
+    if (!awaiting) return;
+    const retry = (): void => {
+      if (document.visibilityState === 'visible') void bloc.retryAfterVerification();
+    };
+    window.addEventListener('focus', retry);
+    document.addEventListener('visibilitychange', retry);
+    return () => {
+      window.removeEventListener('focus', retry);
+      document.removeEventListener('visibilitychange', retry);
+    };
+  }, [awaiting, bloc]);
 
   // After a sign-up (or a sign-in refused as unverified) the form gives way
   // to "Check your email": the link opens the auth service's page in the
@@ -102,7 +125,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
                 {awaitingConfirmation
                   ? <>We sent a verification link to <strong class="login-confirm-email">{awaitingConfirmation}</strong>. </>
                   : <>Your email address isn't verified yet. </>}
-                Open it, then come back and continue.
+                Open it, then come back here: you'll be signed in.
               </p>
               {!awaitingConfirmation && (
                 <Field label="Email" hint="To send the link again.">
@@ -252,20 +275,22 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
     );
   }
 
+  // Which server the form signs in to: a quiet line with a "Change" link
+  // (a self-hosted network instead of boson.chat).
   const serverLine = accounts?.supported ? (
     <div class="login-server">
       <span class="login-server-label">
-        <span class="login-server-prompt" aria-hidden="true">$</span>
-        <span>server</span>
+        <span>{other ? 'Server' : 'Signing in to'}</span>
         <span class="login-server-host">{other ? (otherAddress ?? '…') : 'boson.chat'}</span>
       </span>
       <Button
         variant="ghost"
         size="sm"
         class="login-server-switch"
+        aria-label={other ? undefined : 'Change: use another server'}
         onClick={() => { setOther(!other); setOtherAddress(null); setOtherHost(null); }}
       >
-        {other ? 'Back to boson.chat' : 'Use another server'}
+        {other ? 'Back to boson.chat' : 'Change'}
       </Button>
     </div>
   ) : null;
@@ -290,6 +315,51 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
     );
   }
 
+  // "Continue without an account": its own step in place of the form.
+  if (guestPrompt) {
+    return (
+      <div {...backdrop}>
+        <div class="login-container">
+          {logo}
+          <Card>
+            <form onSubmit={submitGuest} class="login-guest-form">
+              <h2 class="login-step-title">Continue as a guest</h2>
+              <Field
+                label="Display name"
+                hint="What people see you as in chat. Letters, digits and - _ work best."
+              >
+                <Input
+                  placeholder="your-nick"
+                  value={guestNick}
+                  onInput={(e) => setGuestNick((e.target as HTMLInputElement).value)}
+                  autoFocus
+                  required
+                  autoComplete="off"
+                  spellcheck={false}
+                />
+              </Field>
+              <p class="login-guest-note">
+                No account: your servers, settings and history stay on this device only.
+                {!mainGuestOk && ' boson.chat itself needs an account; other networks work as a guest.'}
+              </p>
+              <div class="login-actions">
+                <Button type="submit" variant="primary" fullWidth disabled={!guestNick.trim()}>
+                  Continue
+                </Button>
+                <Button type="button" variant="ghost" fullWidth onClick={() => setGuestPrompt(false)}>
+                  Back
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  const signup = mode === 'signup';
+  const usernameError = fieldErrors.username ?? usernameProblem ?? undefined;
+
   return (
     <div {...backdrop}>
       <div class="login-container">
@@ -311,8 +381,6 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
           </div>
         )}
 
-        {serverLine}
-
         <Tabs
           tabs={[
             { id: 'login', label: 'Login' },
@@ -323,8 +391,14 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
         />
 
         <Card>
-          <form onSubmit={(e) => onSubmit(mode === 'signup' ? 'signup' : 'signin', e)}>
-            {mode === 'login' ? (
+          <form noValidate={signup} onSubmit={(e) => onSubmit(signup ? 'signup' : 'signin', e)}>
+            {signedOutReason === 'expired' && !signup && !error && (
+              <div class="login-notice" role="status">
+                You were signed out: your session ended or was signed out on another device. Sign in again to continue.
+              </div>
+            )}
+
+            {!signup ? (
               <Field label="Username or email">
                 <Input
                   type="text"
@@ -341,26 +415,30 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
               <>
                 <Field
                   label="Username"
-                  hint="Your account name, IRC-nick style: letters, digits and - [ ] \ ` _ ^ { | }, up to 30."
-                  error={usernameProblem ?? undefined}
+                  hint="Your name on Boson and in chat. Up to 30 letters, digits, - or _, starting with a letter."
+                  error={usernameError}
                 >
                   <Input
                     type="text"
                     placeholder="username"
                     value={username}
                     onInput={(e) => bloc.setUsername((e.target as HTMLInputElement).value)}
+                    onBlur={() => bloc.blurField('username')}
+                    invalid={!!usernameError}
                     autoFocus
                     required
                     autoComplete="username"
                     spellcheck={false}
                   />
                 </Field>
-                <Field label="Email">
+                <Field label="Email" hint="For verifying your account and resetting your password." error={fieldErrors.email}>
                   <Input
                     type="email"
                     placeholder="email"
                     value={email}
                     onInput={(e) => bloc.setEmail((e.target as HTMLInputElement).value)}
+                    onBlur={() => bloc.blurField('email')}
+                    invalid={!!fieldErrors.email}
                     required
                     autoComplete="email"
                   />
@@ -370,27 +448,30 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
 
             <Field
               label="Password"
-              hint={mode === 'login'
-                ? 'It also unlocks your identity key, which signs you in to IRC servers and protects the passwords Boson syncs.'
-                : 'This encrypts your identity key. Lose it → lose access to all servers.'}
+              hint={signup ? `At least ${PASSWORD_MIN} characters.` : undefined}
+              error={signup ? fieldErrors.password : undefined}
             >
               <Input
                 type="password"
                 placeholder="password"
                 value={password}
                 onInput={(e) => bloc.setPassword((e.target as HTMLInputElement).value)}
+                onBlur={() => bloc.blurField('password')}
+                invalid={signup && !!fieldErrors.password}
                 required
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                autoComplete={signup ? 'new-password' : 'current-password'}
               />
             </Field>
 
-            {mode === 'signup' && (
-              <Field label="Confirm password">
+            {signup && (
+              <Field label="Confirm password" error={fieldErrors.confirmPassword}>
                 <Input
                   type="password"
                   placeholder="confirm password"
                   value={confirmPassword}
                   onInput={(e) => bloc.setConfirmPassword((e.target as HTMLInputElement).value)}
+                  onBlur={() => bloc.blurField('confirmPassword')}
+                  invalid={!!fieldErrors.confirmPassword}
                   required
                   autoComplete="new-password"
                 />
@@ -443,31 +524,19 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
             )}
 
             <div class="login-actions">
-              {/* The other mode's button switches tabs rather than submitting
-                  (the forms ask for different fields). */}
+              {/* Only the active tab's action; the tabs switch modes. */}
               <Button
-                type={mode === 'login' ? 'submit' : 'button'}
-                variant={mode === 'login' ? 'primary' : 'ghost'}
+                type="submit"
+                variant="primary"
                 fullWidth
                 disabled={busy}
-                loading={busy && !ssoPending && mode === 'login'}
-                onClick={(e) => { if (mode === 'login') onSubmit('signin', e); else { e.preventDefault(); bloc.setMode('login'); } }}
+                loading={busy && !ssoPending}
               >
-                Sign in
-              </Button>
-              <Button
-                type={mode === 'signup' ? 'submit' : 'button'}
-                variant={mode === 'signup' ? 'primary' : 'ghost'}
-                fullWidth
-                disabled={busy}
-                loading={busy && !ssoPending && mode === 'signup'}
-                onClick={(e) => { if (mode === 'signup') onSubmit('signup', e); else { e.preventDefault(); bloc.setMode('signup'); } }}
-              >
-                Sign up
+                {signup ? 'Sign up' : 'Sign in'}
               </Button>
             </div>
 
-            {mode === 'login' && (
+            {!signup && (
               <Button variant="ghost" size="sm" class="login-forgot" onClick={() => bloc.openForgot()}>
                 Forgot password?
               </Button>
@@ -500,52 +569,19 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
                 )}
               </div>
             )}
-
-            {mode === 'signup' && (
-              <WarningBanner tone="warn" title="Keep your recovery code">
-                Your identity key is encrypted with your password. A password reset gets you back into your account, but unlocking the key afterwards needs the recovery code you'll be shown next.
-              </WarningBanner>
-            )}
           </form>
         </Card>
 
+        {serverLine}
+
         <div class="login-guest">
-          {!guestPrompt ? (
-            <Button
-              variant="ghost"
-              class="login-guest-toggle"
-              onClick={() => setGuestPrompt(true)}
-            >
-              Continue without an account
-            </Button>
-          ) : null}
-          {!guestPrompt && !mainGuestOk ? (
-            <p class="login-guest-note">boson.chat requires an account to chat. Without one you can still use other networks.</p>
-          ) : null}
-          {guestPrompt && (
-            <form onSubmit={submitGuest} class="login-guest-form">
-              <Field
-                label="Pick a nick"
-                hint="Used as your IRC nickname. No account; data stays on this device."
-              >
-                <Input
-                  placeholder="your-nick"
-                  value={guestNick}
-                  onInput={(e) => setGuestNick((e.target as HTMLInputElement).value)}
-                  autoFocus
-                  required
-                  autoComplete="off"
-                  spellcheck={false}
-                />
-              </Field>
-              <div class="login-guest-actions">
-                <Button type="button" variant="ghost" onClick={() => setGuestPrompt(false)}>Back</Button>
-                <Button type="submit" variant="primary" disabled={!guestNick.trim()}>
-                  Continue
-                </Button>
-              </div>
-            </form>
-          )}
+          <Button
+            variant="ghost"
+            class="login-guest-toggle"
+            onClick={() => setGuestPrompt(true)}
+          >
+            Continue without an account
+          </Button>
         </div>
       </div>
     </div>

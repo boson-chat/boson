@@ -225,6 +225,10 @@ export interface ChatPersistence {
   scope: { userId: string; serverId: string; serverName?: string };
 }
 
+// Getting our nick back after connecting under a fallback (see
+// startNickReclaim): asks again after each of these delays.
+const NICK_RECLAIM_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000];
+
 // ChatFeedback is out-of-band UI signaling driven by slash commands.
 // Examples: bad usage, unknown command, /help output. These never belong in
 // the channel log (they're not from the network); the UI surfaces them as a
@@ -533,6 +537,62 @@ export class ChatService {
     if (deps?.bouncer) {
       this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerConfigured: true };
     }
+    this.wantedNick = myNick;
+  }
+
+  // ----- Getting our nick back -----
+  //
+  // The nick we connected with (or last asked for with /nick). When the
+  // server registers us under a fallback instead (nick_, because our previous
+  // connection still holds the nick, typically for a minute after a reload),
+  // we keep asking for it back on a backoff, say so once, and say when it
+  // worked. Not on bouncer connections (the bouncer owns the nick).
+  private wantedNick: string;
+  private reclaimTimer: ReturnType<typeof setTimeout> | null = null;
+  private reclaimAttempt = 0;
+  private reclaimNoted = false;
+
+  private stopNickReclaim(): void {
+    if (this.reclaimTimer) { clearTimeout(this.reclaimTimer); this.reclaimTimer = null; }
+    this.reclaimAttempt = 0;
+    this.reclaimNoted = false;
+  }
+
+  private hasWantedNick(): boolean {
+    return !this.wantedNick || this.myNick.toLowerCase() === this.wantedNick.toLowerCase();
+  }
+
+  // After registration: start getting the nick back when we didn't get it.
+  private startNickReclaim(): void {
+    this.stopNickReclaim();
+    if (this.bouncerConn || this.hasWantedNick()) return;
+    this.scheduleNickReclaim();
+  }
+
+  private scheduleNickReclaim(): void {
+    if (this.reclaimAttempt >= NICK_RECLAIM_DELAYS_MS.length) return;
+    const delay = NICK_RECLAIM_DELAYS_MS[this.reclaimAttempt++]!;
+    this.reclaimTimer = setTimeout(() => {
+      this.reclaimTimer = null;
+      this.tryReclaimNick();
+    }, delay);
+  }
+
+  private tryReclaimNick(): void {
+    if (this.bouncerConn || this.hasWantedNick()) return;
+    if (!this.reclaimNoted) {
+      this.reclaimNoted = true;
+      this.noteHere(`“${this.wantedNick}” is still in use, most likely by your previous session, so you're “${this.myNick}” for now. Boson will switch you back as soon as it's free.`);
+    }
+    this.session.nick(this.wantedNick);
+    this.scheduleNickReclaim();
+  }
+
+  // The holder of our nick left or renamed: ask right away.
+  private nickFreed(nick: string): void {
+    if (this.bouncerConn || this.hasWantedNick() || !this.welcomed) return;
+    if (nick.toLowerCase() !== this.wantedNick.toLowerCase()) return;
+    this.session.nick(this.wantedNick);
   }
 
   // Whether to persist + hydrate messages locally. Off for bouncer connections
@@ -748,6 +808,7 @@ export class ChatService {
     for (const t of this.rejoinTimers.values()) clearTimeout(t);
     this.rejoinTimers.clear();
     if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
+    this.stopNickReclaim();
     // Drop the engine's services-framework subscription so a fresh
     // service-framework event after detach can't fire emit() against
     // a torn-down chat service.
@@ -1943,6 +2004,8 @@ export class ChatService {
     // authoritative than anything we could re-enforce. On success the
     // NICK echo comes back as a regular event and handleEvent renames
     // the member entries across every joined channel.
+    this.wantedNick = next;
+    this.stopNickReclaim();
     this.session.nick(next);
   }
 
@@ -2977,6 +3040,7 @@ export class ChatService {
           const member = this.anyMember(e.From);
           this.seen.note(e.From, { user: e.User || member?.user, host: e.Host || member?.hostname });
         }
+        this.nickFreed(e.From);
         this.channels.forEach((c) => {
           const member = c.members.find((m) => m.nick === e.From);
           c.members = c.members.filter((m) => m.nick !== e.From);
@@ -3013,7 +3077,13 @@ export class ChatService {
         this.channels.forEach((c) => {
           c.members = c.members.map((m) => (m.nick === e.From ? { ...m, nick: newNick } : m));
         });
-        if (e.From === this.myNick) this.myNick = newNick;
+        if (e.From === this.myNick) {
+          this.myNick = newNick;
+          if (this.reclaimNoted && this.hasWantedNick()) this.noteHere(`You're “${newNick}” again.`);
+          if (this.hasWantedNick()) this.stopNickReclaim();
+        } else {
+          this.nickFreed(e.From);
+        }
         this.emit();
         break;
       }
@@ -3225,6 +3295,7 @@ export class ChatService {
         // DMs never mirror). See also the 004 sync below as a backstop.
         this.syncMyNickFromNumeric(e.Target);
         this.welcomed = true;
+        this.startNickReclaim();
         this.requestAttachBacklog();
         for (const key of Array.from(this.channels.keys())) {
           if (!key.startsWith('#') && !key.startsWith('&')) this.resendPending(key);

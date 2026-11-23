@@ -33,6 +33,7 @@ export const ACCOUNT_KEYS: KeySet = {
     'boson:notify-feed:v1:', // friend + call notifications, per user
     'boson.voice.guestId:', // guest voice id, per auth service
     'boson.services-creds.', // legacy plain-text NickServ passwords, per server
+    'boson:recovery-pending:', // recovery code not yet confirmed at sign-up, per user
   ],
   secure: [
     'boson.auth.session', // the access + refresh token

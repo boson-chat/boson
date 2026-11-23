@@ -22,7 +22,8 @@ import { signOut } from '../../modules/signout/sign-out';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
-import { describeAuthError, type AuthService, type LinkedIdentities } from '../../modules/auth';
+import { describeAuthError, validateHandle, type AuthService, type LinkedIdentities } from '../../modules/auth';
+import { emitHandleChange } from '../../modules/ui/handle-change';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { AppearancePanel } from './AppearancePanel';
 import { VoiceSettingsSection } from './VoiceSettings';
@@ -88,15 +89,23 @@ interface UserSettingsProps {
   auth: AuthService;
   // Open at this section (e.g. 'voice' from the voice bar's gear).
   initialSection?: string | null;
+  // Neither signed in nor a guest (the login screen): only what applies
+  // before signing in — Appearance and About.
+  signedOut?: boolean;
 }
 
-export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth, initialSection }: UserSettingsProps) {
-  const [section, setSection] = useState<SectionId>('identity');
+const SIGNED_OUT_SECTIONS: ReadonlySet<SectionId> = new Set(['appearance', 'about']);
+
+export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth, initialSection, signedOut = false }: UserSettingsProps) {
+  const [chosen, setSection] = useState<SectionId>('identity');
   // Voice settings only where there's voice (the desktop app).
   const hasVoice = getVoiceController() !== null;
   // Privacy & calls with an account (friends and calls are on it).
   const hasFriends = getFriendsController()?.getSnapshot().available === true;
-  const menu = MENU.filter((m) => (m.id !== 'voice' || hasVoice) && (m.id !== 'privacy' || hasFriends));
+  const menu = MENU.filter((m) => (signedOut
+    ? SIGNED_OUT_SECTIONS.has(m.id)
+    : (m.id !== 'voice' || hasVoice) && (m.id !== 'privacy' || hasFriends)));
+  const section: SectionId = menu.some((m) => m.id === chosen) ? chosen : menu[0]!.id;
   useEffect(() => {
     if (open && initialSection && menu.some((m) => m.id === initialSection)) setSection(initialSection as SectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -175,8 +184,8 @@ function IdentitySection({ mode, authedHandle, guestNick, directory, auth, open 
     <SectionFrame
       title="Identity"
       description={mode === 'guest'
-        ? "Your local nickname. Changes here apply on the next connect."
-        : "Your registered Boson handle, used as your IRC nickname after sanitisation."}
+        ? 'The name people see you as in chat.'
+        : 'How people find you on Boson, and your name in chat.'}
     >
       <Card>
         <div class="user-settings-card-body">
@@ -200,10 +209,10 @@ function IdentitySection({ mode, authedHandle, guestNick, directory, auth, open 
             <GuestNickForm guestNick={guestNick} />
           )}
           <Divider />
-          <DetailRow label="Mode" customValue={
+          <DetailRow label="Account" customValue={
             mode === 'guest'
-              ? <Badge tone="info">Guest</Badge>
-              : <Badge tone="verified">Account</Badge>
+              ? <Badge tone="info">Guest, no account</Badge>
+              : <Badge tone="verified">Boson account</Badge>
           } />
         </div>
       </Card>
@@ -228,7 +237,7 @@ function GuestNickForm({ guestNick }: { guestNick: string }) {
     <form onSubmit={submit} class="user-settings-form">
       <Field
         label="Nick"
-        hint="Sanitised on connect — IRC nicks can't contain @, ., or spaces."
+        hint="Changes right away on the servers you're on. Spaces, @ and dots are left out."
       >
         <Input
           value={draft}
@@ -393,6 +402,8 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
     e.preventDefault();
     const trimmed = draft.trim();
     if (!trimmed || trimmed === currentHandle) return;
+    const problem = validateHandle(trimmed);
+    if (problem) { setError(problem); return; }
     setSaving(true);
     setError(null);
     try {
@@ -404,6 +415,8 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
       // sees the rename immediately. Failure here is non-fatal — the
       // backend already wrote the canonical value.
       try { await auth.updateMetadata({ handle: updated.handle }); } catch { /* non-fatal */ }
+      // It's the nick too: renamed on the servers the user is on, now.
+      emitHandleChange(updated.handle);
       triggerSaved();
     } catch (err) {
       if (err instanceof HttpError) {
@@ -426,7 +439,7 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
     <form onSubmit={submit} class="user-settings-form">
       <Field
         label="Handle"
-        hint="Your global Boson handle — what other users find you by."
+        hint="Renames you right away on the servers you're on. Your old handle keeps pointing to you for 90 days."
       >
         <Input
           value={draft}
@@ -763,6 +776,10 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
         <div class="user-settings-card-body">
           <DetailRow label="Email" value={authedEmail ?? '—'} />
           <Divider />
+          <p class="user-settings-hint">
+            Your password also unlocks your identity key, which signs you in to IRC servers and protects the
+            passwords Boson syncs. After a password reset, your recovery code unlocks it once.
+          </p>
           <RecoveryCodeSettings directory={directory} identity={identity} open={open} />
         </div>
       </Card>

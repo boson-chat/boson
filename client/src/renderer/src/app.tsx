@@ -22,6 +22,7 @@ import { NotificationsPanel, useUnreadNotes } from './screens/Notifications/Noti
 import { Toasts } from './screens/Notifications/Toasts';
 import { getNotificationFeed } from './modules/notifications/feed';
 import { useNarrow } from './shared/narrow';
+import { useOnline } from './shared/online';
 import { isMobile } from './shared/window-controls';
 import { NetworkSignInHost } from './screens/NetworkSignIn/NetworkSignIn';
 import { loadGuestSession, onGuestChange, type GuestSession } from './modules/guest/guest';
@@ -59,6 +60,8 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
   // The notifications bell's list (it took over the Inbox).
   const [notesOpen, setNotesOpen] = useState(false);
   const narrow = useNarrow();
+  // No network: a banner under the title bar (messages queue until back).
+  const online = useOnline();
   // An update downloaded and ready: the title bar's "Update" pill opens
   // Settings → About, where "Restart to update" is.
   const update = useUpdateState();
@@ -121,12 +124,19 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
         updateReady={update.kind === 'ready' ? update.version : null}
         onOpenUpdate={() => { setSettingsSection('about'); setSettingsOpen(true); }}
       />
+      {!online && userMode !== null && (
+        <div class="offline-banner" role="status">
+          <span class="offline-banner-dot" aria-hidden="true" />
+          You're offline. Messages will send when you're back.
+        </div>
+      )}
       <div class="app-frame-body">
         <Router directory={directory} engine={engine} identity={identity} history={history} networks={networks} />
       </div>
       <UserSettings
         open={settingsOpen}
         initialSection={settingsSection}
+        signedOut={userMode === null}
         onClose={() => setSettingsOpen(false)}
         authedHandle={authedHandle}
         authedEmail={session?.user?.email ?? null}

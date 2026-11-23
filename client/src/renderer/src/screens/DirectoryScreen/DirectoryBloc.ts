@@ -767,7 +767,11 @@ export class DirectoryBloc {
   //     pick up the new userId via getUserId() and persist normally.
   setIdentity(next: { guestNick: string | null }): void {
     if (this.guestNick === next.guestNick) return;
+    const prevGuestNick = this.guestNick;
     this.guestNick = next.guestNick;
+    // A guest renamed themselves (Settings → Identity): apply it now on the
+    // servers they're on, not on the next connect.
+    if (prevGuestNick && next.guestNick) this.renameOnConnections(prevGuestNick, next.guestNick);
     if (next.guestNick) {
       // Account → guest. Synthesise me from the new nick; no backend round
       // trip. The `__guest__` id matches loadInitial()'s synthesis so
@@ -792,6 +796,32 @@ export class DirectoryBloc {
     this.me = undefined;
     this.emit();
     void this.loadInitial();
+  }
+
+  // The signed-in user renamed their handle (Settings → Identity): it's
+  // their nick, so rename on the servers they're on now.
+  setHandle(handle: string): void {
+    if (!this.me || this.guestNick || !handle || handle === this.me.handle) return;
+    const prev = this.me.handle;
+    this.me = { ...this.me, handle };
+    this.renameOnConnections(prev, handle);
+    this.emit();
+  }
+
+  // Sends NICK on each connection still using the default nick made from
+  // `prev` (or its in-use fallback, prev_), leaving nicks picked per server
+  // alone.
+  private renameOnConnections(prev: string, next: string): void {
+    const from = sanitizeIrcNick(prev).toLowerCase();
+    const to = sanitizeIrcNick(next);
+    if (!from || !to) return;
+    for (const conn of Array.from(this.connections.values())) {
+      if (conn.engineState !== 'connected') continue;
+      const cur = conn.chat.selfIdentity().nick;
+      if (!cur || cur === to) continue;
+      if (cur.replace(/_+$/, '').toLowerCase() !== from.replace(/_+$/, '')) continue;
+      conn.chat.changeNick(to);
+    }
   }
 
   // Switch the active server in the rail. No-op if the id doesn't match an

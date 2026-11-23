@@ -255,7 +255,7 @@ describe('UserSettings — Account recovery code', () => {
     await waitFor(() => {
       expect(screen.getByText('Your recovery code')).toBeInTheDocument();
     });
-    expect(screen.getByText('abcd-ef5h')).toBeInTheDocument();
+    expect(screen.getByLabelText('recovery code')).toHaveTextContent('abcd-ef5h');
     expect(identity.enrollRecoveryCode).toHaveBeenCalled();
     expect(directory.updateSecretWraps).toHaveBeenCalledWith({ recoveryBlob: 'rec-b64' });
   });
@@ -474,5 +474,25 @@ describe('UserSettings — About: in-app updates', () => {
     await openAbout();
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
     expect(screen.queryByLabelText('Install updates automatically')).toBeNull();
+  });
+});
+
+describe('UserSettings — before signing in', () => {
+  it('shows only Appearance and About, not the account sections', () => {
+    renderSettings({ signedOut: true, authedHandle: null, authedEmail: null });
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent ?? '');
+    expect(tabs.some((t) => t.startsWith('Appearance'))).toBe(true);
+    expect(tabs.some((t) => t.startsWith('About'))).toBe(true);
+    expect(tabs.some((t) => /^(Identity|Account|Bouncer)/.test(t))).toBe(false);
+    expect(screen.queryByText(/Signed in to your Boson account/)).toBeNull();
+  });
+});
+
+describe('UserSettings — Identity wording', () => {
+  it('says what the handle is in plain words', () => {
+    renderSettings({ authedHandle: 'alice' });
+    expect(screen.getByText('How people find you on Boson, and your name in chat.')).toBeInTheDocument();
+    expect(screen.queryByText(/sanitisation/)).toBeNull();
+    expect(screen.queryByText(/next connect/)).toBeNull();
   });
 });
