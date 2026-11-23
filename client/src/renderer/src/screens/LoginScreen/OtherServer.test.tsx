@@ -126,7 +126,7 @@ describe('Use another server', () => {
     expect(screen.getByRole('button', { name: 'Connect as guest' })).toBeTruthy();
     const adds: string[] = [];
     subscribeAddServer((p) => adds.push(p.hostname));
-    fireEvent.click(screen.getByRole('button', { name: 'Add as a plain IRC server' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Chat there as a regular IRC server' }));
     fireEvent.input(screen.getByLabelText('Pick a nick'), { target: { value: 'pat' } });
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
     expect(adds).toEqual(['plain.org']);
@@ -136,7 +136,7 @@ describe('Use another server', () => {
     setup({ resolve: (a) => ({ host: a, main: false, error: 'no-boson-json' }) });
     await lookUp('nothing.org');
     expect((await screen.findByRole('alert')).textContent).toMatch(/isn't a Boson network/);
-    expect(screen.getByRole('button', { name: 'Add as a plain IRC server' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Chat there as a regular IRC server' })).toBeTruthy();
   });
 
   it('sends boson.chat back to its own sign-in', async () => {
