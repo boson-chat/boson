@@ -12,9 +12,15 @@
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, #app { height: 100%; }
-/* The app never scrolls as a page (panes scroll inside); on iOS an
-   overflowing element would otherwise let the whole page pan sideways. */
-html { overflow: hidden; }
+/* The app never scrolls as a page, only its panes do (the message list, the
+   channel list, settings …): no page scroll, no rubber band, no page scroll
+   bar, keyboard up or down. html and body are exactly the window and clip
+   anything taller; on iOS an overflowing element would otherwise let the
+   whole page pan sideways. A pane scrolled to its end doesn't hand the
+   scroll on to the page either (no pull-to-refresh or bounce). The iOS
+   shell also turns off the webview's own scrolling (desktop/build/ios/
+   main.m), which CSS can't reach. */
+html, body { overflow: hidden; overscroll-behavior: none; }
 /* An app, not a page: no double-tap zoom on phones (pinch is off via the
    viewport meta, and in the iOS shell natively). */
 html { touch-action: manipulation; }
@@ -34,6 +40,8 @@ html { touch-action: manipulation; }
    home indicator is hidden behind it, so no bottom inset then. */
 html.vv-tracked #app {
   height: var(--app-height, 100%);
+  /* Never past the page's bottom, whatever --app-height says. */
+  max-height: calc(100% - var(--app-top, 0px));
   position: relative;
   top: var(--app-top, 0px);
 }
@@ -60,7 +68,6 @@ body {
   color: var(--fg);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
-  overflow: hidden;
 }
 
 button { font: inherit; cursor: pointer; }

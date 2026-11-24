@@ -107,6 +107,21 @@ static void edgeToEdge(void) {
             sv.minimumZoomScale = scale;
             sv.maximumZoomScale = scale;
             sv.bouncesZoom = NO;
+            // Nor does the page itself scroll: only its panes do (the
+            // message list, the channel list …, each its own scroller that
+            // this doesn't touch). The page is exactly the screen, but this
+            // scroll view still rubber-bands, and with the keyboard up
+            // WebKit insets it by the keyboard's height, so the whole page
+            // could be dragged, with a second scroll bar beside the message
+            // list's. WebKit's own scroll to a focused field is
+            // programmatic and still happens; the page follows it (client
+            // shared/visual-viewport.ts).
+            sv.scrollEnabled = NO;
+            sv.bounces = NO;
+            sv.alwaysBounceVertical = NO;
+            sv.alwaysBounceHorizontal = NO;
+            sv.showsVerticalScrollIndicator = NO;
+            sv.showsHorizontalScrollIndicator = NO;
         }
     }));
 }

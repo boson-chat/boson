@@ -56,6 +56,15 @@ describe('applyViewport', () => {
     applyViewport(env(vv), 800);
     expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('120px');
   });
+
+  it('a fractional viewport (a scaled phone) rounds down, so the app is never taller than the page', () => {
+    const vv = new FakeVV();
+    vv.height = 733.91; // 844pt / 1.15
+    vv.offsetTop = 40.6;
+    applyViewport(env(vv), 800);
+    expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('733px');
+    expect(document.documentElement.style.getPropertyValue('--app-top')).toBe('40px');
+  });
 });
 
 describe('trackVisualViewport', () => {
