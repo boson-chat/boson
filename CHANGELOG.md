@@ -1,3 +1,9 @@
+## [0.95.0](https://github.com/boson-chat/boson/compare/v0.94.1...v0.95.0) (2026-11-24)
+
+### Features
+
+* **chat:** read markers, so unread survives closing the app and syncs across clients ([#146](https://github.com/boson-chat/boson/issues/146)) ([c32f761](https://github.com/boson-chat/boson/commit/c32f761ac1f21417ceee1c6914437363d1ad26d4))
+
 ## [0.94.1](https://github.com/boson-chat/boson/compare/v0.94.0...v0.94.1) (2026-11-24)
 
 ### Bug Fixes
