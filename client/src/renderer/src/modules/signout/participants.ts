@@ -15,6 +15,7 @@ import { getServiceCredentialsStore } from '../chat/services-credentials';
 import { clearAvatarsForSignOut } from '../chat/avatar-cache';
 import { getDirectorySources } from '../directory/sources';
 import { wipeSeenForSignOut } from '../seen';
+import { clearReadMarkers } from '../chat/read-markers';
 import { clearOlderSpill } from '../history/older-store';
 import { clearSearchSessions } from '../search/search-session';
 import { clearImagesForSignOut } from '../../shared/image-cache';
@@ -58,6 +59,7 @@ export function appSignOutParticipants({ engine, identity, history, secure, sync
     { name: 'history.older', phase: 'wipe', clearForSignOut: () => clearOlderSpill() },
     { name: 'search', phase: 'wipe', clearForSignOut: () => clearSearchSessions() },
     { name: 'seen', phase: 'wipe', clearForSignOut: ({ userId }) => wipeSeenForSignOut(userId) },
+    { name: 'read-markers', phase: 'wipe', clearForSignOut: () => clearReadMarkers() },
     { name: 'memos', phase: 'wipe', clearForSignOut: () => getMemoStore().clearForSignOut?.() },
     { name: 'notification-feed', phase: 'wipe', clearForSignOut: () => getNotificationFeed().clearForSignOut() },
     { name: 'notification-levels', phase: 'wipe', clearForSignOut: () => clearChannelLevelsForSignOut() },

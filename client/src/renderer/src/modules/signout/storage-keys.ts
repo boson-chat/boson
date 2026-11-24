@@ -34,6 +34,7 @@ export const ACCOUNT_KEYS: KeySet = {
     'boson.voice.guestId:', // guest voice id, per auth service
     'boson.services-creds.', // legacy plain-text NickServ passwords, per server
     'boson:recovery-pending:', // recovery code not yet confirmed at sign-up, per user
+    'boson:read-markers:v1:', // how far each conversation was read, per user + server
   ],
   secure: [
     'boson.auth.session', // the access + refresh token

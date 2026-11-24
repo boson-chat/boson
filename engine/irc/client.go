@@ -256,6 +256,10 @@ func New(cfg Config) (*Client, error) {
 			// client drives replay via `*playback PLAY`. Lets older ZNC (1.7.x)
 			// deliver reliable backlog.
 			"znc.in/playback": nil,
+			// draft/read-marker: the server keeps how far the user has read
+			// each conversation (MARKREAD) and tells every client of the
+			// account, so unread state follows them across devices.
+			"draft/read-marker": nil,
 		},
 	})
 	if cfg.BouncerNetworks {
@@ -1087,6 +1091,16 @@ func translate(e girc.Event) Event {
 		// subcommands' answers. Forwarded whole; the renderer decodes the
 		// attributes.
 		out.Args = append([]string(nil), e.Params...)
+	case "MARKREAD":
+		// draft/read-marker: MARKREAD <target> timestamp=<ts|*> — the
+		// account's read position for a conversation (on join, in reply to
+		// a query, or when another client read it).
+		if len(e.Params) >= 1 {
+			out.Target = e.Params[0]
+		}
+		if len(e.Params) >= 2 {
+			out.Message = e.Params[1]
+		}
 	case "CHATHISTORY":
 		// CHATHISTORY TARGETS <target> <timestamp>, inside a
 		// chathistory-targets batch: the conversations with recent
