@@ -1,3 +1,4 @@
+import type { JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Plus } from 'lucide-preact';
 import { useAuthService } from '../../modules/auth';
@@ -14,9 +15,7 @@ import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
-import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
-import { useNarrow } from '../../shared/narrow';
 import { getVoiceController } from '../../modules/voice';
 import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, Select, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection } from './DirectoryBloc';
@@ -179,8 +178,6 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   // a server-rail tile and picks "Server details". Null otherwise; we render
   // the normal chat layout. The id is the connection's serverId.
   const [serverSettingsForId, setServerSettingsForId] = useState<string | null>(null);
-  // Phones: server settings take the whole screen, without the rail.
-  const narrow = useNarrow();
 
   const { me, showChat, restoring, serverBrowserOpen, connections, activeServerId } = state;
   // Private calls need a voice server of the account's network: find out
@@ -250,11 +247,10 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     if (c) themes.setNetworkEnabled(c.server.hostname, on);
   };
 
-  // If the user opens server-settings, replace the channel sidebar + chat
-  // area + user panel with the settings page. The server rail stays so the
-  // user can switch servers (which closes settings) or open settings for a
-  // different server via right-click. On a phone the page is full screen
-  // instead: the rail would leave it a sliver, and its back button returns.
+  // Server settings (a server-rail tile's menu, the sidebar's gear): a
+  // dialog over the chat, as User settings is — a full-screen sheet on a
+  // phone. The id is the connection's serverId.
+  let serverSettings: JSX.Element | null = null;
   if (serverSettingsForId !== null) {
     const target = connections.find((c) => c.serverId === serverSettingsForId);
     if (!target || !me?.handle) {
@@ -262,25 +258,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     } else {
       const chatState = target.chat.getState();
       const listing = resolveListing(target, state.servers, state.listings[target.serverId]);
-      return (
-        <div class="app-shell">
-          {!narrow && <ServerRail
-            servers={railTiles()}
-            onToggleNetworkTheme={toggleNetworkTheme}
-            activeServerId={activeServerId}
-            // Clicking a different server tile exits settings and returns
-            // to chat for that server. Clicking the same tile is a no-op.
-            onSelectServer={(id) => {
-              if (id !== serverSettingsForId) setServerSettingsForId(null);
-              bloc.setActiveServer(id);
-            }}
-            onBrowseServers={() => bloc.openServerBrowser()}
-            // Right-click on another tile switches the settings page to it.
-            onOpenServerSettings={(id) => setServerSettingsForId(id)}
-            onBouncerConnect={(id) => bloc.bouncerConnect(id)}
-            onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
-            onReorderServers={(ids) => bloc.reorderServers(ids)}
-          />}
+      serverSettings = (
           <ServerSettings
             serverDisplayName={target.server.name}
             serverDescription={listing?.description}
@@ -343,7 +321,6 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
               onToggle: (on) => themes.setNetworkEnabled(target.server.hostname, on),
             } : undefined}
           />
-        </div>
       );
     }
   }
@@ -399,6 +376,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
             />
           </div>
         </Modal>
+        {serverSettings}
       </>
     );
   }
@@ -430,6 +408,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           identity={identity}
         />
       </div>
+      {serverSettings}
     </div>
   );
 }

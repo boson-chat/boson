@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, ChipInput, Count, Divider, EmptyState, Field, Input, ListRow, PageHeader, Tabs, Toggle, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, ChipInput, Count, Divider, EmptyState, Field, Input, ListRow, Modal, PageHeader, Tabs, Toggle, useTransientFlag } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
 import type { BouncerUpstreamState } from '../../modules/engine';
 import type { SavedServerBouncer } from '../../modules/session';
@@ -221,104 +221,108 @@ export function ServerSettings({
   const editable = !!(directoryEntry && onSaveProfile);
   const visibleMenu = MENU.filter((m) => (editable || (m.id !== 'edit' && m.id !== 'opers')) && (networkTheme || m.id !== 'appearance'));
 
+  // A dialog over the chat, as User settings is (a full-screen sheet on a
+  // phone: the Modal's own phone layout). Escape and the backdrop close it.
   return (
-    <main class="server-settings">
-      <PageHeader
-        layout={narrow ? 'phone' : 'desktop'}
-        title={serverDisplayName}
-        sub="Server settings"
-        onBack={narrow ? onClose : undefined}
-        backLabel="Close settings"
-        backIcon={<ChevronLeft size={20} />}
-        actions={!narrow && (
-          <Button variant="ghost" icon={<X size={18} />} aria-label="Close settings" title="Back to chat" onClick={onClose} />
-        )}
-      />
+    <Modal open onClose={onClose} label={`${serverDisplayName} server settings`} size="wide" class="server-settings-dialog">
+      <section class="server-settings">
+        <PageHeader
+          layout={narrow ? 'phone' : 'desktop'}
+          title={serverDisplayName}
+          sub="Server settings"
+          onBack={narrow ? onClose : undefined}
+          backLabel="Close settings"
+          backIcon={<ChevronLeft size={20} />}
+          actions={!narrow && (
+            <Button variant="ghost" icon={<X size={18} />} aria-label="Close settings" title="Back to chat" onClick={onClose} />
+          )}
+        />
 
-      <div class="server-settings-split">
-        <nav class="server-settings-menu" aria-label="Settings sections">
-          {visibleMenu.map((m) => (
-            <ListRow
-              key={m.id}
-              variant="nav"
-              title={m.label}
-              subtitle={m.description}
-              subtitleLines={2}
-              selected={section === m.id}
-              onClick={() => setSection(m.id)}
-              mainProps={{ role: 'tab', 'aria-selected': section === m.id }}
-            />
-          ))}
-        </nav>
+        <div class="server-settings-split">
+          <nav class="server-settings-menu" aria-label="Settings sections">
+            {visibleMenu.map((m) => (
+              <ListRow
+                key={m.id}
+                variant="nav"
+                title={m.label}
+                subtitle={m.description}
+                subtitleLines={2}
+                selected={section === m.id}
+                onClick={() => setSection(m.id)}
+                mainProps={{ role: 'tab', 'aria-selected': section === m.id }}
+              />
+            ))}
+          </nav>
 
-        <div class="server-settings-body" role="tabpanel">
-          {section === 'about' && (
-            <AboutSection
-              name={serverDisplayName}
-              description={serverDescription}
-              website={serverWebsite}
-              network={serverInfo.network}
-              myNick={myNick}
-              onChangeNick={() => setSection('identity')}
-            />
-          )}
-          {section === 'info' && <InfoSection info={serverInfo} />}
-          {section === 'identity' && (
-            <IdentitySection
-              myNick={myNick}
-              onChangeNick={onChangeNick}
-              serverId={serverId}
-              servicesFramework={servicesFramework}
-              onTriggerAutoIdentify={onTriggerAutoIdentify}
-              onRunCommand={onRunCommand}
-              onDropAccount={onDropAccount}
-              onIdentifyAccount={onIdentifyAccount}
-              onRegisterAccount={onRegisterAccount}
-              onConfirmAccount={onConfirmAccount}
-              onResendConfirmation={onResendConfirmation}
-              supportsResend={supportsResend}
-              onClaimNick={onClaimNick}
-              onDetectAccountState={onDetectAccountState}
-              onResumeConfirmation={onResumeConfirmation}
-              signedIn={signedIn}
-              nickClaimDisabled={nickClaimDisabled}
-            />
-          )}
-          {section === 'advanced' && (
-            <AdvancedSection
-              myNick={myNick}
-              onRunCommand={onRunCommand}
-              serverLog={serverLog}
-            />
-          )}
-          {section === 'edit' && editable && directoryEntry && onSaveProfile && (
-            <EditProfileSection entry={directoryEntry} onSave={onSaveProfile} onSaveImage={onSaveServerImage} />
-          )}
-          {section === 'opers' && editable && (
-            <OperatorsSection
-              servicesFramework={servicesFramework}
-              isOper={isOper}
-              onRunCommand={onRunCommand}
-              serverLog={serverLog}
-            />
-          )}
-          {section === 'bouncer' && (
-            <BouncerServerSection
-              route={bouncerRoute}
-              globallyEnabled={bouncerGloballyEnabled}
-              onSave={onSaveBouncerRoute}
-              upstream={bouncerUpstream}
-              networkLabel={serverInfo.network || bouncerRoute?.network || serverDisplayName}
-              onConnectUpstream={onBouncerConnect}
-              onDisconnectUpstream={onBouncerDisconnect}
-            />
-          )}
-          {section === 'appearance' && networkTheme && <NetworkThemeSection setting={networkTheme} serverName={serverDisplayName} />}
-          {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
-          {section === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
+          <div class="server-settings-body" role="tabpanel">
+            {section === 'about' && (
+              <AboutSection
+                name={serverDisplayName}
+                description={serverDescription}
+                website={serverWebsite}
+                network={serverInfo.network}
+                myNick={myNick}
+                onChangeNick={() => setSection('identity')}
+              />
+            )}
+            {section === 'info' && <InfoSection info={serverInfo} />}
+            {section === 'identity' && (
+              <IdentitySection
+                myNick={myNick}
+                onChangeNick={onChangeNick}
+                serverId={serverId}
+                servicesFramework={servicesFramework}
+                onTriggerAutoIdentify={onTriggerAutoIdentify}
+                onRunCommand={onRunCommand}
+                onDropAccount={onDropAccount}
+                onIdentifyAccount={onIdentifyAccount}
+                onRegisterAccount={onRegisterAccount}
+                onConfirmAccount={onConfirmAccount}
+                onResendConfirmation={onResendConfirmation}
+                supportsResend={supportsResend}
+                onClaimNick={onClaimNick}
+                onDetectAccountState={onDetectAccountState}
+                onResumeConfirmation={onResumeConfirmation}
+                signedIn={signedIn}
+                nickClaimDisabled={nickClaimDisabled}
+              />
+            )}
+            {section === 'advanced' && (
+              <AdvancedSection
+                myNick={myNick}
+                onRunCommand={onRunCommand}
+                serverLog={serverLog}
+              />
+            )}
+            {section === 'edit' && editable && directoryEntry && onSaveProfile && (
+              <EditProfileSection entry={directoryEntry} onSave={onSaveProfile} onSaveImage={onSaveServerImage} />
+            )}
+            {section === 'opers' && editable && (
+              <OperatorsSection
+                servicesFramework={servicesFramework}
+                isOper={isOper}
+                onRunCommand={onRunCommand}
+                serverLog={serverLog}
+              />
+            )}
+            {section === 'bouncer' && (
+              <BouncerServerSection
+                route={bouncerRoute}
+                globallyEnabled={bouncerGloballyEnabled}
+                onSave={onSaveBouncerRoute}
+                upstream={bouncerUpstream}
+                networkLabel={serverInfo.network || bouncerRoute?.network || serverDisplayName}
+                onConnectUpstream={onBouncerConnect}
+                onDisconnectUpstream={onBouncerDisconnect}
+              />
+            )}
+            {section === 'appearance' && networkTheme && <NetworkThemeSection setting={networkTheme} serverName={serverDisplayName} />}
+            {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
+            {section === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
+          </div>
         </div>
-      </div>
-    </main>
+      </section>
+    </Modal>
   );
 }
 

@@ -34,9 +34,15 @@ function replyTo(text: string): void {
 
 const box = (): HTMLTextAreaElement => document.querySelector('.chat-textarea') as HTMLTextAreaElement;
 
-function renderChat(messages: ChatMessage[]) {
+function renderChat(messages: ChatMessage[], opts: { caps?: string[]; onSend?: (message: string, opts?: { replyTo?: string }) => void } = {}) {
   render(
-    <ChatArea channel={chan(messages)} myNick="alice" onSend={vi.fn()} nickActions={{ onSendMessage: vi.fn() }} />,
+    <ChatArea
+      channel={chan(messages)}
+      myNick="alice"
+      onSend={opts.onSend ?? vi.fn()}
+      nickActions={{ onSendMessage: vi.fn() }}
+      serverInfo={opts.caps ? { enabledCaps: opts.caps } : undefined}
+    />,
   );
 }
 
@@ -72,5 +78,96 @@ describe('ChatArea — Reply', () => {
     replyTo('anyone around?');
     replyTo('hello?');
     expect(box().value).toBe('@bob ');
+  });
+});
+
+// IRCv3 replies: where the server negotiated message-tags and the message
+// has a msgid, Reply opens a "Replying to" bar and the next line goes out
+// with that msgid; Escape or × cancels.
+describe('ChatArea — quoted replies', () => {
+  const tagged = (over: Partial<ChatMessage> = {}) => msg({ msgid: 'abc', ...over });
+
+  it('shows "Replying to" and sends the next line as a reply', () => {
+    const onSend = vi.fn();
+    renderChat([tagged()], { caps: ['message-tags'], onSend });
+    replyTo('anyone around?');
+    const bar = document.querySelector('.chat-reply-bar')!;
+    expect(bar.textContent).toContain('Replying to bob');
+    expect(bar.textContent).toContain('anyone around?');
+    // No @nick: the quote says who it answers.
+    expect(box().value).toBe('');
+    expect(document.activeElement).toBe(box());
+    fireEvent.input(box(), { target: { value: 'yes!' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend).toHaveBeenCalledWith('yes!', { replyTo: 'abc' });
+    expect(document.querySelector('.chat-reply-bar')).toBeNull();
+  });
+
+  it('only the first line of a multi-line send carries the reply', () => {
+    const onSend = vi.fn();
+    renderChat([tagged()], { caps: ['message-tags'], onSend });
+    replyTo('anyone around?');
+    fireEvent.input(box(), { target: { value: 'one\ntwo' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend.mock.calls).toEqual([['one', { replyTo: 'abc' }], ['two']]);
+  });
+
+  it('Escape in the composer cancels the reply', () => {
+    renderChat([tagged()], { caps: ['message-tags'] });
+    replyTo('anyone around?');
+    fireEvent.keyDown(box(), { key: 'Escape' });
+    expect(document.querySelector('.chat-reply-bar')).toBeNull();
+  });
+
+  it('the bar\'s × cancels it too', () => {
+    const onSend = vi.fn();
+    renderChat([tagged()], { caps: ['message-tags'], onSend });
+    replyTo('anyone around?');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel reply' }));
+    expect(document.querySelector('.chat-reply-bar')).toBeNull();
+    fireEvent.input(box(), { target: { value: 'plain' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend).toHaveBeenCalledWith('plain');
+  });
+
+  it('falls back to @nick without message-tags', () => {
+    renderChat([tagged()], { caps: ['server-time'] });
+    replyTo('anyone around?');
+    expect(document.querySelector('.chat-reply-bar')).toBeNull();
+    expect(box().value).toBe('@bob ');
+  });
+
+  it('falls back to @nick when the message has no msgid', () => {
+    renderChat([msg()], { caps: ['message-tags'] });
+    replyTo('anyone around?');
+    expect(document.querySelector('.chat-reply-bar')).toBeNull();
+    expect(box().value).toBe('@bob ');
+  });
+
+  it('desktop: the hover toolbar\'s Reply starts a reply', () => {
+    phoneWidth(false);
+    renderChat([tagged()], { caps: ['message-tags'] });
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
+    expect(document.querySelector('.chat-reply-bar')?.textContent).toContain('Replying to bob');
+  });
+});
+
+describe('ChatArea — reply quotes', () => {
+  it('a reply shows who it answers and a line of what they said', () => {
+    renderChat([
+      msg({ msgid: 'p1', text: 'the **original** question\nwith a second line' }),
+      msg({ id: 'm2', from: 'carol', text: 'answer', msgid: 'r1', replyTo: 'p1' }),
+    ]);
+    const quote = document.querySelector('.message-reply-quote')!;
+    expect(quote.tagName).toBe('BUTTON');
+    expect(quote.querySelector('.message-reply-quote-author')!.textContent).toBe('bob');
+    expect(quote.querySelector('.message-reply-quote-text')!.textContent).toBe('the **original** question with a second line');
+  });
+
+  it('says so when the original isn\'t loaded', () => {
+    renderChat([msg({ id: 'm2', from: 'carol', text: 'answer', replyTo: 'gone' })]);
+    const quote = document.querySelector('.message-reply-quote')!;
+    expect(quote.tagName).toBe('DIV');
+    expect(quote.textContent).toBe('Original message not loaded');
   });
 });

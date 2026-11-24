@@ -136,7 +136,7 @@ export async function expectConnected(page: Page, timeout = 30_000): Promise<voi
 // Channel sidebar gear → full-page Server settings → the given section.
 export async function openServerSettings(page: Page, section: 'About' | 'Software' | 'Identity' | 'Advanced' | 'Operators' | 'Actions' | 'Log' = 'Identity'): Promise<Locator> {
   await page.getByRole('button', { name: 'Server details' }).click();
-  const settings = page.locator('main.server-settings');
+  const settings = page.locator('section.server-settings');
   await expect(settings).toBeVisible();
   await settings.getByRole('tab', { name: new RegExp(`^${section}`) }).click();
   return settings;

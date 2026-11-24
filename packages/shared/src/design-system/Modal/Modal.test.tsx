@@ -16,6 +16,13 @@ describe('Modal', () => {
     expect(screen.getByText('Are you sure?')).toBeInTheDocument();
   });
 
+  it('without a title: named by `label`, no header, extra class on the panel', () => {
+    render(<Modal open onClose={() => {}} label="Server settings" class="my-dialog">body</Modal>);
+    const dialog = screen.getByRole('dialog', { name: 'Server settings' });
+    expect(dialog.classList.contains('my-dialog')).toBe(true);
+    expect(dialog.querySelector('.bds-modal-header')).toBeNull();
+  });
+
   it('calls onClose when close button clicked', async () => {
     const onClose = vi.fn();
     render(<Modal open onClose={onClose} title="X">body</Modal>);

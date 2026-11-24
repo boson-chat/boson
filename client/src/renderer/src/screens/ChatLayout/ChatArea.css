@@ -1300,3 +1300,106 @@
   max-height: min(160px, calc(var(--app-height, 100vh) * 0.3));
 }
 .app-shell.is-narrow .chat-send-btn { align-self: flex-end; margin-left: var(--space-1); }
+
+/* ---- Replies (IRCv3 +draft/reply) ---------------------------------- */
+
+/* Above a reply: who it answers and one line of what they said. A click
+   scrolls to the original. */
+.message-reply-quote {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  min-width: 0;
+  margin: 0 0 2px;
+  padding: 1px var(--space-2) 1px 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-style: normal;
+  color: var(--fg-3);
+  text-align: left;
+  cursor: pointer;
+}
+button.message-reply-quote:hover { color: var(--fg-2); }
+button.message-reply-quote:hover .message-reply-quote-text { text-decoration: underline; text-underline-offset: 2px; }
+button.message-reply-quote:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.message-reply-quote-icon { width: 14px; height: 14px; flex: none; }
+.message-reply-quote-author { flex: none; font-weight: 600; color: var(--fg-2); }
+.message-reply-quote-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-reply-quote-missing { cursor: default; font-style: italic; }
+/* An action line (`* nick does`) is one flex row: the quote takes its own. */
+.message-action:has(> .message-reply-quote) { flex-wrap: wrap; }
+.message-action > .message-reply-quote { flex-basis: 100%; }
+
+/* The composer while replying. */
+.chat-reply-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-bottom: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: inset 2px 0 0 var(--accent);
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+}
+.chat-reply-bar-icon { width: 14px; height: 14px; flex: none; color: var(--fg-3); }
+.chat-reply-bar-label { flex: none; }
+.chat-reply-bar-label strong { color: var(--fg); font-weight: 600; }
+.chat-reply-bar-excerpt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg-3); }
+.chat-reply-bar-cancel { flex: none; margin-left: auto; }
+
+/* A row scrolled to (a reply's original, a search match): a brief tint. */
+.vrow-flash > * { animation: vrow-flash 1.6s var(--ease-out) 1; }
+@keyframes vrow-flash {
+  0%, 30% { background: color-mix(in oklab, var(--accent), transparent 80%); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vrow-flash > * { animation: none; background: color-mix(in oklab, var(--accent), transparent 85%); }
+}
+
+/* ---- In-conversation search ---------------------------------------- */
+
+.chat-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-6);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+.chat-search-row { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+.chat-search-field { flex: 1; min-width: 0; max-width: 420px; }
+.chat-search-field .bds-input { width: 100%; }
+.chat-search-count {
+  min-width: 5.5em;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
+.chat-search-close { margin-left: auto; }
+.chat-search-more { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); font-size: var(--text-sm); color: var(--fg-3); }
+.app-shell.is-narrow .chat-search { padding: var(--space-1) var(--space-3); }
+.app-shell.is-narrow .chat-search-field { max-width: none; }
+.app-shell.is-narrow .chat-search-count { min-width: 0; padding: 0 var(--space-1); }
+
+/* Rows holding a match; the current one stands out. The matched words
+   themselves are drawn with the CSS Custom Highlight API. */
+.vrow-search-match > .message-row,
+.vrow-search-match > .message-action { box-shadow: inset 2px 0 0 color-mix(in oklab, var(--accent), transparent 55%); }
+.vrow-search-current > .message-row,
+.vrow-search-current > .message-action {
+  background: color-mix(in oklab, var(--accent), transparent 90%);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+::highlight(chat-search) { background-color: color-mix(in oklab, var(--accent), transparent 70%); color: inherit; }
+::highlight(chat-search-current) { background-color: var(--accent); color: var(--accent-on); }
