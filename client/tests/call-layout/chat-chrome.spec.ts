@@ -57,7 +57,8 @@ for (const [w, h, phone] of [[390, 844, 'ios'], [360, 800, 'android']] as const)
     expect(await smallControls(page)).toEqual([]);
     expect(await roundThings(page)).toEqual([]);
     await page.locator('.channel-item', { hasText: 'dev' }).click();
-    await page.getByRole('button', { name: /^Members \(/ }).click();
+    await page.getByRole('button', { name: 'More options' }).click();
+    await page.getByRole('menuitem', { name: /^Members \(/ }).click();
     expect(await smallControls(page)).toEqual([]);
     expect(await roundThings(page)).toEqual([]);
   });

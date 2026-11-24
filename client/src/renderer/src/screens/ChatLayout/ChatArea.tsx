@@ -20,7 +20,7 @@ import { getFiles, ircTextBudget, MAX_BATCH_FILES, type FilesUsage } from '../..
 import { useFileDrop } from '../../shared/FileDrop/file-drop';
 import { stripIrcFormatting } from './markdown';
 import type { NickActions } from './UserPanel';
-import { HeaderBell } from '../Notifications/HeaderBell';
+import { HeaderMore } from './HeaderMore';
 import './ChatArea.css';
 
 // Re-exported from its own module so message-render.tsx can import the resolver
@@ -525,7 +525,10 @@ export function ChatArea({
           <PaneBackButton onBack={onBack} />
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
-          {registration && prefix === '#' && registration.atRisk ? (
+          {/* A phone's header is the name: the topic (in channel settings)
+              and the registration badge (an unregistered channel keeps its
+              "Register it" strip) stay on wider screens. */}
+          {narrow ? null : registration && prefix === '#' && registration.atRisk ? (
             <Button
               variant="ghost"
               size={narrow ? 'lg' : 'sm'}
@@ -550,7 +553,7 @@ export function ChatArea({
               icon={registration.registered ? <ShieldCheck aria-hidden="true" /> : <ShieldOff aria-hidden="true" />}
             />
           )}
-          {topic && (
+          {topic && !narrow && (
             <span
               class="chat-channel-topic"
               title={topic}
@@ -568,10 +571,17 @@ export function ChatArea({
             pressed={searchOpen}
             onClick={() => (searchOpen ? closeSearch() : openSearch())}
             title={`Search this conversation (${isMac() ? '⌘' : 'Ctrl+'}F)`}
-            aria-label="Search this conversation"
+            aria-label={narrow ? `Search in ${prefix}${display}` : 'Search this conversation'}
             icon={<Search aria-hidden="true" />}
           />
-          {onShowMembers && (
+          {narrow ? (
+            <HeaderMore
+              memberCount={onShowMembers ? channel.members.length : undefined}
+              onMembers={onShowMembers}
+              onSettings={onOpenChannelSettings}
+            />
+          ) : null}
+          {!narrow && onShowMembers && (
             <Button
               variant="ghost"
               size={narrow ? 'lg' : 'sm'}
@@ -583,7 +593,7 @@ export function ChatArea({
               icon={<Users aria-hidden="true" />}
             />
           )}
-          {!onShowMembers && onToggleMembers && (
+          {!narrow && !onShowMembers && onToggleMembers && (
             <Button
               variant="ghost"
               size="sm"
@@ -595,10 +605,10 @@ export function ChatArea({
               icon={<Users aria-hidden="true" />}
             />
           )}
-          {onOpenChannelSettings && (
+          {!narrow && onOpenChannelSettings && (
             <Button
               variant="ghost"
-              size={narrow ? 'lg' : 'sm'}
+              size="sm"
               class="chat-channel-gear"
               onClick={onOpenChannelSettings}
               title="Channel settings"
@@ -606,7 +616,6 @@ export function ChatArea({
               icon={<Settings aria-hidden="true" />}
             />
           )}
-          {narrow && <HeaderBell />}
         </div>
       </div>
       {searchOpen && (

@@ -48,7 +48,8 @@ test.describe('small phone (360×800)', () => {
 
   test('channel settings fit: no sideways scroll on either tab, role rows inside the screen', async ({ page }) => {
     await page.goto(`${CHAT}&chanserv=anope&platform=android`);
-    await page.getByRole('button', { name: 'Channel settings', exact: true }).click();
+    await page.getByRole('button', { name: 'More options' }).click();
+    await page.getByRole('menuitem', { name: 'Channel settings' }).click();
     const dialog = page.getByRole('dialog', { name: /Channel settings/ });
     await expect(dialog).toBeVisible();
     await page.waitForTimeout(400);

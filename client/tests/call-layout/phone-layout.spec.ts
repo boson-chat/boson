@@ -56,7 +56,8 @@ for (const [w, h, phone] of PHONES) {
     expect((await page.locator('.chat-area').boundingBox())!.width).toBeGreaterThan(w - 2);
     await fits(page);
     await page.screenshot({ path: test.info().outputPath(`chat-${phone}.png`) });
-    await page.getByRole('button', { name: /^Members \(/ }).click();
+    await page.getByRole('button', { name: 'More options' }).click();
+    await page.getByRole('menuitem', { name: /^Members \(/ }).click();
     await expect(shell(page)).toHaveClass(/\bphone-members\b/);
     await page.getByRole('button', { name: 'Back to chat' }).click();
     await page.getByRole('button', { name: 'Back to channels' }).click();

@@ -94,7 +94,15 @@ for (const [w, h, name] of SIZES) {
     test('the bell: unread first, filters, Mark all read', async ({ page }) => {
       await page.goto(`${BASE}${platform(name)}&notify=mention,dm,friend,missed`);
       await expect(page.locator('.ntoast').first()).toBeVisible();
-      await page.getByRole('button', { name: /^Notifications, \d+ unread/ }).click();
+      // A phone's conversation: the bell is in the header's ⋮ menu, its
+      // unread a dot on ⋮.
+      if (phone) {
+        await expect(page.locator('.chat-header-more-dot')).toBeVisible();
+        await page.getByRole('button', { name: 'More options' }).click();
+        await page.getByRole('menuitem', { name: /^Notifications, \d+ unread/ }).click();
+      } else {
+        await page.getByRole('button', { name: /^Notifications, \d+ unread/ }).click();
+      }
       const list = page.getByRole('dialog', { name: 'Notifications' });
       await expect(list).toBeVisible();
       await expect(list.locator('.notes-item')).toHaveCount(4);
@@ -106,7 +114,8 @@ for (const [w, h, name] of SIZES) {
       await page.screenshot({ path: test.info().outputPath(`bell-${name}.png`) });
       await list.getByRole('button', { name: 'Mark all read' }).click();
       await expect(list.locator('.notes-dot')).toHaveCount(0);
-      await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
+      if (phone) await expect(page.locator('.chat-header-more-dot')).toHaveCount(0);
+      else await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
     });
   });
 }
