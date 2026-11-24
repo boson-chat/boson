@@ -106,9 +106,6 @@
 .title-bar-actions .bds-btn { -webkit-app-region: no-drag; --wails-draggable: no-drag; }
 .title-bar-user .bds-btn-label { display: inline-flex; align-items: center; gap: var(--space-2); }
 .title-bar-user-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.title-bar-inbox-badge { position: absolute; top: 0; right: -2px; }
-/* The bell while its list is open: the accent, as on any open toggle. */
-.title-bar-bell-on, .title-bar-bell-on:hover { color: var(--accent); border-color: var(--accent); }
 
 /* Phones: the bar must fit the screen — a long account name (an email)
    otherwise widens the page, which WebKit then lets scroll sideways. */
@@ -122,15 +119,16 @@
 /* "In call · General · 12:04": back to the call. */
 .title-bar-call { margin-right: var(--space-2); }
 
-/* Phones: the top bar. BOSON, the inbox / notifications, your avatar
-   (settings); everything you tap is 44px. */
+/* Narrow desktop windows and tablets in the app: the taller bar. BOSON,
+   the notifications, your avatar (settings); everything you tap is 44px. */
 .title-bar-phone { height: calc(52px + env(safe-area-inset-top, 0px)); }
 .title-bar-phone .title-bar-drag { padding: 0 var(--space-2) 0 14px; gap: 10px; }
 .title-bar-phone .title-bar-title { font-size: 13px; letter-spacing: .12em; }
 .title-bar-phone .title-bar-actions { padding-right: 6px; }
-.title-bar-phone .title-bar-inbox-badge { top: 4px; right: 2px; }
+.title-bar-phone .notes-bell-badge { top: 4px; right: 2px; }
 
-/* A phone's conversation (and its members): one header, not two. The
-   title bar steps aside where it holds no window controls; the
-   conversation's header takes the status-bar inset and the bell. */
-body:has(.app-shell.is-narrow.phone-chat, .app-shell.is-narrow.phone-members) .title-bar-yields { display: none; }
+/* The phone layout (the iOS / Android app, the web build at phone width)
+   has no top bar: TitleBar renders nothing there (useNoTitleBar). Each
+   screen's own header clears the status bar, the bell is in the server
+   rail, settings are in My space. A narrow desktop window keeps it (the
+   window controls). */

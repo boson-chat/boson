@@ -8,6 +8,8 @@
   overflow-y: auto;
   background: var(--bg);
   padding: var(--space-4);
+  /* No top bar on a phone: clear the status bar (0 elsewhere). */
+  padding-top: calc(var(--space-4) + env(safe-area-inset-top, 0px));
 }
 
 .login-container {

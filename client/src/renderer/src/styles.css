@@ -105,6 +105,8 @@ input, textarea { font: inherit; color: inherit; }
   border-bottom: 1px solid color-mix(in oklab, var(--warn), transparent 65%);
   text-align: center;
 }
+/* A phone has no title bar: the banner comes first, under the status bar. */
+.app-frame > .offline-banner:first-child { padding-top: calc(var(--space-2) + env(safe-area-inset-top, 0px)); }
 .offline-banner-dot {
   flex-shrink: 0;
   width: 8px;

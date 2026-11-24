@@ -350,3 +350,57 @@ describe('DirectoryScreen', () => {
     expect(localStorage.getItem('boson:recovery-pending:u1')).toBeNull();
   });
 });
+
+// Phones have no top bar: the directory gets a header of its own with the
+// bell and settings (a narrow desktop window keeps the title bar instead).
+describe('DirectoryScreen on a phone', () => {
+  const w = window as unknown as { bosonPlatform?: string };
+  function narrow(on: boolean): void {
+    vi.stubGlobal('matchMedia', (q: string) => ({
+      matches: on, media: q, onchange: null, addEventListener: () => {}, removeEventListener: () => {},
+      addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
+    }));
+  }
+  const user: User = { id: 'u1', handle: 'ada', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' } as User;
+
+  it('has a header with the title, the bell and User settings', async () => {
+    const { setNotificationsOpener } = await import('../../modules/ui/open-notifications');
+    const { onOpenUserSettings } = await import('../../modules/ui/open-settings');
+    w.bosonPlatform = 'ios';
+    narrow(true);
+    const notes = vi.fn();
+    setNotificationsOpener(notes);
+    const settings: Array<string | null> = [];
+    const off = onOpenUserSettings((s) => settings.push(s));
+    try {
+      renderWith(buildDirectory({ user, servers: [fakeServer('helix')] }));
+      const head = (await screen.findByRole('heading', { name: 'Server Directory' })).closest('header')!;
+      expect(head).toHaveClass('directory-phone-head');
+      // One title, not two.
+      expect(screen.getAllByRole('heading', { name: 'Server Directory' })).toHaveLength(1);
+      screen.getByRole('button', { name: 'Notifications' }).click();
+      expect(notes).toHaveBeenCalledTimes(1);
+      screen.getByRole('button', { name: 'User settings' }).click();
+      expect(settings).toEqual([null]);
+    } finally {
+      off();
+      setNotificationsOpener(null);
+      delete w.bosonPlatform;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('a narrow desktop window: no header of its own (the title bar has those)', async () => {
+    w.bosonPlatform = 'linux';
+    narrow(true);
+    try {
+      renderWith(buildDirectory({ user, servers: [fakeServer('helix')] }));
+      const title = await screen.findByRole('heading', { name: 'Server Directory' });
+      expect(title.closest('.directory-phone-head')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'User settings' })).toBeNull();
+    } finally {
+      delete w.bosonPlatform;
+      vi.unstubAllGlobals();
+    }
+  });
+});

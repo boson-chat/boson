@@ -80,19 +80,23 @@
 .phone-home { flex: 1 1 auto; min-height: 0; display: flex; }
 .phone-home > .channel-sidebar { flex: 1 1 auto; width: auto !important; min-width: 0; }
 
-/* The slim rail: MY, SERVERS, the servers, "+". */
-.app-shell.is-narrow .server-rail { width: 64px; padding: 12px 0; gap: 10px; }
+/* The slim rail: you, the bell, SERVERS, the servers, "+". No top bar on
+   a phone: the rail runs under the status bar and its first tile clears it
+   (env() is 0 in a narrow desktop window, under its title bar). */
+.app-shell.is-narrow .server-rail { width: 64px; padding: calc(12px + env(safe-area-inset-top, 0px)) 0 12px; gap: 10px; }
 .app-shell.is-narrow .server-item { width: 44px; height: 44px; }
 .app-shell.is-narrow .my-tile { width: 44px; height: 44px; }
 .app-shell.is-narrow .rail-divider-bar { width: 30px; }
 .app-shell.is-narrow .rail-divider-label { font-size: 7px; }
 
 /* A compact header in place of the server's banner: its name and status
-   line over a subtle gradient. */
+   line over a subtle gradient. The first thing under the status bar, as
+   tall as a conversation's header (4px + a 44px button + 4px, its 1px
+   border) so the top edge stays put between the list and a conversation. */
 .app-shell.is-narrow .channel-sidebar-header {
-  min-height: 62px;
-  height: 62px;
-  padding: 0 10px 0 16px;
+  min-height: calc(53px + env(safe-area-inset-top, 0px));
+  height: calc(53px + env(safe-area-inset-top, 0px));
+  padding: env(safe-area-inset-top, 0px) 10px 0 16px;
   align-items: center;
   background: linear-gradient(90deg, color-mix(in oklab, var(--accent), var(--surface) 92%), var(--surface));
 }
@@ -117,6 +121,12 @@
 @media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
   .kick-modal { min-width: 0; }
   .help-modal-row { grid-template-columns: 1fr; gap: var(--space-1); }
+}
+
+/* Phones: Friends and Calls clear the status bar (no top bar). */
+.app-shell.is-narrow .phone-page > .bds-page-head-phone {
+  height: calc(54px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* Phones: the members page's header matches the other pages'. */

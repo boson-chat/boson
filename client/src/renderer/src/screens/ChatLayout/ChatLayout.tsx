@@ -24,7 +24,7 @@ import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/pan
 import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
-import { isNarrow, useMid, useNarrow } from '../../shared/narrow';
+import { isNarrow, useMid, useNarrow, useNoTitleBar } from '../../shared/narrow';
 import { MobileCallScreen, MobileMiniBar } from './MobileCall';
 import { closeCall, isPrivateCall } from './call-shared';
 import { PreJoinPeople, VoiceJoinSheet, VoicePreJoin } from './PreJoin';
@@ -46,6 +46,7 @@ import { PhonePage } from '../Friends/FriendsNav';
 import { getNotificationFeed } from '../../modules/notifications/feed';
 import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
 import { useOnline } from '../../shared/online';
+import { RailBell } from '../Notifications/NotificationsBell';
 import './ChatLayout.css';
 import './NetworkPanes.css';
 
@@ -205,6 +206,8 @@ export function ChatLayout({
   // full screen with a back arrow (the conversation, its members, Friends,
   // Calls). friends-ui's `phone` is the page.
   const narrow = useNarrow();
+  // The phone layout without the top bar: the bell joins the rail.
+  const noTitleBar = useNoTitleBar();
   // Tablet portrait / narrow windows: the member list (or the call panel)
   // opens over the chat on demand instead of taking a fixed column.
   const mid = useMid();
@@ -476,6 +479,8 @@ export function ChatLayout({
               <MyRailTile nick={selfNick} avatarUrl={avatarFor(selfNick)} presence={presence} active={myOpen}
                 unreadDms={(myDms ?? []).filter((d) => d.unread > 0).length}
                 onClick={() => setFriendsUi({ my: true })} />
+              {/* Phones have no top bar: its bell is here, under you. */}
+              {noTitleBar && <RailBell />}
               <RailDivider />
             </>
           )}

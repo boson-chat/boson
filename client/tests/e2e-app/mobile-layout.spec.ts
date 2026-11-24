@@ -8,6 +8,7 @@
 // by hand.
 import type { Page } from '@playwright/test';
 import { test, expect, uid, IRC_HOST, IRC_PORT, continueAsGuest, addServerManually, serverCard, joinChannel, webBrowserSkip, webBrowserFixme } from './fixtures';
+import { TARGET } from './target';
 
 const shell = (page: Page) => page.locator('.app-shell');
 const screenIs = (page: Page, d: 'home' | 'chat' | 'members') =>
@@ -54,6 +55,17 @@ test.describe('phone layout', () => {
     expect(list.x + list.width).toBeGreaterThan(width - 2);
     await expect(page.getByRole('button', { name: /^You: friends, calls and messages/ })).toBeVisible();
     await expect(page.locator('.rail-divider-label')).toHaveText('SERVERS');
+    if (TARGET === 'web') {
+      // The web build at phone width has no top bar: the bell is in the
+      // rail under you, the server header comes first.
+      await expect(page.locator('.title-bar')).toHaveCount(0);
+      await expect(page.locator('.server-rail').getByRole('button', { name: /^Notifications/ })).toBeVisible();
+      expect((await page.locator('.channel-sidebar-header').boundingBox())!.y).toBe(0);
+    } else {
+      // A narrow desktop window keeps its title bar (the window controls).
+      await expect(page.locator('.title-bar')).toBeVisible();
+      await expect(page.locator('.rail-bell')).toHaveCount(0);
+    }
     // No bottom bar, no peek strip of a chat.
     await expect(page.locator('.phone-tabs')).toHaveCount(0);
     await expect(page.locator('.chat-area')).toHaveCount(0);
@@ -98,10 +110,13 @@ test.describe('phone layout', () => {
     await swipe(page, { x: width / 2, y: height - 200 }, { x: width / 2 + 20, y: 150 });
     await screenIs(page, 'chat');
 
-    // MY: Friends and Calls above the direct messages.
+    // MY: Friends and Calls above the direct messages (the web build's
+    // phone layout: Settings first, as the top bar is gone).
     await page.getByRole('button', { name: 'Back to channels' }).click();
     await page.getByRole('button', { name: /^You: friends, calls and messages/ }).click();
-    await expect(page.locator('.my-sidebar .my-row').getByRole('button').first()).toHaveAccessibleName(/^Friends/);
+    const rows = page.locator('.my-sidebar .my-row').getByRole('button');
+    if (TARGET === 'web') await expect(rows.first()).toHaveAccessibleName('Settings');
+    await expect(page.locator('.my-sidebar .my-row:not(.my-settings)').getByRole('button').first()).toHaveAccessibleName(/^Friends/);
     await page.getByRole('button', { name: /^Calls/ }).click();
     await expect(page.getByRole('main', { name: 'Calls' })).toBeVisible();
     await page.getByRole('button', { name: 'Back to MY' }).click();

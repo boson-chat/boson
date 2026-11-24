@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect } from 'preact/hooks';
-import { Phone, Users } from 'lucide-preact';
+import { Phone, Settings, Users } from 'lucide-preact';
 import { Button, Count, EmptyState, ListRow, PageHeader, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { useFriends } from '../../modules/friends';
@@ -8,7 +8,7 @@ import { useVoice } from '../../modules/voice';
 import { getAvatar } from '../../modules/chat/avatar-cache';
 import { isPrivateCall, openCall } from '../ChatLayout/call-shared';
 import { MissedList } from './MissedCalls';
-import { useNarrow } from '../../shared/narrow';
+import { useNarrow, useNoTitleBar } from '../../shared/narrow';
 import { openUserSettings } from '../../modules/ui/open-settings';
 import { openMy, type MyView } from './friends-ui';
 import './MySpace.css';
@@ -102,6 +102,7 @@ interface SidebarProps {
 export function MySidebar({ nick, presence, view, dms, activeDm, onOpenDm, showServer, width }: SidebarProps) {
   const { pending, missed } = useMyBadge();
   const size = useNarrow() ? 'lg' : 'md';
+  const noTitleBar = useNoTitleBar();
   return (
     <aside class="channel-sidebar my-sidebar" aria-label="You" style={width ? { width: `${width}px` } : undefined}>
       <div class="channel-sidebar-header my-sidebar-header">
@@ -115,6 +116,12 @@ export function MySidebar({ nick, presence, view, dms, activeDm, onOpenDm, showS
       </div>
       <nav class="channel-list my-list" aria-label="Friends, calls and messages">
         <div class="my-top">
+          {/* Phones have no top bar (its avatar opened settings): here. */}
+          {noTitleBar && (
+            <ListRow variant="nav" size={size} class="my-row my-settings" ariaLabel="Settings"
+              onClick={() => openUserSettings()}
+              leading={<Settings size={16} aria-hidden="true" />} title="Settings" />
+          )}
           <ListRow variant="nav" size={size} class="my-row" selected={view === 'friends'}
             ariaLabel={pending > 0 ? `Friends, ${pending} request${pending === 1 ? '' : 's'}` : 'Friends'}
             onClick={() => openMy('friends')}

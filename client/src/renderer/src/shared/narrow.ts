@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { NARROW_QUERY } from '@boson/shared';
+import { titleBarYields } from './window-controls';
 
 // The phone layout's breakpoint (see @boson/shared): the chat layout shows
 // one pane at a time below it.
@@ -23,6 +24,16 @@ export function useNarrow(): boolean {
     return () => mq.removeEventListener('change', onChange);
   }, []);
   return narrow;
+}
+
+/**
+ * The phone layout without the top bar (the iOS / Android app, the web build
+ * at phone width; titleBarYields): each screen's own header clears the
+ * status bar, the bell is in the server rail under your avatar, and settings
+ * are in My space. A narrow desktop window keeps its title bar.
+ */
+export function useNoTitleBar(): boolean {
+  return useNarrow() && titleBarYields();
 }
 
 /**

@@ -53,6 +53,17 @@ export function isMobile(): boolean {
   return p === 'ios' || p === 'android';
 }
 
+/**
+ * Whether the title bar steps aside in the phone layout: only where it holds
+ * no window controls or drag region (the iOS / Android app, the web build).
+ * A narrow desktop window keeps it. With it gone, each phone screen's own
+ * header clears the status bar, the bell is in the server rail under your
+ * avatar and settings are in My space.
+ */
+export function titleBarYields(): boolean {
+  return isMobile() || (window as { bosonShell?: string }).bosonShell === 'web';
+}
+
 /** Get the bridge, or null in tests / browser contexts. */
 export function getWindowBridge(): BosonWindowBridge | null {
   return (typeof window !== 'undefined' && window.bosonWindow) || null;

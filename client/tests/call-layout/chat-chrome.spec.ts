@@ -30,7 +30,7 @@ async function roundThings(page: Page): Promise<string[]> {
 
 async function smallControls(page: Page): Promise<string[]> {
   return page.evaluate(() => {
-    const sel = '.title-bar button, .channel-sidebar-header button, .channel-add, .chat-header button, .chat-input-bar button, .user-panel-header button';
+    const sel = '.title-bar button, .rail-bell, .channel-sidebar-header button, .channel-add, .chat-header button, .chat-input-bar button, .user-panel-header button';
     return [...document.querySelectorAll<HTMLElement>(sel)]
       .filter((b) => b.offsetParent !== null)
       .map((b) => ({ b, r: b.getBoundingClientRect() }))
