@@ -1,3 +1,9 @@
+## [0.92.1](https://github.com/boson-chat/boson/compare/v0.92.0...v0.92.1) (2026-11-24)
+
+### Bug Fixes
+
+* **phone:** channel header with search + ⋮ menu, Send inside the composer, no iOS keyboard accessory bar ([#141](https://github.com/boson-chat/boson/issues/141)) ([1de40f5](https://github.com/boson-chat/boson/commit/1de40f50b86fb370c956c5c19d31b64e38eea29c))
+
 ## [0.92.0](https://github.com/boson-chat/boson/compare/v0.91.0...v0.92.0) (2026-11-24)
 
 ### Features
