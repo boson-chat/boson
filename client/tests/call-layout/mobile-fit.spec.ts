@@ -87,7 +87,7 @@ test.describe('tablet portrait (768×1024)', () => {
     await expect(page.getByRole('complementary', { name: 'Members' })).toHaveCount(0);
     // The chat gets the room the member column had.
     expect((await page.locator('.chat-area').boundingBox())!.width).toBeGreaterThan(400);
-    await page.getByRole('button', { name: /^Members \(/ }).click();
+    await page.getByRole('button', { name: /^Show members \(/ }).click();
     const panel = page.getByRole('complementary', { name: 'Members' });
     await expect(panel).toBeVisible();
     await inViewport(page, panel);

@@ -75,7 +75,7 @@ describe('ChatLayout at mid width', () => {
     expect(screen.queryByRole('complementary', { name: 'Members' })).toBeNull();
     expect(screen.queryByRole('separator', { name: 'Resize member list' })).toBeNull();
 
-    const btn = screen.getByRole('button', { name: 'Members (2)' });
+    const btn = screen.getByRole('button', { name: /^(Show|Hide) members \(2\)$/ });
     expect(btn).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(btn);
     expect(btn).toHaveAttribute('aria-pressed', 'true');
@@ -91,7 +91,7 @@ describe('ChatLayout at mid width', () => {
 
   it('closes the overlay on Escape and toggles from the button', () => {
     renderMid();
-    const btn = screen.getByRole('button', { name: 'Members (2)' });
+    const btn = screen.getByRole('button', { name: /^(Show|Hide) members \(2\)$/ });
     fireEvent.click(btn);
     expect(screen.getByRole('complementary', { name: 'Members' })).toBeInTheDocument();
     fireEvent.keyDown(window, { key: 'Escape' });

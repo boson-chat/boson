@@ -25,29 +25,6 @@
   color: var(--fg-2);
 }
 
-.directory-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-6);
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--surface);
-  flex-shrink: 0;
-}
-
-.directory-topbar-left,
-.directory-topbar-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.directory-handle {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--fg-2);
-}
-
 .directory-container {
   max-width: 960px;
   width: 100%;
@@ -94,14 +71,6 @@
   align-items: center;
 }
 
-/* The search box takes the free width of the filter row. */
-.directory-filters > .bds-input {
-  flex: 1;
-  min-width: 240px;
-  width: auto;
-  min-height: var(--control-sm);
-}
-
 /* The filters: part of the filter row on desktop; on phones a panel the
    Filters button opens (DirectoryBody). */
 .directory-filter-panel { display: contents; }
@@ -132,8 +101,6 @@
   font-size: var(--text-xs);
   color: var(--fg-3);
 }
-
-.directory-advanced-toggle { margin-left: auto; }
 
 .directory-lang-chips {
   display: flex;
@@ -358,8 +325,6 @@
   margin: 0;
 }
 
-/* Phones: the search row takes a line of its own; filters wrap below. */
-
 @media (max-width: 720px) {
   .directory-container {
     padding: var(--space-6) var(--space-4) var(--space-10);
@@ -367,18 +332,10 @@
   .directory-title { font-size: var(--text-xl); }
   .directory-header { margin-bottom: var(--space-5); }
   .directory-filters { margin-bottom: var(--space-5); }
-  .directory-filters > .bds-input { min-width: 0; width: 100%; flex-basis: 100%; min-height: var(--control-lg); }
   /* Refresh + "Add your server to the community" wrap instead of running
      off a phone's edge. */
   .directory-header-actions { flex-wrap: wrap; }
   .directory-header-actions > * { white-space: normal; max-width: 100%; }
-}
-
-.directory-advanced-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin-bottom: var(--space-5);
 }
 
 .directory-add-form {

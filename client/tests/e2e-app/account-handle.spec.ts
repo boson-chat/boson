@@ -80,7 +80,9 @@ test('the handle starts as the username; a reload during setup asks for the pass
   expect(second).toMatch(/^[a-z0-9]{4}(-[a-z0-9]{4}){7}$/);
   expect(second).not.toBe(first);
   await page.locator('.recovery-code-reveal').getByRole('button').last().click();
-  await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
+  // The directory has no handle bar any more (B1): the backend check below
+  // is what proves the handle was saved.
+  await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible({ timeout: 20_000 });
   const me = await (await backendApi(fresh)).get<{ handle: string; encrypted_user_secret_recovery: string }>('/me');
   expect(me.handle).toBe(handle);
 
