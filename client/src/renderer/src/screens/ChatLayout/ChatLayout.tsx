@@ -654,7 +654,8 @@ export function ChatLayout({
         <div class="mid-panel" onClick={(e) => e.stopPropagation()}>{panel}</div>
       </div>
     ) : null;
-  const callStage = <CallStage avatarFor={avatarFor} people={mid && callChat ? { open: midPanel, toggle: () => setMidPanel((o) => !o) } : undefined} />;
+  const midToggle = mid ? { open: midPanel, toggle: () => setMidPanel((o) => !o) } : undefined;
+  const callStage = <CallStage avatarFor={avatarFor} people={callChat ? midToggle : undefined} />;
 
   return (
     <div
@@ -732,7 +733,7 @@ export function ChatLayout({
             onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
             ariaLabel="Resize channel list"
           />
-          {stageOpen ? callStage : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
+          {stageOpen ? callStage : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} people={midToggle} /> : chatArea}
           {/* In a call, its tiles show who's in: the right panel is the
               voice channel's text chat, if it has one. */}
           {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, membersHandle) : null)

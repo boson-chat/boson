@@ -96,6 +96,26 @@ test.describe('tablet portrait (768×1024)', () => {
     await noSideScroll(page);
   });
 
+  test('voice preview: "In this call" opens over the preview from its header button', async ({ page }) => {
+    await page.goto('/shots.html?view=chat&voice=rooms');
+    await page.getByRole('button', { name: 'Voice channel Pairing' }).click();
+    const preview = page.locator('main.prejoin');
+    await expect(preview).toBeVisible();
+    const panel = page.locator('.mid-panel-layer').getByText('In this call', { exact: false });
+    await expect(panel).toHaveCount(0);
+    const btn = preview.getByRole('button', { name: /^In this call \(\d+\)$/ });
+    await expect(btn).toHaveAttribute('aria-pressed', 'false');
+    await btn.click();
+    await expect(btn).toHaveAttribute('aria-pressed', 'true');
+    const overlay = page.locator('.mid-panel-layer .mid-panel');
+    await expect(overlay).toBeVisible();
+    await expect(overlay).toContainText('In this call');
+    await inViewport(page, overlay);
+    await noSideScroll(page);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.mid-panel-layer')).toHaveCount(0);
+  });
+
   test('in a call: the stage and its dock fit; no text chat, no call panel', async ({ page }) => {
     await page.goto('/shots.html?view=chat&voice=rooms&video=call&people=6');
     await page.locator('.channel-sidebar').getByText('General', { exact: true }).first().click();

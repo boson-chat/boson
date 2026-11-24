@@ -21,6 +21,7 @@
 }
 .prejoin-title { font: 700 20px var(--font-mono); color: var(--fg); }
 .prejoin-count { font: 12px var(--font-mono); color: var(--fg-2); }
+.prejoin-people-toggle { margin-left: auto; }
 .prejoin-body {
   flex: 1;
   min-height: 0;

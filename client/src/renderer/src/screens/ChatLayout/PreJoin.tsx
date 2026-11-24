@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { MicOff, Mic, Video, VideoOff, Volume2 } from 'lucide-preact';
+import { MicOff, Mic, Users, Video, VideoOff, Volume2 } from 'lucide-preact';
 import { Button, EmptyState, ListRow } from '@boson/shared';
 import { useVideo } from '../../modules/video';
 import type { VoiceRoom, VoiceRoomParticipant } from '../../modules/voice';
@@ -96,7 +96,13 @@ function PreviewTile({ camOn, starting, error, self, selfAvatar, facing, attach,
 }
 
 /** Desktop: the voice channel's pre-join view, in place of the chat. */
-export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (nick: string) => string | undefined }) {
+// `people`: mid width only, where "In this call" (PreJoinPeople) is an
+// overlay this header button opens and closes, like the members toggle.
+export function VoicePreJoin({ self, avatarFor, people: peopleToggle }: {
+  self: string;
+  avatarFor?: (nick: string) => string | undefined;
+  people?: { open: boolean; toggle: () => void };
+}) {
   const { view } = useVoiceUi();
   const j = usePreJoin(view);
   if (!view || !j.room || j.joinedHere) return null;
@@ -109,6 +115,11 @@ export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (n
         <Volume2 size={20} aria-hidden="true" />
         <span class="prejoin-title">{j.room.name}</span>
         <span class="prejoin-count">{people.length} in call</span>
+        {peopleToggle && (
+          <Button variant="ghost" size="sm" class="prejoin-people-toggle" pressed={peopleToggle.open}
+            onClick={peopleToggle.toggle} title="In this call" aria-label={`In this call (${people.length})`}
+            icon={<Users aria-hidden="true" />} />
+        )}
       </header>
       <div class="prejoin-body">
         <div class="prejoin-tiles" aria-label={`In ${j.room.name}`}>
