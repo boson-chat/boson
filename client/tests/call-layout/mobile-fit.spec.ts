@@ -30,11 +30,11 @@ const noSideScroll = async (page: Page, sel = 'html'): Promise<void> => {
 test.describe('phone (390×844)', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
 
-  test('the Join a channel dialog sits above the title bar: its title and Close are tappable', async ({ page }) => {
+  test('the Join or create a channel dialog sits above the title bar: its title and Close are tappable', async ({ page }) => {
     await page.goto(`${CHAT}&platform=ios`);
     await page.getByRole('button', { name: 'Back to channels' }).click();
     await page.getByRole('button', { name: 'Add channel', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Join a channel' });
+    const dialog = page.getByRole('dialog', { name: /^Join (or create )?a channel$/ });
     await expect(dialog).toBeVisible();
     await hittable(dialog.getByRole('button', { name: 'Close' }));
     await hittable(dialog.locator('.bds-modal-title'));
@@ -96,7 +96,7 @@ test.describe('tablet portrait (768×1024)', () => {
     await noSideScroll(page);
   });
 
-  test('in a call: the stage and its dock fit; Call chat opens the call panel', async ({ page }) => {
+  test('in a call: the stage and its dock fit; no text chat, no call panel', async ({ page }) => {
     await page.goto('/shots.html?view=chat&voice=rooms&video=call&people=6');
     await page.locator('.channel-sidebar').getByText('General', { exact: true }).first().click();
     const join = page.getByRole('button', { name: 'Join call', exact: true });
@@ -106,8 +106,9 @@ test.describe('tablet portrait (768×1024)', () => {
     await expect(page.locator('.callpanel')).toHaveCount(0);
     await inViewport(page, page.getByRole('toolbar', { name: 'Call controls' }).last());
     await inViewport(page, stage.getByRole('button', { name: 'Leave call' }));
-    await stage.getByRole('button', { name: 'Call chat' }).click();
-    await expect(page.locator('.callpanel')).toBeVisible();
+    // General has no text chat, so there is no right panel (K1) and no
+    // button to open one at this width.
+    await expect(stage.getByRole('button', { name: 'Call chat' })).toHaveCount(0);
     await noSideScroll(page);
   });
 });
