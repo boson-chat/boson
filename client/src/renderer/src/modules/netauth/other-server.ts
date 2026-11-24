@@ -97,9 +97,19 @@ export function outcomeOf(address: string, r: ResolvedNetwork): ResolveOutcome {
     case 'invalid':
       return { kind: 'error', address, plainIrc: false, message: 'Enter a server address like example.com or irc.example.com.' };
     case 'unreachable':
-      return { kind: 'error', address, plainIrc: true, message: `Couldn't reach ${address}. Check the address and your connection, then try again.` };
+      // The shell says whether the name exists (desktop/netauth.go): a
+      // typo has no DNS record; a plain IRC server's host does, it just
+      // has no web server.
+      if (r.detail === 'not-found') {
+        return { kind: 'error', address, plainIrc: false, message: `Couldn't find ${address}. Check the spelling and try again.` };
+      }
+      if (r.detail === 'host-exists') return notBoson(address);
+      return {
+        kind: 'error', address, plainIrc: true,
+        message: `Couldn't reach ${address} as a Boson network. Check the spelling, or if it's an IRC server you can still chat there as a regular IRC server.`,
+      };
     case 'no-boson-json':
-      return { kind: 'error', address, plainIrc: true, message: `${address} isn't a Boson network: it has no /.well-known/boson.json. If it's an IRC server, add it as a plain IRC server.` };
+      return notBoson(address);
     case 'no-accounts':
       return { kind: 'no-accounts', address, irc, message: `${r.domain || address} doesn't have accounts. You can still chat on its IRC as a guest.` };
     case 'untrusted':
@@ -108,6 +118,10 @@ export function outcomeOf(address: string, r: ResolvedNetwork): ResolveOutcome {
     default:
       return { kind: 'error', address, plainIrc: true, message: `${r.domain || address} doesn't say where its IRC server is${r.detail ? ` (${r.detail})` : ''}.` };
   }
+}
+
+function notBoson(address: string): ResolveOutcome {
+  return { kind: 'error', address, plainIrc: true, message: `${address} isn't a Boson network. You can still chat there as a regular IRC server.` };
 }
 
 // ---- the last server used from the login screen ----

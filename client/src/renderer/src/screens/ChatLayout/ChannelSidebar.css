@@ -383,3 +383,25 @@
 @media (hover: none) {
   .channel-more { display: none; }
 }
+
+/* "Create #name": a typed name the channel list doesn't have. */
+.channel-join-create {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md, 6px);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard);
+}
+.channel-join-create:hover,
+.channel-join-create:focus-visible { background: var(--surface-hover); border-color: var(--accent); outline: none; }
+.channel-join-create-icon { width: 16px; height: 16px; color: var(--accent); flex-shrink: 0; }
+.channel-join-create-label strong { color: var(--accent); font-weight: 700; }

@@ -1035,7 +1035,11 @@ export class DirectoryBloc {
 
   // `focus: false` connects without making the server the active one (a
   // background auto-reconnect must not yank the user to that server).
-  async connect(server: Server, opts: { focus?: boolean } = {}): Promise<void> {
+  //
+  // `join`: a channel to join once connected (a channel picked in the
+  // server's details) — joined right away when already connected.
+  async connect(server: Server, opts: { focus?: boolean; join?: string } = {}): Promise<void> {
+    const { join, ...connectOpts } = opts;
     // Already open under another id — a session saved before the directory
     // moved to /v1 keys it by the legacy uuid, the listing now says `net_…`:
     // that's this server, keep its id (saved channels, bouncer route and
@@ -1052,6 +1056,10 @@ export class DirectoryBloc {
       // close the modal. A disconnected (wedged) connection falls through
       // to the replace-then-reconnect path below.
       if (existing.engineState === 'connecting' || existing.engineState === 'connected') {
+        if (join) {
+          if (existing.engineState === 'connected') existing.chat.join(join, { byUser: true });
+          else this.queueJoin(server.id, join);
+        }
         let changed = false;
         if (this.activeServerId !== server.id) {
           this.activeServerId = server.id;
@@ -1088,11 +1096,19 @@ export class DirectoryBloc {
       this.connections.delete(server.id);
     }
     if (server.autojoin_channels?.length && !autojoinDone(server)) this.autojoinWanted.set(server.id, server);
-    await this.connectWith(server, { ...opts, carry });
+    if (join) this.queueJoin(server.id, join);
+    await this.connectWith(server, { ...connectOpts, carry });
     if (this.serverBrowserOpen) {
       this.serverBrowserOpen = false;
       this.emit();
     }
+  }
+
+  // A channel to join on this server's next `connected`.
+  private queueJoin(serverId: string, channel: string): void {
+    const q = this.pendingJoins.get(serverId) ?? [];
+    if (!q.some((c) => c.toLowerCase() === channel.toLowerCase())) q.push(channel);
+    this.pendingJoins.set(serverId, q);
   }
 
   // Drop a single named connection. Other connections continue running.

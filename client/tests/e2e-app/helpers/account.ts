@@ -98,7 +98,6 @@ export async function completeHandleSetup(page: Page, handle: string): Promise<s
   const recoveryCode = (await code.innerText()).trim();
   await page.locator('.recovery-code-reveal').getByRole('button').last().click();
   await expect(directoryHeading(page)).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
   return recoveryCode;
 }
 
@@ -112,6 +111,7 @@ export async function recoverWithCode(page: Page, recoveryCode: string): Promise
 }
 
 export async function signOut(page: Page): Promise<void> {
+  // Sign out lives in User settings → Account.
   await page.getByRole('button', { name: 'User settings' }).click();
   const settings = page.getByRole('dialog', { name: 'User settings' });
   await settings.getByRole('tab', { name: /^Account/ }).click();

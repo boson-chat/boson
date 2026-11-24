@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/ho
 import { createPortal, memo } from 'preact/compat';
 import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
-import { BarLoader, Button } from '@boson/shared';
+import { BarLoader, Button, Menu, MenuItem } from '@boson/shared';
+import { Copy, CornerUpLeft, UserRound } from 'lucide-preact';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, isPreformattedLine, stripIrcFormatting, type MdToken } from './markdown';
 import { parseTables, type ParsedTable } from './table';
@@ -17,7 +18,7 @@ import { NICK_BOUNDARY_CHARS } from './chat-input.tokenize';
 import { NickContextMenu } from './NickContextMenu';
 import { NickSheet } from './NickSheet';
 import {
-  NickProfileCard, RememberedDetails, RoleBadge, anchorOf, lineIdentityOf, profileRows, useFitInWindow,
+  NickProfileCard, RememberedDetails, RoleBadge, anchorOf, lineIdentityOf, primaryRows, profileRows, useFitInWindow,
   type LineIdentity, type ProfileAnchor,
 } from './nick-profile';
 import type { SeenRecord } from '../../modules/seen/seen.store';
@@ -101,19 +102,68 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   };
   const profileMember = profile ? members.find((m) => m.nick === profile.nick) ?? null : null;
 
+  // The message's actions: the phone's long-press sheet, and on a desktop
+  // the hover toolbar and the right-click menu (the same list). On a
+  // desktop "View profile" opens the card by the author's name.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [msgMenu, setMsgMenu] = useState<{ x: number; y: number } | null>(null);
+  const theirs = msg.from !== myNick;
+  const reply = theirs && nickActions?.onMention ? () => nickActions.onMention!(msg.from) : undefined;
+  const copyText = (): void => { void navigator.clipboard?.writeText(stripIrcFormatting(msg.text)); };
+  const viewProfile = (): void => {
+    const el = !isNarrow() && rowRef.current?.querySelector('.message-row-name, .message-action-name, .message-avatar-btn');
+    if (el) openProfile(msg.from, el); else setProfile({ nick: msg.from });
+  };
   const messageActions = (): SheetAction[] => {
-    const theirs = msg.from !== myNick;
     const out: SheetAction[] = [];
-    if (theirs && nickActions?.onMention) out.push({ label: 'Reply', onClick: () => nickActions.onMention!(msg.from) });
-    out.push({ label: 'Copy text', onClick: () => { void navigator.clipboard?.writeText(stripIrcFormatting(msg.text)); } });
+    if (reply) out.push({ label: 'Reply', onClick: reply });
+    out.push({ label: 'Copy text', onClick: copyText });
     if (theirs && nickActions?.onSendMessage) {
       out.push({ label: `Message ${msg.from}`, onClick: () => nickActions.onSendMessage!(msg.from) });
     }
-    out.push({ label: 'View profile', onClick: () => setProfile({ nick: msg.from }) });
+    out.push({ label: 'View profile', onClick: viewProfile });
     return out;
   };
+  // Right-click anywhere on the message (but a nick, a link or selected
+  // text, which keep their own menus).
+  const onRowContextMenu = (e: MouseEvent): void => {
+    // Phones: a long press opens the sheet instead (useLongPress).
+    if (isNarrow()) { longPress.onContextMenu(e); return; }
+    const t = e.target as Element | null;
+    if (t?.closest?.('a, .message-row-name, .sys-nick, .chat-token-mention, .embed, input, textarea')) return;
+    if (window.getSelection?.()?.toString()) return;
+    e.preventDefault();
+    setMenu(null);
+    setMsgMenu({ x: e.clientX, y: e.clientY });
+  };
+  const toolbar = (
+    <div class="message-toolbar" role="toolbar" aria-label="Message actions">
+      {reply && (
+        <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={reply}
+          title="Reply" aria-label="Reply" icon={<CornerUpLeft aria-hidden="true" />} />
+      )}
+      <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={copyText}
+        title="Copy text" aria-label="Copy text" icon={<Copy aria-hidden="true" />} />
+      <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={viewProfile}
+        title="View profile" aria-label="View profile" icon={<UserRound aria-hidden="true" />} />
+    </div>
+  );
   const sheets = (
     <>
+      {msgMenu && createPortal(
+        <Menu
+          label="Message actions"
+          x={Math.min(msgMenu.x, window.innerWidth - 200)}
+          y={Math.max(8, Math.min(msgMenu.y, window.innerHeight - 180))}
+          onClose={() => setMsgMenu(null)}
+          class="message-context-menu"
+        >
+          {messageActions().map((a) => (
+            <MenuItem key={a.label} onClick={() => { setMsgMenu(null); a.onClick(); }}>{a.label}</MenuItem>
+          ))}
+        </Menu>,
+        document.body,
+      )}
       {msgSheet && (
         <MessageSheet
           msg={msg}
@@ -166,7 +216,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
 
   if (msg.kind === 'action') {
     return (
-      <div class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`} {...longPress}>
+      <div ref={rowRef} class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`} {...longPress} onContextMenu={onRowContextMenu}>
         <span class="message-action-star">*</span>
         <span class="message-action-name" onClick={(e) => openProfile(msg.from, e.currentTarget as Element)}>{msg.from}</span>
         <span class="message-action-text" onClick={onTextClick}>{renderedText}</span>
@@ -189,7 +239,8 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   const badge = ROLE_BADGES[findMemberPrefix(members, msg.from)];
 
   return (
-    <div class={classes} {...longPress}>
+    <div ref={rowRef} class={classes} {...longPress} onContextMenu={onRowContextMenu}>
+      {!msg.pending && toolbar}
       {/* Avatar gutter — the initial tile leads the first message of a group;
           grouped follow-ups keep the gutter empty so text stays aligned. */}
       <div class="message-row-gutter">
@@ -232,7 +283,6 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
             {badge && (
               <RoleBadge prefix={badge.prefix} label={badge.label} class={`message-row-role message-row-role-${badge.kind}`} />
             )}
-            <span class="message-row-handle">~{msg.from}</span>
             <span class="message-row-time">{msg.pending ? 'Sending…' : time}</span>
           </div>
         )}
@@ -403,7 +453,7 @@ function MessageNickHoverCard({
   const ref = useRef<HTMLDivElement>(null);
   useFitInWindow(ref, cardTop, top - 6);
   const role = ROLE_BADGES[member?.prefix ?? ''];
-  const meta = profileRows(nick, member);
+  const meta = primaryRows(profileRows(nick, member));
   return (
     <div
       ref={ref}
@@ -459,6 +509,10 @@ interface MessageListProps {
   /** Set when a scroll-back request failed (e.g. no server response). Shown
    *  in the ribbon as a retryable error. */
   historyError?: string;
+  /** Shown above the first message when there's no scrollback to load (the
+   *  server keeps no history, or not for you): why the conversation starts
+   *  where it does, instead of a blank pane. */
+  beginningNote?: string;
 }
 
 // Scroll container + message rows. Owns the grouped-rendering decision so
@@ -513,7 +567,7 @@ function listRows(items: readonly RenderItem[]): ListRow[] {
 
 export const MessageList = memo(function MessageList({
   messages, members, myNick, scrollRef, nickActions, channelName, avatarFor,
-  onLoadOlder, onViewport, historySupported, historyLoading, historyExhausted, historyError,
+  onLoadOlder, onViewport, historySupported, historyLoading, historyExhausted, historyError, beginningNote,
 }: MessageListProps) {
   // Reading `.value` subscribes THIS component to the channel's message signal.
   // A metadata emit that re-renders the parent passes the same signal ref, so
@@ -827,6 +881,9 @@ export const MessageList = memo(function MessageList({
             )}
           </div>
         )}
+        {!historySupported && beginningNote && (
+          <div class="chat-beginning-note" role="note">{beginningNote}</div>
+        )}
         <div class="vspacer" ref={topSpacer} style={{ height: `${topPad}px` }} aria-hidden="true" />
         {rows.slice(start, end).map(({ key, item, grouped }) => {
           let fresh = false;
@@ -873,6 +930,9 @@ function VRow({ vkey, children }: { vkey: string; children: preact.ComponentChil
 const ACTIVITY_KINDS: ReadonlySet<ChatMessage['kind']> = new Set(['join', 'part', 'quit', 'system']);
 // Runs shorter than this render inline (unchanged); this-or-longer collapse.
 export const ACTIVITY_COLLAPSE_MIN = 4;
+// Joins / parts / quits in a run that fold it, whatever its length.
+const CHURN_KINDS: ReadonlySet<ChatMessage['kind']> = new Set(['join', 'part', 'quit']);
+export const CHURN_COLLAPSE_MIN = 2;
 
 export type RenderItem =
   | { type: 'msg'; msg: ChatMessage }
@@ -904,7 +964,16 @@ export function buildRenderItems(
   let preRun: ChatMessage[] = [];
   const flushActivity = () => {
     if (activityRun.length === 0) return;
-    if (activityRun.length >= collapseMin) {
+    // Joins and leaves fold as soon as there are two of them, and a quit
+    // always folds (even on its own): a line per person coming and going
+    // is noise, the one-line summary says what it came to.
+    let churn = 0;
+    let quit = false;
+    for (const m of activityRun) {
+      if (CHURN_KINDS.has(m.kind)) churn += 1;
+      if (m.kind === 'quit') quit = true;
+    }
+    if (activityRun.length >= collapseMin || churn >= CHURN_COLLAPSE_MIN || quit) {
       out.push({ type: 'activity', id: `activity-${activityRun[0]!.id}`, items: activityRun });
     } else {
       for (const m of activityRun) out.push({ type: 'msg', msg: m });
@@ -1163,7 +1232,6 @@ function PreBlock({
       <div class="message-row-body">
         <div class="message-row-header">
           <span class="message-row-name">{head.from}</span>
-          <span class="message-row-handle">~{head.from}</span>
           <span class="message-row-time">{time}</span>
         </div>
         {tables

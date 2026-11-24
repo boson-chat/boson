@@ -641,3 +641,6 @@
   .server-settings-row { grid-template-columns: 1fr; gap: var(--space-1); }
   .server-settings-card-body { padding: var(--space-3) var(--space-4); }
 }
+
+/* About: your nick with a way to change it. */
+.server-settings-about-nick { display: inline-flex; align-items: center; gap: var(--space-2); }

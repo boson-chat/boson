@@ -94,7 +94,77 @@ describe('DirectoryScreen', () => {
 
     expect(await screen.findByText('Libera')).toBeInTheDocument();
     expect(screen.getByText('OFTC')).toBeInTheDocument();
-    expect(screen.getByText('@alice')).toBeInTheDocument();
+    // The address is a detail (in the server's details), not on the card.
+    expect(screen.queryByText(/irc\.Libera/)).toBeNull();
+  });
+
+  it('a click on a card opens its details: description, channels, address', async () => {
+    const directory = buildDirectory({
+      user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
+      servers: [{ ...fakeServer('Libera'), description: 'Free software chat', channels: ['#help', '#lobby'], autojoin_channels: ['#lobby'] }],
+    });
+    renderWith(directory);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Libera: details' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Libera' });
+    expect(dialog).toHaveTextContent('Free software chat');
+    // Default channels first.
+    const rows = Array.from(dialog.querySelectorAll('.directory-details-channel')).map((r) => r.textContent);
+    expect(rows[0]).toContain('#lobby');
+    expect(rows[0]).toContain('Everyone starts here');
+    expect(rows[1]).toContain('#help');
+    expect(dialog).toHaveTextContent('irc.Libera:6697 (TLS)');
+  });
+
+  it('an empty search offers Clear search and Add a server by address', async () => {
+    const listServers = vi.fn(async (q?: { q?: string }) => (q?.q ? [] : [fakeServer('Libera')])) as unknown as DirectoryService['listServers'];
+    const directory = buildDirectory({
+      user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
+      listImpl: listServers,
+    });
+    renderWith(directory);
+    await screen.findByText('Libera');
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('Search servers…'), 'zzz');
+    const clear = await screen.findByRole('button', { name: 'Clear search' }, { timeout: 2000 });
+    expect(screen.getByRole('button', { name: 'Add a server by address' })).toBeInTheDocument();
+    await user.click(clear);
+    expect(screen.getByPlaceholderText('Search servers…')).toHaveValue('');
+    expect(await screen.findByText('Libera', {}, { timeout: 2000 })).toBeInTheDocument();
+  });
+
+  it('Add by address: host, port and name up front; TLS under More options moves the port', async () => {
+    const directory = buildDirectory({
+      user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
+      servers: [],
+    });
+    renderWith(directory);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Add by address' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Add a server by address' });
+    expect(dialog.querySelector('input[type="password"]')).toBeNull();
+    const port = screen.getByDisplayValue('6697');
+    await user.click(screen.getByRole('button', { name: /More options/ }));
+    expect(dialog.querySelectorAll('input[type="password"]').length).toBe(3);
+    await user.click(screen.getByText('Use TLS (recommended)'));
+    expect(port).toHaveValue('6667');
+    await user.click(screen.getByText('Use TLS (recommended)'));
+    expect(port).toHaveValue('6697');
+    // A port of its own stays put.
+    await user.clear(port);
+    await user.type(port, '7000');
+    await user.click(screen.getByText('Use TLS (recommended)'));
+    expect(port).toHaveValue('7000');
+  });
+
+  it('no Bouncer tab without a bouncer set up', async () => {
+    const directory = buildDirectory({
+      user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
+      servers: [fakeServer('Libera')],
+    });
+    renderWith(directory);
+    await screen.findByText('Libera');
+    expect(screen.queryByRole('tab', { name: 'Bouncer' })).toBeNull();
   });
 
   it("shows the channels a listing puts new people in (autojoin_channels)", async () => {
@@ -168,14 +238,16 @@ describe('DirectoryScreen', () => {
     }, { timeout: 1000 });
   });
 
-  it('has no Sign out in the top bar (it lives in Settings → Account)', async () => {
+  it('one top bar: no engine pill or Sign out in the directory (Sign out is in User settings)', async () => {
     const directory = buildDirectory({
       user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
       servers: [],
     });
     renderWith(directory);
-    expect(await screen.findByText('@alice')).toBeInTheDocument();
+    await screen.findByText('No servers found.');
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
+    expect(document.querySelector('.engine-pill')).toBeNull();
+    expect(screen.queryByText(/boson dir/)).toBeNull();
   });
 
   it('prefills the handle from the username and checks it like a nick', async () => {

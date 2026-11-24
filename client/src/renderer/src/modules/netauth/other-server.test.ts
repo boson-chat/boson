@@ -57,8 +57,10 @@ describe('outcomeOf (discovery errors)', () => {
     expect(outcomeOf('boson.chat', { host: 'boson.chat', irc, authUrl: 'https://auth.boson.chat', main: true }).kind).toBe('main');
   });
   it.each<[string, Partial<ResolvedNetwork>, string, RegExp]>([
-    ['not found', { error: 'unreachable' }, 'error', /Couldn't reach x\.org/],
-    ['no boson.json', { error: 'no-boson-json' }, 'error', /isn't a Boson network.*plain IRC server/],
+    ['unreachable, unknown why', { error: 'unreachable' }, 'error', /Couldn't reach x\.org as a Boson network.*regular IRC server/],
+    ['a typo (no DNS name)', { error: 'unreachable', detail: 'not-found' }, 'error', /^Couldn't find x\.org\. Check the spelling/],
+    ['a host without a web server', { error: 'unreachable', detail: 'host-exists' }, 'error', /^x\.org isn't a Boson network\. You can still chat there as a regular IRC server\.$/],
+    ['no boson.json', { error: 'no-boson-json' }, 'error', /^x\.org isn't a Boson network\. You can still chat there as a regular IRC server\.$/],
     ['no accounts', { error: 'no-accounts', domain: 'x.org', irc }, 'no-accounts', /doesn't have accounts/],
     ['untrusted auth', { error: 'untrusted', domain: 'x.org', detail: 'private address', irc }, 'no-accounts', /won't use \(private address\)/],
     ['no irc', { error: 'no-irc', domain: 'x.org' }, 'error', /doesn't say where its IRC server is/],
@@ -70,7 +72,10 @@ describe('outcomeOf (discovery errors)', () => {
   });
   it('offers a plain IRC add when the address may still be an IRC server', () => {
     expect(outcomeOf('x.org', { host: 'x.org', main: false, error: 'no-boson-json' })).toMatchObject({ plainIrc: true });
+    expect(outcomeOf('x.org', { host: 'x.org', main: false, error: 'unreachable', detail: 'host-exists' })).toMatchObject({ plainIrc: true });
     expect(outcomeOf('x.org', { host: 'x.org', main: false, error: 'invalid' })).toMatchObject({ plainIrc: false });
+    // A name that doesn't exist is a typo, not an IRC server.
+    expect(outcomeOf('x.org', { host: 'x.org', main: false, error: 'unreachable', detail: 'not-found' })).toMatchObject({ plainIrc: false });
   });
 });
 

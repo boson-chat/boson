@@ -107,7 +107,12 @@ interface ChatAreaProps {
   onOpenChannelSettings?: () => void;
   // ChanServ registration of the active channel, when known: a small shield
   // next to its name that opens the Registration tab.
-  registration?: { registered: boolean; founder?: string } | null;
+  // `atRisk`: we're an operator of an unregistered channel — say so in
+  // words ("Unregistered"), as the ops are lost once everyone leaves.
+  registration?: { registered: boolean; founder?: string; atRisk?: boolean } | null;
+  // Shown under the header while atRisk until dismissed: register it so it
+  // stays yours.
+  registerPrompt?: { onRegister: () => void; onDismiss: () => void } | null;
   onOpenRegistration?: () => void;
   // Ask the active server's bouncer to connect its upstream network. Drives
   // the bouncer-upstream strip's [Connect] button; when omitted the strip
@@ -121,8 +126,13 @@ interface ChatAreaProps {
   // full screen. Absent on wide layouts.
   onBack?: () => void;
   onShowMembers?: () => void;
-  /** Mid width: whether the member list overlay is open (the button toggles it). */
+  // Shown in place of "Select a channel…" while you're in no channel of
+  // this server (ServerWelcome).
+  welcome?: ComponentChildren;
+  // Not on phones: whether the member list is shown (docked, or at mid
+  // width the overlay) and the header toggle for it.
   membersShown?: boolean;
+  onToggleMembers?: () => void;
   // The active server's IRC host: file uploads go to its network's files
   // host (none → no attach button).
   serverHost?: string;
@@ -167,6 +177,7 @@ export function ChatArea({
   messagesSignal,
   onOpenChannelSettings,
   registration,
+  registerPrompt,
   onOpenRegistration,
   onBouncerConnect,
   onTrustBouncerCert,
@@ -174,6 +185,8 @@ export function ChatArea({
   onBack,
   onShowMembers,
   membersShown,
+  onToggleMembers,
+  welcome,
   serverHost,
   onSendTo,
 }: ChatAreaProps) {
@@ -390,7 +403,7 @@ export function ChatArea({
           onTrustCert={onTrustBouncerCert}
           onRejectCert={onRejectBouncerCert}
         />
-        <EmptyState class="chat-area-empty-state">Select a channel from the sidebar, or join one to start chatting.</EmptyState>
+        {welcome ?? <EmptyState class="chat-area-empty-state">Select a channel from the sidebar, or join one to start chatting.</EmptyState>}
       </main>
     );
   }
@@ -419,7 +432,19 @@ export function ChatArea({
           <PaneBackButton onBack={onBack} />
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
-          {registration && prefix === '#' && (
+          {registration && prefix === '#' && registration.atRisk ? (
+            <Button
+              variant="ghost"
+              size={narrow ? 'lg' : 'sm'}
+              class="chat-reg-badge chat-reg-chip"
+              onClick={onOpenRegistration}
+              disabled={!onOpenRegistration}
+              title="Not registered: you lose operator once everyone leaves. Register it so it stays yours."
+              icon={<ShieldOff aria-hidden="true" />}
+            >
+              Unregistered
+            </Button>
+          ) : registration && prefix === '#' && (
             <Button
               variant="ghost"
               size={narrow ? 'lg' : 'sm'}
@@ -452,6 +477,18 @@ export function ChatArea({
               pressed={membersShown}
               title="Members"
               aria-label={`Members (${channel.members.length})`}
+              icon={<Users aria-hidden="true" />}
+            />
+          )}
+          {!onShowMembers && onToggleMembers && (
+            <Button
+              variant="ghost"
+              size="sm"
+              class="chat-members-toggle"
+              pressed={!!membersShown}
+              onClick={onToggleMembers}
+              title={membersShown ? 'Hide members' : 'Show members'}
+              aria-label={`${membersShown ? 'Hide' : 'Show'} members (${channel.members.length})`}
               icon={<Users aria-hidden="true" />}
             />
           )}
@@ -496,6 +533,20 @@ export function ChatArea({
         </div>
       )}
 
+      {registerPrompt && prefix === '#' && (
+        <div class="chat-connection-strip chat-reg-strip" role="status">
+          <ShieldAlert aria-hidden="true" class="chat-reg-strip-icon" />
+          <span class="chat-reg-strip-text">
+            <strong>{prefix}{display}</strong> isn't registered. When everyone leaves, whoever joins first gets operator.
+            Register it so it stays yours.
+          </span>
+          <span class="chat-connection-strip-actions">
+            <Button variant="primary" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onRegister}>Register {prefix}{display}</Button>
+            <Button variant="ghost" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onDismiss}>Not now</Button>
+          </span>
+        </div>
+      )}
+
       <PendingConfirmationBanner
         serverId={activeServerId ?? null}
         serverName={serverName}
@@ -524,6 +575,9 @@ export function ChatArea({
         historyLoading={channel.history?.loading}
         historyExhausted={channel.history?.exhausted}
         historyError={channel.history?.error}
+        beginningNote={channel.name.startsWith('~') ? undefined : prefix === '#'
+          ? "Messages from before you joined aren't available on this server."
+          : "Earlier messages in this conversation aren't available on this server."}
       />
 
       <UploadProgress

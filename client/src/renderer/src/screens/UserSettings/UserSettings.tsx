@@ -697,7 +697,7 @@ function BouncerSection({ mode, open }: {
   return (
     <SectionFrame
       title="Bouncer (ZNC / BNC)"
-      description="Route servers through an always-on IRC bouncer. Configure it once here, then enable it per-server in that server's settings. Advanced — most users don't need this."
+      description="Route servers through an always-on IRC bouncer. Configure it once here, then enable it per-server in that server's settings, or add its networks in the directory's Bouncer tab (shown once a bouncer is on). Advanced — most users don't need this."
     >
       <Card>
         <form onSubmit={submit} class="user-settings-card-body user-settings-form">

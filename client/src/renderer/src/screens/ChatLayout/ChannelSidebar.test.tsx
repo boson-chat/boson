@@ -32,6 +32,16 @@ describe('ChannelSidebar banner', () => {
 
 });
 
+describe('ChannelSidebar server subtitle', () => {
+  it('shows the server description, not the daemon version (kept in the tooltip)', () => {
+    render(<ChannelSidebar {...baseProps} serverDescription="Chat about Boson" serverInfo={{ version: 'ergo-v2.19.1' } as never} />);
+    const meta = document.querySelector('.sidebar-server-meta') as HTMLElement;
+    expect(meta.textContent).toContain('Chat about Boson');
+    expect(meta.textContent).not.toContain('ergo-v2.19.1');
+    expect(meta.getAttribute('title')).toContain('ergo-v2.19.1');
+  });
+});
+
 describe('cssUrl', () => {
   it('passes a normal URL through unchanged', () => {
     expect(cssUrl('https://cdn.boson.chat/server-banners/b1.png')).toBe(
@@ -165,6 +175,42 @@ describe('ChannelSidebar join modal — admins-only channel creation', () => {
     expect(screen.queryByTestId('channel-create-restricted')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Network channels' })).toBeNull();
     expect(screen.getByText('Waiting for the server', { exact: false })).toBeTruthy();
+  });
+
+  it('join or create: nothing preselected, a Create row for a new name, Enter acts on what was typed', async () => {
+    const onJoin = vi.fn();
+    const dir = [{ name: '#general', userCount: 40, topic: 'chat' }, { name: '#gen-z', userCount: 2, topic: '' }];
+    render(<ChannelSidebar {...baseProps} onJoin={onJoin} channelDirectory={dir} creation={{ restricted: false, channels: [] }} />);
+    const fireEvent = await open();
+    expect(screen.getByRole('dialog', { name: 'Join or create a channel' })).toBeTruthy();
+    // Nothing is picked until the user picks it.
+    expect(document.querySelector('.channel-join-result[aria-selected="true"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Join' })).toHaveProperty('disabled', true);
+
+    // A new name, with list matches: Create it, not the first match.
+    const box = screen.getByRole('textbox', { name: 'Channel name' });
+    fireEvent.input(box, { target: { value: 'gen' } });
+    // The Create row, and the main button says so too.
+    expect(screen.getAllByRole('button', { name: 'Create #gen' })).toHaveLength(2);
+    expect(document.querySelector('.channel-join-create')?.textContent).toContain('Create #gen');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onJoin).toHaveBeenLastCalledWith('gen');
+  });
+
+  it('join or create: a typed name the list has joins it; arrows pick a row', async () => {
+    const onJoin = vi.fn();
+    const dir = [{ name: '#general', userCount: 40, topic: 'chat' }, { name: '#gen-z', userCount: 2, topic: '' }];
+    render(<ChannelSidebar {...baseProps} onJoin={onJoin} channelDirectory={dir} creation={{ restricted: false, channels: [] }} />);
+    const fireEvent = await open();
+    const box = screen.getByRole('textbox', { name: 'Channel name' });
+    fireEvent.input(box, { target: { value: '#gen-z' } });
+    expect(document.querySelector('.channel-join-create')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Join #gen-z' })).toBeTruthy();
+    fireEvent.input(box, { target: { value: 'gen' } });
+    fireEvent.keyDown(box, { key: 'ArrowDown' });
+    expect(screen.getByRole('button', { name: 'Join #general' })).toBeTruthy();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onJoin).toHaveBeenLastCalledWith('#general');
   });
 });
 

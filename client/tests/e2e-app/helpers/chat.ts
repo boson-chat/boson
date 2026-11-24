@@ -44,9 +44,8 @@ export async function connectGuest(
 }
 
 export async function addServerAndConnect(page: Page, serverName: string, port = IRC_PORT): Promise<void> {
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-  await page.getByRole('button', { name: '+ Add server manually' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add a server manually' });
+  await page.getByRole('button', { name: 'Add by address' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a server by address' });
   const input = (label: string): Locator => dialog
     .locator('.bds-field')
     .filter({ has: page.locator('label.bds-field-label', { hasText: new RegExp(`^\\s*${label}(\\s*\\(optional\\))?\\s*$`) }) })
@@ -55,8 +54,10 @@ export async function addServerAndConnect(page: Page, serverName: string, port =
   await input('Hostname').fill(IRC_HOST);
   await input('Port').fill(String(port));
   await input('Display name').fill(serverName);
+  await dialog.getByRole('button', { name: /More options/ }).click();
   const tls = dialog.getByRole('checkbox', { name: 'Use TLS (recommended)' });
   if (await tls.isChecked()) await dialog.getByText('Use TLS (recommended)').click();
+  await input('Port').fill(String(port));
   await dialog.getByRole('button', { name: /^Add/ }).click();
   await expect(dialog).toBeHidden();
   await page.locator('article.directory-card').filter({ hasText: serverName }).getByRole('button', { name: 'Connect' }).click();
@@ -143,7 +144,7 @@ export function banner(page: Page): Locator {
 // with us in its member list.
 export async function joinViaUi(page: Page, channel: string, myNick: string): Promise<void> {
   await page.getByRole('button', { name: 'Add channel' }).click();
-  const box = page.getByPlaceholder('Search channels by name or topic — or type #channel to join directly');
+  const box = page.getByRole('textbox', { name: 'Channel name' });
   await box.fill(channel);
   await box.press('Enter');
   await expect(page.getByPlaceholder(new RegExp(`^Message #${escapeRe(channel.replace(/^#/, ''))}$`, 'i'))).toBeVisible({ timeout: 20_000 });

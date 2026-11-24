@@ -117,7 +117,7 @@ export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, 
               fullWidth
               onClick={() => setStep({ kind: 'nick', mode: 'plain', outcome, name: outcome.address, irc: null })}
             >
-              Add as a plain IRC server
+              Chat there as a regular IRC server
             </Button>
           )}
         </div>

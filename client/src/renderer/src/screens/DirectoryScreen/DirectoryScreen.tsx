@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { SlidersHorizontal } from 'lucide-preact';
+import { Plus, SlidersHorizontal } from 'lucide-preact';
 import { AuthError, describeAuthError, useAuthService, useAuthState, validateHandle } from '../../modules/auth';
 import { sentence } from '../../modules/auth/wording';
 import { HttpError } from '../../shared/http/http.client';
@@ -13,7 +13,7 @@ import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbo
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
 import { onHandleChange } from '../../modules/ui/handle-change';
 import { getBouncerStore } from '../../modules/chat/bouncer.store';
-import type { EngineClient, EngineState } from '../../modules/engine';
+import type { EngineClient } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
@@ -23,7 +23,7 @@ import { ServerSettings } from '../ChatLayout/ServerSettings';
 import { useNarrow } from '../../shared/narrow';
 import { getVoiceController } from '../../modules/voice';
 import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, Select, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
-import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
+import { DirectoryBloc, type DirectoryState, activeConnection } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
 import { joinsLabel } from '../../modules/directory/autojoin';
 import { HostServerModal } from './HostServerModal';
@@ -209,7 +209,6 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     for (const host of connectedHosts.split(' ')) if (host) void voice.discover(host);
   }, [connectedHosts]);
   const active = activeConnection(state);
-  const aggState = aggregateEngineState(state);
   // Friend and call notifications (requests, missed calls, calls starting
   // in voice channels you're in): which servers you're on, and where.
   const scopeRef = useRef<VoiceScope[]>([]);
@@ -278,6 +277,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
       setServerSettingsForId(null);
     } else {
       const chatState = target.chat.getState();
+      const listing = resolveListing(target, state.servers, state.listings[target.serverId]);
       return (
         <div class="app-shell">
           {!narrow && <ServerRail
@@ -299,6 +299,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           />}
           <ServerSettings
             serverDisplayName={target.server.name}
+            serverDescription={listing?.description}
+            serverWebsite={listing?.website_url}
             myNick={chatState.myNick || me.handle}
             serverInfo={chatState.serverInfo}
             serverLog={chatState.serverLog}
@@ -363,6 +365,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   }
 
   if (showChat && active && me?.handle) {
+    const activeListing = resolveListing(active, state.servers, state.listings[active.serverId]);
     return (
       <>
         <ChatLayout
@@ -392,6 +395,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           channelOrder={bloc.channelOrder(active.serverId)}
           onReorderChannels={(names) => bloc.reorderChannels(active.serverId, names)}
           onResetChannelOrder={() => bloc.resetChannelOrder(active.serverId)}
+          serverDescription={activeListing?.description}
+          serverChannels={activeListing ? [...(activeListing.autojoin_channels ?? []), ...(activeListing.channels ?? [])] : undefined}
         />
         <Modal
           open={serverBrowserOpen}
@@ -429,33 +434,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     );
   }
 
-  const displayHandle = me?.handle ? `@${me.handle}` : authState.session?.user.email ?? '';
-
-  // Phones: no second top bar under the app's. Sign out is in Settings →
-  // Account; the engine pill stays only while it leads back to a chat.
-  const topbar = !narrow || connections.length > 0;
   return (
     <div class="directory-screen">
-      {topbar && <header class="directory-topbar">
-        <div class="directory-topbar-left">
-          {engine && (
-            <EnginePill
-              state={aggState}
-              connectionsCount={connections.length}
-              connectedCount={connections.filter((c) => c.engineState === 'connected').length}
-              connected={aggState === 'connected'}
-              onOpenChat={() => bloc.openChat()}
-            />
-          )}
-        </div>
-        {!narrow && (
-          <div class="directory-topbar-right">
-            {/* Sign out lives in Settings → Account (the avatar opens it). */}
-            <span class="directory-handle">{displayHandle}</span>
-          </div>
-        )}
-      </header>}
-
       <div class="directory-container">
         {recoveryPending && me && identity.isUnlocked() ? (
           <div class="directory-setup-stage">
@@ -514,16 +494,12 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
   // Map of serverId → that connection's engineState, used by ServerRow to
   // render the "Currently connected" / "Joined" affordances.
   const connectionByServerId = new Map(connections.map((c) => [c.serverId, c]));
-  // Advanced mode — toggleable in-place, gives access to the manual server
-  // add form + per-row remove on local entries. Local-only (not persisted)
-  // because it's purely a UI affordance.
-  const [advanced, setAdvanced] = useState(false);
+  // "Add by address": a server that isn't listed (stored on this device).
   const [addOpen, setAddOpen] = useState(false);
   // The manual-add form's hostname when opened from the login screen's
-  // "Add as a plain IRC server".
+  // "Chat there as a regular IRC server".
   const [addHost, setAddHost] = useState('');
   useEffect(() => subscribeAddServer(({ hostname }) => {
-    setAdvanced(true);
     setAddHost(hostname);
     setAddOpen(true);
   }), []);
@@ -534,22 +510,37 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
   const [filtersOpen, setFiltersOpen] = useState(false);
   const activeFilters = (language !== 'all' ? 1 : 0) + (tag ? 1 : 0) + (sort ? 1 : 0) + (showNsfw ? 1 : 0);
   const filtersShown = !narrow || filtersOpen;
+  // A card's details (description, channels, Connect).
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const details = detailsId ? filteredServers?.find((s) => s.id === detailsId) ?? null : null;
   // Top-level view: the public directory, or the user's bouncer networks.
+  // The Bouncer view is for people who set one up (User settings →
+  // Bouncer); everyone else just sees the directory.
   const [view, setView] = useState<'directory' | 'bouncer'>('directory');
+  const [bouncer, setBouncer] = useState(() => getBouncerStore().get());
+  useEffect(() => getBouncerStore().subscribe(setBouncer), []);
+  const showBouncer = !!bouncer?.enabled || bloc.bouncerNetworks().length > 0 || view === 'bouncer';
+  const connect = (s: Server, join?: string): void => {
+    setDetailsId(null);
+    void bloc.connect(s, join ? { join } : {});
+  };
+  const anyConnected = connections.some((c) => c.engineState === 'connected');
   return (
     <>
       {error && (
         <WarningBanner tone="danger" title="Couldn't load directory">{error}</WarningBanner>
       )}
 
-      <div class="directory-viewtabs">
-        <Tabs
-          label="Directory view"
-          tabs={VIEW_TABS}
-          active={view}
-          onChange={(id) => setView(id as 'directory' | 'bouncer')}
-        />
-      </div>
+      {showBouncer && (
+        <div class="directory-viewtabs">
+          <Tabs
+            label="Directory view"
+            tabs={VIEW_TABS}
+            active={view}
+            onChange={(id) => setView(id as 'directory' | 'bouncer')}
+          />
+        </div>
+      )}
 
       {view === 'bouncer' && (
         <BouncerNetworksPanel bloc={bloc} connections={connections} />
@@ -557,44 +548,46 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
 
       {view === 'directory' && (<>
       <div class="directory-header">
-        <div class="directory-prompt">$ boson dir --list</div>
         <div class="directory-header-row">
           <h1 class="directory-title">Server Directory</h1>
-          {/* "Add your server" CTA is only shown to authenticated users —
-             guest users have no row in /me so registering would 401.
-             For them the Advanced toggle's manual-add path is still
-             available. */}
           <div class="directory-header-actions">
+            {anyConnected && !state.showChat && (
+              <Button variant="secondary" size="sm" onClick={() => bloc.openChat()}>Back to chat</Button>
+            )}
             <Button
               variant="ghost"
+              size="sm"
               onClick={() => bloc.refreshDirectory()}
               title="Refetch the directory from the backend"
             >
               Refresh
             </Button>
-            {me && (
-              <Button variant="secondary" onClick={() => setHostOpen(true)}>
+            {/* Listing a server needs a boson.chat account (guests have no
+                row in /me, so registering would 401). */}
+            {me && me.id !== '__guest__' && (
+              <Button variant="ghost" size="sm" class="directory-host-cta" onClick={() => setHostOpen(true)}>
                 Add your server to the community
               </Button>
             )}
           </div>
         </div>
-        {!narrow && (
-          <p class="directory-desc">
-            Discover and join self-hosted IRC servers. Browse, search, and find communities that match your interests.
-          </p>
-        )}
+        {!narrow && <p class="directory-desc">Find a community to chat in.</p>}
       </div>
 
-      <div class={`directory-filters${narrow ? ' directory-filters-phone' : ''}`}>
+      <div class="directory-search">
         <Input
           type="text"
           placeholder="Search servers…"
           value={query}
           onInput={(e) => bloc.setQuery((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); bloc.setQuery(''); } }}
           aria-label="Search servers"
+          autoComplete="off"
+          spellcheck={false}
         />
+      </div>
 
+      <div class={`directory-filters${narrow ? ' directory-filters-phone' : ''}`}>
         {narrow && (
           <div class="directory-filters-bar">
             <Button
@@ -608,14 +601,14 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
               {activeFilters > 0 ? `Filters · ${activeFilters}` : 'Filters'}
             </Button>
             <Button
-              variant="ghost"
-              pressed={advanced}
-              class="directory-advanced-toggle"
-              onClick={() => setAdvanced((v) => !v)}
-              title="Show advanced controls (add a server manually)"
-            >
-              Advanced
-            </Button>
+            variant="ghost"
+            class="directory-add-address"
+            onClick={() => { setAddHost(''); setAddOpen(true); }}
+            title="Connect to a server that isn't listed here"
+            icon={<Plus aria-hidden="true" />}
+          >
+            Add by address
+          </Button>
           </div>
         )}
 
@@ -669,28 +662,17 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           <Button
             variant="ghost"
             size="sm"
-            pressed={advanced}
-            class="directory-advanced-toggle"
-            onClick={() => setAdvanced((v) => !v)}
-            title="Show advanced controls (add a server manually)"
+            class="directory-add-address"
+            onClick={() => { setAddHost(''); setAddOpen(true); }}
+            title="Connect to a server that isn't listed here"
+            icon={<Plus aria-hidden="true" />}
           >
-            Advanced
+            Add by address
           </Button>
         )}
       </div>
 
-      {advanced && (
-        <div class="directory-advanced-actions">
-          <Button variant="secondary" onClick={() => setAddOpen(true)}>
-            + Add server manually
-          </Button>
-          <span class="directory-hint">
-            Local entries are stored on this device only — never published to the directory.
-          </span>
-        </div>
-      )}
-
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a server manually">
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a server by address">
         <AddLocalServerForm
           key={addHost}
           initialHostname={addHost}
@@ -701,6 +683,14 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           onCancel={() => setAddOpen(false)}
         />
       </Modal>
+
+      <ServerDetails
+        server={details}
+        connected={!!details && connectionByServerId.get(details.id)?.engineState === 'connected'}
+        canConnect={!!engine && !!me?.handle}
+        onConnect={connect}
+        onClose={() => setDetailsId(null)}
+      />
 
       <HostServerModal
         open={hostOpen}
@@ -740,7 +730,25 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           <span>Loading directory…</span>
         </div>
       ) : filteredServers.length === 0 ? (
-        <EmptyState class="directory-empty">
+        <EmptyState
+          class="directory-empty"
+          action={(
+            <div class="directory-empty-actions">
+              {(query.trim() || language !== 'all' || tag) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { bloc.setQuery(''); if (language !== 'all') bloc.setLanguage('all'); if (tag) bloc.setTag(''); }}
+                >
+                  {query.trim() ? 'Clear search' : 'Clear filters'}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => { setAddHost(''); setAddOpen(true); }}>
+                Add a server by address
+              </Button>
+            </div>
+          )}
+        >
           {/* The directories filter by language/topic themselves, so an empty
               page with a chip on means the filters, not the search. */}
           {(servers && servers.length > 0) || language !== 'all' || tag
@@ -760,9 +768,9 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
                 connected={conn?.engineState === 'connected'}
                 isCurrent={!!conn}
                 myHandle={me?.handle}
-                onConnect={() => { void bloc.connect(s); }}
+                onConnect={() => connect(s)}
+                onOpen={() => setDetailsId(s.id)}
                 isLocal={isLocal}
-                showRemove={advanced && isLocal}
                 onRemove={() => bloc.removeLocalServer(s.id)}
                 // The default directory goes without saying; others are named.
                 showSource={!!s.source && !s.source.isDefault}
@@ -1035,52 +1043,54 @@ interface ServerCardProps {
   isCurrent: boolean;
   myHandle: string | undefined;
   onConnect: () => void;
-  // Locally-added (advanced mode) — rendered with a 'LOCAL' chip + Remove
-  // button when `showRemove` is true.
+  // Opens the server's details (a click on the card).
+  onOpen: () => void;
+  // Added by address (stored on this device): a LOCAL chip, its address,
+  // and Remove.
   isLocal?: boolean;
-  showRemove?: boolean;
   onRemove?: () => void;
   // Name the directory that lists it (when it isn't the default).
   showSource?: boolean;
 }
 
-// One card per server. Layout mirrors the 03-directory.png mockup:
-//   - top: avatar (initials, deterministic hue) + name/online + host
-//   - body: description, tags
-//   - footer: user count / verified date + Connect/Joined/Remove
+// One card per server: avatar, name and status; description and tags;
+// people online and Connect. A click anywhere but its buttons opens the
+// server's details. The address (host:port) is a detail, not a headline —
+// only a server you added by address shows it, as that's how you know it.
 //
 // Self-contained block; the parent renders these inside a CSS grid that
 // auto-flows from 3 → 2 → 1 columns based on viewport width.
 function ServerCard({
-  server, engine, connected, isCurrent, myHandle, onConnect,
-  isLocal, showRemove, onRemove, showSource,
+  server, engine, connected, isCurrent, myHandle, onConnect, onOpen,
+  isLocal, onRemove, showSource,
 }: ServerCardProps) {
   const isOffline = server.health_status === 'down';
   const verified = server.verification_status === 'verified';
   const userCount = typeof server.user_count === 'number' ? server.user_count : null;
-  const initials = computeInitials(server.name || server.hostname);
-  const hue = hashHue(server.name || server.hostname);
   const joins = joinsLabel(server.autojoin_channels);
 
   return (
-    <article class="directory-card" role="listitem">
+    <article
+      class="directory-card"
+      role="listitem"
+      onClick={(e) => {
+        if ((e.target as Element | null)?.closest?.('button, a, input')) return;
+        onOpen();
+      }}
+    >
       <header class="directory-card-head">
-        <Avatar
-          size={44}
-          class="directory-card-avatar"
-          initial={initials}
-          color={`hsl(${hue} 70% 50%)`}
-          image={server.icon_url ? <img src={server.icon_url} alt="" loading="lazy" /> : undefined}
-        />
+        <ServerAvatar server={server} size={44} />
         <div class="directory-card-titles">
           <h3 class="directory-card-name">
-            {server.name}
+            <button type="button" class="directory-card-open" onClick={onOpen} aria-label={`${server.name}: details`}>
+              {server.name}
+            </button>
             <span class={`directory-card-status ${isOffline ? 'directory-card-status-offline' : ''}`}>
               <StatusDot status={isOffline ? 'offline' : 'online'} />
               {isOffline ? 'OFFLINE' : 'ONLINE'}
             </span>
           </h3>
-          <div class="directory-card-host">{server.hostname}:{server.port}{server.tls ? ' (TLS)' : ''}</div>
+          {isLocal && <div class="directory-card-host">{serverAddress(server)}</div>}
         </div>
       </header>
 
@@ -1129,14 +1139,14 @@ function ServerCard({
       </div>
 
       <footer class="directory-card-footer">
-        {showRemove && onRemove && (
+        {isLocal && onRemove && (
           <Button
             variant="ghost"
             size="sm"
             tone="danger"
             class="directory-local-remove"
             onClick={onRemove}
-            title="Remove this local entry"
+            title="Remove this server from this device"
           >
             Remove
           </Button>
@@ -1149,8 +1159,8 @@ function ServerCard({
               variant="primary"
               size="sm"
               onClick={onConnect}
-              disabled={!myHandle}
-              title={myHandle ? `Connect as ${myHandle}` : 'Set up your handle first'}
+              disabled={!myHandle || isOffline}
+              title={isOffline ? 'This server is offline right now' : myHandle ? `Connect as ${myHandle}` : 'Set up your handle first'}
             >
               Connect
             </Button>
@@ -1158,6 +1168,119 @@ function ServerCard({
         )}
       </footer>
     </article>
+  );
+}
+
+function serverAddress(server: Pick<Server, 'hostname' | 'port' | 'tls'>): string {
+  return `${server.hostname}:${server.port}${server.tls ? ' (TLS)' : ''}`;
+}
+
+function ServerAvatar({ server, size }: { server: Server; size: number }) {
+  return (
+    <Avatar
+      size={size}
+      class="directory-card-avatar"
+      initial={computeInitials(server.name || server.hostname)}
+      color={`hsl(${hashHue(server.name || server.hostname)} 70% 50%)`}
+      image={server.icon_url ? <img src={server.icon_url} alt="" loading="lazy" /> : undefined}
+    />
+  );
+}
+
+// How many of the network's channels the details list.
+const DETAIL_CHANNELS = 8;
+
+// A server's details (a click on its card): what it is, its channels (each
+// one joins on connect), how many people are on, and Connect — which an
+// offline server doesn't offer.
+export function ServerDetails({ server, connected, canConnect, onConnect, onClose }: {
+  server: Server | null;
+  connected: boolean;
+  canConnect: boolean;
+  onConnect: (server: Server, join?: string) => void;
+  onClose: () => void;
+}) {
+  // Keep the last server on screen while the dialog animates closed.
+  const last = useRef<Server | null>(null);
+  if (server) last.current = server;
+  const s = server ?? last.current;
+  if (!s) return null;
+  const isOffline = s.health_status === 'down';
+  const userCount = typeof s.user_count === 'number' ? s.user_count : null;
+  const autojoin = new Set((s.autojoin_channels ?? []).map((c) => c.toLowerCase()));
+  // The network's own channels, its default ones first.
+  const channels = [...new Set([...(s.autojoin_channels ?? []), ...(s.channels ?? [])])].slice(0, DETAIL_CHANNELS);
+  const joinable = canConnect && !isOffline && !connected;
+  return (
+    <Modal open={!!server} onClose={onClose} title={s.name}>
+      <div class="directory-details">
+        <div class="directory-details-head">
+          <ServerAvatar server={s} size={56} />
+          <div class="directory-details-titles">
+            <span class={`directory-card-status ${isOffline ? 'directory-card-status-offline' : ''}`}>
+              <StatusDot status={isOffline ? 'offline' : 'online'} />
+              {isOffline ? 'OFFLINE' : 'ONLINE'}
+            </span>
+            {userCount !== null && (
+              <span class="directory-details-count">
+                {userCount.toLocaleString()} {userCount === 1 ? 'person' : 'people'} online
+              </span>
+            )}
+          </div>
+        </div>
+        {s.description
+          ? <p class="directory-details-desc">{s.description}</p>
+          : <p class="directory-details-desc directory-details-muted">No description yet.</p>}
+        {s.tags.length > 0 && (
+          <div class="directory-card-tags">
+            {s.tags.map((t) => <Badge key={t} tone="neutral" class="directory-card-tag">{t.toUpperCase()}</Badge>)}
+          </div>
+        )}
+        {channels.length > 0 && (
+          <section class="directory-details-section" aria-label="Channels">
+            <h4 class="directory-details-heading">Channels</h4>
+            <div class="directory-details-channels" role="list">
+              {channels.map((c) => (
+                <ListRow
+                  key={c}
+                  class="directory-details-channel"
+                  rowProps={{ role: 'listitem' }}
+                  title={c}
+                  subtitle={autojoin.has(c.toLowerCase()) ? 'Everyone starts here' : undefined}
+                  trailing={joinable ? (
+                    <Button variant="secondary" size="sm" onClick={() => onConnect(s, c)} aria-label={`Join ${c}`}>Join</Button>
+                  ) : undefined}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+        <dl class="directory-details-facts">
+          {s.website_url && (
+            <>
+              <dt>Website</dt>
+              <dd><a href={s.website_url} target="_blank" rel="noopener noreferrer">{s.website_url.replace(/^https?:\/\//, '')}</a></dd>
+            </>
+          )}
+          <dt>Address</dt>
+          <dd class="directory-details-address">{serverAddress(s)}</dd>
+        </dl>
+        <div class="directory-details-actions">
+          {connected ? (
+            <Badge tone="neutral" class="directory-list-joined">Joined</Badge>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={() => onConnect(s)}
+              disabled={!joinable}
+              title={isOffline ? 'This server is offline right now' : undefined}
+            >
+              {isOffline ? 'Offline' : 'Connect'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1263,7 +1386,7 @@ function hashHue(s: string): number {
   return Math.abs(h) % 360;
 }
 
-// "Add server manually" form (advanced mode). Local-only — never sent to the
+// "Add by address" form. Local-only — never sent to the
 // Boson directory backend. Sensible defaults: TLS on, port 6697. Submitting
 // adds it to the merged directory list immediately; the connection itself
 // still uses the regular Connect button.
@@ -1324,8 +1447,20 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
     });
   };
 
+  // TLS on/off moves the port between the usual two, unless it was set to
+  // something else.
+  const setTlsAndPort = (on: boolean): void => {
+    setTls(on);
+    setPort((p) => (on && p.trim() === '6667' ? '6697' : !on && p.trim() === '6697' ? '6667' : p));
+  };
+  // Everything past host, port and name: open when it holds something (a
+  // validation error there, or a plain-text connection).
+  const [more, setMore] = useState(false);
+  const moreOpen = more || !!(err && err.toLowerCase().includes('sasl'));
+
   return (
     <form class="directory-add-form" onSubmit={submit}>
+      <p class="directory-hint">Connect to any IRC server, listed or not. It's saved on this device only.</p>
       <Field
         label="Hostname"
         hint="e.g. irc.example.org or 192.168.1.42 — local-network addresses work."
@@ -1345,7 +1480,7 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
       <div class="directory-add-form-row">
         <Field
           label="Port"
-          hint="6697 (TLS) or 6667 (plaintext)."
+          hint={tls ? 'Usually 6697 (TLS).' : 'Usually 6667 (no TLS).'}
           error={err && err.toLowerCase().includes('port') ? err : undefined}
         >
           <Input
@@ -1353,6 +1488,7 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
             onInput={(e) => setPort((e.target as HTMLInputElement).value)}
             autoComplete="off"
             spellcheck={false}
+            inputMode="numeric"
           />
         </Field>
         <Field label="Display name" hint="Defaults to the hostname.">
@@ -1366,110 +1502,90 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
         </Field>
       </div>
 
-      <Toggle checked={tls} onChange={setTls} label="Use TLS (recommended)" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        class="directory-add-more"
+        aria-expanded={moreOpen}
+        onClick={() => setMore((v) => !v)}
+      >
+        {moreOpen ? '▾' : '▸'} More options
+      </Button>
 
-      {tls && (
-        <Toggle
-          checked={tlsInsecure}
-          onChange={setTlsInsecure}
-          label="Skip certificate verification (self-signed certs)"
-        />
+      {moreOpen && (
+        <div class="directory-add-more-body">
+          <Toggle checked={tls} onChange={setTlsAndPort} label="Use TLS (recommended)" />
+
+          {tls && (
+            <Toggle
+              checked={tlsInsecure}
+              onChange={setTlsInsecure}
+              label="Skip certificate verification (self-signed certs)"
+            />
+          )}
+
+          <Field
+            label="Server password"
+            hint="Optional. Sent as the IRC PASS line — for private daemons or a bouncer."
+          >
+            <Input
+              type="password"
+              placeholder="••••••••"
+              value={serverPass}
+              onInput={(e) => setServerPass((e.target as HTMLInputElement).value)}
+              autoComplete="off"
+              spellcheck={false}
+            />
+          </Field>
+
+          <div class="directory-add-form-row">
+            <Field
+              label="SASL account"
+              hint="Optional SASL PLAIN login."
+              error={err && err.toLowerCase().includes('sasl') ? err : undefined}
+            >
+              <Input
+                placeholder="account"
+                value={saslUser}
+                onInput={(e) => setSaslUser((e.target as HTMLInputElement).value)}
+                autoComplete="off"
+                spellcheck={false}
+              />
+            </Field>
+            <Field label="SASL password" hint="Paired with the SASL account.">
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={saslPass}
+                onInput={(e) => setSaslPass((e.target as HTMLInputElement).value)}
+                autoComplete="off"
+                spellcheck={false}
+              />
+            </Field>
+          </div>
+
+          <Field
+            label="NickServ password"
+            hint="Optional. Auto-identifies to NickServ after connecting. Editable later in Services."
+          >
+            <Input
+              type="password"
+              placeholder="••••••••"
+              value={nickservPass}
+              onInput={(e) => setNickservPass((e.target as HTMLInputElement).value)}
+              autoComplete="off"
+              spellcheck={false}
+            />
+          </Field>
+        </div>
       )}
-
-      <Field
-        label="Server password"
-        hint="Optional. Sent as the IRC PASS line — for private daemons or a bouncer."
-      >
-        <Input
-          type="password"
-          placeholder="••••••••"
-          value={serverPass}
-          onInput={(e) => setServerPass((e.target as HTMLInputElement).value)}
-          autoComplete="off"
-          spellcheck={false}
-        />
-      </Field>
-
-      <div class="directory-add-form-row">
-        <Field
-          label="SASL account"
-          hint="Optional SASL PLAIN login."
-          error={err && err.toLowerCase().includes('sasl') ? err : undefined}
-        >
-          <Input
-            placeholder="account"
-            value={saslUser}
-            onInput={(e) => setSaslUser((e.target as HTMLInputElement).value)}
-            autoComplete="off"
-            spellcheck={false}
-          />
-        </Field>
-        <Field label="SASL password" hint="Paired with the SASL account.">
-          <Input
-            type="password"
-            placeholder="••••••••"
-            value={saslPass}
-            onInput={(e) => setSaslPass((e.target as HTMLInputElement).value)}
-            autoComplete="off"
-            spellcheck={false}
-          />
-        </Field>
-      </div>
-
-      <Field
-        label="NickServ password"
-        hint="Optional. Auto-identifies to NickServ after connecting. Editable later in Services."
-      >
-        <Input
-          type="password"
-          placeholder="••••••••"
-          value={nickservPass}
-          onInput={(e) => setNickservPass((e.target as HTMLInputElement).value)}
-          autoComplete="off"
-          spellcheck={false}
-        />
-      </Field>
 
       <div class="directory-add-actions">
         <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
         <Button type="submit" variant="primary">Add server</Button>
       </div>
     </form>
-  );
-}
-
-const ENGINE_DOT: Record<EngineState, 'offline' | 'away' | 'online' | 'error'> = {
-  idle: 'offline', connecting: 'away', connected: 'online', disconnected: 'error',
-};
-
-interface EnginePillProps {
-  state: EngineState;
-  connectionsCount: number;
-  connectedCount: number;
-  connected: boolean;
-  onOpenChat: () => void;
-}
-
-function EnginePill({ state, connectionsCount, connectedCount, connected, onOpenChat }: EnginePillProps) {
-  // Multi-server label: "3 servers · 2 connected" when more than one. Falls
-  // back to the original single-state label when nothing's open.
-  const label = connectionsCount === 0
-    ? `engine · ${state}`
-    : connectionsCount === 1
-      ? `engine · ${state}`
-      : `${connectionsCount} servers · ${connectedCount} connected`;
-  return (
-    <Button
-      variant="secondary"
-      size="sm"
-      class={`engine-pill engine-pill-${state}`}
-      onClick={onOpenChat}
-      disabled={!connected}
-      title={connected ? 'Open chat' : `Engine: ${state}`}
-      icon={<StatusDot status={ENGINE_DOT[state]} pulse={state === 'connecting'} />}
-    >
-      {label}
-    </Button>
   );
 }
 

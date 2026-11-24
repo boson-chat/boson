@@ -295,6 +295,29 @@
   transition: background var(--motion-fast) var(--ease-standard);
 }
 
+/* Desktop message actions (Reply / Copy / Profile): a small toolbar on the
+   row's top-right corner while it's hovered or has focus. Touch screens use
+   the long-press sheet instead. */
+.message-row { position: relative; }
+.message-toolbar {
+  position: absolute;
+  top: calc(var(--space-2) * -1);
+  right: var(--space-3);
+  z-index: 2;
+  display: none;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.25);
+}
+.message-row:focus-within > .message-toolbar { display: flex; }
+@media (hover: hover) {
+  .message-row:hover > .message-toolbar { display: flex; }
+}
+.app-shell.is-narrow .message-toolbar { display: none !important; }
+
 /* Hover-capable pointers only: on a touch screen the highlight would stick
    to the last row tapped. */
 @media (hover: hover) {
@@ -322,10 +345,16 @@
    their own pings while scanning. The inline .mention-self pill is bolder. */
 .message-row-mention {
   background: color-mix(in oklab, var(--accent), transparent 92%);
-  border-left: 2px solid var(--accent);
-  margin-left: calc(var(--space-3) * -1 - 2px);
-  padding-left: calc(var(--space-3) - 0px);
+  /* A 2px edge drawn inside the row (no border: it would widen the row and
+     shift its text off the column). Square on that side so it reads as a
+     straight edge, not a thick rounded bar. */
+  box-shadow: inset 2px 0 0 var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
+/* The tint washes out the faint grouped time; keep it readable. */
+.message-row-mention .message-row-grouped-time { opacity: 0.85; }
+.message-row-mention .message-row-time,
+.message-row-mention .message-row-grouped-time { color: var(--fg-2); }
 
 .message-action-mention {
   background: color-mix(in oklab, var(--accent), transparent 92%);
@@ -413,12 +442,6 @@
 
 .message-row-mine .message-row-name { color: var(--accent); }
 
-.message-row-handle {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--fg-3);
-}
-
 .message-row-time {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -439,8 +462,7 @@
 
 /* Ensure the nick + handle truncate before they can push the timestamp off
    the row. min-width:0 unlocks shrinkability on flex children. */
-.message-row-header .message-row-name,
-.message-row-header .message-row-handle {
+.message-row-header .message-row-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1028,6 +1050,15 @@
   font-family: var(--font-mono);
 }
 /* "Beginning of history" — nothing older to fetch. */
+/* No scrollback on this server: why the conversation starts here. */
+.chat-beginning-note {
+  margin: var(--space-3) auto var(--space-2);
+  max-width: 36rem;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+}
+
 .chat-load-older-end {
   font-size: var(--text-xs);
   color: var(--fg-3);

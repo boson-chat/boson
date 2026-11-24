@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/preact';
+import { fireEvent, render, screen } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { ChatLayout } from './ChatLayout';
 import type { ChatService, ChatState } from '../../modules/chat';
@@ -63,6 +63,8 @@ const populatedState: ChatState = {
 
 describe('ChatLayout', () => {
   it('renders all four columns', () => {
+    // The member list shows by default in a wide window (MEMBERS_AUTO_WIDTH).
+    (window as unknown as { happyDOM: { setInnerWidth(w: number): void } }).happyDOM.setInnerWidth(1400);
     render(
       <ChatLayout
         chat={buildFakeChat(emptyState)}
@@ -77,6 +79,29 @@ describe('ChatLayout', () => {
     expect(screen.getAllByText('Boson HQ').length).toBeGreaterThan(0);
     // User panel
     expect(screen.getByText('Members', { exact: false })).toBeInTheDocument();
+    (window as unknown as { happyDOM: { setInnerWidth(w: number): void } }).happyDOM.setInnerWidth(1024);
+  });
+
+  it('starts without the member list in a narrower desktop window; the header button toggles it', () => {
+    (window as unknown as { happyDOM: { setInnerWidth(w: number): void } }).happyDOM.setInnerWidth(1100);
+    try {
+      render(
+        <ChatLayout
+          chat={buildFakeChat(populatedState)}
+          serverName="Boson HQ"
+          myNick="me"
+          onBrowseServers={() => {}}
+        />,
+      );
+      expect(document.querySelector('.user-panel')).toBeNull();
+      const toggle = screen.getByRole('button', { name: /Show members/ });
+      fireEvent.click(toggle);
+      expect(document.querySelector('.user-panel')).not.toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /Hide members/ }));
+      expect(document.querySelector('.user-panel')).toBeNull();
+    } finally {
+      (window as unknown as { happyDOM: { setInnerWidth(w: number): void } }).happyDOM.setInnerWidth(1024);
+    }
   });
 
   it('renders active channel header and messages', () => {

@@ -193,7 +193,7 @@ test.describe('network channels: only admins create channels', () => {
       // A channel that doesn't exist: Ergo says "Only server operators can
       // create new channels" (403); the app says what that means here.
       await sidebar(page).getByRole('button', { name: 'Add channel' }).click();
-      const box = dialog.getByPlaceholder('Search channels by name or topic — or type #channel to join directly');
+      const box = dialog.getByRole('textbox', { name: 'Channel name' });
       await box.fill(missing);
       await expect(dialog.getByText('Only admins can create new channels here.', { exact: false })).toBeVisible();
       await box.press('Enter');

@@ -114,7 +114,10 @@ test('register a server through the UI, verify it, and find it in the directory'
   const card = serverCard(page, name);
   await expect(card).toBeVisible();
   await expect(card.locator('.directory-card-tag')).toHaveText(['VERIFIED', 'FOSS', 'CHAT']);
-  await expect(card.locator('.directory-card-host')).toHaveText(`${host}:${IRC_PORT}`);
+  // Its address is in its details.
+  await card.locator('.directory-card-desc, .directory-card-tags').first().click();
+  await expect(page.getByRole('dialog', { name }).locator('.directory-details-address')).toHaveText(`${host}:${IRC_PORT}`);
+  await page.keyboard.press('Escape');
 });
 
 test('pending and lapsed rows; expired token → regenerate; verify rate limit', async ({ launchApp, account }) => {

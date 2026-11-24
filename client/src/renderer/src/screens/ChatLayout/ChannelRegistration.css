@@ -130,3 +130,16 @@
 /* Header shield next to the channel name. */
 .chat-reg-badge { color: var(--fg-3); }
 .chat-reg-badge-on { color: var(--success); }
+
+/* An operator's unregistered channel: a worded chip, not just an icon. */
+.chat-reg-chip {
+  color: var(--warn);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.02em;
+}
+/* "Register it so it stays yours", under the header. */
+.chat-reg-strip { flex-wrap: wrap; row-gap: var(--space-1); padding-block: var(--space-2); }
+.chat-reg-strip-icon { width: 14px; height: 14px; color: var(--warn); flex-shrink: 0; }
+.chat-reg-strip-text { flex: 1 1 16rem; min-width: 0; white-space: normal; font-family: var(--font-body); font-size: var(--text-sm); color: var(--fg-2); }
+.chat-reg-strip-text strong { color: var(--fg); }

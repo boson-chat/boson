@@ -76,8 +76,8 @@ test.describe('message rendering', () => {
     await expect(link).toHaveAttribute('href', url);
     await link.click();
     await expect.poll(openedExternally).toContain(url);
-    // The website preview for it settles to "unavailable".
-    await expect(row('fmt8').locator('.embed-linkcard-hint')).toHaveText('Preview unavailable — open in browser', { timeout: 20_000 });
+    // The website preview for it fails, and then there's no card at all.
+    await expect(row('fmt8').locator('.embed-website')).toHaveCount(0, { timeout: 20_000 });
   });
 
   test('pasted tables and preformatted blocks', async ({ launchApp }) => {

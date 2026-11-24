@@ -49,8 +49,9 @@ test.describe('use another server', () => {
     await page.getByRole('button', { name: 'Use another server' }).click();
     await page.getByLabel('Server address').fill('nothing-here.invalid');
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText(/Couldn't reach|isn't a Boson network/, { timeout: 15_000 });
-    await expect(page.getByRole('button', { name: 'Add as a plain IRC server' })).toBeVisible();
+    // A name with no DNS record is a typo, not an IRC server (the desktop
+    // shell looks the name up; the web one can't, and says both).
+    await expect(page.getByRole('alert')).toContainText(/Couldn't find nothing-here\.invalid\. Check the spelling|Couldn't reach nothing-here\.invalid as a Boson network/, { timeout: 15_000 });
     await shot(page, '02-not-found');
 
     await page.getByLabel('Server address').fill(NET.irc.host);

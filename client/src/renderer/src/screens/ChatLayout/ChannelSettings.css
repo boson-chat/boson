@@ -94,3 +94,19 @@
   overflow-y: auto;
 }
 .chan-ban-mask { font: inherit; }
+
+/* Plain-language settings (who can join / talk, topic, visibility). */
+.chan-settings .chan-param-label { min-width: 6.5rem; }
+.chan-param-hint { margin-top: calc(var(--space-2) * -1); padding-left: calc(6.5rem + var(--space-2)); }
+.chan-ban-who { font-weight: 600; color: var(--fg); overflow-wrap: anywhere; }
+.chan-ban-sub { display: inline-flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; }
+.chan-ban-sub .chan-ban-mask { font-size: var(--text-xs); color: var(--fg-3); }
+.chan-ban-pick .chan-ban-select { flex: 1; min-width: 0; }
+.chan-ban-advanced-summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--fg-3);
+  width: fit-content;
+  margin-bottom: var(--space-2);
+}
+.chan-ban-advanced-summary:hover { color: var(--fg-2); }

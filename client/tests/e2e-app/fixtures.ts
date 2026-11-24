@@ -246,24 +246,26 @@ export async function continueAsGuest(page: Page, nick: string): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible({ timeout: 20_000 });
 }
 
-// Directory → Advanced → "+ Add server manually" → fill → Add. Leaves the
+// Directory → "Add by address" → fill → Add. Leaves the
 // new card visible in the directory grid.
 export async function addServerManually(
   page: Page,
   s: { hostname: string; port: number; name: string; tls?: boolean },
 ): Promise<void> {
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-  await page.getByRole('button', { name: '+ Add server manually' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add a server manually' });
+  await page.getByRole('button', { name: 'Add by address' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a server by address' });
   await expect(dialog).toBeVisible();
   await field(dialog, 'Hostname').fill(s.hostname);
   await field(dialog, 'Port').fill(String(s.port));
   await field(dialog, 'Display name').fill(s.name);
+  await dialog.getByRole('button', { name: /More options/ }).click();
   const tls = dialog.getByRole('checkbox', { name: 'Use TLS (recommended)' });
   // The checkbox itself is visually hidden behind the toggle track; click
   // the wrapping label like a user would.
   if ((await tls.isChecked()) !== (s.tls ?? false)) await dialog.getByText('Use TLS (recommended)').click();
   await expect(tls).toBeChecked({ checked: s.tls ?? false });
+  // TLS on/off moves a default port; set it after.
+  await field(dialog, 'Port').fill(String(s.port));
   await dialog.getByRole('button', { name: /^Add/ }).click();
   await expect(dialog).toBeHidden();
 }
@@ -276,7 +278,7 @@ export function serverCard(page: Page, name: string): Locator {
 // is the active conversation (composer placeholder names it).
 export async function joinChannel(page: Page, channel: string): Promise<void> {
   await page.getByRole('button', { name: 'Add channel' }).click();
-  const input = page.getByPlaceholder('Search channels by name or topic — or type #channel to join directly');
+  const input = page.getByRole('textbox', { name: 'Channel name' });
   await input.fill(channel);
   await input.press('Enter');
   await expect(composer(page, channel)).toBeVisible({ timeout: 20_000 });

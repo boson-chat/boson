@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -407,5 +408,27 @@ func TestNetAuthResolveOverride(t *testing.T) {
 	}
 	if info := svc.Discover("localhost", false); info.BrandingURL != "http://127.0.0.1:18999/branding.json" {
 		t.Fatalf("override discover: %+v", info)
+	}
+}
+
+func TestNetAuthResolveUnreachableDetail(t *testing.T) {
+	svc := &NetAuthService{}
+	ctx := context.Background()
+	if got := svc.unreachableDetail(ctx, "x.org"); got != "" {
+		t.Fatalf("no resolver: %q", got)
+	}
+	svc.lookupHost = func(context.Context, string) ([]string, error) {
+		return nil, &net.DNSError{Err: "no such host", Name: "typo.invalid", IsNotFound: true}
+	}
+	if got := svc.unreachableDetail(ctx, "typo.invalid"); got != resolveNotFound {
+		t.Fatalf("typo: %q", got)
+	}
+	svc.lookupHost = func(context.Context, string) ([]string, error) { return []string{"192.0.2.1"}, nil }
+	if got := svc.unreachableDetail(ctx, "irc.example.net"); got != resolveHostExists {
+		t.Fatalf("plain irc host: %q", got)
+	}
+	svc.lookupHost = func(context.Context, string) ([]string, error) { return nil, errors.New("timeout") }
+	if got := svc.unreachableDetail(ctx, "x.org"); got != "" {
+		t.Fatalf("unknown: %q", got)
 	}
 }

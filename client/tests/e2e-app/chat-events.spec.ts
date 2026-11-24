@@ -80,7 +80,8 @@ test.describe('channel events from others', () => {
     // …and then the app itself: the channel leaves the sidebar.
     alice.send(`KICK ${channel} ${nick} :your turn`);
     await expect(conversation(page, channel)).toHaveCount(0);
-    await expect(page.getByText('Select a channel from the sidebar, or join one to start chatting.')).toBeVisible();
+    // In no channel of the server now: its welcome, with channels to join.
+    await expect(page.getByRole('region', { name: /^Welcome to / })).toBeVisible();
   });
 
   test('DMs, unread + mention badges, channel switching and desktop notifications', async ({ launchApp }) => {
@@ -228,21 +229,23 @@ test.describe('channel events from others', () => {
     await expect(memberRow(page, alice.nick)).toHaveClass(/user-panel-item-away/);
     await expect(memberRow(page, alice.nick).getByLabel('Away')).toBeVisible();
 
-    // Hover card: role, mask, away message.
+    // Hover card: role and away message; the IRC mask stays out of it.
     await memberRow(page, alice.nick).hover();
     const card = page.getByRole('tooltip');
     await expect(card).toContainText(alice.nick);
     await expect(card).toContainText('Member');
     await expect(card).toContainText('out for lunch');
-    await expect(card).toContainText('Mask');
-    await expect(card).toContainText(`${alice.nick}!`);
+    await expect(card).not.toContainText('Mask');
     await page.mouse.move(0, 0);
     await expect(card).toHaveCount(0);
 
     // A click opens the profile, filled in by a WHOIS: her channels.
     await memberRow(page, alice.nick).click();
     const profile = page.getByRole('dialog', { name: alice.nick });
-    await expect(profile).toContainText('Mask');
+    // The mask is under Details.
+    await profile.getByText('Details', { exact: true }).click();
+    await expect(profile.getByText('Mask')).toBeVisible();
+    await expect(profile).toContainText(`${alice.nick}!`);
     await expect(profile).toContainText(channel, { timeout: 10_000 });
     await page.keyboard.press('Escape');
     await expect(profile).toHaveCount(0);
