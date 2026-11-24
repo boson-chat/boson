@@ -37,7 +37,7 @@ test.describe('replies and search', () => {
 
     // Reply from the message's hover toolbar: the composer says who to.
     await row('q1 which port').hover();
-    await row('q1 which port').getByRole('button', { name: 'Reply' }).click();
+    await row('q1 which port').getByRole('button', { name: 'Reply', exact: true }).click();
     const bar = page.locator('.chat-reply-bar');
     await expect(bar).toContainText(`Replying to ${peer.nick}`);
     await expect(bar).toContainText('q1 which port does it listen on?');
@@ -50,9 +50,27 @@ test.describe('replies and search', () => {
     await expect(row('a1 6697').locator('.message-reply-quote')).toContainText(peer.nick);
     await expect(row('a1 6697').locator('.message-reply-quote-text')).toHaveText('q1 which port does it listen on?');
 
+    // echo-message: our line came back with the server's msgid, which it
+    // now carries (one line, not two), so it can be replied to — by us…
+    const ownId = sent.tags['msgid'];
+    expect(ownId).toBeTruthy();
+    await expect(row('a1 6697')).toHaveCount(1);
+    await row('a1 6697').hover();
+    await row('a1 6697').getByRole('button', { name: 'Reply', exact: true }).click();
+    await expect(bar).toContainText(`Replying to ${nick}`);
+    mark = peer.mark();
+    await say(page, 'a2 and 6667 is going away');
+    const ownReply = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'a2 and 6667 is going away', mark);
+    expect(ownReply.tags['+draft/reply']).toBe(ownId);
+    await expect(row('a2 and 6667').locator('.message-reply-quote-author')).toHaveText(nick);
+    // …and by others: their reply quotes our line.
+    peer.send(`@+draft/reply=${ownId} PRIVMSG ${channel} :r0 thanks`);
+    await expect(row('r0 thanks').locator('.message-reply-quote-author')).toHaveText(nick);
+    await expect(row('r0 thanks').locator('.message-reply-quote-text')).toHaveText('a1 6697, with TLS');
+
     // Escape cancels a reply in progress; the next line is plain.
     await row('q1 which port').hover();
-    await row('q1 which port').getByRole('button', { name: 'Reply' }).click();
+    await row('q1 which port').getByRole('button', { name: 'Reply', exact: true }).click();
     await expect(bar).toBeVisible();
     await page.locator('textarea.chat-textarea').press('Escape');
     await expect(bar).toHaveCount(0);

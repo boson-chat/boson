@@ -123,6 +123,11 @@ const SERVER_LOG_CAP = 200;
 // A sent message still unconfirmed after this long (see send()) gets the
 // connection checked: a healthy server answers well within it.
 const ACK_STALL_MS = 4000;
+// echo-message: how long a sent line waits for its echo (see awaitEcho).
+const ECHO_WAIT_MS = 60_000;
+// A line longer than this (UTF-8 bytes) may come back in parts: the engine
+// splits what doesn't fit one IRC line.
+const ECHO_SPLIT_MIN_BYTES = 300;
 // How long a rejoin (ChatService.rejoin) waits for the JOIN or a refusal.
 const REJOIN_TIMEOUT_MS = 15_000;
 
@@ -306,6 +311,10 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: 'topic',   usage: '/topic [new topic]',   description: 'Set (or view) the current channel topic' },
   { name: 'raw',     usage: '/raw <IRC line>',     description: 'Send a raw IRC protocol line. Power-user escape hatch.' },
 ];
+
+function utf8Length(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
 
 // IRCv3 replies: a client-only tag carrying the msgid of the message
 // answered. Still a draft spec, so servers (Ergo, soju) relay it as
@@ -1534,6 +1543,133 @@ export class ChatService {
     this.sendTracked(this.channelKey(channel), id, message, replyTo);
   }
 
+  // ---- echo-message ---------------------------------------------------
+  //
+  // With IRCv3 echo-message the server sends each of our lines back, with
+  // its msgid and server time. We still show a line the moment it's sent
+  // (the local copy); its echo then gives that copy the msgid (so it can be
+  // replied to, and replies to it find it) instead of adding a second line.
+  //
+  // Matching: every line we send waits in `awaitingEcho` (conversation, kind,
+  // text), and an echo takes the oldest waiting entry with the same
+  // conversation + text — lines to one target reach the server, and come
+  // back, in the order sent, so FIFO pairs them even when the same text was
+  // sent twice in a row. (labeled-response would pair them by label, but
+  // needs a label on every line through the engine's send queue and its
+  // coalescing; the order is already guaranteed per target.) A long line the
+  // engine split comes back in parts: the first part matches the start of
+  // the waiting text and takes the msgid, the rest are swallowed.
+  //
+  // An echo nothing waits for was sent from elsewhere — another device on
+  // the same bouncer account — and is shown once, as ours (msgid dedupe).
+  // Lines to services (NickServ IDENTIFY …), bouncer modules and CTCP other
+  // than ACTION never get a line of their own.
+  private awaitingEcho: Array<{ key: string; id: string; kind: ChatMessageKind; text: string; at: number; offset: number }> = [];
+
+  private echoEnabled(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('echo-message');
+  }
+
+  private awaitEcho(key: string, id: string, kind: ChatMessageKind, text: string): void {
+    if (!this.echoEnabled()) return;
+    const now = Date.now();
+    // A resend replaces the entry of the send that never came back.
+    this.awaitingEcho = this.awaitingEcho.filter((a) => a.id !== id && now - a.at < ECHO_WAIT_MS);
+    this.awaitingEcho.push({ key, id, kind, text, at: now, offset: 0 });
+  }
+
+  private handleOwnEcho(e: IrcEvent): void {
+    const t = e.Target!;
+    const isChannel = t.startsWith('#') || t.startsWith('&');
+    let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
+    let text = e.Message ?? '';
+    const ctcp = parseCtcp(text);
+    if (ctcp) {
+      // CTCP requests and replies (VERSION, PING, the engine's answers) are
+      // machine talk: nothing to show. ACTION is `/me`.
+      if (ctcp.command !== 'ACTION' || e.Kind === 'NOTICE') return;
+      kind = 'action';
+      text = ctcp.args;
+    }
+    if (this.matchEcho(t, kind, text, e)) return;
+    // Commands to services and bouncer modules have no conversation of
+    // their own (unless one was opened: /msg NickServ … matched above).
+    if (!isChannel && (isServiceSender(t) || isServerWildcardTarget(t))) return;
+    // From another device: once, as ours. (A note to self comes back twice,
+    // as the echo and as the delivery: same msgid, kept once.)
+    this.appendMessage(t, {
+      id: this.id(),
+      kind,
+      from: this.myNick,
+      text,
+      timestamp: this.timestampOf(e),
+      msgid: e.Tags?.msgid,
+      ...replyOf(e.Tags),
+      ...this.serverTimeOf(e),
+    });
+  }
+
+  // Pair an echo with the line waiting for it; true when it was one of ours.
+  private matchEcho(target: string, kind: ChatMessageKind, text: string, e: IrcEvent): boolean {
+    const now = Date.now();
+    this.awaitingEcho = this.awaitingEcho.filter((a) => now - a.at < ECHO_WAIT_MS);
+    const lower = target.toLowerCase();
+    const trimEnd = (x: string): string => x.replace(/\s+$/, '');
+    const want = trimEnd(text);
+    const same = (a: { key: string; kind: ChatMessageKind }): boolean => a.key.toLowerCase() === lower && a.kind === kind;
+    // The whole line (a blank paste line may come back trimmed)…
+    let i = this.awaitingEcho.findIndex((a) => same(a) && a.offset === 0 && trimEnd(a.text) === want);
+    let whole = i >= 0;
+    // …or the next part of a long line the engine split.
+    if (i < 0 && want.trim()) {
+      i = this.awaitingEcho.findIndex((a) => {
+        if (!same(a) || utf8Length(a.text) < ECHO_SPLIT_MIN_BYTES) return false;
+        return a.text.slice(a.offset).trimStart().startsWith(want.trimStart());
+      });
+    }
+    if (i < 0) return false;
+    const a = this.awaitingEcho[i]!;
+    if (!whole) {
+      const rest = a.text.slice(a.offset);
+      const skipped = rest.length - rest.trimStart().length;
+      const first = a.offset === 0;
+      a.offset += skipped + want.trimStart().length;
+      whole = trimEnd(a.text.slice(a.offset)) === '';
+      if (!first) {
+        if (whole) this.awaitingEcho.splice(i, 1);
+        return true;
+      }
+    }
+    if (whole) this.awaitingEcho.splice(i, 1);
+    this.adoptEcho(a.key, a.id, e);
+    return true;
+  }
+
+  // The local copy takes the echo's msgid and server time; it has reached
+  // the server, so it's no longer pending (a reconnect won't resend it).
+  private adoptEcho(key: string, id: string, e: IrcEvent): void {
+    const ch = this.channels.get(key);
+    if (!ch) return;
+    const msgid = e.Tags?.msgid;
+    let updated: ChatMessage | null = null;
+    const next = ch.messages.peek().map((m) => {
+      if (m.id !== id) return m;
+      const { pending: _sent, ...rest } = m;
+      updated = { ...rest, ...(msgid ? { msgid } : {}), ...this.serverTimeOf(e) };
+      return updated;
+    });
+    if (!updated) return;
+    ch.messages.value = next;
+    this.emit();
+    // The stored copy too (same id and time: replaced, not added).
+    if (this.persistMessages && this.persistence) {
+      const { history, scope } = this.persistence;
+      void history
+        .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, stripPending(updated))
+        .catch(() => {});
+    }
+  }
+
   // Whether a reply can be sent as a real one (IRCv3 `+draft/reply`): the
   // server negotiated `message-tags`, so it relays client-only tags.
   repliesSupported(): boolean {
@@ -1551,6 +1687,7 @@ export class ChatService {
   private ackStallTimer: ReturnType<typeof setTimeout> | null = null;
 
   private sendTracked(channel: string, id: string, text: string, replyTo?: string): void {
+    this.awaitEcho(channel, id, 'message', text);
     const seq = ++this.ackSeq;
     this.unacked.push({ seq, channel, id });
     if (replyTo) this.session.privmsg(channel, text, seq, { [REPLY_TAG]: replyTo });
@@ -2101,14 +2238,16 @@ export class ChatService {
     if (!args.trim()) return this.systemHere('Usage: /me <action>');
     // CTCP ACTION: PRIVMSG body wrapped in \x01ACTION ...\x01
     const wrapped = `ACTION ${args}`;
+    const id = this.id();
     this.session.privmsg(this.activeChannel, wrapped);
     this.appendMessage(this.activeChannel, {
-      id: this.id(),
+      id,
       kind: 'action',
       from: this.myNick,
       text: args,
       timestamp: Date.now(),
     });
+    this.awaitEcho(this.channelKey(this.activeChannel), id, 'action', args);
   }
 
   private cmdClear(): void {
@@ -2625,7 +2764,10 @@ export class ChatService {
     // This is intentionally noisy — the panel exists so users / devs can see
     // exactly what the engine is forwarding during connect (NOTICE / 001 /
     // MOTD / ISUPPORT) and during normal operation.
-    this.appendServerLog({
+    // Not our own lines echoed back (echo-message): that would put what we
+    // sent services — IDENTIFY with a password — in the log.
+    const ownEcho = (e.Kind === 'PRIVMSG' || e.Kind === 'NOTICE') && this.isMe(e.From) && this.echoEnabled();
+    if (!ownEcho) this.appendServerLog({
       id: this.id(),
       kind: e.Kind,
       from: e.From,
@@ -2649,6 +2791,8 @@ export class ChatService {
       case 'PRIVMSG':
       case 'NOTICE': {
         if (!e.Target) return;
+        // echo-message: our own line, back from the server with its msgid.
+        if (this.isMe(e.From) && this.echoEnabled()) { this.handleOwnEcho(e); return; }
         const t = e.Target;
         const isToMe = this.isMe(t);
         const isChannel = t.startsWith('#') || t.startsWith('&');
@@ -3329,6 +3473,9 @@ export class ChatService {
         this.syncMyNickFromNumeric(e.Target);
         this.welcomed = true;
         this.startNickReclaim();
+        // A new connection: echoes of lines sent on the last one won't come
+        // (what's still pending is resent, and waits again).
+        this.awaitingEcho = [];
         this.requestAttachBacklog();
         for (const key of Array.from(this.channels.keys())) {
           if (!key.startsWith('#') && !key.startsWith('&')) this.resendPending(key);
@@ -4035,7 +4182,9 @@ export class ChatService {
     const ch = this.ensureChannel(channel);
     // De-dupe (msgid or content) so live + chathistory + bouncer-replay copies
     // of the same message collapse instead of stacking up on every reconnect.
-    if (this.isDuplicateMessage(ch, msg)) return;
+    // A line we just sent is never a copy (a paste can repeat a line within
+    // the same millisecond).
+    if (!msg.pending && this.isDuplicateMessage(ch, msg)) return;
     // Immutable reassignment (the signal must see a new array reference to
     // notify). Insert by timestamp so out-of-order arrivals — chiefly ZNC/
     // bouncer buffer replay, whose messages carry old server-time tags — land

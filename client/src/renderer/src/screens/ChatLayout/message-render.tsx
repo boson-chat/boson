@@ -113,7 +113,8 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   const rowRef = useRef<HTMLDivElement>(null);
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number } | null>(null);
   const theirs = msg.from !== myNick;
-  const reply = !theirs || msg.pending ? undefined
+  // Your own line too, once the server has given it a msgid (echo-message).
+  const reply = msg.pending || (!theirs && !msg.msgid) ? undefined
     : nickActions?.onReply ? () => nickActions.onReply!(msg)
       : nickActions?.onMention ? () => nickActions.onMention!(msg.from) : undefined;
   const copyText = (): void => { void navigator.clipboard?.writeText(stripIrcFormatting(msg.text)); };

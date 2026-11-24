@@ -470,6 +470,23 @@ func TestClient_CTCPRepliesQueuedAndCoalesced(t *testing.T) {
 	assert.Empty(t, c.sendq.queues[classInteractive])
 }
 
+func TestClient_EchoedCTCPRequestNotAnswered(t *testing.T) {
+	// echo-message brings back a CTCP request we sent: it isn't one to us.
+	c := newTestClient(t)
+	c.sendq.begin()
+	me := c.girc.GetNick()
+	c.girc.RunHandlers(&girc.Event{
+		Command: girc.PRIVMSG,
+		Source:  &girc.Source{Name: me, Ident: "t", Host: "h"},
+		Params:  []string{"bob", "\x01VERSION\x01"},
+		Echo:    true,
+	})
+	time.Sleep(20 * time.Millisecond)
+	c.sendq.mu.Lock()
+	defer c.sendq.mu.Unlock()
+	assert.Empty(t, c.sendq.queues[classDroppable])
+}
+
 func TestClient_SelfJoinThroughBouncerSkipsMODE(t *testing.T) {
 	// Through a bouncer every line costs ZNC flood allowance; Channel
 	// settings fetches modes itself, so only the WHO is queued.

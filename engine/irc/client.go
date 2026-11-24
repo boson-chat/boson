@@ -230,7 +230,11 @@ func New(cfg Config) (*Client, error) {
 		// These identity signals back the "is this a Boson member?" presence
 		// matching. Servers that don't advertise a cap silently ignore it.
 		SupportedCaps: map[string][]string{
-			"message-tags":      nil,
+			"message-tags": nil,
+			// echo-message: our own lines come back with their msgid (the
+			// renderer gives it to the line it already shows, so it can be
+			// replied to). girc marks them Echo.
+			"echo-message":      nil,
 			"server-time":       nil,
 			"account-tag":       nil,
 			"away-notify":       nil,

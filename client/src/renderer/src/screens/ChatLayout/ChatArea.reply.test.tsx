@@ -144,6 +144,18 @@ describe('ChatArea — quoted replies', () => {
     expect(box().value).toBe('@bob ');
   });
 
+  it('your own line can be replied to once it has a msgid (echo-message), not before', () => {
+    phoneWidth(false);
+    renderChat([
+      tagged({ id: 'm1', from: 'alice', text: 'mine, echoed', msgid: 'own1' }),
+      msg({ id: 'm2', from: 'alice', text: 'mine, no msgid', timestamp: Date.now() + 600_000 }),
+    ], { caps: ['message-tags', 'echo-message'] });
+    const rowOf = (t: string) => screen.getByText(t).closest('.message-row')!;
+    expect(rowOf('mine, no msgid').querySelector('[aria-label="Reply"]')).toBeNull();
+    fireEvent.click(rowOf('mine, echoed').querySelector('[aria-label="Reply"]')!);
+    expect(document.querySelector('.chat-reply-bar')?.textContent).toContain('Replying to alice');
+  });
+
   it('desktop: the hover toolbar\'s Reply starts a reply', () => {
     phoneWidth(false);
     renderChat([tagged()], { caps: ['message-tags'] });
