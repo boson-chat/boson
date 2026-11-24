@@ -297,18 +297,22 @@ export function ChatArea({
   // Read only while searching: the conversation's messages, to match.
   const searchMsgs = searchOpen && searchQuery.trim() ? msgSignal.value : null;
   const matchIds = useMemo(() => (searchMsgs ? findMatches(searchMsgs, searchQuery) : []), [searchMsgs, searchQuery]);
-  const matchIndex = searchCursor ? matchIds.indexOf(searchCursor) : -1;
-  // A new query starts at the newest match.
-  useEffect(() => {
-    const last = matchIds[matchIds.length - 1];
-    setSearchCursor(last ?? null);
+  // Until a step picks one (or when it's gone), the newest match is current.
+  const cursorAt = searchCursor ? matchIds.indexOf(searchCursor) : -1;
+  const matchIndex = cursorAt >= 0 ? cursorAt : matchIds.length - 1;
+  const currentMatch = matchIndex >= 0 ? matchIds[matchIndex]! : null;
+  // A new query starts at the newest match (set here, not in an effect:
+  // an Enter typed straight after must step from it).
+  const onSearchQuery = (q: string): void => {
+    setSearchQuery(q);
+    setSearchCursor(null);
+    const ids = findMatches(msgSignal.peek(), q);
+    const last = ids[ids.length - 1];
     if (last) jumpTo(last);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, searchOpen]);
+  };
   const stepMatch = (dir: -1 | 1): void => {
     if (matchIds.length === 0) return;
-    const from = matchIndex < 0 ? matchIds.length : matchIndex;
-    const next = (from + dir + matchIds.length) % matchIds.length;
+    const next = (matchIndex + dir + matchIds.length) % matchIds.length;
     const id = matchIds[next]!;
     setSearchCursor(id);
     jumpTo(id);
@@ -316,8 +320,8 @@ export function ChatArea({
   const openSearch = (): void => { setSearchOpen(true); setSearchFocus((n) => n + 1); };
   const closeSearch = (): void => { setSearchOpen(false); setSearchQuery(''); setSearchCursor(null); };
   const searchMarks = useMemo<ChatSearchMarks | null>(() => (searchOpen && searchQuery.trim()
-    ? { query: searchQuery, matchIds: new Set(matchIds), currentId: matchIndex >= 0 ? searchCursor : null }
-    : null), [searchOpen, searchQuery, matchIds, matchIndex, searchCursor]);
+    ? { query: searchQuery, matchIds: new Set(matchIds), currentId: currentMatch }
+    : null), [searchOpen, searchQuery, matchIds, currentMatch]);
   // Another conversation: no search, no reply in progress.
   useEffect(() => { closeSearch(); setReplyTarget(null); }, [channel?.name]);
   // Ctrl/Cmd+F: search this conversation — unless a dialog is open or the
@@ -604,7 +608,7 @@ export function ChatArea({
       {searchOpen && (
         <ChatSearchBar
           query={searchQuery}
-          onQuery={setSearchQuery}
+          onQuery={onSearchQuery}
           count={matchIds.length}
           index={matchIndex}
           onOlder={() => stepMatch(-1)}
