@@ -307,6 +307,27 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: 'raw',     usage: '/raw <IRC line>',     description: 'Send a raw IRC protocol line. Power-user escape hatch.' },
 ];
 
+// IRCv3 replies: a client-only tag carrying the msgid of the message
+// answered. Still a draft spec, so servers (Ergo, soju) relay it as
+// `+draft/reply`; the ratified name `+reply` is read too.
+export const REPLY_TAG = '+draft/reply';
+const REPLY_TAGS = [REPLY_TAG, '+reply'] as const;
+
+// `{ replyTo }` from a line's tags, or nothing.
+export function replyOf(tags: Record<string, string> | undefined): { replyTo?: string } {
+  if (!tags) return {};
+  for (const t of REPLY_TAGS) {
+    const v = tags[t];
+    if (v) return { replyTo: v };
+  }
+  return {};
+}
+
+export interface SendOptions {
+  // The msgid of the message this one answers (a reply).
+  replyTo?: string;
+}
+
 // ChatService owns channel/message state for the connected IRC session.
 // It listens to engine events and exposes actions (join, send, setActive).
 // Following our TS skill: single class, constructor DI, all state internal,
@@ -1489,11 +1510,14 @@ export class ChatService {
     return this.ergoAccountService;
   }
 
-  send(channel: string, message: string): void {
+  send(channel: string, message: string, opts: SendOptions = {}): void {
     // Whitespace-only is nothing to send, except BLANK_LINE: a paste's blank
     // line (see input()).
     if (!message.trim() && message !== BLANK_LINE) return;
     const id = this.id();
+    // A reply carries the msgid it answers, only where the server relays
+    // client tags (the composer falls back to `@nick` otherwise).
+    const replyTo = opts.replyTo && this.repliesSupported() ? opts.replyTo : undefined;
     // Optimistic local echo — IRC doesn't reflect our own PRIVMSGs back —
     // marked pending until the server confirms it.
     this.appendMessage(channel, {
@@ -1503,10 +1527,17 @@ export class ChatService {
       text: message,
       timestamp: Date.now(),
       pending: true,
+      ...(replyTo ? { replyTo } : {}),
     });
     // Sent while a reconnect is still under way, it goes nowhere; it stays
     // pending and resendPending sends it once registered / rejoined.
-    this.sendTracked(this.channelKey(channel), id, message);
+    this.sendTracked(this.channelKey(channel), id, message, replyTo);
+  }
+
+  // Whether a reply can be sent as a real one (IRCv3 `+draft/reply`): the
+  // server negotiated `message-tags`, so it relays client-only tags.
+  repliesSupported(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('message-tags');
   }
 
   // Delivery tracking. A message written to a connection that has silently
@@ -1519,10 +1550,11 @@ export class ChatService {
   private unacked: Array<{ seq: number; channel: string; id: string }> = [];
   private ackStallTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private sendTracked(channel: string, id: string, text: string): void {
+  private sendTracked(channel: string, id: string, text: string, replyTo?: string): void {
     const seq = ++this.ackSeq;
     this.unacked.push({ seq, channel, id });
-    this.session.privmsg(channel, text, seq);
+    if (replyTo) this.session.privmsg(channel, text, seq, { [REPLY_TAG]: replyTo });
+    else this.session.privmsg(channel, text, seq);
     if (!this.ackStallTimer) {
       this.ackStallTimer = setTimeout(() => {
         this.ackStallTimer = null;
@@ -1566,7 +1598,7 @@ export class ChatService {
     if (!ch) return;
     this.unacked = this.unacked.filter((u) => u.channel !== key);
     for (const m of ch.messages.peek()) {
-      if (m.pending) this.sendTracked(key, m.id, m.text);
+      if (m.pending) this.sendTracked(key, m.id, m.text, m.replyTo);
     }
   }
 
@@ -1855,7 +1887,7 @@ export class ChatService {
   // A line of a multi-line paste keeps its indentation, and a blank line in
   // one arrives as a single space (IRC can't send an empty line), which is
   // sent as is so the receiver gets the paragraph break.
-  input(text: string): void {
+  input(text: string, opts: SendOptions = {}): void {
     const trimmed = text.trim();
     if (!trimmed && text !== BLANK_LINE) return;
     if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
@@ -1869,7 +1901,7 @@ export class ChatService {
     // Allow `//foo` as an escape for a literal leading slash.
     const line = text.replace(/\s+$/, '') || BLANK_LINE;
     const payload = trimmed.startsWith('//') ? line.replace('//', '/') : line;
-    this.send(this.activeChannel, payload);
+    this.send(this.activeChannel, payload, opts);
   }
 
   private executeCommand(raw: string): void {
@@ -2729,6 +2761,7 @@ export class ChatService {
           text,
           timestamp: ts,
           msgid: e.Tags?.msgid,
+          ...replyOf(e.Tags),
           ...this.serverTimeOf(e),
         });
         // Mirror real-user DMs (1:1, addressed to us, not a channel, not the
@@ -3898,6 +3931,7 @@ export class ChatService {
       text,
       timestamp: this.timestampOf(e),
       msgid: e.Tags?.msgid,
+      ...replyOf(e.Tags),
       ...this.serverTimeOf(e),
     });
   }

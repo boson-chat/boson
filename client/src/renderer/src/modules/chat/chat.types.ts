@@ -11,6 +11,9 @@ export interface ChatMessage {
   // IRCv3 msgid tag, when the server sent one. Used to de-duplicate messages
   // that arrive both live and via chathistory/bouncer backlog.
   msgid?: string;
+  // IRCv3 reply (`+draft/reply`): the msgid of the message this one
+  // answers. Rendered as a quote of it above the text.
+  replyTo?: string;
   // The server-time tag as sent (epoch ms), before `timestamp`'s correction
   // for the server's clock skew. That correction is re-measured on every
   // connection, so a bouncer replaying the same line gives it a slightly

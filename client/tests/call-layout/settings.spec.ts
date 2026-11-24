@@ -36,6 +36,6 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
     await expect(page.getByRole('button', { name: 'Close settings' })).toHaveCount(1);
     await page.getByRole('tab', { name: /^Log/ }).click();
     await expect(page.getByText('No entries yet.')).toBeVisible();
-    expect(await roundThings(page, 'main.server-settings')).toEqual([]);
+    expect(await roundThings(page, 'section.server-settings')).toEqual([]);
   });
 }

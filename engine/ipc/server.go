@@ -333,7 +333,7 @@ func (s *session) dispatch(ctx context.Context, msg ClientMessage) {
 			return
 		}
 		if c := s.clientFor(p.ServerID); c != nil {
-			c.PrivmsgAck(p.Target, p.Message, p.Ack)
+			c.PrivmsgTagged(p.Target, p.Message, p.Tags, p.Ack)
 		}
 	case CmdNames:
 		var p NamesParams

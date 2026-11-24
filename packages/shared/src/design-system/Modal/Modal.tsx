@@ -13,6 +13,11 @@ interface ModalProps {
   // card grid needs room for 2-3 columns; 'compact' (~440px) for a short
   // question (ConfirmDialog), docked to the bottom on phones, not full screen.
   size?: 'default' | 'wide' | 'compact';
+  // The dialog's accessible name when it has no `title` (the content brings
+  // its own header).
+  label?: string;
+  // Extra class on the dialog panel (its size, for one use).
+  class?: string;
 }
 
 // EXIT_DURATION_MS must match the CSS `.bds-modal-backdrop` exit
@@ -35,7 +40,7 @@ export function setModalPortal(portal: ModalPortal | null): void {
   modalPortal = portal;
 }
 
-export function Modal({ open, onClose, title, children, closeOnBackdropClick = true, size = 'default' }: ModalProps) {
+export function Modal({ open, onClose, title, children, closeOnBackdropClick = true, size = 'default', label, class: extraClass }: ModalProps) {
   // Hold the latest onClose in a ref so the keydown effect doesn't re-bind
   // (and steal focus from controlled inputs) on every parent render.
   const onCloseRef = useRef(onClose);
@@ -88,10 +93,10 @@ export function Modal({ open, onClose, title, children, closeOnBackdropClick = t
       onClick={() => { if (closeOnBackdropClick) onClose(); }}
     >
       <div
-        class={`bds-modal ${size === 'wide' ? 'bds-modal-wide' : size === 'compact' ? 'bds-modal-compact' : ''}`}
+        class={`bds-modal ${size === 'wide' ? 'bds-modal-wide' : size === 'compact' ? 'bds-modal-compact' : ''}${extraClass ? ` ${extraClass}` : ''}`}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={title ?? label}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (

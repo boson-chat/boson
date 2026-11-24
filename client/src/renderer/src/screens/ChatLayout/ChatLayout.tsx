@@ -532,7 +532,7 @@ export function ChatLayout({
           knownChannels={mergeKnownChannels(state.channels, state.channelDirectory.entries)}
           bannerError={bannerError}
           onDismissBanner={() => layoutBloc.dismissBanner()}
-          onSend={(msg) => chat.input(msg)}
+          onSend={(msg, opts) => (opts ? chat.input(msg, opts) : chat.input(msg))}
           serverHost={serverHost}
           onSendTo={(channel, msg) => chat.send(channel, msg)}
           onTyping={(typing) => {

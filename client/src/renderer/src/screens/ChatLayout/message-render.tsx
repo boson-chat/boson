@@ -63,6 +63,11 @@ interface MessageRowProps {
   avatarFor?: (nick: string) => string | undefined;
   /** msg.text is a multi-line markdown document (a paste), not one line. */
   doc?: boolean;
+  /** A reply (msg.replyTo): the message it answers, or null when that one
+   *  isn't loaded. Undefined for a message that isn't a reply. */
+  replyParent?: ChatMessage | null;
+  /** Scroll the conversation to a message (the quote's click). */
+  onJumpTo?: (id: string) => void;
 }
 
 // Match UserPanel's hover-card open-delay so dwelling on a nick in chat
@@ -71,7 +76,7 @@ const HOVER_OPEN_DELAY_MS = 150;
 
 // Memoised: the windowed list re-renders as it scrolls; rows whose props
 // didn't change don't.
-export const MessageRow = memo(function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false }: MessageRowProps) {
+export const MessageRow = memo(function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false, replyParent, onJumpTo }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
   // A click on a nick (the author, or one mentioned in the text) opens their
@@ -108,7 +113,9 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   const rowRef = useRef<HTMLDivElement>(null);
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number } | null>(null);
   const theirs = msg.from !== myNick;
-  const reply = theirs && nickActions?.onMention ? () => nickActions.onMention!(msg.from) : undefined;
+  const reply = !theirs || msg.pending ? undefined
+    : nickActions?.onReply ? () => nickActions.onReply!(msg)
+      : nickActions?.onMention ? () => nickActions.onMention!(msg.from) : undefined;
   const copyText = (): void => { void navigator.clipboard?.writeText(stripIrcFormatting(msg.text)); };
   const viewProfile = (): void => {
     const el = !isNarrow() && rowRef.current?.querySelector('.message-row-name, .message-action-name, .message-avatar-btn');
@@ -217,6 +224,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   if (msg.kind === 'action') {
     return (
       <div ref={rowRef} class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`} {...longPress} onContextMenu={onRowContextMenu}>
+        {replyParent !== undefined && <ReplyQuote parent={replyParent} onJumpTo={onJumpTo} />}
         <span class="message-action-star">*</span>
         <span class="message-action-name" onClick={(e) => openProfile(msg.from, e.currentTarget as Element)}>{msg.from}</span>
         <span class="message-action-text" onClick={onTextClick}>{renderedText}</span>
@@ -251,6 +259,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         )}
       </div>
       <div class="message-row-body">
+        {replyParent !== undefined && <ReplyQuote parent={replyParent} onJumpTo={onJumpTo} />}
         {!grouped && (
           <div class="message-row-header">
             <span
@@ -317,6 +326,40 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
     </div>
   );
 });
+
+// One line of a message, for a quote: formatting stripped, whitespace
+// folded (the CSS ellipsizes it).
+export function excerptOf(text: string): string {
+  return stripIrcFormatting(text).replace(/\s+/g, ' ').trim();
+}
+
+// Above a reply: who it answers and the start of what they said; a click
+// scrolls to it. When that message isn't loaded (older than what's here, or
+// from before you joined) it says so instead.
+export function ReplyQuote({ parent, onJumpTo }: { parent: ChatMessage | null; onJumpTo?: (id: string) => void }) {
+  if (!parent) {
+    return (
+      <div class="message-reply-quote message-reply-quote-missing">
+        <CornerUpLeft aria-hidden="true" class="message-reply-quote-icon" />
+        <span class="message-reply-quote-text">Original message not loaded</span>
+      </div>
+    );
+  }
+  const text = parent.kind === 'action' ? `* ${parent.from} ${excerptOf(parent.text)}` : excerptOf(parent.text);
+  return (
+    <button
+      type="button"
+      class="message-reply-quote"
+      onClick={(e) => { e.stopPropagation(); onJumpTo?.(parent.id); }}
+      title="Show the original message"
+      aria-label={`Reply to ${parent.from}: ${text}. Show the original message`}
+    >
+      <CornerUpLeft aria-hidden="true" class="message-reply-quote-icon" />
+      <span class="message-reply-quote-author">{parent.from}</span>
+      <span class="message-reply-quote-text">{text}</span>
+    </button>
+  );
+}
 
 interface ActivityLineProps {
   msg: ChatMessage;
@@ -513,7 +556,53 @@ interface MessageListProps {
    *  server keeps no history, or not for you): why the conversation starts
    *  where it does, instead of a blank pane. */
   beginningNote?: string;
+  /** Scroll to this message (and flash it) whenever `seq` changes: a search
+   *  match, or a reply's original. */
+  jump?: { id: string; seq: number } | null;
+  /** In-conversation search: the rows holding a match are marked (the one
+   *  at `currentId` most), and the query highlighted in their text. */
+  search?: ChatSearchMarks | null;
 }
+
+export interface ChatSearchMarks {
+  query: string;
+  matchIds: ReadonlySet<string>;
+  currentId: string | null;
+}
+
+// Every message id a row shows (a folded group or block shows several).
+function rowMessageIds(item: RenderItem): readonly ChatMessage[] {
+  return item.type === 'msg' ? [item.msg] : item.items;
+}
+
+// The CSS Custom Highlight API (no DOM changes, so the windowed rows and
+// their memoised text stay as they are): `chat-search` over every match on
+// screen, `chat-search-current` over the current match's.
+type HighlightRegistry = { set: (name: string, h: unknown) => void; delete: (name: string) => void };
+function highlights(): { registry: HighlightRegistry; Highlight: new (...ranges: Range[]) => unknown } | null {
+  const css = (globalThis as { CSS?: { highlights?: HighlightRegistry } }).CSS;
+  const H = (globalThis as { Highlight?: new (...ranges: Range[]) => unknown }).Highlight;
+  return css?.highlights && H ? { registry: css.highlights, Highlight: H } : null;
+}
+
+function matchRanges(root: Element, needle: string): Range[] {
+  const out: Range[] = [];
+  const doc = root.ownerDocument;
+  const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const text = (n.nodeValue ?? '').toLowerCase();
+    for (let i = text.indexOf(needle); i >= 0; i = text.indexOf(needle, i + needle.length)) {
+      const r = doc.createRange();
+      r.setStart(n, i);
+      r.setEnd(n, i + needle.length);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+// The message text inside a row (not names, times or toolbars).
+const SEARCH_TEXT_SELECTOR = '.message-row-text-body, .message-row-doc, .message-action-text, .message-preblock .message-row-body > :not(.message-row-header)';
 
 // Scroll container + message rows. Owns the grouped-rendering decision so
 // the view doesn't need to know how messages stitch together visually.
@@ -568,6 +657,7 @@ function listRows(items: readonly RenderItem[]): ListRow[] {
 export const MessageList = memo(function MessageList({
   messages, members, myNick, scrollRef, nickActions, channelName, avatarFor,
   onLoadOlder, onViewport, historySupported, historyLoading, historyExhausted, historyError, beginningNote,
+  jump, search,
 }: MessageListProps) {
   // Reading `.value` subscribes THIS component to the channel's message signal.
   // A metadata emit that re-renders the parent passes the same signal ref, so
@@ -575,6 +665,34 @@ export const MessageList = memo(function MessageList({
   // (or a non-signal prop like members/history flags does).
   const msgs = messages.value;
   const rows = useMemo(() => listRows(buildRenderItems(msgs)), [msgs]);
+  // Replies find the message they answer by its msgid.
+  const byMsgid = useMemo(() => {
+    const m = new Map<string, ChatMessage>();
+    for (const x of msgs) if (x.msgid) m.set(x.msgid, x);
+    return m;
+  }, [msgs]);
+  // The row index holding a message (by local id).
+  const rowIndexOf = (id: string): number => rows.findIndex((r) => rowMessageIds(r.item).some((m) => m.id === id));
+  // A jump to a row: placed once it's laid out (see the layout effect), then
+  // flashed.
+  const pendingJump = useRef<string | null>(null);
+  const [flashKey, setFlashKey] = useState<string | null>(null);
+  const requestJump = (id: string): void => {
+    if (rowIndexOf(id) < 0) return;
+    pendingJump.current = id;
+    atBottomRef.current = false;
+    setHeightsVersion((n) => n + 1);
+  };
+  const requestJumpRef = useRef(requestJump);
+  requestJumpRef.current = requestJump;
+  // Stable for the memoised rows (a reply quote's click).
+  const onJumpTo = useMemo(() => (id: string) => requestJumpRef.current(id), []);
+  useEffect(() => { if (jump) requestJumpRef.current(jump.id); }, [jump?.seq]);
+  useEffect(() => {
+    if (!flashKey) return undefined;
+    const t = setTimeout(() => setFlashKey(null), 1600);
+    return () => clearTimeout(t);
+  }, [flashKey]);
   const freshnessBaseline = useRef<number>(Date.now());
   const animated = useRef(new Set<string>());
   const elRef = scrollRef as { current: HTMLDivElement | null };
@@ -698,17 +816,78 @@ export const MessageList = memo(function MessageList({
       el.scrollTop = target;
       setByUs.current = el.scrollTop;
     }
+    // A jump (search, a reply's original): bring the row to the middle of
+    // the viewport — first to where the layout puts it, so it's rendered,
+    // then (next pass) by where it really is. It becomes the reading place.
+    let jumped = false;
+    const jumpId = switching ? null : pendingJump.current;
+    if (jumpId) {
+      const idx = rowIndexOf(jumpId);
+      const key = idx >= 0 ? now.keys[idx] : undefined;
+      if (!key) pendingJump.current = null;
+      else {
+        const rowEl = Array.from(el.querySelectorAll<HTMLElement>('.vrow')).find((v) => v.dataset['vkey'] === key);
+        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        let want: number;
+        if (rowEl) {
+          const r = rowEl.getBoundingClientRect();
+          const box = el.getBoundingClientRect();
+          want = el.scrollTop + (r.top - box.top) - Math.max(16, (el.clientHeight - r.height) / 2);
+          pendingJump.current = null;
+          setFlashKey(key);
+        } else {
+          want = now.offsetOf(idx) - el.clientHeight / 2;
+        }
+        want = Math.min(maxTop, Math.max(0, want));
+        if (Math.abs(want - el.scrollTop) > 0.5) { el.scrollTop = want; setByUs.current = el.scrollTop; }
+        jumped = true;
+        anchorRef.current = captureAnchor(now, el.scrollTop);
+        reportBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);
+      }
+    }
     // The anchor stays the row the user was reading (re-taken only when
     // they scroll): re-taking it here, from rows above that are still
     // estimates, would drift by the estimate's error once they're measured.
-    if (toBottom || !anchorRef.current || target === null) anchorRef.current = captureAnchor(now, el.scrollTop);
+    if (!jumped && (toBottom || !anchorRef.current || target === null)) anchorRef.current = captureAnchor(now, el.scrollTop);
     placedTop.current = el.scrollTop;
     placedLayout.current = now;
     placedSize.current = sizeOf(el);
     if (!view || Math.abs(view.top - el.scrollTop) > 1 || view.height !== el.clientHeight) {
       setView({ top: el.scrollTop, height: el.clientHeight });
+    } else if (pendingJump.current) {
+      // Not rendered yet but already in place: measure it next pass.
+      setHeightsVersion((n) => n + 1);
     }
   });
+
+  // Search highlights over the rows on screen, after every render (rows
+  // come and go as the list scrolls).
+  const searchNeedle = search?.query.trim().toLowerCase() ?? '';
+  useLayoutEffect(() => {
+    const api = highlights();
+    const el = elRef.current;
+    if (!api) return;
+    if (!el || !searchNeedle || !search) {
+      api.registry.delete('chat-search');
+      api.registry.delete('chat-search-current');
+      return;
+    }
+    const all: Range[] = [];
+    const current: Range[] = [];
+    for (const v of Array.from(el.querySelectorAll<HTMLElement>('.vrow-search-match'))) {
+      const isCurrent = v.classList.contains('vrow-search-current');
+      for (const t of Array.from(v.querySelectorAll(SEARCH_TEXT_SELECTOR))) {
+        for (const r of matchRanges(t, searchNeedle)) (isCurrent ? current : all).push(r);
+      }
+    }
+    api.registry.set('chat-search', new api.Highlight(...all));
+    api.registry.set('chat-search-current', new api.Highlight(...current));
+  });
+  useEffect(() => () => {
+    const api = highlights();
+    api?.registry.delete('chat-search');
+    api?.registry.delete('chat-search-current');
+  }, []);
 
   // The viewport's own size (window resize, a strip above appearing).
   useEffect(() => {
@@ -891,8 +1070,17 @@ export const MessageList = memo(function MessageList({
             fresh = item.msg.timestamp > freshnessBaseline.current && !animated.current.has(key);
           }
           animated.current.add(key);
+          const ids = search && search.matchIds.size > 0 ? rowMessageIds(item) : null;
+          const match = !!ids && ids.some((m) => search!.matchIds.has(m.id));
+          const current = match && !!search!.currentId && ids!.some((m) => m.id === search!.currentId);
+          const replyTo = (item.type === 'msg' || item.type === 'doc') ? item.msg.replyTo : undefined;
+          const vclass = [
+            match ? 'vrow-search-match' : '',
+            current ? 'vrow-search-current' : '',
+            flashKey === key ? 'vrow-flash' : '',
+          ].filter(Boolean).join(' ');
           return (
-            <VRow key={key} vkey={key}>
+            <VRow key={key} vkey={key} extraClass={vclass}>
               {item.type === 'activity' ? <ActivityGroup items={item.items} members={members} nickActions={nickActions} avatarFor={avatarFor} />
                 : item.type === 'preblock' ? <PreBlock items={item.items} avatarFor={avatarFor} />
                 : (
@@ -905,6 +1093,8 @@ export const MessageList = memo(function MessageList({
                     fresh={fresh}
                     avatarFor={avatarFor}
                     doc={item.type === 'doc'}
+                    replyParent={replyTo ? byMsgid.get(replyTo) ?? null : undefined}
+                    onJumpTo={onJumpTo}
                   />
                 )}
             </VRow>
@@ -917,8 +1107,8 @@ export const MessageList = memo(function MessageList({
 });
 
 // One windowed row (measured by the list, by key).
-function VRow({ vkey, children }: { vkey: string; children: preact.ComponentChildren }) {
-  return <div class="vrow" data-vkey={vkey}>{children}</div>;
+function VRow({ vkey, extraClass, children }: { vkey: string; extraClass?: string; children: preact.ComponentChildren }) {
+  return <div class={extraClass ? `vrow ${extraClass}` : 'vrow'} data-vkey={vkey}>{children}</div>;
 }
 
 // Membership churn (join/part/quit) and repeated self-join system lines are
@@ -1166,6 +1356,8 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 export function shouldGroup(prev: ChatMessage | null, curr: ChatMessage): boolean {
   if (!prev) return false;
   if (curr.kind !== 'message' && curr.kind !== 'notice') return false;
+  // A reply leads with its quote, under its author's name.
+  if (curr.replyTo) return false;
   if (prev.kind !== curr.kind) return false;
   if (prev.from !== curr.from) return false;
   if (curr.timestamp - prev.timestamp > GROUP_WINDOW_MS) return false;

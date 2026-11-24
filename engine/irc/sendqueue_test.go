@@ -594,3 +594,20 @@ func TestClientBouncerLocal_ChatHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, direct.bouncerLocal(history))
 }
+
+func TestClient_PrivmsgTaggedKeepsClientTagsOnly(t *testing.T) {
+	// A reply rides its PRIVMSG as `+draft/reply`; server tags (no `+`)
+	// can't be set by a client and are dropped.
+	c := newTestClient(t)
+	c.sendq.begin()
+	c.PrivmsgTagged("#a", "yes", map[string]string{"+draft/reply": "abc123", "time": "x", "+": "y"}, 0)
+	c.PrivmsgTagged("#a", "plain", nil, 0)
+
+	c.sendq.mu.Lock()
+	defer c.sendq.mu.Unlock()
+	q := c.sendq.queues[classInteractive]
+	require.Len(t, q, 2)
+	assert.Equal(t, girc.Tags{"+draft/reply": "abc123"}, q[0].ev.Tags)
+	assert.Equal(t, "@+draft/reply=abc123 PRIVMSG #a yes", strings.TrimSpace(q[0].ev.String()))
+	assert.Nil(t, q[1].ev.Tags)
+}
