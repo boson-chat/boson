@@ -62,7 +62,10 @@ async function serve(handler: Handler): Promise<{ url: string; close(): Promise<
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-    close: () => new Promise<void>((r) => server.close(() => r())),
+    // close() waits for every open connection; the web build's browser can
+    // keep one alive to this fake directory (or have a refresh in flight),
+    // which hung the test past its timeout after all its checks had passed.
+    close: () => new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections(); }),
   };
 }
 
