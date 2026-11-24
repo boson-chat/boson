@@ -1,3 +1,9 @@
+## [0.93.0](https://github.com/boson-chat/boson/compare/v0.92.1...v0.93.0) (2026-11-24)
+
+### Features
+
+* full-page conversation search with server history paging ([#142](https://github.com/boson-chat/boson/issues/142)) ([ccb2a5f](https://github.com/boson-chat/boson/commit/ccb2a5f765faca9009b95c1666e66d2d5f1be1cf))
+
 ## [0.92.1](https://github.com/boson-chat/boson/compare/v0.92.0...v0.92.1) (2026-11-24)
 
 ### Bug Fixes
