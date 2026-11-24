@@ -1330,6 +1330,10 @@ button.message-reply-quote:focus-visible { outline: 2px solid var(--accent); out
 .message-reply-quote-author { flex: none; font-weight: 600; color: var(--fg-2); }
 .message-reply-quote-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-reply-quote-missing { cursor: default; font-style: italic; }
+/* Italic overhangs its box: keep the last letter out of the clip. */
+.message-reply-quote-missing .message-reply-quote-text { padding-right: 2px; }
+/* The avatar stays level with the name, under the quote line. */
+.message-row:has(> .message-row-body > .message-reply-quote) > .message-row-gutter { padding-top: 22px; }
 /* An action line (`* nick does`) is one flex row: the quote takes its own. */
 .message-action:has(> .message-reply-quote) { flex-wrap: wrap; }
 .message-action > .message-reply-quote { flex-basis: 100%; }
