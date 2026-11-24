@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { AuthService, AuthError, describeAuthError } from './auth.service';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { AuthService, AuthError, describeAuthError, verifyReturnTo } from './auth.service';
 import { InMemorySecureStorage } from '../../shared/secure-storage';
 import type { ApiRequest, ApiResponse } from '../../shared/http/transport';
 import { validateUsername } from './username';
@@ -304,6 +304,33 @@ describe('AuthService', () => {
       ['/v1/email/resend', 'a@example.com'],
       ['/v1/password/forgot', 'a@example.com'],
     ]);
+  });
+
+  describe('email verification return (A9)', () => {
+    const w = window as { bosonShell?: string };
+    afterEach(() => { delete w.bosonShell; });
+
+    it('native builds come back through boson://verified', async () => {
+      expect(verifyReturnTo()).toBe('boson://verified');
+      await svc.signUp({ username: 'carol', email: ' carol@example.com ', password: 'correct horse battery', invite_code: ' inv ' });
+      await svc.resendVerification(' carol@example.com ');
+      expect(api.calls.find((c) => c.path === '/v1/register')!.body).toEqual({
+        username: 'carol', email: 'carol@example.com', password: 'correct horse battery', invite_code: 'inv', return_to: 'boson://verified',
+      });
+      expect(api.calls.find((c) => c.path === '/v1/email/resend')!.body).toEqual({ email: 'carol@example.com', return_to: 'boson://verified' });
+    });
+
+    it('the web build comes back to its own origin', async () => {
+      w.bosonShell = 'web';
+      const web = `${window.location.origin}/`;
+      expect(verifyReturnTo()).toBe(web);
+      await svc.signUp({ username: 'dave', email: 'dave@example.com', password: 'correct horse battery' });
+      await svc.resendVerification('dave@example.com');
+      expect(api.calls.find((c) => c.path === '/v1/register')!.body).toEqual({
+        username: 'dave', email: 'dave@example.com', password: 'correct horse battery', return_to: web,
+      });
+      expect(api.calls.find((c) => c.path === '/v1/email/resend')!.body).toEqual({ email: 'dave@example.com', return_to: web });
+    });
   });
 
   it('reports network failures as AuthError(network)', async () => {

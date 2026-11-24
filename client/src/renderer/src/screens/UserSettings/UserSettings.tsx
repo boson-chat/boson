@@ -29,6 +29,7 @@ import { AppearancePanel } from './AppearancePanel';
 import { VoiceSettingsSection } from './VoiceSettings';
 import { getVoiceController } from '../../modules/voice';
 import { HttpError } from '../../shared/http/http.client';
+import { describeHandleError } from '../../modules/directory/handle-error';
 import { DirectoriesSection } from './DirectoriesSection';
 import { NetworkAccountsSection } from './NetworkAccountsSection';
 import { forgetDims, imagesBridge, type ImageCacheStats } from '../../shared/image-cache';
@@ -443,8 +444,7 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
       triggerSaved();
     } catch (err) {
       if (err instanceof HttpError) {
-        if (err.status === 409) setError('That handle is taken — pick another.');
-        else if (err.status === 400) setError('Handle must be at least 3 characters.');
+        if (err.status === 400 || err.status === 409) setError(describeHandleError(err));
         else if (err.status === 404) setError('No account row yet. Sign in again to create one.');
         else setError('Could not save — try again.');
       } else {

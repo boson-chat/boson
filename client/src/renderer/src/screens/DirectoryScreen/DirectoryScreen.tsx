@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Plus, SlidersHorizontal } from 'lucide-preact';
 import { AuthError, describeAuthError, useAuthService, useAuthState, validateHandle } from '../../modules/auth';
-import { sentence } from '../../modules/auth/wording';
-import { HttpError } from '../../shared/http/http.client';
+import { describeHandleError } from '../../modules/directory/handle-error';
 import { clearRecoveryPending, isRecoveryPending, markRecoveryPending } from '../../modules/identity/recovery-pending';
 import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
@@ -1595,14 +1594,8 @@ interface SetupPromptProps {
   onDone: (user: User) => void;
 }
 
-// The API's refusals, in the form's words (the same as Settings').
-export function describeHandleError(err: unknown): string {
-  if (err instanceof HttpError) {
-    if (err.status === 409) return 'That handle is taken — pick another.';
-    if (err.status === 400) return /3 characters/.test(err.message) ? 'Handle must be at least 3 characters.' : sentence(err.message);
-  }
-  return err instanceof Error ? sentence(err.message) : 'Setup failed. Try again.';
-}
+// The API's refusals, in the form's words (shared with Settings).
+export { describeHandleError };
 
 function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
   const auth = useAuthService();

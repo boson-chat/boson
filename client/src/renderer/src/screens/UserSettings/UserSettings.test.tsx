@@ -197,7 +197,7 @@ describe('UserSettings — Identity panel (account mode)', () => {
 
   it('surfaces a 400 from PATCH /me as a too-short error', async () => {
     const directory = stubDirectory({
-      updateMe: vi.fn(async () => { throw new HttpError(400, 'too short', null); }),
+      updateMe: vi.fn(async () => { throw new HttpError(400, 'handle must be at least 3 characters', { error: 'handle must be at least 3 characters' }); }),
     } as unknown as Partial<DirectoryService>);
     const { container } = renderSettings({ authedHandle: 'alice', directory });
     await waitFor(() => {
@@ -209,6 +209,25 @@ describe('UserSettings — Identity panel (account mode)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     expect(await screen.findByText(/at least 3 characters/i)).toBeInTheDocument();
+  });
+
+  it("shows the backend's reason for an invalid_handle 400 (A4)", async () => {
+    const directory = stubDirectory({
+      updateMe: vi.fn(async () => {
+        throw new HttpError(400, 'handle must start with a letter or one of []\\`_^{|}', { error: 'handle must start with a letter or one of []\\`_^{|}', code: 'invalid_handle' });
+      }),
+    } as unknown as Partial<DirectoryService>);
+    const { container } = renderSettings({ authedHandle: 'alice', directory });
+    await waitFor(() => {
+      expect(handleInput(container).value).toBe('alice');
+    });
+    const input = handleInput(container);
+    await userEvent.setup().clear(input);
+    await userEvent.setup().type(input, 'alicia');
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    expect(await screen.findByText('Handle must start with a letter or one of []\\`_^{|}.')).toBeInTheDocument();
+    expect(screen.queryByText(/at least 3 characters/i)).toBeNull();
   });
 
   it('falls back silently to authedHandle if /me throws', async () => {

@@ -151,6 +151,17 @@ export interface SignUpResult {
 // An error from the auth service: `code` is its machine-readable error
 // (invalid_credentials, email_not_verified, username_taken, …), or
 // 'network' when it couldn't be reached.
+// Where the auth service's /verify-email page sends the user after the
+// emailed link is opened (auth#26): back to this web app, or into the
+// desktop / mobile app through its boson:// link. Older auth services
+// ignore the field.
+export function verifyReturnTo(): string {
+  if (typeof window !== 'undefined' && (window as { bosonShell?: string }).bosonShell === 'web') {
+    return `${window.location.origin}/`;
+  }
+  return 'boson://verified';
+}
+
 export class AuthError extends Error {
   constructor(
     public readonly code: string,
@@ -302,6 +313,7 @@ export class AuthService {
       email: input.email.trim(),
       password: input.password,
       ...(input.invite_code?.trim() ? { invite_code: input.invite_code.trim() } : {}),
+      return_to: verifyReturnTo(),
     });
     if (r.email_verification_required) return { verificationRequired: true };
     await this.signIn(input.username, input.password);
@@ -310,7 +322,7 @@ export class AuthService {
 
   // Same 202 whether or not the account exists.
   async resendVerification(email: string): Promise<void> {
-    await this.call('POST', '/v1/email/resend', { email: email.trim() });
+    await this.call('POST', '/v1/email/resend', { email: email.trim(), return_to: verifyReturnTo() });
   }
 
   // Emails a reset link (to the auth service's /reset-password page). Same

@@ -5,6 +5,7 @@ import { DirectoryScreen } from './DirectoryScreen';
 import { AuthProvider } from '../../modules/auth';
 import type { AuthService } from '../../modules/auth';
 import type { DirectoryService, Server, User } from '../../modules/directory';
+import { HttpError } from '../../shared/http/http.client';
 
 function buildFakeAuth(): AuthService {
   return {
@@ -217,6 +218,20 @@ describe('DirectoryScreen', () => {
       // account has a recovery path from creation.
       expect(setupMe).toHaveBeenCalledWith('alice', expect.any(String), 'recovery-b64');
     });
+  });
+
+  it("SetupPrompt shows the backend's reason for an invalid_handle 400 (A4)", async () => {
+    const setupMe = vi.fn(async () => {
+      throw new HttpError(400, "handle can't contain spaces", { error: "handle can't contain spaces", code: 'invalid_handle' });
+    });
+    renderWith(buildDirectory({ user: null, servers: [], setupImpl: setupMe as unknown as DirectoryService['setupMe'] }));
+
+    await screen.findByText('Finish setting up your account');
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('handle'), 'alice');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText("Handle can't contain spaces.")).toBeInTheDocument();
   });
 
   it('search box re-issues list with q param after debounce', async () => {
