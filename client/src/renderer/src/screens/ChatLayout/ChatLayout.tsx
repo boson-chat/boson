@@ -40,6 +40,7 @@ import { FriendsView } from '../Friends/FriendsView';
 import { PhonePage } from '../Friends/FriendsNav';
 import { getNotificationFeed } from '../../modules/notifications/feed';
 import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
+import { useOnline } from '../../shared/online';
 import './ChatLayout.css';
 import './NetworkPanes.css';
 
@@ -318,7 +319,14 @@ export function ChatLayout({
   useEffect(() => { if (privateView && !inViewedRoom) setVoiceUi({ view: null }); }, [privateView, inViewedRoom]);
   const prejoinOpen = !!voiceView && !privateView && !inViewedRoom;
   const selfNick = state.myNick || myNick;
-  const presence: Presence = engineState !== 'connected' ? 'offline' : friendsSnap.privacy.doNotDisturb ? 'dnd' : 'online';
+  // Your presence is the account's, not the open server's: online while any
+  // server is connected (one failing doesn't make you offline elsewhere),
+  // offline when none is or the device has no network.
+  const online = useOnline();
+  const anyConnected = servers && servers.length > 0
+    ? servers.some((t) => t.engineState === 'connected')
+    : engineState === 'connected';
+  const presence: Presence = !online || !anyConnected ? 'offline' : friendsSnap.privacy.doNotDisturb ? 'dnd' : 'online';
   const myOpen = friendsUi.my;
   // MY's main column: a conversation only while a DM is the active one.
   const myView = friendsUi.myView === 'chat' && (!active || isChannel) ? 'friends' : friendsUi.myView;

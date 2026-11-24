@@ -248,6 +248,32 @@ describe('AuthService', () => {
     expect(await storage.get(AuthService.STORAGE_KEY)).toBeNull();
   });
 
+  it('a second tab sharing the saved session refreshes from the newest token instead of revoking it', async () => {
+    await registered();
+    // Another tab of the web build: same storage, its own memory.
+    const other = new AuthService('https://auth.test', { storage, transport: api.transport, now: () => now });
+    await other.init(); // rotates the shared token
+    now += 900_000;
+    // This tab still holds the pre-rotation token in memory.
+    expect(await svc.getToken()).toMatch(/^at/);
+    expect(svc.getState().session).not.toBeNull();
+    expect(svc.getState().signedOutReason).toBeUndefined();
+    // …and the other tab is still signed in too.
+    expect(await other.getToken()).toMatch(/^at/);
+    expect(other.getState().session).not.toBeNull();
+  });
+
+  it('says why when the session ends on its own', async () => {
+    await registered();
+    api.live.clear(); // revoked elsewhere
+    now += 900_000;
+    expect(await svc.getToken()).toBeNull();
+    expect(svc.getState().signedOutReason).toBe('expired');
+    // A fresh sign-in clears it.
+    await svc.signIn('alice', 'correct horse battery');
+    expect(svc.getState().signedOutReason).toBeUndefined();
+  });
+
   it('signOut revokes the session and forgets it; a racing refresh cannot resurrect it', async () => {
     await registered();
     now += 900_000;

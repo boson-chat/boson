@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { SlidersHorizontal } from 'lucide-preact';
-import { useAuthService, useAuthState } from '../../modules/auth';
+import { AuthError, describeAuthError, useAuthService, useAuthState, validateHandle } from '../../modules/auth';
+import { sentence } from '../../modules/auth/wording';
+import { HttpError } from '../../shared/http/http.client';
+import { clearRecoveryPending, isRecoveryPending, markRecoveryPending } from '../../modules/identity/recovery-pending';
 import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
 import type { NetworkDirectories } from '../../modules/directory/networks';
@@ -8,6 +11,7 @@ import type { Facets, NetworkSort } from '../../modules/directory/network-api';
 import { subscribeAddServer, subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
+import { onHandleChange } from '../../modules/ui/handle-change';
 import { getBouncerStore } from '../../modules/chat/bouncer.store';
 import type { EngineClient, EngineState } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
@@ -108,6 +112,13 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
 export function DirectoryScreen({ directory, networks, engine, identity, history, guestNick }: Props) {
   const auth = useAuthService();
   const authState = useAuthState();
+  // Sign-up's recovery-code step wasn't confirmed (the page reloaded on it):
+  // it comes back before the directory.
+  const sessionUserId = authState.session?.user?.id ?? '';
+  const [recoveryPending, setRecoveryPending] = useState(() => !guestNick && isRecoveryPending(sessionUserId));
+  useEffect(() => {
+    setRecoveryPending(!guestNick && isRecoveryPending(sessionUserId));
+  }, [sessionUserId, guestNick]);
 
   // guestNick is intentionally NOT in the dep array: flipping between guest
   // and account modes feeds in through `bloc.setIdentity()` below so the
@@ -166,6 +177,10 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
       bloc.readMemo(serverId, memoIndex);
     });
   }, [bloc]);
+
+  // Handle renamed in Settings: it's the nick, so rename on the servers
+  // the user is on now.
+  useEffect(() => onHandleChange((h) => bloc.setHandle(h)), [bloc]);
 
   // Profile-image change (Settings upload/remove): refresh the signed-in
   // user's avatar across open connections live, no reconnect.
@@ -435,21 +450,31 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
         </div>
         {!narrow && (
           <div class="directory-topbar-right">
+            {/* Sign out lives in Settings → Account (the avatar opens it). */}
             <span class="directory-handle">{displayHandle}</span>
-            <Button variant="ghost" onClick={() => { void bloc.signOut(); }}>Sign out</Button>
           </div>
         )}
       </header>}
 
       <div class="directory-container">
-        <DirectoryBody
-          bloc={bloc}
-          state={state}
-          engine={engine}
-          directory={directory}
-          networks={networks}
-          identity={identity}
-        />
+        {recoveryPending && me && identity.isUnlocked() ? (
+          <div class="directory-setup-stage">
+            <RecoveryResume
+              directory={directory}
+              identity={identity}
+              onDone={() => { clearRecoveryPending(sessionUserId); setRecoveryPending(false); }}
+            />
+          </div>
+        ) : (
+          <DirectoryBody
+            bloc={bloc}
+            state={state}
+            engine={engine}
+            directory={directory}
+            networks={networks}
+            identity={identity}
+          />
+        )}
       </div>
     </div>
   );
@@ -1454,40 +1479,98 @@ interface SetupPromptProps {
   onDone: (user: User) => void;
 }
 
+// The API's refusals, in the form's words (the same as Settings').
+export function describeHandleError(err: unknown): string {
+  if (err instanceof HttpError) {
+    if (err.status === 409) return 'That handle is taken — pick another.';
+    if (err.status === 400) return /3 characters/.test(err.message) ? 'Handle must be at least 3 characters.' : sentence(err.message);
+  }
+  return err instanceof Error ? sentence(err.message) : 'Setup failed. Try again.';
+}
+
 function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
-  const [handle, setHandle] = useState('');
+  const auth = useAuthService();
+  const { session } = useAuthState();
+  // One name: the handle starts as the username picked at sign-up.
+  const [handle, setHandle] = useState(session?.user.username ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The identity's password wrap is made at sign-in and kept in memory until
+  // this step posts it. After a reload it's gone (the key itself comes back
+  // from this device's store), so the password is asked for again here and
+  // the wraps are made afresh, instead of failing.
+  const [needsPassword, setNeedsPassword] = useState(() => !identity.getPendingEncrypted());
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   // After account creation we hold the created user + the one-time recovery
   // code, and switch to the recovery-code view before finishing. onDone is
   // gated behind the user acknowledging they've saved the code.
   const [created, setCreated] = useState<User | null>(null);
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const userId = session?.user.id ?? '';
+
+  // Re-make the wraps with the password, once it's checked with the auth
+  // service (a wrong one would lock the key on the next sign-in).
+  const wrapsFromPassword = async (): Promise<{ encrypted: string; recoveryBlob?: string; recoveryCode?: string } | null> => {
+    const login = session?.user.email || session?.user.username;
+    if (!login) throw new Error('Sign in again to finish setting up.');
+    try {
+      await auth.signIn(login, password);
+    } catch (err) {
+      setPasswordError(err instanceof AuthError && err.code === 'invalid_credentials' ? "That password isn't right." : describeAuthError(err));
+      return null;
+    }
+    if (identity.isUnlocked()) {
+      const encrypted = await identity.rewrapForNewPassword(password);
+      const recovery = await identity.enrollRecoveryCode();
+      return { encrypted, recoveryBlob: recovery.recoveryBlob, recoveryCode: recovery.recoveryCode };
+    }
+    const encrypted = await identity.initializeForNewUser(password);
+    const recovery = identity.getPendingRecovery();
+    return { encrypted, recoveryBlob: recovery?.recoveryBlob, recoveryCode: recovery?.recoveryCode };
+  };
 
   const submit = async (e: Event) => {
     e.preventDefault();
+    const name = handle.trim();
+    const problem = validateHandle(name);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     setError(null);
+    setPasswordError(null);
     try {
-      const encrypted = identity.getPendingEncrypted();
+      let encrypted = identity.getPendingEncrypted();
+      let recovery = identity.getPendingRecovery();
       if (!encrypted) {
-        throw new Error('identity not initialized — please sign in again');
+        if (!password) {
+          setNeedsPassword(true);
+          setPasswordError('Enter your password to finish.');
+          return;
+        }
+        const wraps = await wrapsFromPassword();
+        if (!wraps) return;
+        encrypted = wraps.encrypted;
+        recovery = wraps.recoveryBlob && wraps.recoveryCode
+          ? { recoveryBlob: wraps.recoveryBlob, recoveryCode: wraps.recoveryCode }
+          : null;
       }
       // Store the recovery wrap alongside the password wrap at account
       // creation so the user has a recovery path from day one.
-      const recovery = identity.getPendingRecovery();
-      const user = await directory.setupMe(handle, encrypted, recovery?.recoveryBlob);
+      const user = await directory.setupMe(name, encrypted, recovery?.recoveryBlob);
       const code = recovery?.recoveryCode ?? null;
       identity.clearPendingEncrypted();
+      if (userId) void identity.persist(userId);
       if (code) {
-        // Show the code once, then finish.
+        // Show the code once, then finish. Until it's confirmed, a reload
+        // comes back to this step (with a new code).
+        markRecoveryPending(userId);
         setCreated(user);
         setRecoveryCode(code);
       } else {
         onDone(user);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'setup failed');
+      setError(describeHandleError(err));
     } finally {
       setBusy(false);
     }
@@ -1497,33 +1580,96 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
     return (
       <RecoveryCodeReveal
         code={recoveryCode}
-        intro="Save your recovery code. It's the only way back into your synced
-          passwords if you forget your login password — we can't recover it for you."
-        onContinue={() => onDone(created)}
+        intro="Save your recovery code. If you ever reset your password, you'll need it once to get your synced passwords back. We can't recover it for you."
+        onContinue={() => { clearRecoveryPending(userId); onDone(created); }}
       />
     );
   }
 
+  const nameProblem = handle.trim() ? validateHandle(handle.trim()) : null;
   return (
     <form class="directory-setup-prompt" onSubmit={submit}>
       <div class="directory-setup-header">
-        <div class="directory-prompt">$ boson account --init</div>
         <h2>Finish setting up your account</h2>
-        <p>Pick a handle — your network-wide username.</p>
+        <p>Choose your handle: how people find you on Boson, and your name in chat.</p>
       </div>
-      <Field label="Handle" hint="3+ chars. Alphanumeric + underscore. Changes cost 90 days." error={error ?? undefined}>
+      <Field
+        label="Handle"
+        hint="Starts as your username. Use 3–30 letters, digits, - or _, starting with a letter. You can rename it later; your old handle keeps finding you for 90 days."
+        error={error ?? (handle.trim().length >= 3 ? nameProblem ?? undefined : undefined)}
+      >
         <Input
           placeholder="handle"
           value={handle}
-          onInput={(e) => setHandle((e.target as HTMLInputElement).value)}
-          minLength={3}
+          onInput={(e) => { setHandle((e.target as HTMLInputElement).value); setError(null); }}
+          invalid={!!error}
           required
+          autoComplete="off"
+          spellcheck={false}
         />
       </Field>
-      <Button type="submit" variant="primary" loading={busy} disabled={busy || handle.length < 3}>
+      {needsPassword && (
+        <>
+          <p class="setup-password-note">The page reloaded during setup. Enter your password once more to finish.</p>
+          <Field label="Password" error={passwordError ?? undefined}>
+            <Input
+              type="password"
+              placeholder="password"
+              value={password}
+              onInput={(e) => { setPassword((e.target as HTMLInputElement).value); setPasswordError(null); }}
+              invalid={!!passwordError}
+              autoComplete="current-password"
+            />
+          </Field>
+        </>
+      )}
+      <Button type="submit" variant="primary" loading={busy} disabled={busy || handle.trim().length < 3 || (needsPassword && !password)}>
         Save
       </Button>
     </form>
+  );
+}
+
+// Sign-up was interrupted on the recovery-code step (a reload): the code
+// that was shown is gone, so make a new one, store its wrap, and show it.
+function RecoveryResume({ directory, identity, onDone }: {
+  directory: DirectoryService;
+  identity: IdentityService;
+  onDone: () => void;
+}) {
+  const [code, setCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const r = await identity.enrollRecoveryCode();
+        await directory.updateSecretWraps({ recoveryBlob: r.recoveryBlob });
+        if (live) setCode(r.recoveryCode);
+      } catch (err) {
+        if (live) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => { live = false; };
+  }, [directory, identity]);
+  if (error) {
+    return (
+      <div class="directory-setup-prompt">
+        <div class="directory-setup-header">
+          <h2>Your recovery code</h2>
+          <p>Couldn't make your recovery code ({error}). You can make one any time in Settings → Account.</p>
+        </div>
+        <Button variant="primary" onClick={onDone}>Continue</Button>
+      </div>
+    );
+  }
+  if (!code) return <div class="directory-setup-prompt"><BarLoader label="Making your recovery code" /></div>;
+  return (
+    <RecoveryCodeReveal
+      code={code}
+      intro="Setup was interrupted before you saved your recovery code, so here's a new one (the earlier code no longer works). If you ever reset your password, you'll need it once to get your synced passwords back."
+      onContinue={onDone}
+    />
   );
 }
 

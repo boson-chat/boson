@@ -40,6 +40,7 @@ describe('sign-up + setup prompt integration', () => {
     await user.type(screen.getByPlaceholderText('username'), 'newuser');
     await user.type(screen.getByPlaceholderText('email'), 'newuser@boson.dev');
     await user.type(screen.getByPlaceholderText('password'), 'first-password');
+    await user.type(screen.getByPlaceholderText('confirm password'), 'first-password');
     await user.click(screen.getByRole('button', { name: 'Sign up' }));
 
     expect(await screen.findByText(/Check your email\./i)).toBeInTheDocument();
@@ -107,9 +108,8 @@ describe('sign-up + setup prompt integration', () => {
     await user.click(screen.getByRole('button', { name: 'Save' }));
 
     // After account creation the one-time recovery code is shown. Acknowledge
-    // it (check the box + continue) before the directory appears.
+    // it before the directory appears.
     expect(await screen.findByText('Your recovery code')).toBeInTheDocument();
-    await user.click(screen.getByRole('checkbox'));
     await user.click(screen.getByRole('button', { name: /I.ve saved it/i }));
 
     await waitFor(() => {

@@ -145,10 +145,8 @@ test('regenerating the recovery code replaces the wrap: the old code stops worki
   const newCode = (await code.innerText()).trim();
   expect(newCode).toMatch(/^[a-z0-9]{4}(-[a-z0-9]{4}){7}$/);
   expect(newCode).not.toBe(account.recoveryCode);
-  const done = dialog.getByRole('button', { name: 'Done' });
-  await expect(done).toBeDisabled();
-  await dialog.getByText('I’ve saved my recovery code somewhere safe.').click();
-  await done.click();
+  await expect(dialog.getByRole('button', { name: 'Download .txt' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(dialog.locator('.user-settings-recovery')).toContainText('Enabled');
   expect(wrap()).not.toBe(wrapBefore);
   await closeSettings(dialog);
@@ -177,7 +175,6 @@ test('an account without a recovery code can set one up from settings', async ({
   await dialog.getByRole('button', { name: 'Set up recovery code' }).click();
   const code = (await dialog.getByLabel('recovery code', { exact: true }).innerText()).trim();
   expect(code).toMatch(/^[a-z0-9]{4}(-[a-z0-9]{4}){7}$/);
-  await dialog.getByText('I’ve saved my recovery code somewhere safe.').click();
   await dialog.getByRole('button', { name: 'Done' }).click();
   await expect(dialog.locator('.user-settings-recovery')).toContainText('Enabled');
   const me = await (await backendApi(account)).get<{ encrypted_user_secret_recovery?: string }>('/me');
@@ -311,7 +308,7 @@ test('guest settings: rename the nick, bouncer form validation, and switch to an
   await expect(page.locator('.title-bar-user-tag')).toHaveText('guest');
 
   const dialog = await openSettings(page);
-  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Mode' })).toContainText('Guest');
+  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Account' })).toContainText('Guest');
   const nickInput = field(dialog, 'Nick');
   await expect(nickInput).toHaveValue(nick);
   // Sanitised like IRC wants it: spaces/@/. are not allowed in a nick.

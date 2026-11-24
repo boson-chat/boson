@@ -90,8 +90,13 @@ test.describe('Auth + directory flow', () => {
     await expect(page.getByText('Finish setting up your account')).toBeVisible({ timeout: 10_000 });
     await page.getByPlaceholder('handle').fill('so' + Date.now().toString().slice(-6));
     await page.getByRole('button', { name: 'Save' }).click();
+    await page.getByRole('button', { name: /I.ve saved it/ }).click();
 
-    await page.getByRole('button', { name: 'Sign out' }).click();
+    // Sign out lives in Settings → Account.
+    await page.getByRole('button', { name: 'User settings' }).click();
+    const settings = page.getByRole('dialog', { name: 'User settings' });
+    await settings.getByRole('tab', { name: /^Account/ }).click();
+    await settings.getByRole('button', { name: 'Sign out', exact: true }).click();
     await expect(page.getByPlaceholder('username or email')).toBeVisible({ timeout: 5_000 });
   });
 });

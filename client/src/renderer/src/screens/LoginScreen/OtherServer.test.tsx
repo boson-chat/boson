@@ -63,7 +63,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); clearGuestSession(); __resetDeepLinkForTests(); });
 
 async function lookUp(address: string) {
-  fireEvent.click(screen.getByRole('button', { name: 'Use another server' }));
+  fireEvent.click(screen.getByRole('button', { name: /use another server/i }));
   fireEvent.input(screen.getByLabelText('Server address'), { target: { value: address } });
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 }
@@ -72,7 +72,7 @@ describe('Use another server', () => {
   it('shows boson.chat as the server and switches to another', () => {
     setup();
     expect(document.querySelector('.login-server-host')?.textContent).toBe('boson.chat');
-    fireEvent.click(screen.getByRole('button', { name: 'Use another server' }));
+    fireEvent.click(screen.getByRole('button', { name: /use another server/i }));
     expect(screen.getByLabelText('Server address')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Back to boson.chat' }));
     expect(screen.getByRole('tab', { name: 'Login' })).toBeTruthy();

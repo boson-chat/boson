@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
 import { DirectoryScreen } from './DirectoryScreen';
@@ -52,7 +52,7 @@ function buildDirectory(opts: {
   } as unknown as DirectoryService;
 }
 
-function buildFakeIdentity() {
+function buildFakeIdentity(overrides: Record<string, unknown> = {}) {
   return {
     isUnlocked: () => true,
     getState: () => ({ status: 'unlocked' as const }),
@@ -69,6 +69,7 @@ function buildFakeIdentity() {
     persist: async () => true,
     restoreFromStorage: async () => false,
     clearStorage: async () => {},
+    ...overrides,
   } as unknown as import('../../modules/identity').IdentityService;
 }
 
@@ -81,6 +82,9 @@ function renderWith(directory: DirectoryService) {
 }
 
 describe('DirectoryScreen', () => {
+  // The recovery-code step's "not confirmed yet" flag lives in localStorage.
+  beforeEach(() => { localStorage.clear(); });
+
   it('renders the list of servers', async () => {
     const directory = buildDirectory({
       user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
@@ -164,20 +168,98 @@ describe('DirectoryScreen', () => {
     }, { timeout: 1000 });
   });
 
-  it('sign out triggers AuthService.signOut', async () => {
-    const auth = buildFakeAuth();
+  it('has no Sign out in the top bar (it lives in Settings → Account)', async () => {
     const directory = buildDirectory({
       user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
       servers: [],
     });
+    renderWith(directory);
+    expect(await screen.findByText('@alice')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
+  });
+
+  it('prefills the handle from the username and checks it like a nick', async () => {
+    const auth = {
+      ...buildFakeAuth(),
+      getState: vi.fn(() => ({ session: { access_token: 'jwt', user: { id: 'u1', email: 'a@b', username: 'alice' } }, loading: false, error: null })),
+      subscribe: vi.fn((fn: (s: unknown) => void) => { fn({ session: { access_token: 'jwt', user: { id: 'u1', email: 'a@b', username: 'alice' } }, loading: false, error: null }); return () => {}; }),
+    } as unknown as AuthService;
     render(
       <AuthProvider service={auth}>
-        <DirectoryScreen directory={directory} engine={null} identity={buildFakeIdentity()} />
-      </AuthProvider>
+        <DirectoryScreen directory={buildDirectory({ user: null, servers: [] })} engine={null} identity={buildFakeIdentity()} />
+      </AuthProvider>,
     );
-
+    const input = await screen.findByPlaceholderText('handle');
+    expect(input).toHaveValue('alice');
     const user = userEvent.setup();
-    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
-    expect(auth.signOut).toHaveBeenCalled();
+    await user.clear(input);
+    await user.type(input, 'a b c');
+    expect(screen.getByText('No spaces.')).toBeInTheDocument();
+    expect(screen.queryByText(/Alphanumeric/)).toBeNull();
+  });
+
+  it('after a reload on the handle step, asks for the password again instead of failing', async () => {
+    const signIn = vi.fn(async () => {});
+    const auth = {
+      ...buildFakeAuth(),
+      signIn,
+      getState: vi.fn(() => ({ session: { access_token: 'jwt', user: { id: 'u1', email: 'a@b', username: 'alice' } }, loading: false, error: null })),
+      subscribe: vi.fn((fn: (s: unknown) => void) => { fn({ session: { access_token: 'jwt', user: { id: 'u1', email: 'a@b', username: 'alice' } }, loading: false, error: null }); return () => {}; }),
+    } as unknown as AuthService;
+    const rewrapForNewPassword = vi.fn(async () => 'rewrapped-b64');
+    const enrollRecoveryCode = vi.fn(async () => ({ recoveryBlob: 'new-recovery-b64', recoveryCode: 'wxyz-1234' }));
+    const setupMe = vi.fn(async (handle: string) => ({ id: 'u1', handle, is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' }));
+    // The in-memory wrap is gone; the key came back from the device store.
+    const identity = buildFakeIdentity({
+      getPendingEncrypted: () => null,
+      getPendingRecovery: () => null,
+      rewrapForNewPassword,
+      enrollRecoveryCode,
+    });
+    render(
+      <AuthProvider service={auth}>
+        <DirectoryScreen directory={buildDirectory({ user: null, servers: [], setupImpl: setupMe as DirectoryService['setupMe'] })} engine={null} identity={identity} />
+      </AuthProvider>,
+    );
+    expect(await screen.findByText(/Enter your password once more/)).toBeInTheDocument();
+    expect(screen.queryByText(/identity not initialized/)).toBeNull();
+    const user = userEvent.setup();
+    await user.type(screen.getByPlaceholderText('password'), 'my-password-1');
+    await user.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(setupMe).toHaveBeenCalledWith('alice', 'rewrapped-b64', 'new-recovery-b64'));
+    expect(signIn).toHaveBeenCalledWith('a@b', 'my-password-1');
+    expect(rewrapForNewPassword).toHaveBeenCalledWith('my-password-1');
+    // The new code is shown, and stays pending until confirmed.
+    expect(await screen.findByLabelText('recovery code')).toHaveTextContent('wxyz-1234');
+    expect(localStorage.getItem('boson:recovery-pending:u1')).toBe('1');
+    await user.click(screen.getByRole('button', { name: /I.ve saved it/ }));
+    expect(localStorage.getItem('boson:recovery-pending:u1')).toBeNull();
+  });
+
+  it('brings the recovery-code step back (with a new code) after a reload on it', async () => {
+    localStorage.setItem('boson:recovery-pending:u1', '1');
+    const updateSecretWraps = vi.fn(async () => ({}));
+    const directory = {
+      ...buildDirectory({
+        user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' },
+        servers: [],
+      }),
+      updateSecretWraps,
+    } as unknown as DirectoryService;
+    const identity = buildFakeIdentity({
+      enrollRecoveryCode: vi.fn(async () => ({ recoveryBlob: 'rb', recoveryCode: 'aaaa-bbbb-cccc' })),
+    });
+    render(
+      <AuthProvider service={buildFakeAuth()}>
+        <DirectoryScreen directory={directory} engine={null} identity={identity} />
+      </AuthProvider>,
+    );
+    expect(await screen.findByLabelText('recovery code')).toHaveTextContent('aaaa-bbbb-cccc');
+    expect(updateSecretWraps).toHaveBeenCalledWith({ recoveryBlob: 'rb' });
+    expect(screen.getByRole('button', { name: 'Download .txt' })).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: /I.ve saved it/ }));
+    expect(await screen.findByText('Server Directory')).toBeInTheDocument();
+    expect(localStorage.getItem('boson:recovery-pending:u1')).toBeNull();
   });
 });

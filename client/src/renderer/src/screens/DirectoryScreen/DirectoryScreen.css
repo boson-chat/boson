@@ -319,20 +319,25 @@
   border-radius: var(--radius-md);
   padding: var(--space-4);
   margin: var(--space-4) 0;
-  white-space: pre-wrap;
-  word-break: break-all;
+  white-space: normal;
   user-select: all;
 }
-.recovery-code-actions {
-  margin-bottom: var(--space-4);
+/* Lines break between groups only, never inside one. */
+.recovery-code-group {
+  display: inline-block;
+  white-space: nowrap;
 }
-.recovery-code-ack {
+.recovery-code-actions {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
   margin-bottom: var(--space-4);
+}
+/* Re-entering the password after a reload during setup. */
+.setup-password-note {
   font-size: var(--text-sm);
   color: var(--fg-2);
+  margin: 0 0 var(--space-3);
 }
 
 .directory-setup-header {
