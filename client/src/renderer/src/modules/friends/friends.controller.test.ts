@@ -72,9 +72,12 @@ describe('FriendsController', () => {
     expect(s.incoming.map((f) => f.username)).toEqual(['nova']);
     expect(s.blocked.map((f) => f.username)).toEqual(['orbit']);
     expect(s.privacy.calls).toBe('friends');
+    expect(s.signedIn).toBe(true);
+    expect(s.unsupported).toBe(false);
     r.signedIn.on = false;
     r.signedIn.fire();
     expect(r.ctl.getSnapshot().available).toBe(false);
+    expect(r.ctl.getSnapshot().signedIn).toBe(false);
     expect(r.ctl.getSnapshot().friends).toEqual([]);
   });
 
@@ -280,6 +283,9 @@ describe('FriendsController on an older auth service', () => {
     ctl.start();
     await settle(30);
     expect(ctl.getSnapshot().available).toBe(false);
+    // Signed in, but its server has no friends: not "sign in".
+    expect(ctl.getSnapshot().signedIn).toBe(true);
+    expect(ctl.getSnapshot().unsupported).toBe(true);
     expect(n).toBe(1);
     ctl.dispose();
   });

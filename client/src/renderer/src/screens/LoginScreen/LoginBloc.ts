@@ -73,6 +73,11 @@ const UNRECOVERABLE_BLOB_MARKER = 'blob too short';
  *   - subscribe() fires immediately with the current state and on every change
  *   - public methods are verbs (commands) wired to view inputs/buttons
  */
+// The tab the next login screen opens on: leaving guest mode with "Create
+// account" lands on Signup. Read (and reset) by the next LoginBloc.
+let nextMode: LoginMode | null = null;
+export function openLoginOn(mode: LoginMode): void { nextMode = mode; }
+
 export class LoginBloc {
   private readonly auth: AuthService;
   private readonly directory: DirectoryService;
@@ -106,6 +111,10 @@ export class LoginBloc {
     this.directory = deps.directory;
     this.identity = deps.identity;
     this.sso = deps.sso === undefined ? ssoBridge() : deps.sso;
+    if (nextMode) {
+      this.state = { ...this.state, mode: nextMode };
+      nextMode = null;
+    }
   }
 
   // Fetches the identity providers for the "Sign in with …" buttons. Only

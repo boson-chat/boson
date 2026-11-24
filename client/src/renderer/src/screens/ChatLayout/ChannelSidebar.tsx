@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
 import type { ChatChannel, ServerInfo } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
-import { ArrowLeftRight, Plus, Settings, X } from 'lucide-preact';
+import { ArrowLeftRight, MoreHorizontal, Plus, Settings } from 'lucide-preact';
 import { Button, Count, EmptyState, Input, Modal, StatusDot, type DotStatus } from '@boson/shared';
 import {
   ChannelSidebarBloc,
@@ -15,6 +15,8 @@ import { getChannelLevel, setChannelLevel, type ChannelLevel } from '../../modul
 import { BottomSheet } from './BottomSheet';
 import { ADMINS_ONLY_TEXT, type ChannelCreation } from '../../modules/chanserv/creation';
 import { isNarrow, useNarrow } from '../../shared/narrow';
+import { Avatar } from '../../shared/Avatar/Avatar';
+import { getAvatar } from '../../modules/chat/avatar-cache';
 import './ChannelSidebar.css';
 import './ChannelReorder.css';
 
@@ -31,6 +33,8 @@ interface ChannelSidebarProps {
   onSelect: (name: string) => void;
   onJoin: (name: string) => void;
   onPart: (name: string) => void;
+  // The DM section's "All": every server's direct messages (in You).
+  onOpenAllDms?: () => void;
   // The user's own order for this server's list (channel keys; see
   // modules/session/channel-order.ts), applied within each section.
   channelOrder?: readonly string[];
@@ -81,6 +85,7 @@ export function ChannelSidebar({
   onSelect,
   onJoin,
   onPart,
+  onOpenAllDms,
   channelOrder,
   onReorderChannels,
   serverId,
@@ -166,6 +171,9 @@ export function ChannelSidebar({
         { label: 'Notifications: Nothing', checked: level === 'nothing', onClick: pick('nothing') },
       );
     }
+    // Leaving lives here (not as an × on the row, one slip from a click):
+    // the toast that follows offers Undo.
+    actions.push({ label: section === 'dms' ? 'Close conversation' : 'Leave channel', danger: true, onClick: () => onPart(name) });
     return actions;
   };
   // Right-click a row (desktop): its menu. Phones get it from the long
@@ -175,6 +183,12 @@ export function ChannelSidebar({
     if (rowMenuActions(name, section).length === 0) return;
     e.preventDefault();
     setRowMenu({ name, section, at: { x: e.clientX, y: e.clientY } });
+  };
+  // The row's "…" (desktop hover): the same menu, under the button.
+  const moreMenu = (name: string, section: ReorderSection) => (e: MouseEvent): void => {
+    e.stopPropagation();
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setRowMenu({ name, section, at: { x: r.left, y: r.bottom } });
   };
   const rowReorder = (name: string, section: ReorderSection): RowReorder | undefined => {
     if (!onReorderChannels) return undefined;
@@ -296,11 +310,11 @@ export function ChannelSidebar({
               channel={c}
               active={c.name === activeChannel}
               onSelect={onSelect}
-              onPart={onPart}
               prefix="#"
               action={channelAction?.(c.name)}
               reorder={rowReorder(c.name, 'channels')}
               onMenu={rowMenu_(c.name, 'channels')}
+              onMore={moreMenu(c.name, 'channels')}
             />
             {channelVoice?.(c.name)}
           </Fragment>
@@ -310,6 +324,10 @@ export function ChannelSidebar({
           <>
             <div class="channel-section-header">
               <div class="channel-section">Direct Messages</div>
+              {onOpenAllDms && (
+                <Button variant="ghost" size="sm" class="channel-section-link" onClick={onOpenAllDms}
+                  aria-label="All direct messages" title="Every server's direct messages, in You">All</Button>
+              )}
             </div>
             {dms.map((c) => (
               <ChannelRow
@@ -317,10 +335,11 @@ export function ChannelSidebar({
                 channel={c}
                 active={c.name === activeChannel}
                 onSelect={onSelect}
-                onPart={onPart}
-                prefix="[DM]"
+                prefix=""
+                leading={<Avatar nick={c.name} url={serverId ? getAvatar(serverId, c.name) : undefined} size={20} />}
                 reorder={rowReorder(c.name, 'dms')}
                 onMenu={rowMenu_(c.name, 'dms')}
+                onMore={moreMenu(c.name, 'dms')}
               />
             ))}
           </>
@@ -402,12 +421,15 @@ interface ChannelRowProps {
   channel: ChatChannel;
   active: boolean;
   prefix: string;
+  // In place of the prefix (a DM's avatar).
+  leading?: ComponentChildren;
   onSelect: (name: string) => void;
-  onPart: (name: string) => void;
   action?: ComponentChildren;
   reorder?: RowReorder;
   // Right-click: the row's menu.
   onMenu?: (e: MouseEvent) => void;
+  // The hover "…": the same menu.
+  onMore?: (e: MouseEvent) => void;
 }
 
 // A row's part in reordering: its drag attributes / handlers, whether it's
@@ -441,7 +463,7 @@ const SYNC_TITLE: Record<ChannelSync, string | undefined> = {
   ready: undefined,
 };
 
-function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder, onMenu }: ChannelRowProps) {
+function ChannelRow({ channel, active, prefix, leading, onSelect, action, reorder, onMenu, onMore }: ChannelRowProps) {
   const display = channel.name.replace(/^[#&]/, '');
   const sync = channelSync(channel);
   // Unread badge: hidden when active (counters get cleared anyway) or when
@@ -472,9 +494,11 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder
         if (e.key === 'Enter' || e.key === ' ') onSelect(channel.name);
       }}
     >
-      <span class="channel-hash">
-        {sync === 'ready' || sync === 'failed' ? prefix : <span class="channel-sync-spinner" data-sync={sync} aria-hidden="true" />}
-      </span>
+      {leading ? <span class="channel-lead">{leading}</span> : (
+        <span class="channel-hash">
+          {sync === 'ready' || sync === 'failed' ? prefix : <span class="channel-sync-spinner" data-sync={sync} aria-hidden="true" />}
+        </span>
+      )}
       <span class="channel-name">{display}</span>
       {hasMention ? (
         <Count
@@ -490,15 +514,18 @@ function ChannelRow({ channel, active, prefix, onSelect, onPart, action, reorder
         />
       ) : null}
       {action}
-      <Button
-        variant="ghost"
-        size="sm"
-        class="channel-leave"
-        title="Leave"
-        aria-label={`Leave ${channel.name}`}
-        onClick={(e) => { e.stopPropagation(); onPart(channel.name); }}
-        icon={<X aria-hidden="true" />}
-      />
+      {onMore && (
+        <Button
+          variant="ghost"
+          size="sm"
+          class="channel-more"
+          title="More"
+          aria-label={`More for ${channel.name}`}
+          aria-haspopup="menu"
+          onClick={onMore}
+          icon={<MoreHorizontal aria-hidden="true" />}
+        />
+      )}
     </div>
   );
 }

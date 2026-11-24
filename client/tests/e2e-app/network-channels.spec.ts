@@ -25,7 +25,7 @@ import {
   test, expect, STACK, IRC_PORT, addServerManually, continueAsGuest, randomChannel, randomEmail, randomPassword,
   randomUsername, serverCard, uid,
 } from './fixtures';
-import { cardIn, expectConnected, railContextMenu, railTile, searchDirectory } from './helpers/directory';
+import { cardIn, expectConnected, leaveServer, railTile, searchDirectory } from './helpers/directory';
 import { banner, conversation, dismissPopups, input, sidebar } from './helpers/chat';
 import { IrcPeer } from './irc-peer';
 
@@ -130,7 +130,7 @@ test.describe('network channels: a listing\'s default channels', () => {
       // Leave it, leave the server, connect from the card again: it stays left.
       await part(page);
       await expect(conversation(page, lobby)).toHaveCount(0, { timeout: 15_000 });
-      await (await railContextMenu(page, listing.name)).getByRole('menuitem', { name: 'Leave server' }).click();
+      await leaveServer(page, listing.name);
       await expect(railTile(page, listing.name)).toHaveCount(0);
 
       await searchDirectory(page, listing.name);
@@ -290,7 +290,7 @@ test.describe('network channels: server-side auto-join (RoleServ)', () => {
     await conversation(page, NETCHAN_CHANNEL).click();
     await part(page);
     await expect(conversation(page, NETCHAN_CHANNEL)).toHaveCount(0, { timeout: 15_000 });
-    await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
+    await leaveServer(page, name);
     await expect(railTile(page, name)).toHaveCount(0);
     await serverCard(page, name).getByRole('button', { name: 'Connect' }).click();
     await expectConnected(page, name);

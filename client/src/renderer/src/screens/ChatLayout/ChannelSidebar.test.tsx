@@ -167,3 +167,37 @@ describe('ChannelSidebar join modal — admins-only channel creation', () => {
     expect(screen.getByText('Waiting for the server', { exact: false })).toBeTruthy();
   });
 });
+
+describe('ChannelSidebar leaving (in the row menu, not an ×)', () => {
+  const joinedChan = (name: string): ChatChannel => ({ name, joined: true, namesLoaded: true, whoLoaded: true, messages: [] as never, members: [], typing: [], unread: 0, mentions: 0, topic: '' }) as unknown as ChatChannel;
+
+  it('a row has no leave button; its "…" menu has Leave channel', async () => {
+    const { fireEvent } = await import('@testing-library/preact');
+    const onPart = vi.fn();
+    render(<ChannelSidebar {...baseProps} onPart={onPart} channels={[joinedChan('#dev')]} />);
+    expect(screen.queryByRole('button', { name: /^Leave/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More for #dev' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Leave channel' }));
+    expect(onPart).toHaveBeenCalledWith('#dev');
+  });
+
+  it('a DM row shows an avatar and offers Close conversation', async () => {
+    const { fireEvent } = await import('@testing-library/preact');
+    const onPart = vi.fn();
+    const { container } = render(<ChannelSidebar {...baseProps} onPart={onPart} channels={[joinedChan('#dev'), joinedChan('mox')]} />);
+    const row = screen.getByText('mox').closest('.channel-item') as HTMLElement;
+    expect(row.querySelector('.channel-lead')).not.toBeNull();
+    expect(container.textContent).not.toContain('[DM]');
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Close conversation' }));
+    expect(onPart).toHaveBeenCalledWith('mox');
+  });
+
+  it('DIRECT MESSAGES links to every DM (You) when wired', async () => {
+    const { fireEvent } = await import('@testing-library/preact');
+    const onOpenAllDms = vi.fn();
+    render(<ChannelSidebar {...baseProps} onOpenAllDms={onOpenAllDms} channels={[joinedChan('mox')]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'All direct messages' }));
+    expect(onOpenAllDms).toHaveBeenCalled();
+  });
+});

@@ -8,7 +8,7 @@ import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbo
 import { __resetNotificationSettingsCache, setNotificationSettings } from '../../modules/ui/notifications.store';
 import { getFriendsUi, setFriendsUi } from '../Friends/friends-ui';
 import { TOAST_MS, Toasts } from './Toasts';
-import { NotificationsPanel } from './NotificationsPanel';
+import { CLEAR_UNDO_MS, NotificationsPanel } from './NotificationsPanel';
 import { IncomingCallsSetting } from './IncomingCalls';
 import { setVoiceJoiner } from './navigate';
 
@@ -160,6 +160,44 @@ describe('the bell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(closed).toBe(3);
     unsub();
+  });
+});
+
+describe('the bell: actions and Clear', () => {
+  it("a friend request has Accept / Ignore, as its toast does; a missed call has Call back", async () => {
+    getNotificationFeed().add({ id: 'friend:req:u_juno:1', kind: 'friend', sub: 'request', title: 'juno', where: 'friend request', body: 'wants to be your friend', nick: 'juno' });
+    getNotificationFeed().add({ id: 'c1', kind: 'call', sub: 'missed', title: 'Missed call', where: 'kestrel', body: 'Voice call', nick: 'kestrel', call: { peer: 'kestrel', video: false } });
+    render(<NotificationsPanel layout="desktop" onClose={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Call kestrel back' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: "Accept juno's friend request" }));
+    await waitFor(() => expect(ctl.getSnapshot().friends.map((f) => f.username)).toContain('juno'));
+    expect(getNotificationFeed().getSnapshot().items.find((i) => i.id === 'friend:req:u_juno:1')?.read).toBe(true);
+  });
+
+  it('Clear hides everything with Undo; Undo brings it back', () => {
+    getMemoStore().append({ serverId: 's1', serverName: 'Nebula', sender: 'nova', kind: 'mention', channel: '#ops', text: 'ada: look', timestamp: Date.now() });
+    getNotificationFeed().add({ id: 'c1', kind: 'call', sub: 'missed', title: 'Missed call', where: 'kestrel', body: 'Voice call', nick: 'kestrel' });
+    render(<NotificationsPanel layout="desktop" onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(screen.queryAllByRole('listitem').filter((r) => r.querySelector('.bds-row-title'))).toHaveLength(0);
+    expect(screen.getByRole('status').textContent).toContain('Cleared 2 notifications');
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getAllByRole('listitem').filter((r) => r.querySelector('.bds-row-title'))).toHaveLength(2);
+    expect(getMemoStore().list()).toHaveLength(1);
+  });
+
+  it('Clear is final after a few seconds, or when the list closes', () => {
+    vi.useFakeTimers();
+    getMemoStore().append({ serverId: 's1', serverName: 'Nebula', sender: 'nova', kind: 'mention', channel: '#ops', text: 'ada: look', timestamp: Date.now() });
+    const { unmount } = render(<NotificationsPanel layout="desktop" onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(getMemoStore().list()).toHaveLength(1);
+    act(() => { vi.advanceTimersByTime(CLEAR_UNDO_MS + 10); });
+    expect(getMemoStore().list()).toHaveLength(0);
+    act(() => { getNotificationFeed().add({ id: 'c2', kind: 'call', sub: 'missed', title: 'Missed call', where: 'kestrel', body: 'Voice call', nick: 'kestrel' }); });
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    unmount();
+    expect(getNotificationFeed().getSnapshot().items).toHaveLength(0);
   });
 });
 

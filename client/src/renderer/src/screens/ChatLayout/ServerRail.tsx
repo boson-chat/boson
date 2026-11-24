@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
-import { Count, Menu, MenuItem, StatusDot } from '@boson/shared';
+import { ConfirmDialog, Count, Menu, MenuItem, StatusDot } from '@boson/shared';
 import { createPortal } from 'preact/compat';
 import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
 import { isNarrow } from '../../shared/narrow';
@@ -88,6 +88,8 @@ export function ServerRail({
   const [menu, setMenu] = useState<{ serverId: string; x: number; y: number } | null>(null);
   // Phone layout: a long press on a tile opens the same actions in a sheet.
   const [sheet, setSheet] = useState<string | null>(null);
+  // Leave server asks first (it disconnects and forgets the server).
+  const [leaving, setLeaving] = useState<string | null>(null);
   const longPress = useLongPress(isNarrow);
   const hasActions = !!(onOpenServerSettings || onLeaveServer || onBouncerConnect || onBouncerDisconnect);
   const handleContextMenu = (e: MouseEvent, serverId: string): void => {
@@ -296,7 +298,7 @@ export function ServerRail({
           const on = tile.networkTheme.enabled;
           actions.push({ label: on ? "Don't use this network's theme" : "Use this network's theme", onClick: () => onToggleNetworkTheme(id, !on) });
         }
-        if (onLeaveServer) actions.push({ label: 'Leave server', danger: true, onClick: () => onLeaveServer(id) });
+        if (onLeaveServer) actions.push({ label: 'Leave server', danger: true, onClick: () => setLeaving(id) });
         return (
           <BottomSheet
             label={tile.name}
@@ -316,7 +318,7 @@ export function ServerRail({
           y={menu.y}
           onClose={closeMenu}
           onDetails={onOpenServerSettings ? () => { onOpenServerSettings(menu.serverId); closeMenu(); } : undefined}
-          onLeave={onLeaveServer ? () => { onLeaveServer(menu.serverId); closeMenu(); } : undefined}
+          onLeave={onLeaveServer ? () => { setLeaving(menu.serverId); closeMenu(); } : undefined}
           onBouncerConnect={upstream === 'disconnected' && onBouncerConnect
             ? () => { onBouncerConnect(menu.serverId); closeMenu(); }
             : undefined}
@@ -327,6 +329,20 @@ export function ServerRail({
             ? { enabled: tile.networkTheme.enabled, onToggle: () => { onToggleNetworkTheme(menu.serverId, !tile.networkTheme!.enabled); closeMenu(); } }
             : undefined}
         />
+        );
+      })()}
+      {onLeaveServer && (() => {
+        const tile = leaving ? tiles.find((t) => t.serverId === leaving) : undefined;
+        return (
+          <ConfirmDialog
+            open={!!tile}
+            title={`Leave ${tile?.name ?? 'server'}?`}
+            confirmLabel="Leave server"
+            onConfirm={() => { if (leaving) onLeaveServer(leaving); setLeaving(null); }}
+            onCancel={() => setLeaving(null)}
+          >
+            <p>You'll disconnect and it comes off your server list, with its channels. To come back, connect to it again from the directory.</p>
+          </ConfirmDialog>
         );
       })()}
     </nav>

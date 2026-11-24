@@ -22,7 +22,7 @@ import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
 import { isNarrow, useMid, useNarrow } from '../../shared/narrow';
 import { MobileCallScreen, MobileMiniBar } from './MobileCall';
 import { closeCall, isPrivateCall } from './call-shared';
-import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
+import { PreJoinPeople, VoiceJoinSheet, VoicePreJoin } from './PreJoin';
 import { CallStage } from './CallStage';
 import { CallPanel, type CallChat } from './CallPanel';
 import { InCallStrip } from './InCallStrip';
@@ -38,6 +38,7 @@ import { setConversationShown } from '../../modules/ui/notifier';
 import { getMemoStore } from '../../modules/memos';
 import { FriendsView } from '../Friends/FriendsView';
 import { PhonePage } from '../Friends/FriendsNav';
+import { getNotificationFeed } from '../../modules/notifications/feed';
 import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
 import './ChatLayout.css';
 import './NetworkPanes.css';
@@ -369,6 +370,7 @@ export function ChatLayout({
           top={(
             <>
               <MyRailTile nick={selfNick} avatarUrl={avatarFor(selfNick)} presence={presence} active={myOpen}
+                unreadDms={(myDms ?? []).filter((d) => d.unread > 0).length}
                 onClick={() => setFriendsUi({ my: true })} />
               <RailDivider />
             </>
@@ -417,7 +419,17 @@ export function ChatLayout({
             if (engineState === 'connected') chat.rejoin(name);
           }}
           onJoin={(name) => chat.join(name, { byUser: true })}
-          onPart={(name) => chat.part(name)}
+          onPart={(name) => {
+            // Undo (the toast): back in, as you were.
+            const channel = /^[#&]/.test(name);
+            chat.part(name);
+            getNotificationFeed().toast({
+              kind: 'undo', title: channel ? `Left ${name}` : `Closed ${name}`, where: serverName, body: '',
+              nick: channel ? '' : name, serverId: activeServerId ?? undefined,
+              undo: () => { if (channel) chat.join(name, { byUser: true }); else chat.openDM(name); },
+            });
+          }}
+          onOpenAllDms={() => setFriendsUi({ my: true, phone: null })}
           channelOrder={channelOrder}
           serverId={activeServerId}
           onReorderChannels={onReorderChannels}
@@ -450,7 +462,8 @@ export function ChatLayout({
           ) : undefined}
           channelAction={serverHost ? (name) => <ChannelVoiceAdd host={serverHost} channel={name} /> : undefined}
           // Phones: the minimized call bar under every screen instead.
-          footer={narrow ? undefined : <VoiceBar />}
+          // The call screen has its own controls: no second set here.
+          footer={narrow || stageOpen ? undefined : <VoiceBar />}
         />
   );
   const chatArea = (
@@ -574,7 +587,7 @@ export function ChatLayout({
         <div class="mid-panel" onClick={(e) => e.stopPropagation()}>{panel}</div>
       </div>
     ) : null;
-  const callStage = <CallStage avatarFor={avatarFor} people={mid ? { open: midPanel, toggle: () => setMidPanel((o) => !o) } : undefined} />;
+  const callStage = <CallStage avatarFor={avatarFor} people={mid && callChat ? { open: midPanel, toggle: () => setMidPanel((o) => !o) } : undefined} />;
 
   return (
     <div
@@ -635,7 +648,7 @@ export function ChatLayout({
               : myView === 'friends' ? <FriendsView layout="desktop" />
                 : myView === 'calls' ? calls('desktop')
                   : chatArea}
-            {stageOpen ? rightPanel(<CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />, null)
+            {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, null) : null)
               : myView === 'chat' ? rightPanel(userPanel, membersHandle) : null}
             <ScreenPicker />
           </>
@@ -653,9 +666,11 @@ export function ChatLayout({
             ariaLabel="Resize channel list"
           />
           {stageOpen ? callStage : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
-          {stageOpen
-            ? rightPanel(<CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />, membersHandle)
-            : rightPanel(userPanel, membersHandle)}
+          {/* In a call, its tiles show who's in: the right panel is the
+              voice channel's text chat, if it has one. */}
+          {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, membersHandle) : null)
+            : prejoinOpen ? rightPanel(<PreJoinPeople avatarFor={avatarFor} width={membersW} />, membersHandle)
+              : rightPanel(userPanel, membersHandle)}
           <ScreenPicker />
         </>
       )}

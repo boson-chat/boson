@@ -38,8 +38,13 @@ export function startNotificationBridge(opts: BridgeOptions): () => void {
   // ---- friends ----
   let ctlStop: (() => void) | null = null;
   let base: { incoming: Set<string>; outgoing: Set<string>; missed: Set<string> } | null = null;
+  let missedCount = 0;
   const onFriends = (s: FriendsSnapshot): void => {
-    if (!s.available || !s.loaded) { base = null; return; }
+    if (!s.available || !s.loaded) { base = null; missedCount = 0; return; }
+    // One read state everywhere: missed calls seen (the Calls page, or the
+    // bell's Mark all read) are read in the bell too.
+    if (missedCount > 0 && s.missed === 0) feed.markRead((i) => i.kind === 'call' && i.sub === 'missed');
+    missedCount = s.missed;
     const incoming = new Set(s.incoming.map((f) => f.userId));
     const outgoing = new Set(s.outgoing.map((f) => f.userId));
     const friends = new Set(s.friends.map((f) => f.userId));
@@ -54,6 +59,11 @@ export function startNotificationBridge(opts: BridgeOptions): () => void {
       if (!st.friends) continue;
       if (st.inApp) { feed.toast({ kind: 'friend', title: f.username, where: 'friend request', body: 'wants to be your friend', nick: f.username, friend: f }); if (st.sound) chime(); }
       getNotifier().notifyOther({ title: `${f.username} wants to be your friend`, body: 'Accept or ignore in Friends.', tag: `friend:${f.userId}`, onClick: opts.open?.friends });
+    }
+    // A request answered (here, in a toast, on another device): its entry
+    // in the bell is read.
+    for (const id of base.incoming) {
+      if (!incoming.has(id)) feed.markRead((i) => i.kind === 'friend' && i.sub === 'request' && i.id.startsWith(`friend:req:${id}:`));
     }
     for (const id of base.outgoing) {
       if (outgoing.has(id) || !friends.has(id)) continue;

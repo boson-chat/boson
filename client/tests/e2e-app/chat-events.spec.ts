@@ -184,8 +184,9 @@ test.describe('channel events from others', () => {
     await expect(messages(page).getByText('in plain view')).toBeVisible();
     await expect(conversation(page, home)).not.toHaveClass(/channel-item-unread/);
 
-    // Leaving the DM via its ×.
-    await dm.getByRole('button', { name: `Leave ${peer.nick}` }).click();
+    // Closing the DM from its row menu.
+    await dm.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Close conversation' }).click();
     await expect(conversation(page, peer.nick)).toHaveCount(0);
   });
 

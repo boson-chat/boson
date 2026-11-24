@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import { Headphones, HeadphoneOff, LayoutGrid, Lock, Mic, MicOff, PanelLeft, PhoneOff, Users, Volume2 } from 'lucide-preact';
+import { Headphones, HeadphoneOff, LayoutGrid, Lock, MessageSquare, Mic, MicOff, PanelLeft, PhoneOff, Volume2 } from 'lucide-preact';
 import { Button } from '@boson/shared';
 import { getVideoController, useSelfNotice, useTrackNotice, useVideo } from '../../modules/video';
 import type { VideoShareState } from '../../modules/video/video.types';
@@ -13,11 +13,12 @@ import { ShareSound } from './ShareSound';
 import './CallStage.css';
 
 // The call on a desktop, in the main column while you're on its voice
-// channel: focus mode (a screen share or the pinned tile big, everyone
+// channel: focus mode (a screen share, the active speaker or the pinned
+// tile big — never you, unless you're alone — everyone
 // else in a strip that scrolls sideways; click a tile to pin it) or grid
 // mode (2, 3 or 4 columns by how many tiles; past 12, fixed rows that
 // scroll). The dock: mic, camera, screen, deafen, then leave.
-// `people`: mid width only, where the call panel (people, chat) is an
+// `people`: mid width only, where the call panel (the voice channel's chat) is an
 // overlay this button opens and closes.
 export function CallStage({ avatarFor, people }: {
   avatarFor?: (nick: string) => string | undefined;
@@ -31,7 +32,18 @@ export function CallStage({ avatarFor, people }: {
   const [pinned, setPinned] = useState<string | null>(null);
   const vstate = vsnap.state;
   const tiles = callTiles(call.participants, vstate);
-  const focused = tiles.find((t) => t.key === pinned) ?? tiles[0] ?? null;
+  // The big tile, unless one is pinned: a screen share, else whoever spoke
+  // last (it stays on them through a pause), else someone else's camera,
+  // else anyone but you. Your own tile is big only when you're alone.
+  const lastSpeaker = useRef<string | null>(null);
+  const talking = tiles.find((t) => t.speaking && !t.self && !t.screen);
+  if (talking) lastSpeaker.current = talking.key;
+  const auto = tiles.find((t) => t.screen)
+    ?? tiles.find((t) => t.key === lastSpeaker.current)
+    ?? tiles.find((t) => !t.self && t.track)
+    ?? tiles.find((t) => !t.self)
+    ?? tiles[0];
+  const focused = tiles.find((t) => t.key === pinned) ?? auto ?? null;
   const strip = focused ? tiles.filter((t) => t.key !== focused.key) : [];
 
   // Each tile reports its size: received video is sized to its tile.
@@ -84,8 +96,8 @@ export function CallStage({ avatarFor, people }: {
         <span class="stage-meta">{[isPrivateCall(call.room) ? 'private · 1:1' : `${call.participants.length} in call`, rtt, clock].filter(Boolean).join(' · ')}</span>
         <span class="stage-spacer" />
         {people && (
-          <Button variant="secondary" pressed={people.open} aria-label="People and chat" title="People and chat"
-            onClick={people.toggle} icon={<Users aria-hidden="true" />} />
+          <Button variant="secondary" pressed={people.open} aria-label="Call chat" title="Call chat"
+            onClick={people.toggle} icon={<MessageSquare aria-hidden="true" />} />
         )}
         <div role="group" aria-label="Layout" class="stage-layout">
           <Button variant="secondary" pressed={mode === 'focus'} aria-label="Focus layout" title="Focus" onClick={() => setMode('focus')}
@@ -114,7 +126,7 @@ export function CallStage({ avatarFor, people }: {
           disabled={!!call.listener} aria-label={call.listener ? "Listen only: your mic isn't heard here" : call.muted ? 'Unmute' : 'Mute'}
           title={call.muted ? 'Unmute' : 'Mute'} onClick={() => { void voice?.setMuted(!call.muted); }}
           icon={call.muted || call.listener ? <MicOff aria-hidden="true" /> : <Mic aria-hidden="true" />} />
-        <CallVideoButtons withCallToggle={false} size="lg" />
+        <CallVideoButtons withCallToggle={false} size="lg" alwaysShow />
         <Button variant="secondary" size="lg" pressed={call.deafened}
           aria-label={call.deafened ? 'Undeafen' : 'Deafen'} title={call.deafened ? 'Undeafen' : 'Deafen'}
           onClick={() => { void voice?.setDeafened(!call.deafened); }}

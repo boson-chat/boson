@@ -96,7 +96,7 @@ test.describe('tablet portrait (768×1024)', () => {
     await noSideScroll(page);
   });
 
-  test('in a call: the stage and its dock fit; People opens the call panel', async ({ page }) => {
+  test('in a call: the stage and its dock fit; Call chat opens the call panel', async ({ page }) => {
     await page.goto('/shots.html?view=chat&voice=rooms&video=call&people=6');
     await page.locator('.channel-sidebar').getByText('General', { exact: true }).first().click();
     const join = page.getByRole('button', { name: 'Join call', exact: true });
@@ -106,7 +106,7 @@ test.describe('tablet portrait (768×1024)', () => {
     await expect(page.locator('.callpanel')).toHaveCount(0);
     await inViewport(page, page.getByRole('toolbar', { name: 'Call controls' }).last());
     await inViewport(page, stage.getByRole('button', { name: 'Leave call' }));
-    await stage.getByRole('button', { name: 'People and chat' }).click();
+    await stage.getByRole('button', { name: 'Call chat' }).click();
     await expect(page.locator('.callpanel')).toBeVisible();
     await noSideScroll(page);
   });

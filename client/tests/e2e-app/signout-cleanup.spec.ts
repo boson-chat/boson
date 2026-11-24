@@ -3,7 +3,7 @@
 // in on the same app profile and finds none of A's connections, servers,
 // credentials, history or keys — while A's account keeps its synced copies.
 import type { Page } from '@playwright/test';
-import { test, expect, loginAs, randomChannel, secureStoreOnDisk, uid, configureBouncerProfile, field, continueAsGuest } from './fixtures';
+import { test, expect, loginAs, randomChannel, secureStoreOnDisk, uid, configureBouncerProfile, field, continueAsGuest, confirmLeaveGuest } from './fixtures';
 import { addServerAndConnect, connectPeer, joinViaUi, memberRow, messages, say, waitCmd } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 
@@ -43,6 +43,8 @@ async function signOutFromSettings(page: Page, button = 'Sign out'): Promise<voi
   const settings = page.getByRole('dialog', { name: 'User settings' });
   await settings.getByRole('tab', { name: /^Account/ }).click();
   await settings.getByRole('button', { name: button }).click();
+  // Leaving guest mode asks first: it erases the guest's data.
+  if (button === 'Switch to an account') await confirmLeaveGuest(page);
   await expect(page.locator('.login-screen')).toBeVisible({ timeout: 30_000 });
 }
 

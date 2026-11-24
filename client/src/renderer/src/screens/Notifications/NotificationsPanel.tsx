@@ -1,6 +1,7 @@
+import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { ArrowLeft, CheckCheck, Settings, X } from 'lucide-preact';
+import { ArrowLeft, CheckCheck, Phone, Settings, X } from 'lucide-preact';
 import { AtomLoader, Button, EmptyState, ListRow, PageHeader, Segmented, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { getAvatar, subscribeAvatars } from '../../modules/chat/avatar-cache';
@@ -8,6 +9,7 @@ import { getMemoStore, type Memo } from '../../modules/memos';
 import { publishReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { getNotificationFeed, type FeedItem } from '../../modules/notifications/feed';
 import { useFeed } from '../../modules/notifications/use-feed';
+import { useFriends } from '../../modules/friends';
 import { joinVoice, openCalls, openConversation, openFriends } from './navigate';
 import './NotificationsPanel.css';
 
@@ -107,7 +109,19 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
     };
   }, [onClose, phone]);
 
-  const all = sortNotes([...memos.map(memoNote), ...items.map(feedNote)]);
+  // Clear waits a few seconds (with Undo) before it removes anything; the
+  // panel closing makes it final.
+  const [cleared, setCleared] = useState<ReadonlySet<string> | null>(null);
+  const commitRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!cleared) return;
+    const t = setTimeout(() => commitRef.current(), CLEAR_UNDO_MS);
+    return () => clearTimeout(t);
+  }, [cleared]);
+  useEffect(() => () => commitRef.current(), []);
+  const { friends, snap: fsnap } = useFriends();
+
+  const all = sortNotes([...memos.map(memoNote), ...items.map(feedNote)]).filter((n) => !cleared?.has(n.id));
   const shown = filter === 'all' ? all : all.filter((n) => n.group === filter);
   const unread = all.filter((n) => n.unread).length;
   const feed = getNotificationFeed();
@@ -137,14 +151,66 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
     if (n.memo) memoStore.remove(n.memo.id);
     else if (n.feed) feed.remove(n.feed.id);
   };
-  const clear = (): void => {
-    const memoKinds: Memo['kind'][] | undefined = filter === 'all' ? undefined : filter === 'mention' ? ['mention'] : filter === 'message' ? ['memo', 'dm', 'service'] : [];
-    if (!memoKinds || memoKinds.length) memoStore.clear(memoKinds);
-    if (filter === 'all') feed.clear();
-    else if (filter === 'friend' || filter === 'call') feed.clear([filter]);
+  // Removes exactly what was cleared (not what arrived since).
+  commitRef.current = (): void => {
+    if (!cleared) return;
+    for (const n of [...memos.map(memoNote), ...items.map(feedNote)]) {
+      if (!cleared.has(n.id)) continue;
+      if (n.memo) memoStore.remove(n.memo.id);
+      else if (n.feed) feed.remove(n.feed.id);
+    }
+    setCleared(null);
   };
+  const clear = (): void => {
+    commitRef.current();
+    if (shown.length === 0) return;
+    // Missed calls cleared from the bell are seen on the Calls page too.
+    if (shown.some((n) => n.feed?.sub === 'missed') && fsnap.missed > 0) void friends?.seeMissed();
+    setCleared(new Set(shown.map((n) => n.id)));
+  };
+  const undoClear = (): void => setCleared(null);
 
-  const markAll = (): void => { memoStore.markAllRead(); feed.markAllRead(); };
+  // One read state: Mark all read also sees the missed calls (MY's badge).
+  const markAll = (): void => {
+    memoStore.markAllRead();
+    feed.markAllRead();
+    if (fsnap.missed > 0) void friends?.seeMissed();
+  };
+  // A row's own buttons, the same as its toast's: Accept / Ignore a friend
+  // request, Call back a missed call, Join a call that started.
+  const rowActions = (n: Note): ComponentChildren => {
+    const f = n.feed;
+    if (!f || !friends) return null;
+    const size = phone ? 'lg' : 'sm';
+    const read = (): void => feed.markRead(f.id);
+    if (f.sub === 'request') {
+      const who = fsnap.incoming.find((x) => x.username === f.nick);
+      if (!who) return null;
+      return (
+        <>
+          <Button variant="success" size={size} aria-label={`Accept ${who.username}'s friend request`}
+            onClick={() => { read(); void friends.acceptRequest(who); }}>Accept</Button>
+          <Button variant="secondary" size={size} aria-label={`Ignore ${who.username}'s friend request`}
+            onClick={() => { read(); void friends.deleteRequest(who); }}>Ignore</Button>
+        </>
+      );
+    }
+    if (f.sub === 'missed' && f.call) {
+      const call = f.call;
+      return (
+        <Button variant="secondary" tone="success" size={size} icon={<Phone aria-hidden="true" />} aria-label={`Call ${call.peer} back`}
+          onClick={() => { read(); onClose(); void friends.call(call.peer, call.video); }}>Call back</Button>
+      );
+    }
+    if (f.sub === 'started' && f.room) {
+      const room = f.room;
+      return (
+        <Button variant="secondary" tone="success" size={size} aria-label={`Join ${room.name}`}
+          onClick={() => { read(); onClose(); joinVoice(room); }}>Join</Button>
+      );
+    }
+    return null;
+  };
   const settingsBtn = onOpenSettings && (
     <Button variant="ghost" size={phone ? 'lg' : 'sm'} icon={<Settings aria-hidden="true" />} aria-label="Notification settings" title="Notification settings" onClick={onOpenSettings} />
   );
@@ -161,7 +227,7 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
     <div class="notes-head">
       <h2 class="notes-title" id="notes-title">Notifications</h2>
       <Button variant="ghost" size="sm" onClick={markAll} disabled={unread === 0}>Mark all read</Button>
-      {shown.length > 0 && <Button variant="ghost" size="sm" onClick={clear}>Clear</Button>}
+      {shown.length > 0 && <Button variant="ghost" size="sm" onClick={clear}>{filter === 'all' ? 'Clear' : 'Clear these'}</Button>}
       {settingsBtn}
     </div>
   );
@@ -175,6 +241,12 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
             return { id: k, label, ariaLabel: n > 0 ? `${label}, ${n} unread` : label };
           })} />
       </div>
+      {cleared && (
+        <div class="notes-undo" role="status">
+          <span>Cleared {cleared.size} notification{cleared.size === 1 ? '' : 's'}</span>
+          <Button variant="secondary" size={phone ? 'lg' : 'sm'} onClick={undoClear}>Undo</Button>
+        </div>
+      )}
       <ul class="notes-list" role="tabpanel" aria-label={FILTERS.find(([k]) => k === filter)![1]}>
         {shown.length === 0 && <li class="notes-empty"><EmptyState>{EMPTY[filter]}</EmptyState></li>}
         {shown.map((n) => {
@@ -195,7 +267,9 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
                   : <span class="notes-placeholder">{phone ? 'Tap' : 'Click'} to read →</span>)
                 : n.body}
               trailing={<Button variant="ghost" size={phone ? 'lg' : 'sm'} class="notes-x" icon={<X aria-hidden="true" />} aria-label={`Remove ${n.title}`} onClick={() => dismiss(n)} />}
-            />
+            >
+              {(() => { const a = rowActions(n); return a ? <div class="notes-actions">{a}</div> : null; })()}
+            </ListRow>
           );
         })}
         {phone && shown.length > 0 && (
@@ -209,6 +283,9 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
     document.body,
   );
 }
+
+/** How long Clear can be undone. */
+export const CLEAR_UNDO_MS = 6_000;
 
 const EMPTY: Record<NoteFilter, string> = {
   all: 'Nothing yet. Mentions, direct messages, memos, friend requests and calls collect here.',

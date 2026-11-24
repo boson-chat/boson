@@ -1275,3 +1275,8 @@
   max-height: min(160px, calc(var(--app-height, 100vh) * 0.3));
 }
 .app-shell.is-narrow .chat-send-btn { align-self: flex-end; margin-left: var(--space-1); }
+
+/* The title bar steps aside in a phone's conversation (TitleBar.css): the
+   header clears the status bar itself (0 elsewhere). */
+.app-shell.is-narrow .chat-header { padding-top: calc(var(--space-1) + env(safe-area-inset-top, 0px)); }
+.chat-header-bell-badge { position: absolute; top: 4px; right: 2px; }

@@ -14,7 +14,7 @@ import {
   test, expect, uid, type ZncUser,
   continueAsGuest, configureBouncerProfile,
 } from './fixtures';
-import { railContextMenu, railTile } from './helpers/directory';
+import { leaveServer, railContextMenu, railTile } from './helpers/directory';
 import { zncOnIrc, zncUpstream } from './helpers/znc-admin';
 
 const strip = (page: Page): Locator => page.locator('.chat-bouncer-upstream-banner');
@@ -124,7 +124,7 @@ test.describe('bouncer recovery', () => {
     await addAndConnectBouncerNetwork(page, zncUser, name);
     await expect(dot(page)).toHaveAttribute('data-state', 'connected', { timeout: 45_000 });
 
-    await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
+    await leaveServer(page, name);
     await expect(railTile(page, name)).toHaveCount(0);
     let row = page.locator('.directory-bouncer-row').filter({ hasText: name });
     await page.getByRole('tab', { name: 'Bouncer' }).click();

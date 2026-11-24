@@ -9,12 +9,20 @@
   background: var(--pane-members-bg, var(--surface));
   border-left: 1px solid var(--border);
 }
-.callpanel-tabs {
+.callpanel-head {
   height: 64px;
   flex: none;
   display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
+  align-items: center;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  font: 700 var(--text-sm) var(--font-display);
+  letter-spacing: var(--tracking-display);
+  text-transform: uppercase;
+  color: var(--fg-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .callpanel-people { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 0; }
 .callpanel-section {
@@ -23,7 +31,7 @@
   letter-spacing: 0.1em;
   color: var(--fg-3);
 }
-.callpanel-section + .callpanel-list + .callpanel-section { padding-top: 16px; }
+.callpanel-list + .callpanel-section { padding-top: 16px; }
 .callpanel-list { list-style: none; margin: 0; padding: 0; }
 .callpanel-person {
   display: flex;

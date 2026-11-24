@@ -77,6 +77,28 @@ describe('notification bridge', () => {
     expect(feed.getSnapshot().items.filter((i) => i.sub === 'missed')).toHaveLength(1);
   });
 
+  it('one read state: seeing missed calls on the Calls page reads them in the bell', async () => {
+    const c = api.ring('kestrel', true);
+    await tick(40);
+    api.missRing(c.id);
+    await tick(60);
+    expect(ctl.getSnapshot().missed).toBeGreaterThan(0);
+    expect(feed.unread()).toBe(1);
+    await ctl.seeMissed();
+    await tick();
+    expect(feed.unread()).toBe(0);
+  });
+
+  it('one read state: a request answered anywhere is read in the bell', async () => {
+    api.requestFrom('juno');
+    await tick(60);
+    expect(feed.unread()).toBe(1);
+    const juno = ctl.getSnapshot().incoming.find((f) => f.username === 'juno')!;
+    await ctl.acceptRequest(juno);
+    await tick(60);
+    expect(feed.unread()).toBe(0);
+  });
+
   it('declining is not a missed call', async () => {
     const c = api.ring('kestrel', false);
     await tick(40);

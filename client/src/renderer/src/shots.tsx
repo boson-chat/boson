@@ -19,6 +19,7 @@ import { DirectoryScreen } from './screens/DirectoryScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { UserSettings } from './screens/UserSettings/UserSettings';
 import { NotificationsPanel, useUnreadNotes } from './screens/Notifications/NotificationsPanel';
+import { setNotificationsOpener } from './modules/ui/open-notifications';
 import { Toasts } from './screens/Notifications/Toasts';
 import { getNotificationFeed } from './modules/notifications/feed';
 import { startNotificationBridge } from './modules/notifications/bridge';
@@ -693,6 +694,7 @@ function chatView(): void {
       activeServerId="s1"
       myDms={friendsMode ? chat.getState().channels.filter((c) => !/^[#&~]/.test(c.name)).map((c) => ({ serverId: 's1', serverName: 'Nebula', name: c.name, unread: c.unread, mentions: c.mentions })) : undefined}
       onOpenDm={(_s, name) => chat.setActive(name)}
+      onLeaveServer={() => {}}
       onSelectServer={() => {}}
       onBrowseServers={() => {}}
     />
@@ -788,6 +790,10 @@ function ShotFrame({ children }: { children: preact.ComponentChildren }) {
   const [open, setOpen] = useState(q0.get('bell') === '1');
   const unread = useUnreadNotes();
   const narrow = useNarrow();
+  useEffect(() => {
+    setNotificationsOpener(() => setOpen(true));
+    return () => setNotificationsOpener(null);
+  }, []);
   return (
     <div class="app-frame">
       <TitleBar userLabel={NICK} userMode="account" onOpenSettings={() => {}}

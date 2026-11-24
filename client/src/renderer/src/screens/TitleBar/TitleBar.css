@@ -129,3 +129,8 @@
 .title-bar-phone .title-bar-title { font-size: 13px; letter-spacing: .12em; }
 .title-bar-phone .title-bar-actions { padding-right: 6px; }
 .title-bar-phone .title-bar-inbox-badge { top: 4px; right: 2px; }
+
+/* A phone's conversation (and its members): one header, not two. The
+   title bar steps aside where it holds no window controls; the
+   conversation's header takes the status-bar inset and the bell. */
+body:has(.app-shell.is-narrow.phone-chat, .app-shell.is-narrow.phone-members) .title-bar-yields { display: none; }

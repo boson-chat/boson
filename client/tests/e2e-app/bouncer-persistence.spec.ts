@@ -11,7 +11,7 @@ import {
   continueAsGuest, configureBouncerProfile, joinChannel, addServerManually, serverCard, sendMessage,
 } from './fixtures';
 import { IrcPeer, type IrcLine } from './irc-peer';
-import { openServerSettings, railContextMenu, railTile } from './helpers/directory';
+import { openServerSettings, leaveServer, railTile } from './helpers/directory';
 import { zncOnIrc } from './helpers/znc-admin';
 import { crashEngine, engineId } from './helpers/engine';
 
@@ -153,7 +153,7 @@ test.describe('bouncer keeps you on the network', () => {
       const nick = await joinViaBouncer(page, peer, zncUser, name, channel);
 
       const mark = peer.mark();
-      await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
+      await leaveServer(page, name);
       await expect(railTile(page, name)).toHaveCount(0);
       await expectStillOnNetwork(peer, zncUser, nick, channel, mark);
     } finally {

@@ -18,7 +18,7 @@ import {
   loadGuestSession,
   saveGuestSession,
 } from '../../modules/guest/guest';
-import { signOut } from '../../modules/signout/sign-out';
+import { LeaveGuestConfirm } from '../../components/LeaveGuestConfirm';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
@@ -754,29 +754,7 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
   auth: AuthService;
   open: boolean;
 }) {
-  if (mode === 'guest') {
-    return (
-      <SectionFrame
-        title="Account"
-        description="You're using Boson without a boson.chat account (accounts on other networks are under Network accounts). A boson.chat account lets you register servers, keep an identity key and sync across devices."
-      >
-        <div class="user-settings-actions">
-          <Button
-            variant="primary"
-            onClick={() => {
-              // Leaving guest mode is a full sign-out: the guest's
-              // connections, servers and data don't carry over to the
-              // account that signs in next (a shared device).
-              onClose();
-              void signOut();
-            }}
-          >
-            Switch to an account
-          </Button>
-        </div>
-      </SectionFrame>
-    );
-  }
+  if (mode === 'guest') return <GuestAccountSection onClose={onClose} />;
   return (
     <SectionFrame
       title="Account"
@@ -793,6 +771,23 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
       <div class="user-settings-actions">
         <Button variant="ghost" onClick={() => { onSignOut(); onClose(); }}>Sign out</Button>
       </div>
+    </SectionFrame>
+  );
+}
+
+// Guest mode's Account section: "Switch to an account" asks first, since
+// leaving guest mode erases the guest's data on this device.
+function GuestAccountSection({ onClose }: { onClose: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <SectionFrame
+      title="Account"
+      description="You're using Boson without a boson.chat account (accounts on other networks are under Network accounts). A boson.chat account lets you register servers, keep an identity key and sync across devices."
+    >
+      <div class="user-settings-actions">
+        <Button variant="primary" onClick={() => setConfirm(true)}>Switch to an account</Button>
+      </div>
+      <LeaveGuestConfirm open={confirm} onCancel={() => setConfirm(false)} onLeave={() => { setConfirm(false); onClose(); }} />
     </SectionFrame>
   );
 }

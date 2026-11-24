@@ -8,7 +8,6 @@ import { useVoice } from '../../modules/voice';
 import { getAvatar } from '../../modules/chat/avatar-cache';
 import { isPrivateCall, openCall } from '../ChatLayout/call-shared';
 import { MissedList } from './MissedCalls';
-import { IncomingCallsSetting } from '../Notifications/IncomingCalls';
 import { useNarrow } from '../../shared/narrow';
 import { openUserSettings } from '../../modules/ui/open-settings';
 import { openMy, type MyView } from './friends-ui';
@@ -35,16 +34,21 @@ interface RailTileProps {
   presence: Presence;
   active: boolean;
   onClick: () => void;
+  // Direct messages with unread messages (MY's list).
+  unreadDms?: number;
 }
 
 // The rail's MY tile: your own picture (rounded like every avatar) with a
-// presence dot; the badge counts requests and missed calls.
-export function MyRailTile({ nick, avatarUrl, presence, active, onClick }: RailTileProps) {
+// presence dot. Its badge counts what MY's own list marks: friend
+// requests, missed calls and unread direct messages (the bell counts
+// everything; a server's tile, its mentions and DMs).
+export function MyRailTile({ nick, avatarUrl, presence, active, onClick, unreadDms = 0 }: RailTileProps) {
   const { pending, missed } = useMyBadge();
-  const n = pending + missed;
+  const n = pending + missed + unreadDms;
   const parts = [
     pending > 0 ? `${pending} friend request${pending === 1 ? '' : 's'}` : '',
     missed > 0 ? `${missed} missed call${missed === 1 ? '' : 's'}` : '',
+    unreadDms > 0 ? `${unreadDms} unread direct message${unreadDms === 1 ? '' : 's'}` : '',
   ].filter(Boolean).join(', ');
   return (
     <button
@@ -186,7 +190,6 @@ export function CallsView({ layout, onJoin, serverNameFor, settings }: CallsView
       {!phone && <PageHeader title="Calls" sub="live · recent" />}
       <div class="calls-view-body">
         {settings}
-        {snap.available && <IncomingCallsSetting layout={layout} />}
         {privateCall && (
           <section aria-labelledby="calls-now">
             <h2 id="calls-now" class="calls-sec">IN A CALL</h2>

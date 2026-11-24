@@ -1,6 +1,6 @@
 import { useState } from 'preact/hooks';
-import { Phone, Video, X } from 'lucide-preact';
-import { Button, EmptyState, Input, ListRow, PageHeader, Tabs, Toggle } from '@boson/shared';
+import { CircleHelp, Phone, Video, X } from 'lucide-preact';
+import { AtomLoader, Button, ConfirmDialog, EmptyState, Input, ListRow, PageHeader, Tabs, Toggle } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { useFriends, type Friend } from '../../modules/friends';
 import './FriendsView.css';
@@ -20,11 +20,24 @@ export function FriendsView({ layout }: Props) {
   const [tab, setTab] = useState<Tab>('all');
   const [handle, setHandle] = useState('');
   const [sending, setSending] = useState(false);
+  // Remove friend asks first.
+  const [removing, setRemoving] = useState<Friend | null>(null);
+  // "Can call me anytime", explained: behind a ?, not a paragraph.
+  const [help, setHelp] = useState(false);
   const phone = layout === 'phone';
   if (!friends || !snap.available) {
+    // Signed out, this server's account service has no friends, or still
+    // asking it: three different things to say.
+    const state = !friends || !snap.signedIn ? 'signed-out' : snap.unsupported ? 'unsupported' : 'loading';
     return (
-      <main class={`friends friends-${layout}`}>
-        <EmptyState>Sign in to your Boson account to add friends and call them.</EmptyState>
+      <main class={`friends friends-${layout}`} aria-label="Friends" aria-busy={state === 'loading' || undefined}>
+        {state === 'loading' ? (
+          <div class="friends-loading" role="status"><AtomLoader size={20} label="Loading friends" /><span>Loading friends…</span></div>
+        ) : (
+          <EmptyState>{state === 'unsupported'
+            ? "Friends and calls aren't available with your account's server yet."
+            : 'Sign in to your Boson account to add friends and call them.'}</EmptyState>
+        )}
       </main>
     );
   }
@@ -45,9 +58,17 @@ export function FriendsView({ layout }: Props) {
     { id: 'pending', label: `PENDING · ${snap.incoming.length}` },
     { id: 'blocked', label: phone ? 'BLOCKED' : `BLOCKED · ${snap.blocked.length}` },
   ];
+  const helpNote = (
+    <p class="friends-note" id={`friends-help-${layout}`}>“Can call me anytime” rings you even on Do not disturb or when calls are set to Nobody. To stop someone calling, remove or block them.</p>
+  );
   const tabList = (
     <div class="friends-tabs">
       <Tabs tabs={tabs} active={tab} onChange={(id) => setTab(id as Tab)} label="Friends" />
+      {!phone && tab === 'all' && snap.friends.length > 0 && (
+        <Button variant="ghost" size="sm" class="friends-help-btn" pressed={help} icon={<CircleHelp aria-hidden="true" />}
+          aria-label="What does Can call me anytime do?" title="What does “Can call me anytime” do?" aria-expanded={help}
+          aria-controls={`friends-help-${layout}`} onClick={() => setHelp(!help)} />
+      )}
     </div>
   );
   const add = (
@@ -79,13 +100,17 @@ export function FriendsView({ layout }: Props) {
       <div class="friends-list" role="tabpanel">
         {tab === 'all' && (
           <>
-            {snap.friends.map((f) => <FriendRow key={f.userId} f={f} phone={phone} />)}
+            {!phone && help && snap.friends.length > 0 && helpNote}
+            {snap.friends.map((f) => <FriendRow key={f.userId} f={f} phone={phone} onRemove={() => setRemoving(f)} />)}
+            {/* Phones: the ? is a line under the list (the tabs fill the width). */}
+            {phone && snap.friends.length > 0 && (help ? helpNote : (
+              <Button variant="ghost" size="lg" class="friends-help-link" icon={<CircleHelp aria-hidden="true" />}
+                aria-expanded={false} onClick={() => setHelp(true)}>What does “Can call me anytime” do?</Button>
+            ))}
             {snap.loaded && snap.friends.length === 0 && (
               <EmptyState>No friends yet. Add someone by their handle, or {phone ? 'tap' : 'right-click'} a name in Members.</EmptyState>
             )}
-            {snap.friends.length > 0 && (
-              <p class="friends-note">“Can call me anytime” lets that friend through even when you're on Do not disturb or calls are set to Nobody. Off, they can call you when your settings allow it (by default, friends can). To stop someone calling, remove or block them.</p>
-            )}
+
           </>
         )}
         {tab === 'pending' && (
@@ -134,11 +159,20 @@ export function FriendsView({ layout }: Props) {
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={!!removing}
+        title={`Remove ${removing?.username ?? 'friend'}?`}
+        confirmLabel="Remove friend"
+        onConfirm={() => { if (removing) void friends.removeFriend(removing); setRemoving(null); }}
+        onCancel={() => setRemoving(null)}
+      >
+        <p>You'll stop being friends: they lose “Can call me anytime”, and you'd need to send a new request to be friends again.</p>
+      </ConfirmDialog>
     </main>
   );
 }
 
-function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
+function FriendRow({ f, phone, onRemove }: { f: Friend; phone: boolean; onRemove: () => void }) {
   const { friends } = useFriends();
   if (!friends) return null;
   const size = phone ? 'lg' : 'md';
@@ -165,7 +199,7 @@ function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
         </div>
         <div class="friends-row-remove">
           <Button variant="ghost" tone="danger" size="lg" class="friends-remove" aria-label={`Remove ${f.username} from friends`}
-            onClick={() => { void friends.removeFriend(f); }}>Remove friend</Button>
+            onClick={onRemove}>Remove friend</Button>
         </div>
       </ListRow>
     );
@@ -180,7 +214,7 @@ function FriendRow({ f, phone }: { f: Friend; phone: boolean }) {
           <span class="friends-anytime">{sw}</span>
           {calls}
           <Button variant="ghost" aria-label={`Remove ${f.username} from friends`}
-            onClick={() => { void friends.removeFriend(f); }}>Remove</Button>
+            onClick={onRemove}>Remove</Button>
         </>
       )}
     />
