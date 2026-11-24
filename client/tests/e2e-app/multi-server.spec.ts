@@ -87,13 +87,15 @@ test('two servers: browse modal, rail switching, unread + mentions, details, lea
     await expect(messageList(page).getByText('are you there?', { exact: false })).toBeVisible();
     await expect(page.getByLabel(`1 unread message in ${a.name}`)).toHaveCount(0);
 
-    // Context menu → Server details for B; selecting another tile from the
-    // settings page goes back to chat on that server.
+    // Context menu → Server details for B: a dialog over the chat (E4), which
+    // Escape closes, leaving you where you were (on A).
     const settings = await openServerSettings(page, b.name);
     await expect(settings.getByRole('heading', { level: 1 })).toHaveText(b.name);
-    await railTile(page, a.name).click();
+    await expect(page.getByRole('dialog', { name: `${b.name} server settings` })).toBeVisible();
+    await page.keyboard.press('Escape');
     await expect(settings).toBeHidden();
     await expect(sidebarServerName(page)).toHaveText(a.name);
+    await expect(railTile(page, a.name)).toHaveAttribute('aria-current', 'true');
 
     // Escape closes the context menu without doing anything.
     const menu = await railContextMenu(page, b.name);
