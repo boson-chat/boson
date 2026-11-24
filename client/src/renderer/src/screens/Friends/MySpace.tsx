@@ -1,5 +1,6 @@
 import type { ComponentChildren } from 'preact';
-import { useEffect } from 'preact/hooks';
+import { useEffect, useRef } from 'preact/hooks';
+import { useRevealCurrent } from '../../shared/reveal-current';
 import { Phone, Settings, Users } from 'lucide-preact';
 import { Button, Count, EmptyState, ListRow, PageHeader, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
@@ -103,8 +104,11 @@ export function MySidebar({ nick, presence, view, dms, activeDm, onOpenDm, showS
   const { pending, missed } = useMyBadge();
   const size = useNarrow() ? 'lg' : 'md';
   const noTitleBar = useNoTitleBar();
+  // Open on the DM you're in, not the top of the list.
+  const asideRef = useRef<HTMLElement>(null);
+  useRevealCurrent(asideRef, '.my-list', '[aria-current="page"]');
   return (
-    <aside class="channel-sidebar my-sidebar" aria-label="You" style={width ? { width: `${width}px` } : undefined}>
+    <aside ref={asideRef} class="channel-sidebar my-sidebar" aria-label="You" style={width ? { width: `${width}px` } : undefined}>
       <div class="channel-sidebar-header my-sidebar-header">
         <div class="channel-sidebar-heading">
           <div class="channel-sidebar-title sidebar-server-name">{nick || 'You'}</div>

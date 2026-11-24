@@ -17,6 +17,7 @@ import { ADMINS_ONLY_TEXT, type ChannelCreation } from '../../modules/chanserv/c
 import { isNarrow, useNarrow } from '../../shared/narrow';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { getAvatar } from '../../modules/chat/avatar-cache';
+import { useRevealCurrent } from '../../shared/reveal-current';
 import './ChannelSidebar.css';
 import './ChannelReorder.css';
 
@@ -251,8 +252,11 @@ export function ChannelSidebar({
   // service / NickServ messages live behind the Server details modal,
   // surfaced via the version badge in the chat header.
 
+  // Open on the channel you're in, not the top of the list.
+  const asideRef = useRef<HTMLElement>(null);
+  useRevealCurrent(asideRef, '.channel-list', '.channel-item-active');
   return (
-    <aside class="channel-sidebar" aria-label="Channels" style={width ? { width: `${width}px` } : undefined}>
+    <aside ref={asideRef} class="channel-sidebar" aria-label="Channels" style={width ? { width: `${width}px` } : undefined}>
       <div
         class={`channel-sidebar-header ${bannerUrl ? 'channel-sidebar-header-banner' : ''}`}
         style={bannerUrl ? `background-image: url("${cssUrl(bannerUrl)}")` : undefined}
