@@ -143,6 +143,8 @@ test.describe('channel operation', () => {
     await expect(dialog.getByRole('checkbox', { name: 'Only operators can change the topic' })).toBeChecked();
     await expect(dialog.getByRole('checkbox', { name: 'Only people with a voice can talk' })).toBeDisabled();
     await expect(dialog.locator('textarea.chan-topic')).toBeDisabled();
+    await expect(dialog.getByRole('button', { name: 'Ban', exact: true })).toBeDisabled();
+    await dialog.getByText('Ban by address (advanced)').click();
     await expect(dialog.getByRole('button', { name: 'Add ban' })).toBeDisabled();
     await page.keyboard.press('Escape');
 

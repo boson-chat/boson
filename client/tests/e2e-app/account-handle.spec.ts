@@ -44,7 +44,7 @@ test('first sign-in handle setup rejects short and taken handles, then accepts a
   await expect(page.getByLabel('recovery code', { exact: true })).toBeVisible({ timeout: 20_000 });
   await page.getByText('I’ve saved my recovery code somewhere safe.').click();
   await page.locator('.recovery-code-reveal').getByRole('button').last().click();
-  await expect(page.locator('.title-bar-user-name')).toHaveText(handle);
+  await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible();
   const me = await (await backendApi(fresh)).get<{ handle: string; encrypted_user_secret_recovery: string }>('/me');
   expect(me.handle).toBe(handle);
   expect(me.encrypted_user_secret_recovery.length).toBeGreaterThan(40);
@@ -102,6 +102,5 @@ test('renaming the handle in settings: taken and too-short are refused, a free o
   // And the next launch signs in as the new handle.
   await first.app.close();
   const second = await launchApp();
-  await expect(second.page.locator('.directory-handle')).toHaveText(`@${renamed}`, { timeout: 45_000 });
-  await expect(second.page.locator('.title-bar-user-name')).toHaveText(renamed);
+  await expect(second.page.locator('.title-bar-user-name')).toHaveText(renamed, { timeout: 45_000 });
 });

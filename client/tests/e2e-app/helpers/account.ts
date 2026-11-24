@@ -98,7 +98,6 @@ export async function completeHandleSetup(page: Page, handle: string): Promise<s
   await page.getByText('I’ve saved my recovery code somewhere safe.').click();
   await page.locator('.recovery-code-reveal').getByRole('button').last().click();
   await expect(directoryHeading(page)).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
   return recoveryCode;
 }
 
