@@ -60,7 +60,7 @@ component can't do what a screen needs, extend the component.
 | One-of-a-few choice | `Segmented` | `size` md 34 · lg 44; `fill` | `--radius-md` outer corners, accent when on |
 | Tabs (switch the view) | `Tabs` | — | 2px accent indicator |
 | On / off | `Switch` (`Toggle`), `SwitchRow` (title + description + switch, the row toggles) | `size` md · lg | track `--radius-md`, knob `--radius-sm` |
-| List row | `ListRow` | `variant` item (avatar · title + meta / subtitle · actions, divider under) · nav (sidebar entry: 2px accent edge when selected); `size` md · lg (phones: 16px inset, 14px title); `onClick` (the body is one button); `titleTone` danger · success; `unread`, `selected` | mono 700 13px title, 12px `--fg-2` subtitle |
+| List row | `ListRow` | `variant` item (avatar · title + meta / subtitle · actions, divider under) · nav (sidebar entry: 2px accent edge when selected); an item can be `selected` too (raised, 2px accent edge: the picked search result); `size` md · lg (phones: 16px inset, 14px title); `onClick` (the body is one button); `titleTone` danger · success; `unread`, `selected` | mono 700 13px title, 12px `--fg-2` subtitle |
 | Page header | `PageHeader` | `layout` desktop (64px, 20px title) · phone (54px, 16px title, 44px back button); `actions`; children (tabs) | `--border` underneath |
 | Toast, banner, status pop-up | `Toast` | `surface` desktop (card, slides in) · phone (banner, drops from the top); `layout` stack (buttons under the text) · row (one line: the incoming-call banner); `onOpen`, `onDismiss`, `timerMs` + `paused` (time-left bar), `ringing` (green glow), `status` (centred text only) | `--radius-lg`, `--shadow-toast` |
 | Empty state | `EmptyState` | `icon`, `title`, `action` | centred, 13px `--fg-3` |

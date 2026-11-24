@@ -1,7 +1,7 @@
 // A proxy between the app and the e2e ergo that adds IRCv3 chathistory
 // (the e2e ergo runs with history off): it offers the `chathistory` cap,
-// ACKs it when the app asks, and answers CHATHISTORY LATEST / BEFORE
-// itself, from a scripted backlog per channel. Everything else is ergo's.
+// ACKs it when the app asks, and answers CHATHISTORY LATEST / BEFORE /
+// AROUND itself, from a scripted backlog per channel. Everything else is ergo's.
 import { createConnection, createServer, type Socket } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { IRC_HOST, IRC_PORT } from '../fixtures';
@@ -56,6 +56,15 @@ function parse(line: string): { command: string; params: string[] } {
   return { command: (params.shift() ?? '').toUpperCase(), params };
 }
 
+const msgidOf = (l: HistoryLine): string => `hp-${l.time}-${l.from}`;
+
+// A CHATHISTORY reference (timestamp=… or msgid=…) as a time; NaN if unknown.
+function refTime(all: HistoryLine[], ref: string): number {
+  if (ref.startsWith('timestamp=')) return Date.parse(ref.slice('timestamp='.length));
+  if (ref.startsWith('msgid=')) return all.find((l) => msgidOf(l) === ref.slice('msgid='.length))?.time ?? NaN;
+  return NaN;
+}
+
 export async function startHistoryProxy(): Promise<HistoryProxy> {
   const history = new Map<string, HistoryLine[]>();
   const live = new Set<Socket>();
@@ -93,14 +102,20 @@ export async function startHistoryProxy(): Promise<HistoryProxy> {
       if (sub.toUpperCase() === 'LATEST') {
         page = all.slice(-limit);
       } else if (sub.toUpperCase() === 'BEFORE') {
-        const ts = ref.startsWith('timestamp=') ? Date.parse(ref.slice('timestamp='.length)) : NaN;
+        const ts = refTime(all, ref);
         const before = Number.isNaN(ts) ? all : all.filter((l) => l.time < ts);
         page = before.slice(-limit);
+      } else if (sub.toUpperCase() === 'AROUND') {
+        // Half before the reference, the rest from it on.
+        const ts = refTime(all, ref);
+        const at = all.findIndex((l) => l.time >= ts);
+        const from = Math.max(0, (at < 0 ? all.length : at) - Math.floor(limit / 2));
+        page = all.slice(from, from + limit);
       }
       const id = `h${++batchSeq}`;
       toClient(`:proxy.history BATCH +${id} chathistory ${target}`);
       for (const l of page) {
-        toClient(`@batch=${id};time=${new Date(l.time).toISOString()};msgid=hp-${l.time}-${l.from} :${l.from}!h@history.test PRIVMSG ${target} :${l.text}`);
+        toClient(`@batch=${id};time=${new Date(l.time).toISOString()};msgid=${msgidOf(l)} :${l.from}!h@history.test PRIVMSG ${target} :${l.text}`);
       }
       toClient(`:proxy.history BATCH -${id}`);
     };

@@ -40,7 +40,7 @@ describe('ChatArea on a phone: the header', () => {
     const { container } = render(
       <ChatArea channel={channel} myNick="me" onSend={vi.fn()} onBack={vi.fn()}
         registration={{ registered: true, founder: 'me' }} onOpenRegistration={vi.fn()}
-        onShowMembers={vi.fn()} onOpenChannelSettings={vi.fn()} />,
+        onShowMembers={vi.fn()} onOpenChannelSettings={vi.fn()} onOpenSearch={vi.fn()} />,
     );
     const names = [...container.querySelectorAll('.chat-header button')].map((b) => b.getAttribute('aria-label'));
     expect(names).toEqual(['Back to channels', 'Search in #team-infrastructure-ops', 'More options']);
