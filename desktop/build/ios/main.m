@@ -51,6 +51,22 @@ static void watchNetwork(void) {
     nw_path_monitor_start(monitor);
 }
 
+// No form accessory bar (the ⌃ ⌄ ✓ row WKWebView puts over the keyboard
+// for a focused field): an app's composer, not a web form, and the row
+// costs a line of the screen. WKContentView (WebKit's private view that
+// takes the keyboard) answers inputAccessoryView with that bar; give the
+// class its own answer, nil. class_replaceMethod adds the override on
+// WKContentView itself (it would otherwise inherit UIResponder's), so no
+// other responder changes. A WebKit without the class: nothing happens.
+static void hideFormAccessoryBar(void) {
+    Class content = NSClassFromString(@"WKContentView");
+    if (!content) return;
+    SEL sel = @selector(inputAccessoryView);
+    if (!class_getInstanceMethod(content, sel)) return;
+    IMP none = imp_implementationWithBlock(^UIView *(id self_) { return nil; });
+    class_replaceMethod(content, sel, none, "@@:");
+}
+
 static void edgeToEdge(void) {
     Class vc = NSClassFromString(@"WailsViewController");
     if (!vc) return;
@@ -78,6 +94,8 @@ static void edgeToEdge(void) {
         if (web && !bosonWebView) {
             bosonWebView = web;
             watchNetwork();
+            // (WebKit is surely loaded by now: here's its view.)
+            hideFormAccessoryBar();
         }
         // An app, not a web page: no pinch zoom (the viewport meta asks
         // for that too; this holds whatever the page says). On a phone the

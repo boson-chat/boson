@@ -74,7 +74,8 @@ test.describe('phone layout', () => {
     await screenIs(page, 'chat');
 
     // Members, full screen; back to the chat.
-    await page.getByRole('button', { name: /^Members \(/ }).click();
+    await page.getByRole('button', { name: 'More options' }).click();
+    await page.getByRole('menuitem', { name: /^Members \(/ }).click();
     await screenIs(page, 'members');
     await expect(page.locator('.user-panel')).toBeVisible();
     await page.getByRole('button', { name: 'Back to chat' }).click();
