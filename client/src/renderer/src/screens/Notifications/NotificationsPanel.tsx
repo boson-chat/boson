@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
-import { ArrowLeft, Settings, X } from 'lucide-preact';
+import { ArrowLeft, CheckCheck, Settings, X } from 'lucide-preact';
 import { AtomLoader, Button, EmptyState, ListRow, PageHeader, Segmented, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { getAvatar, subscribeAvatars } from '../../modules/chat/avatar-cache';
@@ -152,7 +152,9 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
     <PageHeader layout="phone" title={<span id="notes-title">Notifications</span>} sub={`${unread} unread`} onBack={onClose} backLabel="Back"
       backIcon={<ArrowLeft aria-hidden="true" />}
       actions={<>
-        <Button variant="ghost" size="lg" onClick={markAll} disabled={unread === 0}>Mark all read</Button>
+        {/* An icon on phones: the words would squeeze the title. */}
+        <Button variant="ghost" size="lg" onClick={markAll} disabled={unread === 0} icon={<CheckCheck aria-hidden="true" />}
+          aria-label="Mark all read" title="Mark all read" />
         {settingsBtn}
       </>} />
   ) : (

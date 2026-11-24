@@ -80,7 +80,7 @@ export function MobileCallScreen({ avatarFor, onChat }: { avatarFor?: (nick: str
           <Button variant="ghost" size="lg" aria-label={`Chat in ${call.roomName || call.room}`} onClick={onChat} icon={<MessageSquare aria-hidden="true" />} />
         )}
       </header>
-      <div class="mcall-stage">
+      <div class="mcall-stage" data-share={(screenTile && !screenBig) || undefined}>
         {screenTile?.track?.sound && <ShareSound track={screenTile.track} compact={!screenBig} cls="mcall-share-sound" />}
         {screenTile && screenBig ? (
           <MTile tile={screenTile} cls="mcall-screen-big" avatar={avatarFor?.(screenTile.name)} onSize={onSize} canvasRef={canvas(screenTile)}

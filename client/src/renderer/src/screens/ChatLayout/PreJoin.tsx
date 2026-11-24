@@ -209,17 +209,19 @@ export function VoiceJoinSheet({ self, avatarFor }: { self: string; avatarFor?: 
         </div>
         <PreviewTile cls="joinsheet-preview" camOn={j.camOn} starting={!!preview?.starting} error={preview?.error}
           self={self} selfAvatar={avatarFor?.(self)} facing={preview?.facing} attach={(el) => j.video?.attachPreview(el)} />
-        <div class="joinsheet-toggles">
-          <Button variant="secondary" size="lg" fullWidth pressed={j.micOn} onClick={j.toggleMic}
-            icon={j.micOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />}>
-            {j.micOn ? 'Mic on' : 'Muted'}
-          </Button>
-          <Button variant="secondary" size="lg" fullWidth pressed={j.camOn} onClick={j.toggleCam}
-            icon={j.camOn ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />}>
-            {j.camOn ? 'Camera on' : 'Camera off'}
-          </Button>
+        <div class="joinsheet-go">
+          <div class="joinsheet-toggles">
+            <Button variant="secondary" size="lg" fullWidth pressed={j.micOn} onClick={j.toggleMic}
+              icon={j.micOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />}>
+              {j.micOn ? 'Mic on' : 'Muted'}
+            </Button>
+            <Button variant="secondary" size="lg" fullWidth pressed={j.camOn} onClick={j.toggleCam}
+              icon={j.camOn ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />}>
+              {j.camOn ? 'Camera on' : 'Camera off'}
+            </Button>
+          </div>
+          <Button variant="primary" size="lg" fullWidth onClick={j.join}>Join call</Button>
         </div>
-        <Button variant="primary" size="lg" fullWidth onClick={j.join}>Join call</Button>
       </div>
     </BottomSheet>
   );

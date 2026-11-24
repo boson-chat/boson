@@ -103,11 +103,34 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
   }, [open, initialSection]);
   const guest = loadGuestSession();
   const mode: 'guest' | 'account' = guest ? 'guest' : 'account';
+  // Phones: the menu is a strip that scrolls sideways. Keep the chosen
+  // section's tab in view (opening on About lands at the strip's end), and
+  // mark which edges have more tabs past them for the fade.
+  const menuRef = useRef<HTMLElement>(null);
+  const updateMenuEdges = (): void => {
+    const nav = menuRef.current;
+    if (!nav) return;
+    const max = nav.scrollWidth - nav.clientWidth;
+    nav.toggleAttribute('data-more-start', max > 1 && nav.scrollLeft > 1);
+    nav.toggleAttribute('data-more-end', max > 1 && nav.scrollLeft < max - 1);
+  };
+  useEffect(() => {
+    const nav = menuRef.current;
+    if (!open || !nav) return;
+    const tab = nav.querySelector<HTMLElement>('.bds-row-selected');
+    if (tab && nav.scrollWidth > nav.clientWidth) {
+      const pad = 24;
+      const left = tab.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+      if (left < nav.scrollLeft + pad) nav.scrollLeft = Math.max(0, left - pad);
+      else if (left + tab.offsetWidth > nav.scrollLeft + nav.clientWidth - pad) nav.scrollLeft = left + tab.offsetWidth - nav.clientWidth + pad;
+    }
+    updateMenuEdges();
+  }, [open, section]);
 
   return (
     <Modal open={open} onClose={onClose} title="User settings">
       <div class="user-settings">
-        <nav class="user-settings-menu" aria-label="Settings sections">
+        <nav class="user-settings-menu" aria-label="Settings sections" ref={menuRef} onScroll={updateMenuEdges}>
           {menu.map((m) => (
             <ListRow
               key={m.id}

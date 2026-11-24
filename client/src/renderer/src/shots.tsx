@@ -6,6 +6,7 @@
 import { render } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import './styles.css';
+import './shared/modal-portal';
 import { trackVisualViewport } from './shared/visual-viewport';
 import { ChatService } from './modules/chat';
 import type { IrcEvent, EventListener } from './modules/engine';

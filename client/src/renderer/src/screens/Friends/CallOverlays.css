@@ -53,6 +53,24 @@
 .pcall-btn-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); }
 .pcall-btn-label { font: 12px var(--font-mono); color: var(--fg-2); }
 .pcall-btn-label-ok { color: var(--success); }
+/* Phones in landscape: too short for the column, so the caller sits on the
+   left and the buttons on the right, with a smaller avatar. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .pcall {
+    flex-direction: row;
+    justify-content: space-around;
+    gap: var(--space-6);
+    padding:
+      max(16px, env(safe-area-inset-top, 0px))
+      max(28px, env(safe-area-inset-right, 0px))
+      max(16px, env(safe-area-inset-bottom, 0px))
+      max(28px, env(safe-area-inset-left, 0px));
+  }
+  .pcall-who { flex: 0 1 auto; gap: 10px; }
+  .pcall-who .bds-avatar { zoom: 0.6; }
+  .pcall-name { font-size: 20px; }
+  .pcall-buttons { width: auto; flex: none; justify-content: flex-end; gap: var(--space-6); align-items: center; }
+}
 
 /* "kestrel is busy": a status toast, bottom centre. */
 .call-toast {

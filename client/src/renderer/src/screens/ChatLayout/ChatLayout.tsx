@@ -1,5 +1,6 @@
 import { NetworkAccountBar } from '../NetworkSignIn/NetworkAccountBar';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { JSX } from 'preact';
 import type { ChatService, ChatState } from '../../modules/chat';
 import { banMask } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
@@ -18,7 +19,7 @@ import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/pan
 import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
-import { isNarrow, useNarrow } from '../../shared/narrow';
+import { isNarrow, useMid, useNarrow } from '../../shared/narrow';
 import { MobileCallScreen, MobileMiniBar } from './MobileCall';
 import { closeCall, isPrivateCall } from './call-shared';
 import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
@@ -163,6 +164,20 @@ export function ChatLayout({
   // full screen with a back arrow (the conversation, its members, Friends,
   // Calls). friends-ui's `phone` is the page.
   const narrow = useNarrow();
+  // Tablet portrait / narrow windows: the member list (or the call panel)
+  // opens over the chat on demand instead of taking a fixed column.
+  const mid = useMid();
+  const [midPanel, setMidPanel] = useState(false);
+  useEffect(() => {
+    if (!mid) return;
+    // Bound for as long as the layout is mid (not per opening), so an Escape
+    // right after the panel opens isn't missed. Closed already: a no-op.
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setMidPanel(false); };
+    // Capture: the chat's own key handling (focus, Escape to clear) stops
+    // the event before it would bubble here.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [mid]);
   const phoneRef = useRef<HTMLDivElement>(null);
   // A conversation that becomes active on this server — picked, joined, or
   // opened from elsewhere — is what the user wants to see (switching
@@ -495,7 +510,10 @@ export function ChatLayout({
           onTrustBouncerCert={typeof chat.trustBouncerCert === 'function' ? () => chat.trustBouncerCert() : undefined}
           onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
           onBack={narrow ? () => setFriendsUi({ phone: null }) : undefined}
-          onShowMembers={narrow && isChannel ? () => setFriendsUi({ phone: 'members' }) : undefined}
+          onShowMembers={!isChannel ? undefined
+            : narrow ? () => setFriendsUi({ phone: 'members' })
+              : mid ? () => setMidPanel((o) => !o) : undefined}
+          membersShown={mid ? midPanel : undefined}
         />
   );
   const userPanel = (
@@ -506,6 +524,19 @@ export function ChatLayout({
           width={membersW}
           onBack={narrow ? () => setFriendsUi({ phone: 'chat' }) : undefined}
         />
+  );
+
+  const membersHandle = (
+    <ResizeHandle
+      side="right"
+      width={membersW}
+      min={PANEL_BOUNDS.members.min}
+      max={PANEL_BOUNDS.members.max}
+      onChange={setMembersW}
+      onCommit={(w) => setMembersW(setPanelWidth('members', w))}
+      onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
+      ariaLabel="Resize member list"
+    />
   );
 
   // Phones: each screen, the ones a swipe leads to (back to the channel
@@ -534,9 +565,20 @@ export function ChatLayout({
   const phoneUnder = swipe.dir === 'back' ? phoneBack : swipe.dir === 'forward' ? phoneForward : undefined;
   const phoneLayers: Array<PhonePageId | null> = phoneUnder === undefined ? [phonePage] : [phoneUnder, phonePage];
 
+  // The right-hand column: beside the main area on a desktop; at mid width an
+  // overlay over it, shown while toggled on (the Members / People buttons).
+  const rightPanel = (panel: JSX.Element, handle: JSX.Element | null) => !mid
+    ? <>{handle}{panel}</>
+    : midPanel ? (
+      <div class="mid-panel-layer" onClick={() => setMidPanel(false)}>
+        <div class="mid-panel" onClick={(e) => e.stopPropagation()}>{panel}</div>
+      </div>
+    ) : null;
+  const callStage = <CallStage avatarFor={avatarFor} people={mid ? { open: midPanel, toggle: () => setMidPanel((o) => !o) } : undefined} />;
+
   return (
     <div
-      class={`app-shell${narrow ? ` is-narrow phone-${phoneCallOpen ? 'call' : phonePage ?? 'home'}` : ''}`}
+      class={`app-shell${narrow ? ` is-narrow phone-${phoneCallOpen ? 'call' : phonePage ?? 'home'}` : mid ? ' is-mid' : ''}`}
     >
       {narrow ? (
         <>
@@ -589,26 +631,12 @@ export function ChatLayout({
               onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
               ariaLabel="Resize channel list"
             />
-            {stageOpen ? <CallStage avatarFor={avatarFor} />
+            {stageOpen ? callStage
               : myView === 'friends' ? <FriendsView layout="desktop" />
                 : myView === 'calls' ? calls('desktop')
                   : chatArea}
-            {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />
-              : myView === 'chat' ? (
-                <>
-                  <ResizeHandle
-                    side="right"
-                    width={membersW}
-                    min={PANEL_BOUNDS.members.min}
-                    max={PANEL_BOUNDS.members.max}
-                    onChange={setMembersW}
-                    onCommit={(w) => setMembersW(setPanelWidth('members', w))}
-                    onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
-                    ariaLabel="Resize member list"
-                  />
-                  {userPanel}
-                </>
-              ) : null}
+            {stageOpen ? rightPanel(<CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />, null)
+              : myView === 'chat' ? rightPanel(userPanel, membersHandle) : null}
             <ScreenPicker />
           </>
         ) : <>
@@ -624,18 +652,10 @@ export function ChatLayout({
             onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
             ariaLabel="Resize channel list"
           />
-          {stageOpen ? <CallStage avatarFor={avatarFor} /> : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
-          <ResizeHandle
-            side="right"
-            width={membersW}
-            min={PANEL_BOUNDS.members.min}
-            max={PANEL_BOUNDS.members.max}
-            onChange={setMembersW}
-            onCommit={(w) => setMembersW(setPanelWidth('members', w))}
-            onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
-            ariaLabel="Resize member list"
-          />
-          {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} /> : userPanel}
+          {stageOpen ? callStage : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
+          {stageOpen
+            ? rightPanel(<CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />, membersHandle)
+            : rightPanel(userPanel, membersHandle)}
           <ScreenPicker />
         </>
       )}
