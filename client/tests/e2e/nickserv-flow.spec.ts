@@ -37,7 +37,7 @@ import { signUpInUi, TEST_PASSWORD } from './auth-helper';
 const STACK_NAME = process.env.E2E_STACK_NAME ?? 'ergo';
 
 // The stack's IRCd (the per-stack make target passes E2E_IRC_HOST/PORT),
-// added through Advanced → "+ Add server manually": the public directory is
+// added through "Add by address": the public directory is
 // its own service now and doesn't list local stacks.
 const IRC_HOST = process.env.E2E_IRC_HOST ?? '127.0.0.1';
 const IRC_PORT = process.env.E2E_IRC_PORT ?? '6667';
@@ -83,15 +83,15 @@ test.describe(`NickServ flow — full stack against ${STACK_NAME}`, () => {
 
     // ---- Connect to the IRC stack -------------------------------
     // Add the stack's server as a local entry (plain TCP).
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click();
-    await page.getByRole('button', { name: '+ Add server manually' }).click();
-    const addDialog = page.getByRole('dialog', { name: 'Add a server manually' });
+    await page.getByRole('button', { name: 'Add by address' }).click();
+    const addDialog = page.getByRole('dialog', { name: 'Add a server by address' });
     const addField = (label: string) => addDialog.locator('.bds-field')
       .filter({ has: page.locator('label.bds-field-label', { hasText: new RegExp(`^\\s*${label}\\s*$`) }) })
       .locator('input');
     await addField('Hostname').fill(IRC_HOST);
     await addField('Port').fill(IRC_PORT);
     await addField('Display name').fill(SERVER_NAME);
+    await addDialog.getByRole('button', { name: /More options/ }).click();
     const tls = addDialog.getByRole('checkbox', { name: 'Use TLS (recommended)' });
     if (await tls.isChecked()) await addDialog.getByText('Use TLS (recommended)').click();
     await addDialog.getByRole('button', { name: /^Add/ }).click();

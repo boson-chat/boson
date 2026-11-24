@@ -288,3 +288,31 @@ button.login-forgot {
 }
 /* The per-network form sits inside the login Card here, not a Modal. */
 .otherserver .netauth { max-width: none; width: 100%; }
+
+/* What Boson is, under the wordmark (the network's own logo replaces both). */
+.login-hero {
+  text-align: center;
+  margin-bottom: var(--space-8);
+}
+.login-container .login-hero .bds-logo { margin-bottom: var(--space-3); }
+.login-pitch {
+  margin: 0 auto;
+  max-width: 32ch;
+  color: var(--fg-2);
+  font-size: 15px;
+  line-height: var(--leading-body);
+}
+
+/* A step of its own inside the card (guest). */
+.login-step-title {
+  margin: 0 0 var(--space-2);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+/* Under the sign-in card: "Signing in to boson.chat · Change". */
+.bds-card + .login-server {
+  justify-content: center;
+  margin: var(--space-4) 0 0;
+}

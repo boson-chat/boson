@@ -3,7 +3,7 @@
 // in on the same app profile and finds none of A's connections, servers,
 // credentials, history or keys — while A's account keeps its synced copies.
 import type { Page } from '@playwright/test';
-import { test, expect, loginAs, randomChannel, secureStoreOnDisk, uid, configureBouncerProfile, field, continueAsGuest } from './fixtures';
+import { test, expect, loginAs, randomChannel, secureStoreOnDisk, uid, configureBouncerProfile, field, continueAsGuest, confirmLeaveGuest } from './fixtures';
 import { addServerAndConnect, connectPeer, joinViaUi, memberRow, messages, say, waitCmd } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 
@@ -43,11 +43,13 @@ async function signOutFromSettings(page: Page, button = 'Sign out'): Promise<voi
   const settings = page.getByRole('dialog', { name: 'User settings' });
   await settings.getByRole('tab', { name: /^Account/ }).click();
   await settings.getByRole('button', { name: button }).click();
+  // Leaving guest mode asks first: it erases the guest's data.
+  if (button === 'Switch to an account') await confirmLeaveGuest(page);
   await expect(page.locator('.login-screen')).toBeVisible({ timeout: 30_000 });
 }
 
 // The ACCOUNT keys of modules/signout/storage-keys.ts (what must be gone).
-const PERSONAL_LOCAL = /^(boson:session:|boson:local-servers:|boson:directories:|boson:autojoin-done:|boson:guest:|boson:notifications:channels:|boson\.netauth\.|boson\.login\.|boson\.memos\.|boson:notify-feed:|boson\.voice\.guestId:|boson\.services-creds\.)/;
+const PERSONAL_LOCAL = /^(boson:session:|boson:local-servers:|boson:directories:|boson:autojoin-done:|boson:guest:|boson:notifications:channels:|boson\.netauth\.|boson\.login\.|boson\.memos\.|boson:notify-feed:|boson\.voice\.guestId:|boson\.services-creds\.|boson:recovery-pending:)/;
 const PERSONAL_SECURE = /^(boson\.auth\.session|boson\.identity\.|boson\.netauth\.session:|boson\.services-creds\.v1|boson\.bouncer\.v1|boson\.nickserv-sync\.meta|boson\.bouncer-sync\.meta)/;
 
 test.describe('sign-out cleanup', () => {

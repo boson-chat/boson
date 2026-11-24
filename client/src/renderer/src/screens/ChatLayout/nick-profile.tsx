@@ -66,6 +66,14 @@ export interface ProfileRow {
   value: string;
   /** Shown on hover: the detail behind a short value. */
   title?: string;
+  /** Technical (IRC) detail: user@host, server, idle… Kept out of the
+   *  way, under the profile's "Details". */
+  detail?: boolean;
+}
+
+/** The rows a person cares about first (name, account, channels, away). */
+export function primaryRows(rows: readonly ProfileRow[]): ProfileRow[] {
+  return rows.filter((r) => !r.detail);
 }
 
 /**
@@ -76,7 +84,7 @@ export function profileRows(nick: string, member: ChatMember | null, whois?: Who
   const w = whois && !whois.notFound ? whois : undefined;
   const rows: ProfileRow[] = [];
   const host = w?.host ?? member?.hostname;
-  if (host) rows.push({ label: 'Mask', value: formatMask(nick, w?.user ?? member?.user, host) });
+  if (host) rows.push({ label: 'Mask', value: formatMask(nick, w?.user ?? member?.user, host), detail: true });
   const realname = w?.realname ?? member?.realname;
   if (realname) rows.push({ label: 'Real name', value: realname });
   const account = w?.account ?? member?.account;
@@ -84,15 +92,16 @@ export function profileRows(nick: string, member: ChatMember | null, whois?: Who
   // A finished WHOIS with no 330 means they aren't identified.
   else if (w && !w.loading) rows.push({ label: 'Account', value: 'Not logged in' });
   const server = w?.server ?? member?.server;
-  if (server) rows.push({ label: 'Server', value: server, title: w?.serverInfo });
-  if (w?.actualHost) rows.push({ label: 'Real host', value: w.actualHost });
-  if (w?.secure) rows.push({ label: 'Connection', value: 'Secure (TLS)' });
-  if (w?.idleSeconds !== undefined) rows.push({ label: 'Idle', value: formatDuration(w.idleSeconds) });
+  if (server) rows.push({ label: 'Server', value: server, title: w?.serverInfo, detail: true });
+  if (w?.actualHost) rows.push({ label: 'Real host', value: w.actualHost, detail: true });
+  if (w?.secure) rows.push({ label: 'Connection', value: 'Secure (TLS)', detail: true });
+  if (w?.idleSeconds !== undefined) rows.push({ label: 'Idle', value: formatDuration(w.idleSeconds), detail: true });
   if (w?.signonAt) {
     rows.push({
       label: 'Online for',
       value: formatDuration(Math.max(0, Math.floor((Date.now() - w.signonAt) / 1000))),
       title: `Connected ${new Date(w.signonAt).toLocaleString()}`,
+      detail: true,
     });
   }
   if (w?.channels?.length) rows.push({ label: 'Channels', value: w.channels.join(' ') });
@@ -224,6 +233,11 @@ export function RememberedDetails({ nick, member, whois, seen, line, copyable = 
   );
 }
 
+/** Whether RememberedDetails has anything to show. */
+function hasRemembered(member: ChatMember | null, whois?: WhoisInfo, seen?: SeenRecord, line?: LineIdentity): boolean {
+  return (!!line && !!seenMask(line)) || (!!seen && !hasLiveIdentity(member, whois));
+}
+
 /** The nick's WHOIS, asked for once when the profile opens. */
 export function useWhois(nick: string, profiles?: NickProfiles): WhoisInfo | undefined {
   useEffect(() => { profiles?.request(nick); }, [nick]);
@@ -241,7 +255,15 @@ export function NickProfileDetails({ nick, member, whois, seen, line }: {
   line?: LineIdentity;
 }) {
   const flags = profileFlags(member, whois);
-  const rows = profileRows(nick, member, whois);
+  const all = profileRows(nick, member, whois);
+  const rows = primaryRows(all);
+  const details = all.filter((r) => r.detail);
+  const row = (r: ProfileRow) => (
+    <div key={r.label} class="nick-profile-meta-row">
+      <dt>{r.label}</dt>
+      <dd title={r.title}>{r.value}</dd>
+    </div>
+  );
   return (
     <>
       {flags.length > 0 && (
@@ -251,17 +273,16 @@ export function NickProfileDetails({ nick, member, whois, seen, line }: {
           ))}
         </div>
       )}
-      {rows.length > 0 && (
-        <dl class="nick-profile-meta">
-          {rows.map((row) => (
-            <div key={row.label} class="nick-profile-meta-row">
-              <dt>{row.label}</dt>
-              <dd title={row.title}>{row.value}</dd>
-            </div>
-          ))}
-        </dl>
+      {rows.length > 0 && <dl class="nick-profile-meta">{rows.map(row)}</dl>}
+      {/* The IRC side of them (user@host, server, idle…), and what Boson
+          remembers of their hosts: there when you want it, not up front. */}
+      {(details.length > 0 || hasRemembered(member, whois, seen, line)) && (
+        <details class="nick-profile-details" open={!!line || (!!whois?.notFound && !!seen)}>
+          <summary class="nick-profile-details-summary">Details</summary>
+          {details.length > 0 && <dl class="nick-profile-meta">{details.map(row)}</dl>}
+          <RememberedDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />
+        </details>
       )}
-      <RememberedDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />
       {whois?.loading && <div class="nick-profile-status">Looking up {nick}…</div>}
       {whois?.notFound && <div class="nick-profile-status">{nick} isn't on the network right now.</div>}
     </>

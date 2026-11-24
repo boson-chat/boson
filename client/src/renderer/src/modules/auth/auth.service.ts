@@ -14,6 +14,7 @@
 
 import { type ApiTransport, defaultApiTransport } from '../../shared/http/transport';
 import type { SecureStorage } from '../../shared/secure-storage';
+import { friendlyPasswordError, sentence } from './wording';
 
 export interface AuthUser {
   // The auth service's user id (usr_<ULID>), the token's `sub`.
@@ -43,6 +44,10 @@ export interface AuthState {
   session: Session | null;
   loading: boolean;
   error: string | null;
+  // Set when the session ended on its own (the auth service refused its
+  // refresh token: expired, revoked or signed out elsewhere), so the login
+  // screen can say why instead of just appearing. Absent otherwise.
+  signedOutReason?: 'expired';
 }
 
 export type AuthListener = (state: AuthState) => void;
@@ -146,6 +151,17 @@ export interface SignUpResult {
 // An error from the auth service: `code` is its machine-readable error
 // (invalid_credentials, email_not_verified, username_taken, …), or
 // 'network' when it couldn't be reached.
+// Where the auth service's /verify-email page sends the user after the
+// emailed link is opened (auth#26): back to this web app, or into the
+// desktop / mobile app through its boson:// link. Older auth services
+// ignore the field.
+export function verifyReturnTo(): string {
+  if (typeof window !== 'undefined' && (window as { bosonShell?: string }).bosonShell === 'web') {
+    return `${window.location.origin}/`;
+  }
+  return 'boson://verified';
+}
+
 export class AuthError extends Error {
   constructor(
     public readonly code: string,
@@ -216,7 +232,7 @@ export class AuthService {
     } catch (err) {
       console.warn('[auth] refresh at startup failed; keeping the saved session', err);
     }
-    this.setState({ session: this.state.session, loading: false, error: null });
+    this.setState({ ...this.state, loading: false, error: null });
   }
 
   markFatal(message: string): void {
@@ -297,6 +313,7 @@ export class AuthService {
       email: input.email.trim(),
       password: input.password,
       ...(input.invite_code?.trim() ? { invite_code: input.invite_code.trim() } : {}),
+      return_to: verifyReturnTo(),
     });
     if (r.email_verification_required) return { verificationRequired: true };
     await this.signIn(input.username, input.password);
@@ -305,7 +322,7 @@ export class AuthService {
 
   // Same 202 whether or not the account exists.
   async resendVerification(email: string): Promise<void> {
-    await this.call('POST', '/v1/email/resend', { email: email.trim() });
+    await this.call('POST', '/v1/email/resend', { email: email.trim(), return_to: verifyReturnTo() });
   }
 
   // Emails a reset link (to the auth service's /reset-password page). Same
@@ -403,13 +420,25 @@ export class AuthService {
 
   // Single-flight refresh. Resolves null (and signs out locally) when the
   // auth service rejects the refresh token; throws on network errors.
+  //
+  // Other windows of the app (browser tabs of the web build) share the saved
+  // session and its rotating refresh token. Presenting a token another tab
+  // already rotated would look like reuse and revoke the session for every
+  // tab, so refreshes are serialised across tabs (Web Locks, where there)
+  // and each one starts from the newest saved token.
   refresh(): Promise<Session | null> {
     if (this.refreshing) return this.refreshing;
-    const current = this.state.session;
-    if (!current) return Promise.resolve(null);
+    if (!this.state.session) return Promise.resolve(null);
     const epoch = this.epoch;
-    this.refreshing = (async () => {
+    this.refreshing = withRefreshLock(this.storageKey, async () => {
       try {
+        let current = this.state.session;
+        if (!current || epoch !== this.epoch) return this.state.session;
+        const saved = await this.loadSaved();
+        if (saved && saved.user.id === current.user.id && saved.refresh_token !== current.refresh_token) {
+          current = { ...current, refresh_token: saved.refresh_token, session_id: saved.session_id || current.session_id };
+        }
+        if (epoch !== this.epoch) return this.state.session;
         const r = await this.call<TokenResponse>('POST', '/v1/token/refresh', { refresh_token: current.refresh_token });
         if (epoch !== this.epoch) return this.state.session;
         const session = this.toSession(r, current.user.user_metadata);
@@ -421,14 +450,14 @@ export class AuthService {
           // Expired, revoked or reused: the session is over.
           this.epoch++;
           await this.clearSaved();
-          this.setState({ session: null, loading: false, error: null });
+          this.setState({ session: null, loading: false, error: null, signedOutReason: 'expired' });
           return null;
         }
         throw err;
       } finally {
         this.refreshing = null;
       }
-    })();
+    });
     return this.refreshing;
   }
 
@@ -531,6 +560,17 @@ export class AuthService {
   }
 }
 
+// Runs `fn` holding a lock shared by every tab of this origin (the Web Locks
+// API), so two tabs never present the same refresh token. Without the API
+// (older webviews, tests) it just runs.
+function withRefreshLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined'
+    ? (navigator as { locks?: { request?: (name: string, cb: () => Promise<unknown>) => Promise<unknown> } }).locks
+    : undefined;
+  if (typeof locks?.request !== 'function') return fn();
+  return locks.request(`boson-auth-refresh:${key}`, fn) as Promise<T>;
+}
+
 // A sentence for the sign-in screen.
 export function describeAuthError(err: unknown): string {
   if (!(err instanceof AuthError)) return err instanceof Error ? err.message : 'Something went wrong.';
@@ -546,8 +586,9 @@ export function describeAuthError(err: unknown): string {
     case 'network': return err.message;
     case 'invalid_code': return 'That sign-in expired before it finished. Try again.';
     case 'last_login_method': return "That's the only way to sign in to this account. Set a password or link another sign-in first.";
-    // invalid_username, weak_password, invalid_request: the service's own
-    // message says what's wrong.
-    default: return err.message;
+    case 'weak_password': return friendlyPasswordError(err.message);
+    // invalid_username, invalid_request: the service's own message says
+    // what's wrong (as a sentence).
+    default: return sentence(err.message);
   }
 }

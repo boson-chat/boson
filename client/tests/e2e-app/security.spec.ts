@@ -37,11 +37,12 @@ test('main window cannot be navigated away from the app origin', async ({ launch
   expect(await href()).toBe(appUrl);
   expect(await page.evaluate(() => document.querySelector('h1')?.textContent)).toBe('Server Directory');
   await page.evaluate(() => {
-    const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Advanced');
+    const btn = Array.from(document.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Add by address');
     btn?.click();
   });
   await expect.poll(() => page.evaluate(() =>
-    Array.from(document.querySelectorAll('button')).some((b) => b.textContent?.trim() === '+ Add server manually'),
+    Array.from(document.querySelectorAll('[role="dialog"]')).some((d) => d.getAttribute('aria-label') === 'Add a server by address'
+      || d.textContent?.includes('Add a server by address')),
   )).toBe(true);
 });
 

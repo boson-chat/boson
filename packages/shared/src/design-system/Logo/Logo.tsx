@@ -11,7 +11,7 @@ export function Logo({ mark = 'Boson', tagline = 'IRC, modernized', markAs = 'h1
   return (
     <div class="bds-logo">
       <Heading class="bds-logo-mark">{mark}</Heading>
-      <div class="bds-logo-tagline">{tagline}</div>
+      {tagline && <div class="bds-logo-tagline">{tagline}</div>}
     </div>
   );
 }

@@ -470,6 +470,23 @@ func TestClient_CTCPRepliesQueuedAndCoalesced(t *testing.T) {
 	assert.Empty(t, c.sendq.queues[classInteractive])
 }
 
+func TestClient_EchoedCTCPRequestNotAnswered(t *testing.T) {
+	// echo-message brings back a CTCP request we sent: it isn't one to us.
+	c := newTestClient(t)
+	c.sendq.begin()
+	me := c.girc.GetNick()
+	c.girc.RunHandlers(&girc.Event{
+		Command: girc.PRIVMSG,
+		Source:  &girc.Source{Name: me, Ident: "t", Host: "h"},
+		Params:  []string{"bob", "\x01VERSION\x01"},
+		Echo:    true,
+	})
+	time.Sleep(20 * time.Millisecond)
+	c.sendq.mu.Lock()
+	defer c.sendq.mu.Unlock()
+	assert.Empty(t, c.sendq.queues[classDroppable])
+}
+
 func TestClient_SelfJoinThroughBouncerSkipsMODE(t *testing.T) {
 	// Through a bouncer every line costs ZNC flood allowance; Channel
 	// settings fetches modes itself, so only the WHO is queued.
@@ -593,4 +610,21 @@ func TestClientBouncerLocal_ChatHistory(t *testing.T) {
 	direct, err := New(Config{Hostname: "irc.example", Port: 6697, Nick: "me"})
 	require.NoError(t, err)
 	require.False(t, direct.bouncerLocal(history))
+}
+
+func TestClient_PrivmsgTaggedKeepsClientTagsOnly(t *testing.T) {
+	// A reply rides its PRIVMSG as `+draft/reply`; server tags (no `+`)
+	// can't be set by a client and are dropped.
+	c := newTestClient(t)
+	c.sendq.begin()
+	c.PrivmsgTagged("#a", "yes", map[string]string{"+draft/reply": "abc123", "time": "x", "+": "y"}, 0)
+	c.PrivmsgTagged("#a", "plain", nil, 0)
+
+	c.sendq.mu.Lock()
+	defer c.sendq.mu.Unlock()
+	q := c.sendq.queues[classInteractive]
+	require.Len(t, q, 2)
+	assert.Equal(t, girc.Tags{"+draft/reply": "abc123"}, q[0].ev.Tags)
+	assert.Equal(t, "@+draft/reply=abc123 PRIVMSG #a yes", strings.TrimSpace(q[0].ev.String()))
+	assert.Nil(t, q[1].ev.Tags)
 }

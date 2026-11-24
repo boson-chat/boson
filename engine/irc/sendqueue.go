@@ -564,6 +564,10 @@ func (c *Client) installCTCPReplies() {
 		if ctcp.Reply || ctcp.Source == nil {
 			return
 		}
+		// Our own request, echoed back (echo-message): not ours to answer.
+		if (ctcp.Origin != nil && ctcp.Origin.Echo) || girc.ToRFC1459(ctcp.Source.Name) == girc.ToRFC1459(c.girc.GetNick()) {
+			return
+		}
 		target := ctcp.Source.ID()
 		body := girc.EncodeCTCPRaw(ctcp.Command, text)
 		if body == "" {

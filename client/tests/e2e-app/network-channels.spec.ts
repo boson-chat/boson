@@ -25,7 +25,7 @@ import {
   test, expect, STACK, IRC_PORT, addServerManually, continueAsGuest, randomChannel, randomEmail, randomPassword,
   randomUsername, serverCard, uid,
 } from './fixtures';
-import { cardIn, expectConnected, railContextMenu, railTile, searchDirectory } from './helpers/directory';
+import { cardIn, expectConnected, leaveServer, railTile, searchDirectory } from './helpers/directory';
 import { banner, conversation, dismissPopups, input, sidebar } from './helpers/chat';
 import { IrcPeer } from './irc-peer';
 
@@ -62,7 +62,10 @@ async function serve(handler: Handler): Promise<{ url: string; close(): Promise<
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   return {
     url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
-    close: () => new Promise<void>((r) => server.close(() => r())),
+    // close() waits for every open connection; the web build's browser can
+    // keep one alive to this fake directory (or have a refresh in flight),
+    // which hung the test past its timeout after all its checks had passed.
+    close: () => new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections(); }),
   };
 }
 
@@ -130,7 +133,7 @@ test.describe('network channels: a listing\'s default channels', () => {
       // Leave it, leave the server, connect from the card again: it stays left.
       await part(page);
       await expect(conversation(page, lobby)).toHaveCount(0, { timeout: 15_000 });
-      await (await railContextMenu(page, listing.name)).getByRole('menuitem', { name: 'Leave server' }).click();
+      await leaveServer(page, listing.name);
       await expect(railTile(page, listing.name)).toHaveCount(0);
 
       await searchDirectory(page, listing.name);
@@ -193,7 +196,7 @@ test.describe('network channels: only admins create channels', () => {
       // A channel that doesn't exist: Ergo says "Only server operators can
       // create new channels" (403); the app says what that means here.
       await sidebar(page).getByRole('button', { name: 'Add channel' }).click();
-      const box = dialog.getByPlaceholder('Search channels by name or topic — or type #channel to join directly');
+      const box = dialog.getByRole('textbox', { name: 'Channel name' });
       await box.fill(missing);
       await expect(dialog.getByText('Only admins can create new channels here.', { exact: false })).toBeVisible();
       await box.press('Enter');
@@ -290,7 +293,7 @@ test.describe('network channels: server-side auto-join (RoleServ)', () => {
     await conversation(page, NETCHAN_CHANNEL).click();
     await part(page);
     await expect(conversation(page, NETCHAN_CHANNEL)).toHaveCount(0, { timeout: 15_000 });
-    await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
+    await leaveServer(page, name);
     await expect(railTile(page, name)).toHaveCount(0);
     await serverCard(page, name).getByRole('button', { name: 'Connect' }).click();
     await expectConnected(page, name);

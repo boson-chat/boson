@@ -21,6 +21,7 @@
 }
 .prejoin-title { font: 700 20px var(--font-mono); color: var(--fg); }
 .prejoin-count { font: 12px var(--font-mono); color: var(--fg-2); }
+.prejoin-people-toggle { margin-left: auto; }
 .prejoin-body {
   flex: 1;
   min-height: 0;
@@ -148,3 +149,26 @@
 .joinsheet-preview { height: 120px; }
 .joinsheet-preview .prejoin-preview-off { flex-direction: row; gap: 12px; font-size: 12px; }
 .joinsheet-toggles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.joinsheet-go { display: flex; flex-direction: column; gap: 16px; }
+/* Short screens (a phone in landscape): a smaller list, the preview only
+   while the camera is on (and small), and Mic · Camera · Join in one row
+   pinned to the bottom of the sheet, so Join never needs a scroll. */
+@media (max-height: 500px) {
+  .joinsheet { gap: 10px; padding-bottom: 0; }
+  .joinsheet-here, .joinsheet-here[data-all] { max-height: 128px; }
+  .joinsheet-preview { height: 72px; }
+  .joinsheet-preview:has(.prejoin-preview-off) { display: none; }
+  .joinsheet-go {
+    position: sticky;
+    bottom: calc(-1 * (var(--space-4) + env(safe-area-inset-bottom, 0px)));
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0 calc(-1 * var(--space-4));
+    padding: var(--space-2) var(--space-4) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+    background: var(--surface-raised);
+    border-top: 1px solid var(--border-soft);
+  }
+  .joinsheet-toggles { display: contents; }
+}

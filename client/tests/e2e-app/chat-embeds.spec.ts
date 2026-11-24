@@ -130,16 +130,19 @@ test.describe('embeds', () => {
     await expect(row('web2').locator('.embed-card-title')).toHaveText('Only a title');
     await expect(row('web2').locator('.embed-card-site')).toHaveText(HOST);
 
-    // A 404 → no card, a link card offering the browser.
+    // A 404 → no card at all (the link is in the message).
     peer.privmsg(channel, `web3 http://${HOST}:${s.port}/missing`);
-    await expect(row('web3').locator('.embed-linkcard-hint')).toHaveText('Preview unavailable — open in browser');
+    await expect(row('web3')).toBeVisible();
+    await expect(row('web3').locator('.embed-website')).toHaveCount(0);
 
     // SSRF guard: a loopback URL is never fetched by the unfurler.
     const before = s.hits.length;
     peer.privmsg(channel, `web4 http://127.0.0.1:${s.port}/article.html?ssrf=1`);
-    await expect(row('web4').locator('.embed-linkcard-hint')).toHaveText('Preview unavailable — open in browser');
+    await expect(row('web4')).toBeVisible();
+    await expect(row('web4').locator('.embed-website')).toHaveCount(0);
     peer.privmsg(channel, `web5 http://localhost:${s.port}/article.html?ssrf=2`);
-    await expect(row('web5').locator('.embed-linkcard-hint')).toHaveText('Preview unavailable — open in browser');
+    await expect(row('web5')).toBeVisible();
+    await expect(row('web5').locator('.embed-website')).toHaveCount(0);
     expect(s.hits.slice(before).filter((h) => h.path === '/article.html')).toEqual([]);
 
     // Image: auto-loaded inline; click → lightbox; Escape closes.

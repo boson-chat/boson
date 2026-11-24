@@ -61,20 +61,58 @@ function renderWith(auth: AuthService, directory: DirectoryService, identity: Id
 }
 
 describe('LoginScreen', () => {
-  it('renders login and password inputs and both buttons', () => {
+  it('renders login and password inputs and only the active tab\'s button', async () => {
     renderWith(buildFakeAuth(), buildFakeDirectory(), buildFakeIdentity());
     expect(screen.getByPlaceholderText('username or email')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('password')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign up' })).toBeNull();
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Signup' }));
     expect(screen.getByRole('button', { name: 'Sign up' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
   });
 
-  // The key is stored encrypted with the password (same on web, where there's
-  // no keychain), so the hint says what the password unlocks, not where from.
-  it('explains what the password unlocks without mentioning a keychain', () => {
+  // The login screen says what Boson is for; identity-key details are for
+  // Settings, not the sign-in form.
+  it('leads with what Boson is, not IRC or identity keys', () => {
     renderWith(buildFakeAuth(), buildFakeDirectory(), buildFakeIdentity());
-    expect(screen.getByText(/also unlocks your identity key, which signs you in to IRC servers/)).toBeInTheDocument();
+    expect(screen.getByText(/Chat, voice and video with your communities/)).toBeInTheDocument();
+    expect(screen.queryByText(/IRC, modernized/i)).toBeNull();
+    expect(screen.queryByText(/identity key/i)).toBeNull();
     expect(screen.queryByText(/keychain/i)).toBeNull();
+  });
+
+  it('shows sign-up rules up front and problems next to their fields on blur', async () => {
+    renderWith(buildFakeAuth(), buildFakeDirectory(), buildFakeIdentity());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Signup' }));
+    expect(screen.getByText('At least 10 characters.')).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText('password'), 'short');
+    await user.tab();
+    expect(await screen.findByText('Use at least 10 characters.')).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText('password'), ' and longer');
+    expect(screen.queryByText('Use at least 10 characters.')).toBeNull();
+  });
+
+  it('guest mode is its own step with a Back link', async () => {
+    renderWith(buildFakeAuth(), buildFakeDirectory(), buildFakeIdentity());
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Continue without an account' }));
+    expect(screen.getByRole('heading', { name: 'Continue as a guest' })).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText('username or email')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    expect(screen.getByText(/stay on this device only/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByPlaceholderText('username or email')).toBeInTheDocument();
+  });
+
+  it('says why when the session ended on its own', () => {
+    const auth = buildFakeAuth({
+      getState: vi.fn(() => ({ session: null, loading: false, error: null, signedOutReason: 'expired' as const })),
+      subscribe: vi.fn((fn: (s: unknown) => void) => { fn({ session: null, loading: false, error: null, signedOutReason: 'expired' }); return () => {}; }) as unknown as AuthService['subscribe'],
+    });
+    renderWith(auth, buildFakeDirectory(), buildFakeIdentity());
+    expect(screen.getByText(/You were signed out/)).toBeInTheDocument();
   });
 
   it('Sign in with no /me row initializes a new identity (signup-style)', async () => {
@@ -187,17 +225,16 @@ describe('LoginScreen', () => {
     renderWith(auth, buildFakeDirectory(), identity);
 
     const user = userEvent.setup();
-    // From the login tab, "Sign up" switches to the sign-up form.
-    await user.click(screen.getByRole('button', { name: 'Sign up' }));
+    await user.click(screen.getByRole('tab', { name: 'Signup' }));
     await user.type(screen.getByPlaceholderText('username'), 'bob');
     await user.type(screen.getByPlaceholderText('email'), 'bob@test.dev');
-    await user.type(screen.getByPlaceholderText('password'), 'secret456');
-    await user.type(screen.getByPlaceholderText('confirm password'), 'secret456');
+    await user.type(screen.getByPlaceholderText('password'), 'secret456789');
+    await user.type(screen.getByPlaceholderText('confirm password'), 'secret456789');
     expect(signUp).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Sign up' }));
 
     await waitFor(() => {
-      expect(signUp).toHaveBeenCalledWith({ username: 'bob', email: 'bob@test.dev', password: 'secret456' });
+      expect(signUp).toHaveBeenCalledWith({ username: 'bob', email: 'bob@test.dev', password: 'secret456789' });
     });
     // Identity is NOT minted here — the sign-in after verification
     // does it. See LoginBloc.signUp.

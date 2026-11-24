@@ -2,7 +2,7 @@
 // member list (UserPanel) and message authors (message-render). Keeps the
 // base actions (copy / DM / mention / ignore) and the channel-operator
 // section (op/voice/kick/ban/…) in one place, gated by the caller's rank.
-import type { MemberPrefix, WhoisInfo } from '../../modules/chat';
+import type { ChatMessage, MemberPrefix, WhoisInfo } from '../../modules/chat';
 import {
   prefixRank, canOp, canHalfop, canVoice, canKick, canBan,
 } from '../../modules/chat';
@@ -40,6 +40,9 @@ export interface NickActions {
   onSendMessage?: (nick: string) => void;
   /** Insert `@nick ` at the chat input's caret. */
   onMention?: (nick: string) => void;
+  /** A message's Reply: a quoted reply where the server supports them,
+   *  else `@nick` (onMention). */
+  onReply?: (msg: ChatMessage) => void;
   /** Ignore / unignore — future use, render as danger when wired. */
   onIgnore?: (nick: string) => void;
   /** Channel-operator actions, gated by myRank. Absent outside channels. */

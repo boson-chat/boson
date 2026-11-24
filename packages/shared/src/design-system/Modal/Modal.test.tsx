@@ -1,9 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
-import { Modal } from './Modal';
+import { createPortal } from 'preact/compat';
+import { Modal, setModalPortal } from './Modal';
 
 describe('Modal', () => {
+  it('renders through the installed portal, at the end of <body>', () => {
+    setModalPortal(createPortal);
+    try {
+      const { container } = render(<div style="transform: translateX(0)"><Modal open onClose={() => {}} title="Join">body</Modal></div>);
+      const dialog = screen.getByRole('dialog', { name: 'Join' });
+      expect(container.contains(dialog)).toBe(false);
+      expect(dialog.closest('.bds-modal-backdrop')!.parentElement).toBe(document.body);
+    } finally {
+      setModalPortal(null);
+    }
+  });
+
   it('renders nothing when closed from the start', () => {
     render(<Modal open={false} onClose={() => {}}>body</Modal>);
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -14,6 +27,13 @@ describe('Modal', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(screen.getByText('Confirm')).toBeInTheDocument();
     expect(screen.getByText('Are you sure?')).toBeInTheDocument();
+  });
+
+  it('without a title: named by `label`, no header, extra class on the panel', () => {
+    render(<Modal open onClose={() => {}} label="Server settings" class="my-dialog">body</Modal>);
+    const dialog = screen.getByRole('dialog', { name: 'Server settings' });
+    expect(dialog.classList.contains('my-dialog')).toBe(true);
+    expect(dialog.querySelector('.bds-modal-header')).toBeNull();
   });
 
   it('calls onClose when close button clicked', async () => {

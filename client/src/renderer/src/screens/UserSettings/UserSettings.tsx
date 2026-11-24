@@ -18,16 +18,18 @@ import {
   loadGuestSession,
   saveGuestSession,
 } from '../../modules/guest/guest';
-import { signOut } from '../../modules/signout/sign-out';
+import { LeaveGuestConfirm } from '../../components/LeaveGuestConfirm';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
-import { describeAuthError, type AuthService, type LinkedIdentities } from '../../modules/auth';
+import { describeAuthError, validateHandle, type AuthService, type LinkedIdentities } from '../../modules/auth';
+import { emitHandleChange } from '../../modules/ui/handle-change';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { AppearancePanel } from './AppearancePanel';
 import { VoiceSettingsSection } from './VoiceSettings';
 import { getVoiceController } from '../../modules/voice';
 import { HttpError } from '../../shared/http/http.client';
+import { describeHandleError } from '../../modules/directory/handle-error';
 import { DirectoriesSection } from './DirectoriesSection';
 import { NetworkAccountsSection } from './NetworkAccountsSection';
 import { forgetDims, imagesBridge, type ImageCacheStats } from '../../shared/image-cache';
@@ -88,26 +90,57 @@ interface UserSettingsProps {
   auth: AuthService;
   // Open at this section (e.g. 'voice' from the voice bar's gear).
   initialSection?: string | null;
+  // Neither signed in nor a guest (the login screen): only what applies
+  // before signing in — Appearance and About.
+  signedOut?: boolean;
 }
 
-export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth, initialSection }: UserSettingsProps) {
-  const [section, setSection] = useState<SectionId>('identity');
+const SIGNED_OUT_SECTIONS: ReadonlySet<SectionId> = new Set(['appearance', 'about']);
+
+export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth, initialSection, signedOut = false }: UserSettingsProps) {
+  const [chosen, setSection] = useState<SectionId>('identity');
   // Voice settings only where there's voice (the desktop app).
   const hasVoice = getVoiceController() !== null;
   // Privacy & calls with an account (friends and calls are on it).
   const hasFriends = getFriendsController()?.getSnapshot().available === true;
-  const menu = MENU.filter((m) => (m.id !== 'voice' || hasVoice) && (m.id !== 'privacy' || hasFriends));
+  const menu = MENU.filter((m) => (signedOut
+    ? SIGNED_OUT_SECTIONS.has(m.id)
+    : (m.id !== 'voice' || hasVoice) && (m.id !== 'privacy' || hasFriends)));
+  const section: SectionId = menu.some((m) => m.id === chosen) ? chosen : menu[0]!.id;
   useEffect(() => {
     if (open && initialSection && menu.some((m) => m.id === initialSection)) setSection(initialSection as SectionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialSection]);
   const guest = loadGuestSession();
   const mode: 'guest' | 'account' = guest ? 'guest' : 'account';
+  // Phones: the menu is a strip that scrolls sideways. Keep the chosen
+  // section's tab in view (opening on About lands at the strip's end), and
+  // mark which edges have more tabs past them for the fade.
+  const menuRef = useRef<HTMLElement>(null);
+  const updateMenuEdges = (): void => {
+    const nav = menuRef.current;
+    if (!nav) return;
+    const max = nav.scrollWidth - nav.clientWidth;
+    nav.toggleAttribute('data-more-start', max > 1 && nav.scrollLeft > 1);
+    nav.toggleAttribute('data-more-end', max > 1 && nav.scrollLeft < max - 1);
+  };
+  useEffect(() => {
+    const nav = menuRef.current;
+    if (!open || !nav) return;
+    const tab = nav.querySelector<HTMLElement>('.bds-row-selected');
+    if (tab && nav.scrollWidth > nav.clientWidth) {
+      const pad = 24;
+      const left = tab.getBoundingClientRect().left - nav.getBoundingClientRect().left + nav.scrollLeft;
+      if (left < nav.scrollLeft + pad) nav.scrollLeft = Math.max(0, left - pad);
+      else if (left + tab.offsetWidth > nav.scrollLeft + nav.clientWidth - pad) nav.scrollLeft = left + tab.offsetWidth - nav.clientWidth + pad;
+    }
+    updateMenuEdges();
+  }, [open, section]);
 
   return (
     <Modal open={open} onClose={onClose} title="User settings">
       <div class="user-settings">
-        <nav class="user-settings-menu" aria-label="Settings sections">
+        <nav class="user-settings-menu" aria-label="Settings sections" ref={menuRef} onScroll={updateMenuEdges}>
           {menu.map((m) => (
             <ListRow
               key={m.id}
@@ -175,8 +208,8 @@ function IdentitySection({ mode, authedHandle, guestNick, directory, auth, open 
     <SectionFrame
       title="Identity"
       description={mode === 'guest'
-        ? "Your local nickname. Changes here apply on the next connect."
-        : "Your registered Boson handle, used as your IRC nickname after sanitisation."}
+        ? 'The name people see you as in chat.'
+        : 'How people find you on Boson, and your name in chat.'}
     >
       <Card>
         <div class="user-settings-card-body">
@@ -200,10 +233,10 @@ function IdentitySection({ mode, authedHandle, guestNick, directory, auth, open 
             <GuestNickForm guestNick={guestNick} />
           )}
           <Divider />
-          <DetailRow label="Mode" customValue={
+          <DetailRow label="Account" customValue={
             mode === 'guest'
-              ? <Badge tone="info">Guest</Badge>
-              : <Badge tone="verified">Account</Badge>
+              ? <Badge tone="info">Guest, no account</Badge>
+              : <Badge tone="verified">Boson account</Badge>
           } />
         </div>
       </Card>
@@ -228,7 +261,7 @@ function GuestNickForm({ guestNick }: { guestNick: string }) {
     <form onSubmit={submit} class="user-settings-form">
       <Field
         label="Nick"
-        hint="Sanitised on connect — IRC nicks can't contain @, ., or spaces."
+        hint="Changes right away on the servers you're on. Spaces, @ and dots are left out."
       >
         <Input
           value={draft}
@@ -393,6 +426,8 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
     e.preventDefault();
     const trimmed = draft.trim();
     if (!trimmed || trimmed === currentHandle) return;
+    const problem = validateHandle(trimmed);
+    if (problem) { setError(problem); return; }
     setSaving(true);
     setError(null);
     try {
@@ -404,11 +439,12 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
       // sees the rename immediately. Failure here is non-fatal — the
       // backend already wrote the canonical value.
       try { await auth.updateMetadata({ handle: updated.handle }); } catch { /* non-fatal */ }
+      // It's the nick too: renamed on the servers the user is on, now.
+      emitHandleChange(updated.handle);
       triggerSaved();
     } catch (err) {
       if (err instanceof HttpError) {
-        if (err.status === 409) setError('That handle is taken — pick another.');
-        else if (err.status === 400) setError('Handle must be at least 3 characters.');
+        if (err.status === 400 || err.status === 409) setError(describeHandleError(err));
         else if (err.status === 404) setError('No account row yet. Sign in again to create one.');
         else setError('Could not save — try again.');
       } else {
@@ -426,7 +462,7 @@ function AccountHandleForm({ authedHandle, directory, auth, open }: {
     <form onSubmit={submit} class="user-settings-form">
       <Field
         label="Handle"
-        hint="Your global Boson handle — what other users find you by."
+        hint="Renames you right away on the servers you're on. Your old handle keeps pointing to you for 90 days."
       >
         <Input
           value={draft}
@@ -661,7 +697,7 @@ function BouncerSection({ mode, open }: {
   return (
     <SectionFrame
       title="Bouncer (ZNC / BNC)"
-      description="Route servers through an always-on IRC bouncer. Configure it once here, then enable it per-server in that server's settings. Advanced — most users don't need this."
+      description="Route servers through an always-on IRC bouncer. Configure it once here, then enable it per-server in that server's settings, or add its networks in the directory's Bouncer tab (shown once a bouncer is on). Advanced — most users don't need this."
     >
       <Card>
         <form onSubmit={submit} class="user-settings-card-body user-settings-form">
@@ -731,29 +767,7 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
   auth: AuthService;
   open: boolean;
 }) {
-  if (mode === 'guest') {
-    return (
-      <SectionFrame
-        title="Account"
-        description="You're using Boson without a boson.chat account (accounts on other networks are under Network accounts). A boson.chat account lets you register servers, keep an identity key and sync across devices."
-      >
-        <div class="user-settings-actions">
-          <Button
-            variant="primary"
-            onClick={() => {
-              // Leaving guest mode is a full sign-out: the guest's
-              // connections, servers and data don't carry over to the
-              // account that signs in next (a shared device).
-              onClose();
-              void signOut();
-            }}
-          >
-            Switch to an account
-          </Button>
-        </div>
-      </SectionFrame>
-    );
-  }
+  if (mode === 'guest') return <GuestAccountSection onClose={onClose} />;
   return (
     <SectionFrame
       title="Account"
@@ -763,6 +777,10 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
         <div class="user-settings-card-body">
           <DetailRow label="Email" value={authedEmail ?? '—'} />
           <Divider />
+          <p class="user-settings-hint">
+            Your password also unlocks your identity key, which signs you in to IRC servers and protects the
+            passwords Boson syncs. After a password reset, your recovery code unlocks it once.
+          </p>
           <RecoveryCodeSettings directory={directory} identity={identity} open={open} />
         </div>
       </Card>
@@ -770,6 +788,23 @@ function AccountSection({ mode, authedEmail, onSignOut, onClose, directory, iden
       <div class="user-settings-actions">
         <Button variant="ghost" onClick={() => { onSignOut(); onClose(); }}>Sign out</Button>
       </div>
+    </SectionFrame>
+  );
+}
+
+// Guest mode's Account section: "Switch to an account" asks first, since
+// leaving guest mode erases the guest's data on this device.
+function GuestAccountSection({ onClose }: { onClose: () => void }) {
+  const [confirm, setConfirm] = useState(false);
+  return (
+    <SectionFrame
+      title="Account"
+      description="You're using Boson without a boson.chat account (accounts on other networks are under Network accounts). A boson.chat account lets you register servers, keep an identity key and sync across devices."
+    >
+      <div class="user-settings-actions">
+        <Button variant="primary" onClick={() => setConfirm(true)}>Switch to an account</Button>
+      </div>
+      <LeaveGuestConfirm open={confirm} onCancel={() => setConfirm(false)} onLeave={() => { setConfirm(false); onClose(); }} />
     </SectionFrame>
   );
 }

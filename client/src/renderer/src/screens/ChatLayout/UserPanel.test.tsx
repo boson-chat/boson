@@ -139,7 +139,7 @@ describe('UserPanel custom hover card', () => {
     expect(screen.getByText('Last spoke 2m ago')).toBeInTheDocument();
   });
 
-  it('hovered card lists every WHOIS field present on the member record', () => {
+  it('hovered card lists the person-facing fields, not the IRC mask or server', () => {
     render(
       <UserPanel
         channel={makeChannel({
@@ -159,8 +159,8 @@ describe('UserPanel custom hover card', () => {
     );
     hoverRow(document.querySelector('.user-panel-item')!);
     expect(screen.getByText('alice!ircaccount')).toBeInTheDocument();
-    expect(screen.getByText('alice!~alice@unaffiliated/alice')).toBeInTheDocument();
-    expect(screen.getByText('tantalum.libera.chat')).toBeInTheDocument();
+    expect(screen.queryByText('alice!~alice@unaffiliated/alice')).toBeNull();
+    expect(screen.queryByText('tantalum.libera.chat')).toBeNull();
     expect(screen.getByText('Alice Liddell')).toBeInTheDocument();
     expect(screen.getByText('bbiab')).toBeInTheDocument();
   });

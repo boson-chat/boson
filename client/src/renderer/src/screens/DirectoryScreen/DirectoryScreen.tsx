@@ -1,5 +1,9 @@
+import type { JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { useAuthService, useAuthState } from '../../modules/auth';
+import { Plus, SlidersHorizontal } from 'lucide-preact';
+import { AuthError, describeAuthError, useAuthService, useAuthState, validateHandle } from '../../modules/auth';
+import { describeHandleError } from '../../modules/directory/handle-error';
+import { clearRecoveryPending, isRecoveryPending, markRecoveryPending } from '../../modules/identity/recovery-pending';
 import type { DirectoryService } from '../../modules/directory';
 import type { Server, User } from '../../modules/directory';
 import type { NetworkDirectories } from '../../modules/directory/networks';
@@ -7,18 +11,18 @@ import type { Facets, NetworkSort } from '../../modules/directory/network-api';
 import { subscribeAddServer, subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
+import { onHandleChange } from '../../modules/ui/handle-change';
 import { getBouncerStore } from '../../modules/chat/bouncer.store';
-import type { EngineClient, EngineState } from '../../modules/engine';
+import type { EngineClient } from '../../modules/engine';
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
-import { ServerRail } from '../ChatLayout/ServerRail';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
 import { useNarrow } from '../../shared/narrow';
 import { getVoiceController } from '../../modules/voice';
 import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, Select, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
-import { DirectoryBloc, type DirectoryState, activeConnection, aggregateEngineState } from './DirectoryBloc';
+import { DirectoryBloc, type DirectoryState, activeConnection } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
 import { joinsLabel } from '../../modules/directory/autojoin';
 import { HostServerModal } from './HostServerModal';
@@ -107,6 +111,13 @@ function LoadMoreSentinel({ onVisible }: { onVisible: () => void }) {
 export function DirectoryScreen({ directory, networks, engine, identity, history, guestNick }: Props) {
   const auth = useAuthService();
   const authState = useAuthState();
+  // Sign-up's recovery-code step wasn't confirmed (the page reloaded on it):
+  // it comes back before the directory.
+  const sessionUserId = authState.session?.user?.id ?? '';
+  const [recoveryPending, setRecoveryPending] = useState(() => !guestNick && isRecoveryPending(sessionUserId));
+  useEffect(() => {
+    setRecoveryPending(!guestNick && isRecoveryPending(sessionUserId));
+  }, [sessionUserId, guestNick]);
 
   // guestNick is intentionally NOT in the dep array: flipping between guest
   // and account modes feeds in through `bloc.setIdentity()` below so the
@@ -166,6 +177,10 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     });
   }, [bloc]);
 
+  // Handle renamed in Settings: it's the nick, so rename on the servers
+  // the user is on now.
+  useEffect(() => onHandleChange((h) => bloc.setHandle(h)), [bloc]);
+
   // Profile-image change (Settings upload/remove): refresh the signed-in
   // user's avatar across open connections live, no reconnect.
   useEffect(() => {
@@ -179,8 +194,6 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   // a server-rail tile and picks "Server details". Null otherwise; we render
   // the normal chat layout. The id is the connection's serverId.
   const [serverSettingsForId, setServerSettingsForId] = useState<string | null>(null);
-  // Phones: server settings take the whole screen, without the rail.
-  const narrow = useNarrow();
 
   const { me, showChat, restoring, serverBrowserOpen, connections, activeServerId } = state;
   // Private calls need a voice server of the account's network: find out
@@ -193,7 +206,6 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     for (const host of connectedHosts.split(' ')) if (host) void voice.discover(host);
   }, [connectedHosts]);
   const active = activeConnection(state);
-  const aggState = aggregateEngineState(state);
   // Friend and call notifications (requests, missed calls, calls starting
   // in voice channels you're in): which servers you're on, and where.
   const scopeRef = useRef<VoiceScope[]>([]);
@@ -251,38 +263,22 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     if (c) themes.setNetworkEnabled(c.server.hostname, on);
   };
 
-  // If the user opens server-settings, replace the channel sidebar + chat
-  // area + user panel with the settings page. The server rail stays so the
-  // user can switch servers (which closes settings) or open settings for a
-  // different server via right-click. On a phone the page is full screen
-  // instead: the rail would leave it a sliver, and its back button returns.
+  // Server settings (a server-rail tile's menu, the sidebar's gear): a
+  // dialog over the chat, as User settings is — a full-screen sheet on a
+  // phone. The id is the connection's serverId.
+  let serverSettings: JSX.Element | null = null;
   if (serverSettingsForId !== null) {
     const target = connections.find((c) => c.serverId === serverSettingsForId);
     if (!target || !me?.handle) {
       setServerSettingsForId(null);
     } else {
       const chatState = target.chat.getState();
-      return (
-        <div class="app-shell">
-          {!narrow && <ServerRail
-            servers={railTiles()}
-            onToggleNetworkTheme={toggleNetworkTheme}
-            activeServerId={activeServerId}
-            // Clicking a different server tile exits settings and returns
-            // to chat for that server. Clicking the same tile is a no-op.
-            onSelectServer={(id) => {
-              if (id !== serverSettingsForId) setServerSettingsForId(null);
-              bloc.setActiveServer(id);
-            }}
-            onBrowseServers={() => bloc.openServerBrowser()}
-            // Right-click on another tile switches the settings page to it.
-            onOpenServerSettings={(id) => setServerSettingsForId(id)}
-            onBouncerConnect={(id) => bloc.bouncerConnect(id)}
-            onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
-            onReorderServers={(ids) => bloc.reorderServers(ids)}
-          />}
+      const listing = resolveListing(target, state.servers, state.listings[target.serverId]);
+      serverSettings = (
           <ServerSettings
             serverDisplayName={target.server.name}
+            serverDescription={listing?.description}
+            serverWebsite={listing?.website_url}
             myNick={chatState.myNick || me.handle}
             serverInfo={chatState.serverInfo}
             serverLog={chatState.serverLog}
@@ -341,12 +337,12 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
               onToggle: (on) => themes.setNetworkEnabled(target.server.hostname, on),
             } : undefined}
           />
-        </div>
       );
     }
   }
 
   if (showChat && active && me?.handle) {
+    const activeListing = resolveListing(active, state.servers, state.listings[active.serverId]);
     return (
       <>
         <ChatLayout
@@ -376,6 +372,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           channelOrder={bloc.channelOrder(active.serverId)}
           onReorderChannels={(names) => bloc.reorderChannels(active.serverId, names)}
           onResetChannelOrder={() => bloc.resetChannelOrder(active.serverId)}
+          serverDescription={activeListing?.description}
+          serverChannels={activeListing ? [...(activeListing.autojoin_channels ?? []), ...(activeListing.channels ?? [])] : undefined}
         />
         <Modal
           open={serverBrowserOpen}
@@ -394,6 +392,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
             />
           </div>
         </Modal>
+        {serverSettings}
       </>
     );
   }
@@ -413,38 +412,29 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     );
   }
 
-  const displayHandle = me?.handle ? `@${me.handle}` : authState.session?.user.email ?? '';
-
   return (
     <div class="directory-screen">
-      <header class="directory-topbar">
-        <div class="directory-topbar-left">
-          {engine && (
-            <EnginePill
-              state={aggState}
-              connectionsCount={connections.length}
-              connectedCount={connections.filter((c) => c.engineState === 'connected').length}
-              connected={aggState === 'connected'}
-              onOpenChat={() => bloc.openChat()}
-            />
-          )}
-        </div>
-        <div class="directory-topbar-right">
-          <span class="directory-handle">{displayHandle}</span>
-          <Button variant="ghost" onClick={() => { void bloc.signOut(); }}>Sign out</Button>
-        </div>
-      </header>
-
       <div class="directory-container">
-        <DirectoryBody
-          bloc={bloc}
-          state={state}
-          engine={engine}
-          directory={directory}
-          networks={networks}
-          identity={identity}
-        />
+        {recoveryPending && me && identity.isUnlocked() ? (
+          <div class="directory-setup-stage">
+            <RecoveryResume
+              directory={directory}
+              identity={identity}
+              onDone={() => { clearRecoveryPending(sessionUserId); setRecoveryPending(false); }}
+            />
+          </div>
+        ) : (
+          <DirectoryBody
+            bloc={bloc}
+            state={state}
+            engine={engine}
+            directory={directory}
+            networks={networks}
+            identity={identity}
+          />
+        )}
       </div>
+      {serverSettings}
     </div>
   );
 }
@@ -483,36 +473,53 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
   // Map of serverId → that connection's engineState, used by ServerRow to
   // render the "Currently connected" / "Joined" affordances.
   const connectionByServerId = new Map(connections.map((c) => [c.serverId, c]));
-  // Advanced mode — toggleable in-place, gives access to the manual server
-  // add form + per-row remove on local entries. Local-only (not persisted)
-  // because it's purely a UI affordance.
-  const [advanced, setAdvanced] = useState(false);
+  // "Add by address": a server that isn't listed (stored on this device).
   const [addOpen, setAddOpen] = useState(false);
   // The manual-add form's hostname when opened from the login screen's
-  // "Add as a plain IRC server".
+  // "Chat there as a regular IRC server".
   const [addHost, setAddHost] = useState('');
   useEffect(() => subscribeAddServer(({ hostname }) => {
-    setAdvanced(true);
     setAddHost(hostname);
     setAddOpen(true);
   }), []);
   const [hostOpen, setHostOpen] = useState(false);
+  // Phones: the filters fold behind a Filters button, so the first server
+  // shows without scrolling; the button says how many are set.
+  const narrow = useNarrow();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const activeFilters = (language !== 'all' ? 1 : 0) + (tag ? 1 : 0) + (sort ? 1 : 0) + (showNsfw ? 1 : 0);
+  const filtersShown = !narrow || filtersOpen;
+  // A card's details (description, channels, Connect).
+  const [detailsId, setDetailsId] = useState<string | null>(null);
+  const details = detailsId ? filteredServers?.find((s) => s.id === detailsId) ?? null : null;
   // Top-level view: the public directory, or the user's bouncer networks.
+  // The Bouncer view is for people who set one up (User settings →
+  // Bouncer); everyone else just sees the directory.
   const [view, setView] = useState<'directory' | 'bouncer'>('directory');
+  const [bouncer, setBouncer] = useState(() => getBouncerStore().get());
+  useEffect(() => getBouncerStore().subscribe(setBouncer), []);
+  const showBouncer = !!bouncer?.enabled || bloc.bouncerNetworks().length > 0 || view === 'bouncer';
+  const connect = (s: Server, join?: string): void => {
+    setDetailsId(null);
+    void bloc.connect(s, join ? { join } : {});
+  };
+  const anyConnected = connections.some((c) => c.engineState === 'connected');
   return (
     <>
       {error && (
         <WarningBanner tone="danger" title="Couldn't load directory">{error}</WarningBanner>
       )}
 
-      <div class="directory-viewtabs">
-        <Tabs
-          label="Directory view"
-          tabs={VIEW_TABS}
-          active={view}
-          onChange={(id) => setView(id as 'directory' | 'bouncer')}
-        />
-      </div>
+      {showBouncer && (
+        <div class="directory-viewtabs">
+          <Tabs
+            label="Directory view"
+            tabs={VIEW_TABS}
+            active={view}
+            onChange={(id) => setView(id as 'directory' | 'bouncer')}
+          />
+        </div>
+      )}
 
       {view === 'bouncer' && (
         <BouncerNetworksPanel bloc={bloc} connections={connections} />
@@ -520,42 +527,71 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
 
       {view === 'directory' && (<>
       <div class="directory-header">
-        <div class="directory-prompt">$ boson dir --list</div>
         <div class="directory-header-row">
           <h1 class="directory-title">Server Directory</h1>
-          {/* "Add your server" CTA is only shown to authenticated users —
-             guest users have no row in /me so registering would 401.
-             For them the Advanced toggle's manual-add path is still
-             available. */}
           <div class="directory-header-actions">
+            {anyConnected && !state.showChat && (
+              <Button variant="secondary" size="sm" onClick={() => bloc.openChat()}>Back to chat</Button>
+            )}
             <Button
               variant="ghost"
+              size="sm"
               onClick={() => bloc.refreshDirectory()}
               title="Refetch the directory from the backend"
             >
               Refresh
             </Button>
-            {me && (
-              <Button variant="secondary" onClick={() => setHostOpen(true)}>
+            {/* Listing a server needs a boson.chat account (guests have no
+                row in /me, so registering would 401). */}
+            {me && me.id !== '__guest__' && (
+              <Button variant="ghost" size="sm" class="directory-host-cta" onClick={() => setHostOpen(true)}>
                 Add your server to the community
               </Button>
             )}
           </div>
         </div>
-        <p class="directory-desc">
-          Discover and join self-hosted IRC servers. Browse, search, and find communities that match your interests.
-        </p>
+        {!narrow && <p class="directory-desc">Find a community to chat in.</p>}
       </div>
 
-      <div class="directory-filters">
+      <div class="directory-search">
         <Input
           type="text"
           placeholder="Search servers…"
           value={query}
           onInput={(e) => bloc.setQuery((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); bloc.setQuery(''); } }}
           aria-label="Search servers"
+          autoComplete="off"
+          spellcheck={false}
         />
+      </div>
 
+      <div class={`directory-filters${narrow ? ' directory-filters-phone' : ''}`}>
+        {narrow && (
+          <div class="directory-filters-bar">
+            <Button
+              variant="secondary"
+              pressed={filtersOpen}
+              aria-expanded={filtersOpen}
+              aria-controls="directory-filter-panel"
+              icon={<SlidersHorizontal aria-hidden="true" />}
+              onClick={() => setFiltersOpen((v) => !v)}
+            >
+              {activeFilters > 0 ? `Filters · ${activeFilters}` : 'Filters'}
+            </Button>
+            <Button
+            variant="ghost"
+            class="directory-add-address"
+            onClick={() => { setAddHost(''); setAddOpen(true); }}
+            title="Connect to a server that isn't listed here"
+            icon={<Plus aria-hidden="true" />}
+          >
+            Add by address
+          </Button>
+          </div>
+        )}
+
+        {filtersShown && (<div class="directory-filter-panel" id="directory-filter-panel">
         <div class="directory-lang-chips" role="tablist" aria-label="Filter by language">
           {languageChips(facets, language).map((f) => (
             <Button
@@ -599,31 +635,23 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
         )}
 
         <Toggle checked={showNsfw} onChange={(v) => bloc.setShowNsfw(v)} label="Show NSFW" />
+        </div>)}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          pressed={advanced}
-          class="directory-advanced-toggle"
-          onClick={() => setAdvanced((v) => !v)}
-          title="Show advanced controls (add a server manually)"
-        >
-          Advanced
-        </Button>
+        {!narrow && (
+          <Button
+            variant="ghost"
+            size="sm"
+            class="directory-add-address"
+            onClick={() => { setAddHost(''); setAddOpen(true); }}
+            title="Connect to a server that isn't listed here"
+            icon={<Plus aria-hidden="true" />}
+          >
+            Add by address
+          </Button>
+        )}
       </div>
 
-      {advanced && (
-        <div class="directory-advanced-actions">
-          <Button variant="secondary" onClick={() => setAddOpen(true)}>
-            + Add server manually
-          </Button>
-          <span class="directory-hint">
-            Local entries are stored on this device only — never published to the directory.
-          </span>
-        </div>
-      )}
-
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a server manually">
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} title="Add a server by address">
         <AddLocalServerForm
           key={addHost}
           initialHostname={addHost}
@@ -634,6 +662,14 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           onCancel={() => setAddOpen(false)}
         />
       </Modal>
+
+      <ServerDetails
+        server={details}
+        connected={!!details && connectionByServerId.get(details.id)?.engineState === 'connected'}
+        canConnect={!!engine && !!me?.handle}
+        onConnect={connect}
+        onClose={() => setDetailsId(null)}
+      />
 
       <HostServerModal
         open={hostOpen}
@@ -673,7 +709,25 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
           <span>Loading directory…</span>
         </div>
       ) : filteredServers.length === 0 ? (
-        <EmptyState class="directory-empty">
+        <EmptyState
+          class="directory-empty"
+          action={(
+            <div class="directory-empty-actions">
+              {(query.trim() || language !== 'all' || tag) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => { bloc.setQuery(''); if (language !== 'all') bloc.setLanguage('all'); if (tag) bloc.setTag(''); }}
+                >
+                  {query.trim() ? 'Clear search' : 'Clear filters'}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={() => { setAddHost(''); setAddOpen(true); }}>
+                Add a server by address
+              </Button>
+            </div>
+          )}
+        >
           {/* The directories filter by language/topic themselves, so an empty
               page with a chip on means the filters, not the search. */}
           {(servers && servers.length > 0) || language !== 'all' || tag
@@ -693,9 +747,9 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
                 connected={conn?.engineState === 'connected'}
                 isCurrent={!!conn}
                 myHandle={me?.handle}
-                onConnect={() => { void bloc.connect(s); }}
+                onConnect={() => connect(s)}
+                onOpen={() => setDetailsId(s.id)}
                 isLocal={isLocal}
-                showRemove={advanced && isLocal}
                 onRemove={() => bloc.removeLocalServer(s.id)}
                 // The default directory goes without saying; others are named.
                 showSource={!!s.source && !s.source.isDefault}
@@ -968,52 +1022,54 @@ interface ServerCardProps {
   isCurrent: boolean;
   myHandle: string | undefined;
   onConnect: () => void;
-  // Locally-added (advanced mode) — rendered with a 'LOCAL' chip + Remove
-  // button when `showRemove` is true.
+  // Opens the server's details (a click on the card).
+  onOpen: () => void;
+  // Added by address (stored on this device): a LOCAL chip, its address,
+  // and Remove.
   isLocal?: boolean;
-  showRemove?: boolean;
   onRemove?: () => void;
   // Name the directory that lists it (when it isn't the default).
   showSource?: boolean;
 }
 
-// One card per server. Layout mirrors the 03-directory.png mockup:
-//   - top: avatar (initials, deterministic hue) + name/online + host
-//   - body: description, tags
-//   - footer: user count / verified date + Connect/Joined/Remove
+// One card per server: avatar, name and status; description and tags;
+// people online and Connect. A click anywhere but its buttons opens the
+// server's details. The address (host:port) is a detail, not a headline —
+// only a server you added by address shows it, as that's how you know it.
 //
 // Self-contained block; the parent renders these inside a CSS grid that
 // auto-flows from 3 → 2 → 1 columns based on viewport width.
 function ServerCard({
-  server, engine, connected, isCurrent, myHandle, onConnect,
-  isLocal, showRemove, onRemove, showSource,
+  server, engine, connected, isCurrent, myHandle, onConnect, onOpen,
+  isLocal, onRemove, showSource,
 }: ServerCardProps) {
   const isOffline = server.health_status === 'down';
   const verified = server.verification_status === 'verified';
   const userCount = typeof server.user_count === 'number' ? server.user_count : null;
-  const initials = computeInitials(server.name || server.hostname);
-  const hue = hashHue(server.name || server.hostname);
   const joins = joinsLabel(server.autojoin_channels);
 
   return (
-    <article class="directory-card" role="listitem">
+    <article
+      class="directory-card"
+      role="listitem"
+      onClick={(e) => {
+        if ((e.target as Element | null)?.closest?.('button, a, input')) return;
+        onOpen();
+      }}
+    >
       <header class="directory-card-head">
-        <Avatar
-          size={44}
-          class="directory-card-avatar"
-          initial={initials}
-          color={`hsl(${hue} 70% 50%)`}
-          image={server.icon_url ? <img src={server.icon_url} alt="" loading="lazy" /> : undefined}
-        />
+        <ServerAvatar server={server} size={44} />
         <div class="directory-card-titles">
           <h3 class="directory-card-name">
-            {server.name}
+            <button type="button" class="directory-card-open" onClick={onOpen} aria-label={`${server.name}: details`}>
+              {server.name}
+            </button>
             <span class={`directory-card-status ${isOffline ? 'directory-card-status-offline' : ''}`}>
               <StatusDot status={isOffline ? 'offline' : 'online'} />
               {isOffline ? 'OFFLINE' : 'ONLINE'}
             </span>
           </h3>
-          <div class="directory-card-host">{server.hostname}:{server.port}{server.tls ? ' (TLS)' : ''}</div>
+          {isLocal && <div class="directory-card-host">{serverAddress(server)}</div>}
         </div>
       </header>
 
@@ -1062,14 +1118,14 @@ function ServerCard({
       </div>
 
       <footer class="directory-card-footer">
-        {showRemove && onRemove && (
+        {isLocal && onRemove && (
           <Button
             variant="ghost"
             size="sm"
             tone="danger"
             class="directory-local-remove"
             onClick={onRemove}
-            title="Remove this local entry"
+            title="Remove this server from this device"
           >
             Remove
           </Button>
@@ -1082,8 +1138,8 @@ function ServerCard({
               variant="primary"
               size="sm"
               onClick={onConnect}
-              disabled={!myHandle}
-              title={myHandle ? `Connect as ${myHandle}` : 'Set up your handle first'}
+              disabled={!myHandle || isOffline}
+              title={isOffline ? 'This server is offline right now' : myHandle ? `Connect as ${myHandle}` : 'Set up your handle first'}
             >
               Connect
             </Button>
@@ -1091,6 +1147,119 @@ function ServerCard({
         )}
       </footer>
     </article>
+  );
+}
+
+function serverAddress(server: Pick<Server, 'hostname' | 'port' | 'tls'>): string {
+  return `${server.hostname}:${server.port}${server.tls ? ' (TLS)' : ''}`;
+}
+
+function ServerAvatar({ server, size }: { server: Server; size: number }) {
+  return (
+    <Avatar
+      size={size}
+      class="directory-card-avatar"
+      initial={computeInitials(server.name || server.hostname)}
+      color={`hsl(${hashHue(server.name || server.hostname)} 70% 50%)`}
+      image={server.icon_url ? <img src={server.icon_url} alt="" loading="lazy" /> : undefined}
+    />
+  );
+}
+
+// How many of the network's channels the details list.
+const DETAIL_CHANNELS = 8;
+
+// A server's details (a click on its card): what it is, its channels (each
+// one joins on connect), how many people are on, and Connect — which an
+// offline server doesn't offer.
+export function ServerDetails({ server, connected, canConnect, onConnect, onClose }: {
+  server: Server | null;
+  connected: boolean;
+  canConnect: boolean;
+  onConnect: (server: Server, join?: string) => void;
+  onClose: () => void;
+}) {
+  // Keep the last server on screen while the dialog animates closed.
+  const last = useRef<Server | null>(null);
+  if (server) last.current = server;
+  const s = server ?? last.current;
+  if (!s) return null;
+  const isOffline = s.health_status === 'down';
+  const userCount = typeof s.user_count === 'number' ? s.user_count : null;
+  const autojoin = new Set((s.autojoin_channels ?? []).map((c) => c.toLowerCase()));
+  // The network's own channels, its default ones first.
+  const channels = [...new Set([...(s.autojoin_channels ?? []), ...(s.channels ?? [])])].slice(0, DETAIL_CHANNELS);
+  const joinable = canConnect && !isOffline && !connected;
+  return (
+    <Modal open={!!server} onClose={onClose} title={s.name}>
+      <div class="directory-details">
+        <div class="directory-details-head">
+          <ServerAvatar server={s} size={56} />
+          <div class="directory-details-titles">
+            <span class={`directory-card-status ${isOffline ? 'directory-card-status-offline' : ''}`}>
+              <StatusDot status={isOffline ? 'offline' : 'online'} />
+              {isOffline ? 'OFFLINE' : 'ONLINE'}
+            </span>
+            {userCount !== null && (
+              <span class="directory-details-count">
+                {userCount.toLocaleString()} {userCount === 1 ? 'person' : 'people'} online
+              </span>
+            )}
+          </div>
+        </div>
+        {s.description
+          ? <p class="directory-details-desc">{s.description}</p>
+          : <p class="directory-details-desc directory-details-muted">No description yet.</p>}
+        {s.tags.length > 0 && (
+          <div class="directory-card-tags">
+            {s.tags.map((t) => <Badge key={t} tone="neutral" class="directory-card-tag">{t.toUpperCase()}</Badge>)}
+          </div>
+        )}
+        {channels.length > 0 && (
+          <section class="directory-details-section" aria-label="Channels">
+            <h4 class="directory-details-heading">Channels</h4>
+            <div class="directory-details-channels" role="list">
+              {channels.map((c) => (
+                <ListRow
+                  key={c}
+                  class="directory-details-channel"
+                  rowProps={{ role: 'listitem' }}
+                  title={c}
+                  subtitle={autojoin.has(c.toLowerCase()) ? 'Everyone starts here' : undefined}
+                  trailing={joinable ? (
+                    <Button variant="secondary" size="sm" onClick={() => onConnect(s, c)} aria-label={`Join ${c}`}>Join</Button>
+                  ) : undefined}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+        <dl class="directory-details-facts">
+          {s.website_url && (
+            <>
+              <dt>Website</dt>
+              <dd><a href={s.website_url} target="_blank" rel="noopener noreferrer">{s.website_url.replace(/^https?:\/\//, '')}</a></dd>
+            </>
+          )}
+          <dt>Address</dt>
+          <dd class="directory-details-address">{serverAddress(s)}</dd>
+        </dl>
+        <div class="directory-details-actions">
+          {connected ? (
+            <Badge tone="neutral" class="directory-list-joined">Joined</Badge>
+          ) : (
+            <Button
+              variant="primary"
+              onClick={() => onConnect(s)}
+              disabled={!joinable}
+              title={isOffline ? 'This server is offline right now' : undefined}
+            >
+              {isOffline ? 'Offline' : 'Connect'}
+            </Button>
+          )}
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -1196,7 +1365,7 @@ function hashHue(s: string): number {
   return Math.abs(h) % 360;
 }
 
-// "Add server manually" form (advanced mode). Local-only — never sent to the
+// "Add by address" form. Local-only — never sent to the
 // Boson directory backend. Sensible defaults: TLS on, port 6697. Submitting
 // adds it to the merged directory list immediately; the connection itself
 // still uses the regular Connect button.
@@ -1257,8 +1426,20 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
     });
   };
 
+  // TLS on/off moves the port between the usual two, unless it was set to
+  // something else.
+  const setTlsAndPort = (on: boolean): void => {
+    setTls(on);
+    setPort((p) => (on && p.trim() === '6667' ? '6697' : !on && p.trim() === '6697' ? '6667' : p));
+  };
+  // Everything past host, port and name: open when it holds something (a
+  // validation error there, or a plain-text connection).
+  const [more, setMore] = useState(false);
+  const moreOpen = more || !!(err && err.toLowerCase().includes('sasl'));
+
   return (
     <form class="directory-add-form" onSubmit={submit}>
+      <p class="directory-hint">Connect to any IRC server, listed or not. It's saved on this device only.</p>
       <Field
         label="Hostname"
         hint="e.g. irc.example.org or 192.168.1.42 — local-network addresses work."
@@ -1278,7 +1459,7 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
       <div class="directory-add-form-row">
         <Field
           label="Port"
-          hint="6697 (TLS) or 6667 (plaintext)."
+          hint={tls ? 'Usually 6697 (TLS).' : 'Usually 6667 (no TLS).'}
           error={err && err.toLowerCase().includes('port') ? err : undefined}
         >
           <Input
@@ -1286,6 +1467,7 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
             onInput={(e) => setPort((e.target as HTMLInputElement).value)}
             autoComplete="off"
             spellcheck={false}
+            inputMode="numeric"
           />
         </Field>
         <Field label="Display name" hint="Defaults to the hostname.">
@@ -1299,69 +1481,84 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
         </Field>
       </div>
 
-      <Toggle checked={tls} onChange={setTls} label="Use TLS (recommended)" />
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        class="directory-add-more"
+        aria-expanded={moreOpen}
+        onClick={() => setMore((v) => !v)}
+      >
+        {moreOpen ? '▾' : '▸'} More options
+      </Button>
 
-      {tls && (
-        <Toggle
-          checked={tlsInsecure}
-          onChange={setTlsInsecure}
-          label="Skip certificate verification (self-signed certs)"
-        />
+      {moreOpen && (
+        <div class="directory-add-more-body">
+          <Toggle checked={tls} onChange={setTlsAndPort} label="Use TLS (recommended)" />
+
+          {tls && (
+            <Toggle
+              checked={tlsInsecure}
+              onChange={setTlsInsecure}
+              label="Skip certificate verification (self-signed certs)"
+            />
+          )}
+
+          <Field
+            label="Server password"
+            hint="Optional. Sent as the IRC PASS line — for private daemons or a bouncer."
+          >
+            <Input
+              type="password"
+              placeholder="••••••••"
+              value={serverPass}
+              onInput={(e) => setServerPass((e.target as HTMLInputElement).value)}
+              autoComplete="off"
+              spellcheck={false}
+            />
+          </Field>
+
+          <div class="directory-add-form-row">
+            <Field
+              label="SASL account"
+              hint="Optional SASL PLAIN login."
+              error={err && err.toLowerCase().includes('sasl') ? err : undefined}
+            >
+              <Input
+                placeholder="account"
+                value={saslUser}
+                onInput={(e) => setSaslUser((e.target as HTMLInputElement).value)}
+                autoComplete="off"
+                spellcheck={false}
+              />
+            </Field>
+            <Field label="SASL password" hint="Paired with the SASL account.">
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={saslPass}
+                onInput={(e) => setSaslPass((e.target as HTMLInputElement).value)}
+                autoComplete="off"
+                spellcheck={false}
+              />
+            </Field>
+          </div>
+
+          <Field
+            label="NickServ password"
+            hint="Optional. Auto-identifies to NickServ after connecting. Editable later in Services."
+          >
+            <Input
+              type="password"
+              placeholder="••••••••"
+              value={nickservPass}
+              onInput={(e) => setNickservPass((e.target as HTMLInputElement).value)}
+              autoComplete="off"
+              spellcheck={false}
+            />
+          </Field>
+        </div>
       )}
-
-      <Field
-        label="Server password"
-        hint="Optional. Sent as the IRC PASS line — for private daemons or a bouncer."
-      >
-        <Input
-          type="password"
-          placeholder="••••••••"
-          value={serverPass}
-          onInput={(e) => setServerPass((e.target as HTMLInputElement).value)}
-          autoComplete="off"
-          spellcheck={false}
-        />
-      </Field>
-
-      <div class="directory-add-form-row">
-        <Field
-          label="SASL account"
-          hint="Optional SASL PLAIN login."
-          error={err && err.toLowerCase().includes('sasl') ? err : undefined}
-        >
-          <Input
-            placeholder="account"
-            value={saslUser}
-            onInput={(e) => setSaslUser((e.target as HTMLInputElement).value)}
-            autoComplete="off"
-            spellcheck={false}
-          />
-        </Field>
-        <Field label="SASL password" hint="Paired with the SASL account.">
-          <Input
-            type="password"
-            placeholder="••••••••"
-            value={saslPass}
-            onInput={(e) => setSaslPass((e.target as HTMLInputElement).value)}
-            autoComplete="off"
-            spellcheck={false}
-          />
-        </Field>
-      </div>
-
-      <Field
-        label="NickServ password"
-        hint="Optional. Auto-identifies to NickServ after connecting. Editable later in Services."
-      >
-        <Input
-          type="password"
-          placeholder="••••••••"
-          value={nickservPass}
-          onInput={(e) => setNickservPass((e.target as HTMLInputElement).value)}
-          autoComplete="off"
-          spellcheck={false}
-        />
-      </Field>
 
       <div class="directory-add-actions">
         <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
@@ -1371,81 +1568,98 @@ function AddLocalServerForm({ onSubmit, onCancel, initialHostname = '' }: AddLoc
   );
 }
 
-const ENGINE_DOT: Record<EngineState, 'offline' | 'away' | 'online' | 'error'> = {
-  idle: 'offline', connecting: 'away', connected: 'online', disconnected: 'error',
-};
-
-interface EnginePillProps {
-  state: EngineState;
-  connectionsCount: number;
-  connectedCount: number;
-  connected: boolean;
-  onOpenChat: () => void;
-}
-
-function EnginePill({ state, connectionsCount, connectedCount, connected, onOpenChat }: EnginePillProps) {
-  // Multi-server label: "3 servers · 2 connected" when more than one. Falls
-  // back to the original single-state label when nothing's open.
-  const label = connectionsCount === 0
-    ? `engine · ${state}`
-    : connectionsCount === 1
-      ? `engine · ${state}`
-      : `${connectionsCount} servers · ${connectedCount} connected`;
-  return (
-    <Button
-      variant="secondary"
-      size="sm"
-      class={`engine-pill engine-pill-${state}`}
-      onClick={onOpenChat}
-      disabled={!connected}
-      title={connected ? 'Open chat' : `Engine: ${state}`}
-      icon={<StatusDot status={ENGINE_DOT[state]} pulse={state === 'connecting'} />}
-    >
-      {label}
-    </Button>
-  );
-}
-
 interface SetupPromptProps {
   directory: DirectoryService;
   identity: IdentityService;
   onDone: (user: User) => void;
 }
 
+// The API's refusals, in the form's words (shared with Settings).
+export { describeHandleError };
+
 function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
-  const [handle, setHandle] = useState('');
+  const auth = useAuthService();
+  const { session } = useAuthState();
+  // One name: the handle starts as the username picked at sign-up.
+  const [handle, setHandle] = useState(session?.user.username ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The identity's password wrap is made at sign-in and kept in memory until
+  // this step posts it. After a reload it's gone (the key itself comes back
+  // from this device's store), so the password is asked for again here and
+  // the wraps are made afresh, instead of failing.
+  const [needsPassword, setNeedsPassword] = useState(() => !identity.getPendingEncrypted());
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState<string | null>(null);
   // After account creation we hold the created user + the one-time recovery
   // code, and switch to the recovery-code view before finishing. onDone is
   // gated behind the user acknowledging they've saved the code.
   const [created, setCreated] = useState<User | null>(null);
   const [recoveryCode, setRecoveryCode] = useState<string | null>(null);
+  const userId = session?.user.id ?? '';
+
+  // Re-make the wraps with the password, once it's checked with the auth
+  // service (a wrong one would lock the key on the next sign-in).
+  const wrapsFromPassword = async (): Promise<{ encrypted: string; recoveryBlob?: string; recoveryCode?: string } | null> => {
+    const login = session?.user.email || session?.user.username;
+    if (!login) throw new Error('Sign in again to finish setting up.');
+    try {
+      await auth.signIn(login, password);
+    } catch (err) {
+      setPasswordError(err instanceof AuthError && err.code === 'invalid_credentials' ? "That password isn't right." : describeAuthError(err));
+      return null;
+    }
+    if (identity.isUnlocked()) {
+      const encrypted = await identity.rewrapForNewPassword(password);
+      const recovery = await identity.enrollRecoveryCode();
+      return { encrypted, recoveryBlob: recovery.recoveryBlob, recoveryCode: recovery.recoveryCode };
+    }
+    const encrypted = await identity.initializeForNewUser(password);
+    const recovery = identity.getPendingRecovery();
+    return { encrypted, recoveryBlob: recovery?.recoveryBlob, recoveryCode: recovery?.recoveryCode };
+  };
 
   const submit = async (e: Event) => {
     e.preventDefault();
+    const name = handle.trim();
+    const problem = validateHandle(name);
+    if (problem) { setError(problem); return; }
     setBusy(true);
     setError(null);
+    setPasswordError(null);
     try {
-      const encrypted = identity.getPendingEncrypted();
+      let encrypted = identity.getPendingEncrypted();
+      let recovery = identity.getPendingRecovery();
       if (!encrypted) {
-        throw new Error('identity not initialized — please sign in again');
+        if (!password) {
+          setNeedsPassword(true);
+          setPasswordError('Enter your password to finish.');
+          return;
+        }
+        const wraps = await wrapsFromPassword();
+        if (!wraps) return;
+        encrypted = wraps.encrypted;
+        recovery = wraps.recoveryBlob && wraps.recoveryCode
+          ? { recoveryBlob: wraps.recoveryBlob, recoveryCode: wraps.recoveryCode }
+          : null;
       }
       // Store the recovery wrap alongside the password wrap at account
       // creation so the user has a recovery path from day one.
-      const recovery = identity.getPendingRecovery();
-      const user = await directory.setupMe(handle, encrypted, recovery?.recoveryBlob);
+      const user = await directory.setupMe(name, encrypted, recovery?.recoveryBlob);
       const code = recovery?.recoveryCode ?? null;
       identity.clearPendingEncrypted();
+      if (userId) void identity.persist(userId);
       if (code) {
-        // Show the code once, then finish.
+        // Show the code once, then finish. Until it's confirmed, a reload
+        // comes back to this step (with a new code).
+        markRecoveryPending(userId);
         setCreated(user);
         setRecoveryCode(code);
       } else {
         onDone(user);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'setup failed');
+      setError(describeHandleError(err));
     } finally {
       setBusy(false);
     }
@@ -1455,33 +1669,96 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
     return (
       <RecoveryCodeReveal
         code={recoveryCode}
-        intro="Save your recovery code. It's the only way back into your synced
-          passwords if you forget your login password — we can't recover it for you."
-        onContinue={() => onDone(created)}
+        intro="Save your recovery code. If you ever reset your password, you'll need it once to get your synced passwords back. We can't recover it for you."
+        onContinue={() => { clearRecoveryPending(userId); onDone(created); }}
       />
     );
   }
 
+  const nameProblem = handle.trim() ? validateHandle(handle.trim()) : null;
   return (
     <form class="directory-setup-prompt" onSubmit={submit}>
       <div class="directory-setup-header">
-        <div class="directory-prompt">$ boson account --init</div>
         <h2>Finish setting up your account</h2>
-        <p>Pick a handle — your network-wide username.</p>
+        <p>Choose your handle: how people find you on Boson, and your name in chat.</p>
       </div>
-      <Field label="Handle" hint="3+ chars. Alphanumeric + underscore. Changes cost 90 days." error={error ?? undefined}>
+      <Field
+        label="Handle"
+        hint="Starts as your username. Use 3–30 letters, digits, - or _, starting with a letter. You can rename it later; your old handle keeps finding you for 90 days."
+        error={error ?? (handle.trim().length >= 3 ? nameProblem ?? undefined : undefined)}
+      >
         <Input
           placeholder="handle"
           value={handle}
-          onInput={(e) => setHandle((e.target as HTMLInputElement).value)}
-          minLength={3}
+          onInput={(e) => { setHandle((e.target as HTMLInputElement).value); setError(null); }}
+          invalid={!!error}
           required
+          autoComplete="off"
+          spellcheck={false}
         />
       </Field>
-      <Button type="submit" variant="primary" loading={busy} disabled={busy || handle.length < 3}>
+      {needsPassword && (
+        <>
+          <p class="setup-password-note">The page reloaded during setup. Enter your password once more to finish.</p>
+          <Field label="Password" error={passwordError ?? undefined}>
+            <Input
+              type="password"
+              placeholder="password"
+              value={password}
+              onInput={(e) => { setPassword((e.target as HTMLInputElement).value); setPasswordError(null); }}
+              invalid={!!passwordError}
+              autoComplete="current-password"
+            />
+          </Field>
+        </>
+      )}
+      <Button type="submit" variant="primary" loading={busy} disabled={busy || handle.trim().length < 3 || (needsPassword && !password)}>
         Save
       </Button>
     </form>
+  );
+}
+
+// Sign-up was interrupted on the recovery-code step (a reload): the code
+// that was shown is gone, so make a new one, store its wrap, and show it.
+function RecoveryResume({ directory, identity, onDone }: {
+  directory: DirectoryService;
+  identity: IdentityService;
+  onDone: () => void;
+}) {
+  const [code, setCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const r = await identity.enrollRecoveryCode();
+        await directory.updateSecretWraps({ recoveryBlob: r.recoveryBlob });
+        if (live) setCode(r.recoveryCode);
+      } catch (err) {
+        if (live) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => { live = false; };
+  }, [directory, identity]);
+  if (error) {
+    return (
+      <div class="directory-setup-prompt">
+        <div class="directory-setup-header">
+          <h2>Your recovery code</h2>
+          <p>Couldn't make your recovery code ({error}). You can make one any time in Settings → Account.</p>
+        </div>
+        <Button variant="primary" onClick={onDone}>Continue</Button>
+      </div>
+    );
+  }
+  if (!code) return <div class="directory-setup-prompt"><BarLoader label="Making your recovery code" /></div>;
+  return (
+    <RecoveryCodeReveal
+      code={code}
+      intro="Setup was interrupted before you saved your recovery code, so here's a new one (the earlier code no longer works). If you ever reset your password, you'll need it once to get your synced passwords back."
+      onContinue={onDone}
+    />
   );
 }
 

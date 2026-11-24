@@ -27,3 +27,11 @@ export function validateUsername(name: string): string | null {
   if (RESERVED.has(name.toLowerCase())) return 'That name is reserved.';
   return null;
 }
+
+// The Boson handle: the user's name across Boson and their IRC nick, so the
+// same rules as a username, and at least 3 characters (the API's minimum;
+// the API itself only checks the length).
+export function validateHandle(handle: string): string | null {
+  if (handle.length < 3) return 'Handle must be at least 3 characters.';
+  return validateUsername(handle);
+}

@@ -76,6 +76,9 @@ type PrivmsgParams struct {
 	// Ack, when set, asks for delivery confirmation: an "ACK" event with
 	// this number once the server has the message (irc.Client.PrivmsgAck).
 	Ack uint64 `json:"ack,omitempty"`
+	// Tags: IRCv3 client-only tags for the line, e.g. `+draft/reply` with
+	// the msgid of the message this one answers.
+	Tags map[string]string `json:"tags,omitempty"`
 }
 
 // NamesParams targets a single channel for an on-demand NAMES refresh.

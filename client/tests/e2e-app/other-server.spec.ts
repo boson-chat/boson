@@ -14,7 +14,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
-import { test, expect, STACK, randomEmail, randomPassword, randomUsername, IS_WEB } from './fixtures';
+import { test, expect, STACK, randomEmail, randomPassword, randomUsername, IS_WEB, confirmLeaveGuest } from './fixtures';
 
 const NET = STACK.selfhost;
 const SHOTS = process.env['OTHERSERVER_SHOTS_DIR'] ?? '';
@@ -49,8 +49,9 @@ test.describe('use another server', () => {
     await page.getByRole('button', { name: 'Use another server' }).click();
     await page.getByLabel('Server address').fill('nothing-here.invalid');
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText(/Couldn't reach|isn't a Boson network/, { timeout: 15_000 });
-    await expect(page.getByRole('button', { name: 'Add as a plain IRC server' })).toBeVisible();
+    // A name with no DNS record is a typo, not an IRC server (the desktop
+    // shell looks the name up; the web one can't, and says both).
+    await expect(page.getByRole('alert')).toContainText(/Couldn't find nothing-here\.invalid\. Check the spelling|Couldn't reach nothing-here\.invalid as a Boson network/, { timeout: 15_000 });
     await shot(page, '02-not-found');
 
     await page.getByLabel('Server address').fill(NET.irc.host);
@@ -111,6 +112,7 @@ test.describe('use another server', () => {
     const s2 = p2.getByRole('dialog', { name: 'User settings' });
     await s2.getByRole('tab', { name: /^Account/ }).click();
     await s2.getByRole('button', { name: 'Switch to an account' }).click();
+    await confirmLeaveGuest(p2);
     await expect(p2.locator('.login-screen')).toBeVisible({ timeout: 30_000 });
     await expect(p2.locator('.login-server-host')).toHaveText('boson.chat');
     await shot(p2, '07-login-after-guest');

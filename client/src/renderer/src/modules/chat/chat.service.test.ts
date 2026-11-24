@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ChatService, parseCtcp } from './chat.service';
 import type { NotifyEvent } from '../ui/notifier';
 import { SERVICE_CHANNEL } from './services';
@@ -1525,5 +1525,51 @@ describe('parseCtcp', () => {
     expect(parseCtcp('hello')).toBeNull();
     expect(parseCtcp('\x01\x01')).toBeNull();
     expect(parseCtcp(undefined)).toBeNull();
+  });
+});
+
+describe('ChatService — getting our nick back after a fallback', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('asks for the nick again on a backoff, says so once, and says when it worked', () => {
+    const { chat, engine } = makeChat('a-b');
+    const feedback: string[] = [];
+    chat.onFeedback((f) => { if (f.kind === 'error') feedback.push(f.text); });
+    // The old session still holds a-b: registered as a-b_.
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'a-b_', Message: 'Welcome' }));
+    expect(engine.nickCalls).toEqual([]);
+    vi.advanceTimersByTime(5_000);
+    expect(engine.nickCalls).toEqual(['a-b']);
+    expect(feedback.join(' ')).toMatch(/“a-b” is still in use.*“a-b_” for now/);
+    vi.advanceTimersByTime(15_000);
+    expect(engine.nickCalls).toEqual(['a-b', 'a-b']);
+    // The server accepts it.
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'a-b_', Message: 'a-b' }));
+    expect(chat.getState().myNick).toBe('a-b');
+    expect(feedback.at(-1)).toBe("You're “a-b” again.");
+    vi.advanceTimersByTime(600_000);
+    expect(engine.nickCalls).toEqual(['a-b', 'a-b']);
+  });
+
+  it('asks right away when the holder quits', () => {
+    const { engine } = makeChat('a-b');
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'a-b_', Message: 'Welcome' }));
+    engine.emit(makeEvent({ Kind: 'QUIT', From: 'a-b', Message: 'Ping timeout' }));
+    expect(engine.nickCalls).toEqual(['a-b']);
+  });
+
+  it("does nothing when we got the nick, and stops when the user picks another", () => {
+    const { chat, engine } = makeChat('a-b');
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'a-b', Message: 'Welcome' }));
+    vi.advanceTimersByTime(60_000);
+    expect(engine.nickCalls).toEqual([]);
+
+    const second = makeChat('c-d');
+    second.engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'c-d_', Message: 'Welcome' }));
+    second.chat.changeNick('other');
+    vi.advanceTimersByTime(60_000);
+    expect(second.engine.nickCalls).toEqual(['other']);
+    void chat;
   });
 });

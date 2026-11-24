@@ -450,7 +450,7 @@ func TestNew_NegotiatesChathistoryCaps(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	caps := c.girc.Config.SupportedCaps
-	for _, want := range []string{"batch", "chathistory", "draft/chathistory", "server-time", "znc.in/playback"} {
+	for _, want := range []string{"batch", "chathistory", "draft/chathistory", "server-time", "znc.in/playback", "message-tags", "echo-message"} {
 		if _, ok := caps[want]; !ok {
 			t.Errorf("SupportedCaps missing %q", want)
 		}

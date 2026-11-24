@@ -32,6 +32,16 @@ describe('ChannelSidebar banner', () => {
 
 });
 
+describe('ChannelSidebar server subtitle', () => {
+  it('shows the server description, not the daemon version (kept in the tooltip)', () => {
+    render(<ChannelSidebar {...baseProps} serverDescription="Chat about Boson" serverInfo={{ version: 'ergo-v2.19.1' } as never} />);
+    const meta = document.querySelector('.sidebar-server-meta') as HTMLElement;
+    expect(meta.textContent).toContain('Chat about Boson');
+    expect(meta.textContent).not.toContain('ergo-v2.19.1');
+    expect(meta.getAttribute('title')).toContain('ergo-v2.19.1');
+  });
+});
+
 describe('cssUrl', () => {
   it('passes a normal URL through unchanged', () => {
     expect(cssUrl('https://cdn.boson.chat/server-banners/b1.png')).toBe(
@@ -165,5 +175,75 @@ describe('ChannelSidebar join modal — admins-only channel creation', () => {
     expect(screen.queryByTestId('channel-create-restricted')).toBeNull();
     expect(screen.queryByRole('group', { name: 'Network channels' })).toBeNull();
     expect(screen.getByText('Waiting for the server', { exact: false })).toBeTruthy();
+  });
+
+  it('join or create: nothing preselected, a Create row for a new name, Enter acts on what was typed', async () => {
+    const onJoin = vi.fn();
+    const dir = [{ name: '#general', userCount: 40, topic: 'chat' }, { name: '#gen-z', userCount: 2, topic: '' }];
+    render(<ChannelSidebar {...baseProps} onJoin={onJoin} channelDirectory={dir} creation={{ restricted: false, channels: [] }} />);
+    const fireEvent = await open();
+    expect(screen.getByRole('dialog', { name: 'Join or create a channel' })).toBeTruthy();
+    // Nothing is picked until the user picks it.
+    expect(document.querySelector('.channel-join-result[aria-selected="true"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Join' })).toHaveProperty('disabled', true);
+
+    // A new name, with list matches: Create it, not the first match.
+    const box = screen.getByRole('textbox', { name: 'Channel name' });
+    fireEvent.input(box, { target: { value: 'gen' } });
+    // The Create row, and the main button says so too.
+    expect(screen.getAllByRole('button', { name: 'Create #gen' })).toHaveLength(2);
+    expect(document.querySelector('.channel-join-create')?.textContent).toContain('Create #gen');
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onJoin).toHaveBeenLastCalledWith('gen');
+  });
+
+  it('join or create: a typed name the list has joins it; arrows pick a row', async () => {
+    const onJoin = vi.fn();
+    const dir = [{ name: '#general', userCount: 40, topic: 'chat' }, { name: '#gen-z', userCount: 2, topic: '' }];
+    render(<ChannelSidebar {...baseProps} onJoin={onJoin} channelDirectory={dir} creation={{ restricted: false, channels: [] }} />);
+    const fireEvent = await open();
+    const box = screen.getByRole('textbox', { name: 'Channel name' });
+    fireEvent.input(box, { target: { value: '#gen-z' } });
+    expect(document.querySelector('.channel-join-create')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Join #gen-z' })).toBeTruthy();
+    fireEvent.input(box, { target: { value: 'gen' } });
+    fireEvent.keyDown(box, { key: 'ArrowDown' });
+    expect(screen.getByRole('button', { name: 'Join #general' })).toBeTruthy();
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(onJoin).toHaveBeenLastCalledWith('#general');
+  });
+});
+
+describe('ChannelSidebar leaving (in the row menu, not an ×)', () => {
+  const joinedChan = (name: string): ChatChannel => ({ name, joined: true, namesLoaded: true, whoLoaded: true, messages: [] as never, members: [], typing: [], unread: 0, mentions: 0, topic: '' }) as unknown as ChatChannel;
+
+  it('a row has no leave button; its "…" menu has Leave channel', async () => {
+    const { fireEvent } = await import('@testing-library/preact');
+    const onPart = vi.fn();
+    render(<ChannelSidebar {...baseProps} onPart={onPart} channels={[joinedChan('#dev')]} />);
+    expect(screen.queryByRole('button', { name: /^Leave/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'More for #dev' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Leave channel' }));
+    expect(onPart).toHaveBeenCalledWith('#dev');
+  });
+
+  it('a DM row shows an avatar and offers Close conversation', async () => {
+    const { fireEvent } = await import('@testing-library/preact');
+    const onPart = vi.fn();
+    const { container } = render(<ChannelSidebar {...baseProps} onPart={onPart} channels={[joinedChan('#dev'), joinedChan('mox')]} />);
+    const row = screen.getByText('mox').closest('.channel-item') as HTMLElement;
+    expect(row.querySelector('.channel-lead')).not.toBeNull();
+    expect(container.textContent).not.toContain('[DM]');
+    fireEvent.contextMenu(row);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Close conversation' }));
+    expect(onPart).toHaveBeenCalledWith('mox');
+  });
+
+  it('DIRECT MESSAGES links to every DM (You) when wired', async () => {
+    const { fireEvent } = await import('@testing-library/preact');
+    const onOpenAllDms = vi.fn();
+    render(<ChannelSidebar {...baseProps} onOpenAllDms={onOpenAllDms} channels={[joinedChan('mox')]} />);
+    fireEvent.click(screen.getByRole('button', { name: 'All direct messages' }));
+    expect(onOpenAllDms).toHaveBeenCalled();
   });
 });

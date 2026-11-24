@@ -18,6 +18,9 @@ import (
 type NetAuthService struct {
 	disc *voiceDiscoverer
 	api  *ApiService
+	// lookupHost resolves a name (Resolve tells a typo from a server
+	// that's there but isn't a Boson network). net.DefaultResolver's.
+	lookupHost func(ctx context.Context, host string) ([]string, error)
 }
 
 // NetworkAuthInfo is Discover's answer. AuthURL is "" when the network
@@ -35,7 +38,7 @@ type NetworkAuthInfo struct {
 }
 
 func NewNetAuthService(disc *voiceDiscoverer, api *ApiService) *NetAuthService {
-	return &NetAuthService{disc: disc, api: api}
+	return &NetAuthService{disc: disc, api: api, lookupHost: net.DefaultResolver.LookupHost}
 }
 
 // Discover looks host's network up (cached for a day unless refresh) and,
@@ -169,8 +172,32 @@ func (s *NetAuthService) Resolve(address string) NetworkServer {
 		out.Error = resolveNoDocument
 	} else {
 		out.Error = resolveUnreachable
+		out.Detail = s.unreachableDetail(ctx, host)
 	}
 	return out
+}
+
+// Unreachable's Detail: whether the name exists at all. A typo has no DNS
+// record (resolveNotFound); a plain IRC server's host resolves, it just
+// has no web server (resolveHostExists). "" when the lookup can't tell.
+const (
+	resolveNotFound   = "not-found"
+	resolveHostExists = "host-exists"
+)
+
+func (s *NetAuthService) unreachableDetail(ctx context.Context, host string) string {
+	if s.lookupHost == nil {
+		return ""
+	}
+	addrs, err := s.lookupHost(ctx, host)
+	if err == nil && len(addrs) > 0 {
+		return resolveHostExists
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+		return resolveNotFound
+	}
+	return ""
 }
 
 func (s *NetAuthService) finishResolve(out NetworkServer, auth, dir string) NetworkServer {

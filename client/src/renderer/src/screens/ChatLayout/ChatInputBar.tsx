@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useLayoutEffect } from 'preact/hooks';
-import { Paperclip, Plus, SendHorizontal, Smile, X } from 'lucide-preact';
+import { CornerUpLeft, Paperclip, Plus, SendHorizontal, Smile, X } from 'lucide-preact';
 import { Button, Input } from '@boson/shared';
 import type { ChatInputBloc, ChatInputState } from './ChatInputBloc';
 import {
@@ -27,6 +27,10 @@ interface ChatInputBarProps {
   // the file picker; pasted files and images go to onFiles too. Absent:
   // no attach button, and a paste is just text.
   onFiles?: (files: File[]) => void;
+  // Replying to a message: a "Replying to nick" bar over the composer with
+  // a way to cancel (its ×, or Escape in the composer).
+  replying?: { nick: string; text: string } | null;
+  onCancelReply?: () => void;
 }
 
 // The composer area below the message list. Renders the slash/mention/channel
@@ -42,6 +46,8 @@ export function ChatInputBar({
   myNick,
   disabled = false,
   onFiles,
+  replying,
+  onCancelReply,
 }: ChatInputBarProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -127,6 +133,23 @@ export function ChatInputBar({
             class="chat-banner-dismiss"
             aria-label="Dismiss"
             onClick={onDismissBanner}
+            icon={<X aria-hidden="true" />}
+          />
+        </div>
+      )}
+      {replying && (
+        <div class="chat-reply-bar" role="status">
+          <CornerUpLeft aria-hidden="true" class="chat-reply-bar-icon" />
+          <span class="chat-reply-bar-label">Replying to <strong>{replying.nick}</strong></span>
+          <span class="chat-reply-bar-excerpt">{replying.text}</span>
+          <Button
+            variant="ghost"
+            size={phone ? 'lg' : 'sm'}
+            class="chat-reply-bar-cancel"
+            title="Cancel reply (Esc)"
+            aria-label="Cancel reply"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={onCancelReply}
             icon={<X aria-hidden="true" />}
           />
         </div>
@@ -274,6 +297,13 @@ export function ChatInputBar({
               }
             }}
             onKeyDown={(e) => {
+              // Escape with no suggestion list open cancels a reply.
+              if (e.key === 'Escape' && replying && onCancelReply
+                && !state.slashOpen && !state.mentionOpen && !state.channelOpen) {
+                e.preventDefault();
+                onCancelReply();
+                return;
+              }
               bloc.handleKeyDown({
                 key: e.key,
                 shiftKey: e.shiftKey,

@@ -12,7 +12,7 @@ import {
 } from './fixtures';
 import { IrcPeer } from './irc-peer';
 import {
-  cardIn, expectConnected, openServerSettings, railContextMenu, railTile, searchDirectory, sidebarServerName,
+  cardIn, expectConnected, openServerSettings, leaveServer, railContextMenu, railTile, searchDirectory, sidebarServerName,
 } from './helpers/directory';
 
 const isNick = (prefix: string, nick: string): boolean => prefix.split('!')[0]!.toLowerCase() === nick.toLowerCase();
@@ -87,13 +87,16 @@ test('two servers: browse modal, rail switching, unread + mentions, details, lea
     await expect(messageList(page).getByText('are you there?', { exact: false })).toBeVisible();
     await expect(page.getByLabel(`1 unread message in ${a.name}`)).toHaveCount(0);
 
-    // Context menu → Server details for B; selecting another tile from the
-    // settings page goes back to chat on that server.
+    // Context menu → Server details for B: a dialog over the chat; closing
+    // it leaves you where you were.
     const settings = await openServerSettings(page, b.name);
     await expect(settings.getByRole('heading', { level: 1 })).toHaveText(b.name);
-    await railTile(page, a.name).click();
+    await expect(page.getByRole('dialog', { name: `${b.name} server settings` })).toBeVisible();
+    await settings.getByRole('button', { name: 'Close settings' }).click();
     await expect(settings).toBeHidden();
+    await railTile(page, a.name).click();
     await expect(sidebarServerName(page)).toHaveText(a.name);
+    await expect(railTile(page, a.name)).toHaveAttribute('aria-current', 'true');
 
     // Escape closes the context menu without doing anything.
     const menu = await railContextMenu(page, b.name);
@@ -103,7 +106,7 @@ test('two servers: browse modal, rail switching, unread + mentions, details, lea
     // Leave server A from its tile: it quits IRC, the rail drops it and B
     // becomes active.
     const quitMark = peer.mark();
-    await (await railContextMenu(page, a.name)).getByRole('menuitem', { name: 'Leave server' }).click();
+    await leaveServer(page, a.name);
     await peer.waitFor((l) => l.command === 'QUIT' && isNick(l.prefix, nickA), 20_000, `${nickA} QUIT`, quitMark);
     await expect(railTile(page, a.name)).toHaveCount(0);
     await expect(sidebarServerName(page)).toHaveText(b.name);

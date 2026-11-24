@@ -11,6 +11,9 @@ import {
 } from './fixtures';
 
 const loginError = (page: Page) => page.locator('.login-error');
+// The problem shown under a sign-up field (by its placeholder).
+const fieldError = (page: Page, placeholder: string) =>
+  page.locator('.bds-field').filter({ has: page.getByPlaceholder(placeholder, { exact: true }) }).locator('.bds-field-error');
 
 async function fillSignup(page: Page, email: string, password: string, confirm = password, username = randomUsername('s')): Promise<void> {
   await page.getByRole('tab', { name: 'Signup' }).click();
@@ -26,26 +29,34 @@ test.describe('sign up', () => {
     const { page } = await launchApp();
     const email = randomEmail('badsignup');
 
-    // Mismatch is caught locally, before the auth service is asked.
+    // Mismatch is caught locally, before the auth service is asked, and
+    // shown next to the field.
     await fillSignup(page, email, 'abcdef12345', 'abcdef12346');
-    await expect(loginError(page)).toHaveText("Passwords don't match.");
+    await expect(fieldError(page, 'confirm password')).toHaveText("Passwords don't match.");
 
-    // Switching tabs clears the stale error.
+    // Switching tabs clears the stale problems.
     await page.getByRole('tab', { name: 'Login' }).click();
-    await expect(loginError(page)).toBeHidden();
+    await page.getByRole('tab', { name: 'Signup' }).click();
+    await expect(page.locator('.bds-field-error')).toHaveCount(0);
+    await page.getByRole('tab', { name: 'Login' }).click();
 
     // Usernames are IRC nicks: checked as you type, and again on submit.
     await fillSignup(page, email, 'abcdef12345', 'abcdef12345', '9 lives');
-    await expect(page.locator('.bds-field-error')).toBeVisible();
-    await expect(loginError(page)).toContainText(/^Username:/);
+    await expect(fieldError(page, 'username')).toContainText(/letter/);
 
-    // The auth service wants 10+ characters.
+    // The password rule (the auth service's 10+ characters) is shown up
+    // front and checked when the field is left.
+    await expect(page.getByText('At least 10 characters.')).toBeVisible();
+    await page.getByPlaceholder('password', { exact: true }).fill('abc');
+    await page.getByPlaceholder('confirm password').focus();
+    await expect(fieldError(page, 'password')).toHaveText('Use at least 10 characters.');
     await fillSignup(page, email, 'abc', 'abc');
-    await expect(loginError(page)).toContainText(/at least 10 characters/i);
+    await expect(fieldError(page, 'password')).toHaveText('Use at least 10 characters.');
 
-    // A malformed address is refused by the auth service.
+    // A malformed address is caught too.
     await fillSignup(page, 'not-an-email', 'abcdef12345');
-    await expect(loginError(page)).toContainText(/email/i);
+    await expect(fieldError(page, 'email')).toContainText('name@example.com');
+    await expect(loginError(page)).toBeHidden();
 
     await expect(page.getByRole('heading', { name: 'Check your email.' })).toBeHidden();
     expect(await findAuthUserByEmail(email)).toBeNull();
@@ -57,12 +68,12 @@ test.describe('sign up', () => {
     // The auth service refuses (409 email_taken); no mail is sent and the
     // form stays up with the address for another try.
     await fillSignup(page, account.email, randomPassword());
-    await expect(loginError(page)).toContainText(/already exists/i);
+    await expect(fieldError(page, 'email')).toContainText(/already an account/i);
     await expect(page.getByRole('heading', { name: 'Check your email.' })).toBeHidden();
     await expect(page.getByPlaceholder('email', { exact: true })).toHaveValue(account.email);
     // A taken username is refused too.
     await fillSignup(page, randomEmail('dupname'), randomPassword(), undefined, account.username);
-    await expect(loginError(page)).toContainText(/username is taken/i);
+    await expect(fieldError(page, 'username')).toContainText(/username is taken/i);
     // The existing user is untouched and keeps its password.
     const after = await findAuthUserByEmail(account.email);
     expect(after!.id).toBe(before!.id);
@@ -118,7 +129,7 @@ test.describe('sign in', () => {
 
     // By username instead of email.
     expect(await loginAs(page, { email: account.username, password: account.password })).toBe('directory');
-    await expect(page.locator('.directory-handle')).toHaveText(`@${account.handle}`);
+    await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
   });
 
   test('sign out and back in, and a relaunch after sign-out asks for the password again', async ({ launchApp, account }) => {
@@ -167,7 +178,7 @@ test.describe('sign in', () => {
     await expect(page.locator('.login-screen')).toBeVisible();
 
     await recoverWithCode(page, account.recoveryCode!);
-    await expect(page.locator('.directory-handle')).toHaveText(`@${account.handle}`);
+    await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
   });
 });
 
@@ -194,7 +205,7 @@ test('an undecryptable stored identity offers "Start fresh", which deletes and r
   // The fresh identity opens with the same password on the next sign-in.
   await signOut(page);
   expect(await loginAs(page, account)).toBe('directory');
-  await expect(page.locator('.directory-handle')).toHaveText(`@${handle}`);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(handle);
 });
 
 // "Forgot password?" in the app mails a link to the auth service's reset
@@ -225,7 +236,7 @@ test('forgot password: the reset mail sets a new password, and the recovery code
   await submitLogin(page, { email: account.email, password: newPassword });
   await expect(loginError(page)).toContainText('enter your recovery code');
   await recoverWithCode(page, account.recoveryCode!);
-  await expect(page.locator('.directory-handle')).toHaveText(`@${account.handle}`);
+  await expect(page.locator('.title-bar-user-name')).toHaveText(account.handle!);
   await expect.poll(() => backendSql(`SELECT encode(encrypted_user_secret, 'base64') FROM users WHERE id = '${account.bosonId}'`))
     .not.toBe(wrapBefore);
 

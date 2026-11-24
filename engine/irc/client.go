@@ -230,7 +230,11 @@ func New(cfg Config) (*Client, error) {
 		// These identity signals back the "is this a Boson member?" presence
 		// matching. Servers that don't advertise a cap silently ignore it.
 		SupportedCaps: map[string][]string{
-			"message-tags":      nil,
+			"message-tags": nil,
+			// echo-message: our own lines come back with their msgid (the
+			// renderer gives it to the line it already shows, so it can be
+			// replied to). girc marks them Echo.
+			"echo-message":      nil,
 			"server-time":       nil,
 			"account-tag":       nil,
 			"away-notify":       nil,
@@ -764,7 +768,25 @@ const ackTokenPrefix = "boson-ack-"
 // newer message replaces it, so a paste costs one PING. ack numbers must
 // increase within a connection.
 func (c *Client) PrivmsgAck(target, message string, ack uint64) {
-	c.Privmsg(target, message)
+	c.PrivmsgTagged(target, message, nil, ack)
+}
+
+// PrivmsgTagged is PrivmsgAck with IRCv3 client tags on the line (e.g.
+// `+draft/reply=<msgid>` for a reply). Tags are sent verbatim; a server
+// without `message-tags` drops them, so callers check the cap first. Only
+// client-only tags (a `+` prefix) are kept: the rest are the server's.
+func (c *Client) PrivmsgTagged(target, message string, tags map[string]string, ack uint64) {
+	ev := &girc.Event{Command: girc.PRIVMSG, Params: []string{target, message}}
+	for k, v := range tags {
+		if !strings.HasPrefix(k, "+") || len(k) < 2 {
+			continue
+		}
+		if ev.Tags == nil {
+			ev.Tags = girc.Tags{}
+		}
+		ev.Tags[k] = v
+	}
+	c.send(ev, classInteractive)
 	if ack > 0 {
 		c.sendq.enqueueAck(&girc.Event{Command: girc.PING, Params: []string{fmt.Sprintf("%s%d", ackTokenPrefix, ack)}})
 	}

@@ -64,11 +64,27 @@ describe('buildRenderItems — activity collapse', () => {
     ]);
   });
 
-  it('renders a SHORT activity run inline (below threshold)', () => {
-    const run = Array.from({ length: ACTIVITY_COLLAPSE_MIN - 1 }, (_, i) => join(`j${i}`));
+  it('renders a SHORT run of other activity inline (below threshold)', () => {
+    const sys = (id: string) => msg({ id, kind: 'system', text: `topic ${id}` });
+    const run = Array.from({ length: ACTIVITY_COLLAPSE_MIN - 1 }, (_, i) => sys(`s${i}`));
     const items = buildRenderItems(run);
     expect(items).toHaveLength(ACTIVITY_COLLAPSE_MIN - 1);
     expect(items.every((it) => it.type === 'msg')).toBe(true);
+  });
+
+  it('keeps one lone join inline', () => {
+    expect(buildRenderItems([chat('m1'), join('j1'), chat('m2')]).map((i) => i.type)).toEqual(['msg', 'msg', 'msg']);
+  });
+
+  it('folds two joins / leaves in a row into one summary', () => {
+    const items = buildRenderItems([join('j1'), msg({ id: 'p1', kind: 'part', text: 'b left', from: 'b' })]);
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ type: 'activity' });
+  });
+
+  it('folds a quit even on its own (quits are hidden behind the summary)', () => {
+    const items = buildRenderItems([chat('m1'), msg({ id: 'q1', kind: 'quit', from: 'c', text: 'c quit (bye)' }), chat('m2')]);
+    expect(items.map((i) => i.type)).toEqual(['msg', 'activity', 'msg']);
   });
 
   it('collapses a LONG activity run into a single activity item', () => {

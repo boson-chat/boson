@@ -12,9 +12,11 @@
   --border:     #24242E;
   --border-soft:#1C1C24;
   --fg:         #E2E2EA;
+  /* Secondary text tokens clear WCAG AA (4.5:1) on every surface they sit
+     on: hints and labels carry real rules. */
   --fg-2:       #9898A8;
-  --fg-3:       #686878;
-  --muted:      #444452;
+  --fg-3:       #8A8A9A;
+  --muted:      #7C7C8C;
   --meta:       #363644;
 
   /* Accent — amber phosphor */

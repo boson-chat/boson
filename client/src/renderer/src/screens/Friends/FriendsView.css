@@ -23,18 +23,54 @@
 .friends-anytime { display: flex; align-items: center; margin-right: var(--space-2); }
 .friends-anytime .bds-toggle { flex-direction: row-reverse; gap: 10px; }
 
-.friends-note { margin: var(--space-4) 6px 0; font-size: var(--text-sm); line-height: 1.5; color: var(--fg-3); }
+.friends-note { margin: 0 6px var(--space-3); font-size: var(--text-sm); line-height: 1.5; color: var(--fg-2); }
+.friends-tabs { display: flex; align-items: center; gap: var(--space-2); }
+.friends-tabs > .bds-tabs { flex: 1; min-width: 0; }
+.friends-help-btn { margin-left: auto; }
+.friends-help-link { align-self: flex-start; margin: var(--space-2) var(--space-2) 0; white-space: normal; text-align: left; }
+.friends-loading { display: flex; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-8); font-family: var(--font-mono); font-size: var(--text-sm); color: var(--fg-3); }
 
 /* Phone: add field on top, full-width tabs, bigger rows. */
 .friends-phone .friends-add { padding: var(--space-3) var(--space-3) 0; }
-.friends-phone .friends-add-field { flex: 1; min-width: 0; width: auto; }
+.friends-phone .friends-add { flex-wrap: wrap; }
+/* The field keeps a usable width; a long (translated) button label drops
+   under it instead of pushing the page sideways. */
+.friends-phone .friends-add-field { flex: 1 1 160px; min-width: 0; width: auto; }
+.friends-phone .friends-add > .bds-btn { flex: 0 1 auto; max-width: 100%; min-width: 0; }
+.friends-phone .friends-add > .bds-btn .bds-btn-label { overflow: hidden; text-overflow: ellipsis; }
 .friends-phone .friends-add-field .bds-input { height: var(--control-lg); }
 .friends-phone .friends-tabs { margin-top: var(--space-2); }
 .friends-phone .bds-tab { min-height: var(--control-lg); }
 .friends-phone .friends-list { padding: 0; }
-.friends-phone .friends-note { margin: var(--space-4); }
+.friends-phone .friends-note { margin: var(--space-3) var(--space-4); }
 .friends-row-anytime { display: flex; align-items: center; gap: var(--space-3); padding-left: 52px; margin-top: 10px; }
 .friends-anytime-label { flex: 1; font-size: 13px; color: var(--fg-2); }
 /* Phones: Remove friend, under the switch, its text in line with the name. */
 .friends-row-remove { display: flex; padding-left: 52px; margin-bottom: -8px; }
 .friends-row-remove .friends-remove { margin-left: calc(-1 * var(--space-4)); }
+
+/* Desktop Friends in a narrow column (tablet portrait, a narrow window, a
+   wide channel list): the header's title and add field on one line and the
+   tabs under them; a row's controls drop under the name rather than
+   squeezing it away. */
+.friends-desktop { container-type: inline-size; }
+@container (max-width: 600px) {
+  .friends-desktop .friends-head {
+    height: auto;
+    display: grid;
+    grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+    grid-template-areas: "title actions" "tabs tabs";
+    row-gap: var(--space-2);
+    padding-top: var(--space-3);
+  }
+  .friends-head .bds-page-titles { grid-area: title; }
+  .friends-head .bds-page-actions { grid-area: actions; min-width: 0; justify-content: flex-end; }
+  .friends-head .friends-tabs { grid-area: tabs; justify-self: start; }
+  .friends-desktop .friends-add { min-width: 0; }
+  .friends-desktop .friends-add-field { width: auto; flex: 1 1 120px; min-width: 0; }
+  .friends-desktop .friends-list > .bds-row .bds-row-line { flex-wrap: wrap; row-gap: var(--space-2); }
+  .friends-desktop .friends-list > .bds-row .bds-row-main { flex: 1 1 160px; }
+  .friends-desktop .friends-list > .bds-row .bds-row-trail { margin-left: auto; max-width: 100%; flex-wrap: wrap; justify-content: flex-end; }
+  .friends-desktop .friends-add > .bds-btn { flex: 0 1 auto; min-width: 0; }
+  .friends-desktop .friends-add > .bds-btn .bds-btn-label { overflow: hidden; text-overflow: ellipsis; }
+}

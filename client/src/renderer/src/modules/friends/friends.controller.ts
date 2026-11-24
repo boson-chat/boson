@@ -34,6 +34,11 @@ export interface ActiveCall {
 }
 
 export interface FriendsSnapshot {
+  // Signed in with an account (not a guest), whether or not its auth
+  // service has friends and calls.
+  signedIn: boolean;
+  // Signed in, but the account's auth service has no friends and calls.
+  unsupported: boolean;
   // Signed in with an account: friends and calls are on.
   available: boolean;
   loaded: boolean;
@@ -56,7 +61,7 @@ export interface FriendsSnapshot {
 }
 
 const EMPTY: FriendsSnapshot = {
-  available: false, loaded: false, friends: [], incoming: [], outgoing: [], blocked: [], privacy: DEFAULT_PRIVACY,
+  signedIn: false, unsupported: false, available: false, loaded: false, friends: [], incoming: [], outgoing: [], blocked: [], privacy: DEFAULT_PRIVACY,
   missed: 0, missedCalls: [], calling: null, ringing: [], active: null, toast: null, relationsVersion: 0,
 };
 
@@ -170,7 +175,7 @@ export class FriendsController {
       // On once the account's auth service answers the event feed (older
       // ones don't have friends and calls: the UI stays hidden).
       this.running = true;
-      this.set(EMPTY);
+      this.set({ ...EMPTY, signedIn: true });
       void this.feed(++this.gen);
     } else {
       this.stopFeed();
@@ -194,7 +199,7 @@ export class FriendsController {
         if (gen !== this.gen) return;
         failures = 0;
         if (!this.snap.available) {
-          this.set({ available: true });
+          this.set({ available: true, unsupported: false });
           void this.loadPrivacy();
         }
         this.cursor = r.cursor;
@@ -209,6 +214,7 @@ export class FriendsController {
         if (err instanceof AuthError && err.code === 'signed_out') { this.sync(); return; }
         // An auth service without friends and calls: look again later.
         const unsupported = (err as { status?: number } | null)?.status === 404 && !this.snap.available;
+        if (unsupported && !this.snap.unsupported) this.set({ unsupported: true });
         const wait = unsupported ? (this.opts.unsupportedRetryMs ?? 10 * 60_000) : delays[Math.min(failures, delays.length - 1)] ?? 5_000;
         failures++;
         await new Promise((res) => setTimeout(res, wait));

@@ -36,13 +36,14 @@ async function guestWithBouncer(page: Page, z: ZncUser, password = z.password): 
 }
 
 test.describe('bouncer networks panel', () => {
-  test('without a bouncer profile the tab points at User Settings and offers no discovery', async ({ launchApp }) => {
+  test('without a bouncer the directory has no Bouncer tab; with one, the add form', async ({ launchApp, zncUser }) => {
     const { page } = await launchApp();
     await continueAsGuest(page, `bn${uid()}`);
+    // The Bouncer view is for people who set one up (User settings → Bouncer).
+    await expect(page.getByRole('heading', { name: 'Server Directory' })).toBeVisible();
+    await expect(bouncerTab(page)).toHaveCount(0);
+    await configureBouncerProfile(page, { host: zncUser.host, port: zncUser.port, username: zncUser.username, password: zncUser.password, tls: false });
     await bouncerTab(page).click();
-    await expect(page.getByText('No bouncer enabled')).toBeVisible();
-    await expect(page.getByText('User Settings → Bouncer')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Pull from bouncer' })).toHaveCount(0);
     await expect(page.getByText('No bouncer networks yet — add one above.')).toBeVisible();
     // No list yet → no search box either.
     await expect(page.getByRole('searchbox', { name: 'Search networks' })).toHaveCount(0);

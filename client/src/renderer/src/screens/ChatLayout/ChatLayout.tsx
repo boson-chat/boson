@@ -1,7 +1,8 @@
 import { NetworkAccountBar } from '../NetworkSignIn/NetworkAccountBar';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { JSX } from 'preact';
 import type { ChatService, ChatState } from '../../modules/chat';
-import { banMask } from '../../modules/chat';
+import { banMask, OP } from '../../modules/chat';
 import type { EngineState } from '../../modules/engine';
 import { Button, Input, Modal } from '@boson/shared';
 import { ServerRail, type ServerRailTile } from './ServerRail';
@@ -11,6 +12,7 @@ import { ChannelVoiceAdd, ChannelVoiceRooms } from './VoiceRooms';
 import { VoiceBar } from './VoiceBar';
 import { ChatArea } from './ChatArea';
 import { UserPanel } from './UserPanel';
+import { ServerWelcome, welcomeChannels } from './ServerWelcome';
 import { ChannelSettings, type ChannelSettingsTab } from './ChannelSettings';
 import { useChannelCreation, useChannelPolicy, type ChanServState } from '../../modules/chanserv';
 import { ResizeHandle } from './ResizeHandle';
@@ -18,10 +20,10 @@ import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/pan
 import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
-import { isNarrow, useNarrow } from '../../shared/narrow';
+import { isNarrow, useMid, useNarrow } from '../../shared/narrow';
 import { MobileCallScreen, MobileMiniBar } from './MobileCall';
 import { closeCall, isPrivateCall } from './call-shared';
-import { VoiceJoinSheet, VoicePreJoin } from './PreJoin';
+import { PreJoinPeople, VoiceJoinSheet, VoicePreJoin } from './PreJoin';
 import { CallStage } from './CallStage';
 import { CallPanel, type CallChat } from './CallPanel';
 import { InCallStrip } from './InCallStrip';
@@ -37,7 +39,9 @@ import { setConversationShown } from '../../modules/ui/notifier';
 import { getMemoStore } from '../../modules/memos';
 import { FriendsView } from '../Friends/FriendsView';
 import { PhonePage } from '../Friends/FriendsNav';
+import { getNotificationFeed } from '../../modules/notifications/feed';
 import { CallsView, MyRailTile, MySidebar, RailDivider, type MyDm, type Presence } from '../Friends/MySpace';
+import { useOnline } from '../../shared/online';
 import './ChatLayout.css';
 import './NetworkPanes.css';
 
@@ -105,10 +109,34 @@ interface Props {
   // its server becomes the active one, with the conversation open.
   myDms?: readonly MyDm[];
   onOpenDm?: (serverId: string, name: string) => void;
+  // The active server's directory listing: its description (under its
+  // name, and on its welcome) and channels (suggested on the welcome).
+  serverDescription?: string;
+  serverChannels?: readonly string[];
 }
 
 // Phones: the launch has opened onto the last conversation (once per run).
 let launchShown = false;
+
+// Below this window width the desktop member list starts hidden.
+export const MEMBERS_AUTO_WIDTH = 1200;
+const MEMBERS_AUTO_QUERY = `(min-width: ${MEMBERS_AUTO_WIDTH}px)`;
+
+// Whether the desktop member list is shown: by default when the window is
+// wide enough; the user's toggle holds until the window crosses the width.
+function useMembersOpen(): { open: boolean; toggle: () => void } {
+  const wide = (): boolean => typeof window === 'undefined' || typeof window.matchMedia !== 'function'
+    || window.matchMedia(MEMBERS_AUTO_QUERY).matches;
+  const [open, setOpen] = useState(wide);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mq = window.matchMedia(MEMBERS_AUTO_QUERY);
+    const onChange = (): void => setOpen(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  return { open, toggle: () => setOpen((v) => !v) };
+}
 
 // The phone's main area (the conversation, Friends, Calls): it stays on top
 // of the channel list and the members while swiping between them.
@@ -121,6 +149,7 @@ export function ChatLayout({
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
   onReorderServers, channelOrder, onReorderChannels, onResetChannelOrder, myDms, onOpenDm,
+  serverDescription, serverChannels,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
   //   1. ChatService owns the 4-column UI state (channels, members, log).
@@ -157,12 +186,35 @@ export function ChatLayout({
   const [membersW, setMembersW] = useState(() => getPanelWidth('members'));
 
   const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
+  // Desktop: the member list beside the conversation. Hidden by default in
+  // a window under MEMBERS_AUTO_WIDTH (two side columns would squeeze the
+  // conversation); the header's members button shows / hides it.
+  const membersOpen = useMembersOpen();
+  // In no channel (or conversation) of this server yet: the chat area
+  // welcomes you to it instead of an empty room. Bumping joinRequest opens
+  // the sidebar's channel browser.
+  const hasConversations = state.channels.some((c) => !c.name.startsWith('~'));
+  const [joinRequest, setJoinRequest] = useState(0);
 
   // Phones (and narrow windows) show one screen at a time, like the
   // desktop's columns in turn: the rail with the channel list, or a page
   // full screen with a back arrow (the conversation, its members, Friends,
   // Calls). friends-ui's `phone` is the page.
   const narrow = useNarrow();
+  // Tablet portrait / narrow windows: the member list (or the call panel)
+  // opens over the chat on demand instead of taking a fixed column.
+  const mid = useMid();
+  const [midPanel, setMidPanel] = useState(false);
+  useEffect(() => {
+    if (!mid) return;
+    // Bound for as long as the layout is mid (not per opening), so an Escape
+    // right after the panel opens isn't missed. Closed already: a no-op.
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') setMidPanel(false); };
+    // Capture: the chat's own key handling (focus, Escape to clear) stops
+    // the event before it would bubble here.
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [mid]);
   const phoneRef = useRef<HTMLDivElement>(null);
   // A conversation that becomes active on this server — picked, joined, or
   // opened from elsewhere — is what the user wants to see (switching
@@ -207,7 +259,13 @@ export function ChatLayout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [csCtl, isChannel, active?.name, activeJoined, csState?.dialect, csState?.present]);
   const regInfo = csCtl && active && isChannel && csState?.present !== false ? csCtl.channel(active.name).info : undefined;
+  // An operator of a channel that isn't registered loses it when everyone
+  // leaves (whoever re-creates it gets operator): say so, and offer to
+  // register it — when this network's ChanServ can.
+  const canRegisterHere = !!csState?.caps?.register;
+  const regAtRisk = !!regInfo && !regInfo.registered && !regInfo.closed && canRegisterHere;
   const registrationBadge = regInfo && !regInfo.closed ? { registered: regInfo.registered, founder: regInfo.founder } : null;
+  const [regPromptDismissed, setRegPromptDismissed] = useState<ReadonlySet<string>>(() => new Set());
 
   const supportsOwnerAdmin = /[qa]/.test(state.serverInfo.prefix?.modes ?? 'qa');
   // Our rank in the active channel. `typeof` guard keeps hand-rolled test fakes
@@ -302,7 +360,14 @@ export function ChatLayout({
   useEffect(() => { if (privateView && !inViewedRoom) setVoiceUi({ view: null }); }, [privateView, inViewedRoom]);
   const prejoinOpen = !!voiceView && !privateView && !inViewedRoom;
   const selfNick = state.myNick || myNick;
-  const presence: Presence = engineState !== 'connected' ? 'offline' : friendsSnap.privacy.doNotDisturb ? 'dnd' : 'online';
+  // Your presence is the account's, not the open server's: online while any
+  // server is connected (one failing doesn't make you offline elsewhere),
+  // offline when none is or the device has no network.
+  const online = useOnline();
+  const anyConnected = servers && servers.length > 0
+    ? servers.some((t) => t.engineState === 'connected')
+    : engineState === 'connected';
+  const presence: Presence = !online || !anyConnected ? 'offline' : friendsSnap.privacy.doNotDisturb ? 'dnd' : 'online';
   const myOpen = friendsUi.my;
   // MY's main column: a conversation only while a DM is the active one.
   const myView = friendsUi.myView === 'chat' && (!active || isChannel) ? 'friends' : friendsUi.myView;
@@ -354,6 +419,7 @@ export function ChatLayout({
           top={(
             <>
               <MyRailTile nick={selfNick} avatarUrl={avatarFor(selfNick)} presence={presence} active={myOpen}
+                unreadDms={(myDms ?? []).filter((d) => d.unread > 0).length}
                 onClick={() => setFriendsUi({ my: true })} />
               <RailDivider />
             </>
@@ -402,13 +468,25 @@ export function ChatLayout({
             if (engineState === 'connected') chat.rejoin(name);
           }}
           onJoin={(name) => chat.join(name, { byUser: true })}
-          onPart={(name) => chat.part(name)}
+          onPart={(name) => {
+            // Undo (the toast): back in, as you were.
+            const channel = /^[#&]/.test(name);
+            chat.part(name);
+            getNotificationFeed().toast({
+              kind: 'undo', title: channel ? `Left ${name}` : `Closed ${name}`, where: serverName, body: '',
+              nick: channel ? '' : name, serverId: activeServerId ?? undefined,
+              undo: () => { if (channel) chat.join(name, { byUser: true }); else chat.openDM(name); },
+            });
+          }}
+          onOpenAllDms={() => setFriendsUi({ my: true, phone: null })}
           channelOrder={channelOrder}
           serverId={activeServerId}
           onReorderChannels={onReorderChannels}
           onResetChannelOrder={onResetChannelOrder}
           channelDirectory={state.channelDirectory.entries}
           creation={channelCreation}
+          serverDescription={serverDescription}
+          openJoinRequest={joinRequest}
           onOpenSettings={
             onOpenServerSettings && activeServerId
               ? () => onOpenServerSettings(activeServerId)
@@ -435,7 +513,8 @@ export function ChatLayout({
           ) : undefined}
           channelAction={serverHost ? (name) => <ChannelVoiceAdd host={serverHost} channel={name} /> : undefined}
           // Phones: the minimized call bar under every screen instead.
-          footer={narrow ? undefined : <VoiceBar />}
+          // The call screen has its own controls: no second set here.
+          footer={narrow || stageOpen ? undefined : <VoiceBar />}
         />
   );
   const chatArea = (
@@ -453,7 +532,7 @@ export function ChatLayout({
           knownChannels={mergeKnownChannels(state.channels, state.channelDirectory.entries)}
           bannerError={bannerError}
           onDismissBanner={() => layoutBloc.dismissBanner()}
-          onSend={(msg) => chat.input(msg)}
+          onSend={(msg, opts) => (opts ? chat.input(msg, opts) : chat.input(msg))}
           serverHost={serverHost}
           onSendTo={(channel, msg) => chat.send(channel, msg)}
           onTyping={(typing) => {
@@ -488,7 +567,11 @@ export function ChatLayout({
             active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
           }
           onOpenChannelSettings={isChannel ? () => { setChannelSettingsTab('channel'); setChannelSettingsOpen(true); } : undefined}
-          registration={registrationBadge}
+          registration={registrationBadge && { ...registrationBadge, atRisk: regAtRisk && myRankHere >= OP }}
+          registerPrompt={regAtRisk && myRankHere >= OP && active && !regPromptDismissed.has(active.name.toLowerCase()) ? {
+            onRegister: () => { setChannelSettingsTab('registration'); setChannelSettingsOpen(true); },
+            onDismiss: () => setRegPromptDismissed((s) => new Set(s).add(active.name.toLowerCase())),
+          } : null}
           onOpenRegistration={isChannel ? () => { setChannelSettingsTab('registration'); setChannelSettingsOpen(true); } : undefined}
           // `typeof` guard: hand-rolled test fakes have no bouncerConnect.
           onBouncerConnect={typeof chat.bouncerConnect === 'function' ? () => chat.bouncerConnect() : undefined}
@@ -496,6 +579,19 @@ export function ChatLayout({
           onRejectBouncerCert={typeof chat.rejectBouncerCert === 'function' ? () => chat.rejectBouncerCert() : undefined}
           onBack={narrow ? () => setFriendsUi({ phone: null }) : undefined}
           onShowMembers={narrow && isChannel ? () => setFriendsUi({ phone: 'members' }) : undefined}
+          welcome={engineState === 'connected' && !hasConversations ? (
+            <ServerWelcome
+              serverName={serverName}
+              description={serverDescription}
+              channels={welcomeChannels(serverChannels ?? [], state.channelDirectory.entries)}
+              onJoin={(name) => chat.join(name, { byUser: true })}
+              onBrowse={() => setJoinRequest((n) => n + 1)}
+            />
+          ) : undefined}
+          // One members toggle on every non-phone width: at mid width it
+          // opens the overlay, wider it docks / undocks the column.
+          membersShown={!narrow && isChannel ? (mid ? midPanel : membersOpen.open) : undefined}
+          onToggleMembers={!narrow && isChannel ? (mid ? () => setMidPanel((o) => !o) : membersOpen.toggle) : undefined}
         />
   );
   const userPanel = (
@@ -506,6 +602,19 @@ export function ChatLayout({
           width={membersW}
           onBack={narrow ? () => setFriendsUi({ phone: 'chat' }) : undefined}
         />
+  );
+
+  const membersHandle = (
+    <ResizeHandle
+      side="right"
+      width={membersW}
+      min={PANEL_BOUNDS.members.min}
+      max={PANEL_BOUNDS.members.max}
+      onChange={setMembersW}
+      onCommit={(w) => setMembersW(setPanelWidth('members', w))}
+      onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
+      ariaLabel="Resize member list"
+    />
   );
 
   // Phones: each screen, the ones a swipe leads to (back to the channel
@@ -534,9 +643,23 @@ export function ChatLayout({
   const phoneUnder = swipe.dir === 'back' ? phoneBack : swipe.dir === 'forward' ? phoneForward : undefined;
   const phoneLayers: Array<PhonePageId | null> = phoneUnder === undefined ? [phonePage] : [phoneUnder, phonePage];
 
+  // The right-hand column: beside the main area on a desktop (the member list
+  // only while `docked`: the header's members toggle, by default from
+  // MEMBERS_AUTO_WIDTH up); at mid width an overlay over it, shown while
+  // toggled on (the members toggle / Call chat button).
+  const rightPanel = (panel: JSX.Element, handle: JSX.Element | null, docked = true) => !mid
+    ? (docked ? <>{handle}{panel}</> : null)
+    : midPanel ? (
+      <div class="mid-panel-layer" onClick={() => setMidPanel(false)}>
+        <div class="mid-panel" onClick={(e) => e.stopPropagation()}>{panel}</div>
+      </div>
+    ) : null;
+  const midToggle = mid ? { open: midPanel, toggle: () => setMidPanel((o) => !o) } : undefined;
+  const callStage = <CallStage avatarFor={avatarFor} people={callChat ? midToggle : undefined} />;
+
   return (
     <div
-      class={`app-shell${narrow ? ` is-narrow phone-${phoneCallOpen ? 'call' : phonePage ?? 'home'}` : ''}`}
+      class={`app-shell${narrow ? ` is-narrow phone-${phoneCallOpen ? 'call' : phonePage ?? 'home'}` : mid ? ' is-mid' : ''}`}
     >
       {narrow ? (
         <>
@@ -589,26 +712,12 @@ export function ChatLayout({
               onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
               ariaLabel="Resize channel list"
             />
-            {stageOpen ? <CallStage avatarFor={avatarFor} />
+            {stageOpen ? callStage
               : myView === 'friends' ? <FriendsView layout="desktop" />
                 : myView === 'calls' ? calls('desktop')
                   : chatArea}
-            {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} />
-              : myView === 'chat' ? (
-                <>
-                  <ResizeHandle
-                    side="right"
-                    width={membersW}
-                    min={PANEL_BOUNDS.members.min}
-                    max={PANEL_BOUNDS.members.max}
-                    onChange={setMembersW}
-                    onCommit={(w) => setMembersW(setPanelWidth('members', w))}
-                    onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
-                    ariaLabel="Resize member list"
-                  />
-                  {userPanel}
-                </>
-              ) : null}
+            {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, null) : null)
+              : myView === 'chat' ? rightPanel(userPanel, membersHandle, membersOpen.open) : null}
             <ScreenPicker />
           </>
         ) : <>
@@ -624,18 +733,12 @@ export function ChatLayout({
             onReset={() => setChannelsW(setPanelWidth('channels', PANEL_BOUNDS.channels.def))}
             ariaLabel="Resize channel list"
           />
-          {stageOpen ? <CallStage avatarFor={avatarFor} /> : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} /> : chatArea}
-          <ResizeHandle
-            side="right"
-            width={membersW}
-            min={PANEL_BOUNDS.members.min}
-            max={PANEL_BOUNDS.members.max}
-            onChange={setMembersW}
-            onCommit={(w) => setMembersW(setPanelWidth('members', w))}
-            onReset={() => setMembersW(setPanelWidth('members', PANEL_BOUNDS.members.def))}
-            ariaLabel="Resize member list"
-          />
-          {stageOpen ? <CallPanel chat={callChat} avatarFor={avatarFor} width={membersW} /> : userPanel}
+          {stageOpen ? callStage : prejoinOpen ? <VoicePreJoin self={myNick} avatarFor={avatarFor} people={midToggle} /> : chatArea}
+          {/* In a call, its tiles show who's in: the right panel is the
+              voice channel's text chat, if it has one. */}
+          {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, membersHandle) : null)
+            : prejoinOpen ? rightPanel(<PreJoinPeople avatarFor={avatarFor} width={membersW} />, membersHandle)
+              : rightPanel(userPanel, membersHandle, membersOpen.open)}
           <ScreenPicker />
         </>
       )}
@@ -708,6 +811,7 @@ export function ChatLayout({
           <ChannelSettings
             channel={active}
             myRank={myRankHere}
+            myNick={state.myNick || myNick}
             onSetMode={(fragment) => chat.setChannelMode(active.name, fragment)}
             onSetTopic={(text) => chat.setTopic(active.name, text)}
             onAddBan={(mask) => chat.ban(active.name, mask)}

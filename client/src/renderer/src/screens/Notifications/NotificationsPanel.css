@@ -43,6 +43,12 @@
 
 .notes-filters { flex: none; padding: 10px 14px; border-bottom: 1px solid var(--border-soft); }
 .notes-phone .notes-filters { padding: 10px 12px; }
+/* Phones: each filter as wide as its label; the strip scrolls sideways if
+   they don't all fit, rather than cutting them to "Mentio…". */
+.notes-phone .notes-filters { overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+.notes-phone .notes-filters::-webkit-scrollbar { display: none; }
+.notes-phone .notes-filters .bds-seg { width: max-content; }
+.notes-phone .notes-filters .bds-seg-opt { flex: none; text-overflow: clip; padding-inline: 10px; }
 
 .notes-list { flex: 1; min-height: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; }
 .notes-item { --bds-row-pad-x: 14px; }
@@ -50,6 +56,11 @@
 .notes-item .bds-row-main { align-items: flex-start; }
 .notes-phone .notes-item .bds-row-line,
 .notes-phone .notes-item .bds-row-main { align-items: center; }
+/* The name keeps its room; the grey "where" gives way first. */
+/* (Not shrinking at all: even a sub-pixel squeeze ellipsizes a short name.
+   The cap leaves the time and dot their room when the name alone is long.) */
+.notes-item .bds-row-title { flex-shrink: 0; max-width: calc(100% - 72px); }
+.notes-item .bds-row-meta { flex-shrink: 100; }
 .notes-item .bds-row-aside { display: inline-flex; align-items: center; gap: var(--space-2); }
 .notes-placeholder { color: var(--accent); }
 .notes-loading { display: inline-flex; align-items: center; gap: 6px; color: var(--fg-3); }
@@ -58,3 +69,25 @@
 .notes-desktop .notes-item:hover .notes-x, .notes-desktop .notes-x:focus-visible { opacity: 1; }
 .notes-empty { list-style: none; }
 .notes-foot { display: flex; justify-content: center; padding: var(--space-2); list-style: none; }
+/* After Clear: what went, with Undo, for a few seconds. */
+.notes-undo {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2) var(--space-2) 14px;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface-raised);
+  font: 500 var(--text-sm) var(--font-mono);
+  color: var(--fg-2);
+}
+/* A row's own buttons (Accept / Ignore, Call back, Join), under its text. */
+.notes-actions { display: flex; gap: var(--space-2); padding: 0 0 10px calc(32px + var(--space-3)); }
+.notes-phone .notes-actions { padding-left: calc(38px + var(--space-3)); }
+/* Opened from a phone's conversation header, with the title bar stepped
+   aside: from the top of the screen. */
+body:has(.title-bar-yields):has(.app-shell.is-narrow.phone-chat, .app-shell.is-narrow.phone-members) .notes-phone {
+  top: 0;
+  padding-top: env(safe-area-inset-top, 0px);
+}

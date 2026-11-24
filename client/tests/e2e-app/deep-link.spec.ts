@@ -18,7 +18,6 @@ test('warm deep links: malformed ones are ignored, a new host is added locally a
   const nick = randomNick('dl');
   const { app, page } = await launchApp();
   await continueAsGuest(page, nick);
-  await page.getByRole('button', { name: 'Advanced', exact: true }).click();
   const localCards = directoryCards(page).filter({ has: page.locator('.directory-card-tag-local') });
   await expect(localCards).toHaveCount(0);
 
@@ -38,10 +37,9 @@ test('warm deep links: malformed ones are ignored, a new host is added locally a
   await expectConnected(page, name);
   await expect(page.getByRole('navigation', { name: 'Servers' }).getByRole('button')).toHaveCount(3); // MY + tile + "+"
 
-  // The link minted a local server entry (removable in Advanced).
+  // The link minted a local server entry (removable).
   await page.getByRole('button', { name: 'Browse / switch servers' }).click();
   const modal = page.getByRole('dialog', { name: 'Connect to a server' });
-  await modal.getByRole('button', { name: 'Advanced', exact: true }).click();
   const card = cardIn(modal, name);
   await expect(card.locator('.directory-card-tag-local')).toHaveText('LOCAL');
   await expect(card.locator('.directory-card-host')).toHaveText(`${IRC_HOST}:${IRC_PORT}`);

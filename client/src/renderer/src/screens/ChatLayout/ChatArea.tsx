@@ -1,10 +1,10 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { ArrowLeft, PlugZap, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
+import { ArrowLeft, PlugZap, Search, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
 import { BarLoader, Button, EmptyState, StatusDot } from '@boson/shared';
 import { useNarrow } from '../../shared/narrow';
-import type { ChatChannel, ChatMessage, ServerInfo, ServerLogEntry } from '../../modules/chat';
+import type { ChatChannel, ChatMessage, SendOptions, ServerInfo, ServerLogEntry } from '../../modules/chat';
 import {
   getServiceCredentialsStore,
   type AccountStatus,
@@ -12,13 +12,15 @@ import {
 import type { EngineState } from '../../modules/engine';
 import { ChatInputBloc, type ChatInputState } from './ChatInputBloc';
 import { ChatInputBar } from './ChatInputBar';
-import { MessageList } from './message-render';
+import { MessageList, excerptOf, type ChatSearchMarks } from './message-render';
+import { ChatSearchBar, findMatches } from './ChatSearch';
 import { UploadSheet, type UploadItem } from './UploadSheet';
 import { UploadProgress } from './UploadProgress';
 import { getFiles, ircTextBudget, MAX_BATCH_FILES, type FilesUsage } from '../../modules/files';
 import { useFileDrop } from '../../shared/FileDrop/file-drop';
 import { stripIrcFormatting } from './markdown';
 import type { NickActions } from './UserPanel';
+import { HeaderBell } from '../Notifications/HeaderBell';
 import './ChatArea.css';
 
 // Re-exported from its own module so message-render.tsx can import the resolver
@@ -32,7 +34,8 @@ interface ChatAreaProps {
   callStrip?: ComponentChildren;
   myNick: string;
   knownChannels?: string[];
-  onSend: (message: string) => void;
+  // `opts.replyTo`: the msgid the line answers (a quoted reply).
+  onSend: (message: string, opts?: SendOptions) => void;
   bannerError?: string | null;
   onDismissBanner?: () => void;
   // Per-server engine state, so the chat area can render a connecting splash
@@ -106,7 +109,12 @@ interface ChatAreaProps {
   onOpenChannelSettings?: () => void;
   // ChanServ registration of the active channel, when known: a small shield
   // next to its name that opens the Registration tab.
-  registration?: { registered: boolean; founder?: string } | null;
+  // `atRisk`: we're an operator of an unregistered channel — say so in
+  // words ("Unregistered"), as the ops are lost once everyone leaves.
+  registration?: { registered: boolean; founder?: string; atRisk?: boolean } | null;
+  // Shown under the header while atRisk until dismissed: register it so it
+  // stays yours.
+  registerPrompt?: { onRegister: () => void; onDismiss: () => void } | null;
   onOpenRegistration?: () => void;
   // Ask the active server's bouncer to connect its upstream network. Drives
   // the bouncer-upstream strip's [Connect] button; when omitted the strip
@@ -120,12 +128,23 @@ interface ChatAreaProps {
   // full screen. Absent on wide layouts.
   onBack?: () => void;
   onShowMembers?: () => void;
+  // Shown in place of "Select a channel…" while you're in no channel of
+  // this server (ServerWelcome).
+  welcome?: ComponentChildren;
+  // Not on phones: whether the member list is shown (docked, or at mid
+  // width the overlay) and the header toggle for it.
+  membersShown?: boolean;
+  onToggleMembers?: () => void;
   // The active server's IRC host: file uploads go to its network's files
   // host (none → no attach button).
   serverHost?: string;
   // Sends a message to a given channel of the active server (a finished
   // upload's link, which may land after the user switched channels).
   onSendTo?: (channel: string, message: string) => void;
+}
+
+function isMac(): boolean {
+  return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 }
 
 // Phones: the back arrow at the start of the header, to the channel list.
@@ -164,12 +183,16 @@ export function ChatArea({
   messagesSignal,
   onOpenChannelSettings,
   registration,
+  registerPrompt,
   onOpenRegistration,
   onBouncerConnect,
   onTrustBouncerCert,
   onRejectBouncerCert,
   onBack,
   onShowMembers,
+  membersShown,
+  onToggleMembers,
+  welcome,
   serverHost,
   onSendTo,
 }: ChatAreaProps) {
@@ -192,6 +215,17 @@ export function ChatArea({
   const onTypingRef = useRef(onTyping);
   onTypingRef.current = onTyping;
 
+  // Replying to a message (IRCv3 `+draft/reply`): the composer shows it,
+  // and the next line sent carries its msgid. Only where the server relays
+  // client tags (message-tags) and the message has a msgid; otherwise Reply
+  // falls back to `@nick`.
+  const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
+  const replyRef = useRef(replyTarget);
+  replyRef.current = replyTarget;
+  const canReply = !!serverInfo?.enabledCaps?.includes('message-tags');
+  const canReplyRef = useRef(canReply);
+  canReplyRef.current = canReply;
+
   // Bloc is the single source of truth for input/popup state. We re-use
   // the same instance across renders; the closures above ensure it always
   // reads current props. Rebuilding on every render would lose any
@@ -202,7 +236,14 @@ export function ChatArea({
         getMembers: () => membersRef.current,
         getKnownChannels: () => knownChannelsRef.current,
         onSend: (lines) => {
-          for (const line of lines) onSendRef.current(line);
+          // A reply's tag rides the first line (a paste's later lines
+          // follow it as plain lines).
+          const reply = replyRef.current;
+          lines.forEach((line, i) => {
+            if (i === 0 && reply?.msgid) onSendRef.current(line, { replyTo: reply.msgid });
+            else onSendRef.current(line);
+          });
+          if (reply) setReplyTarget(null);
         },
         onTyping: (state) => onTypingRef.current?.(state),
       }),
@@ -222,17 +263,86 @@ export function ChatArea({
     [messagesSignal, channel?.messages],
   );
 
-  // Mention (and a message's Reply) puts `@nick ` at the front of the input
-  // and focuses it, keeping whatever was already typed.
-  const rowNickActions = useMemo<NickActions | undefined>(() => nickActions && {
-    ...nickActions,
-    onMention: (nick: string) => {
+  // Mention (and a message's Reply, where there are no real replies) puts
+  // `@nick ` at the front of the input and focuses it, keeping whatever was
+  // already typed.
+  const rowNickActions = useMemo<NickActions | undefined>(() => {
+    if (!nickActions) return undefined;
+    const mention = (nick: string): void => {
       const tag = `@${nick} `;
       const input = bloc.getState().input;
       if (!input.startsWith(tag)) bloc.insertAtCursor(tag, 0, 0);
       else bloc.insertAtCursor('', input.length, input.length); // already there: just focus
-    },
+    };
+    return {
+      ...nickActions,
+      onMention: mention,
+      onReply: (m: ChatMessage) => {
+        if (!canReplyRef.current || !m.msgid) { mention(m.from); return; }
+        setReplyTarget(m);
+        const input = bloc.getState().input;
+        bloc.insertAtCursor('', input.length, input.length); // focus the composer
+      },
+    };
   }, [nickActions, bloc]);
+
+  // ---- in-conversation search ----
+  const mainRef = useRef<HTMLElement | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchFocus, setSearchFocus] = useState(0);
+  // The current match (a message id), and a scroll-to request for the list.
+  const [searchCursor, setSearchCursor] = useState<string | null>(null);
+  const [jump, setJump] = useState<{ id: string; seq: number } | null>(null);
+  const jumpSeq = useRef(0);
+  const jumpTo = (id: string): void => { jumpSeq.current += 1; setJump({ id, seq: jumpSeq.current }); };
+  // Read only while searching: the conversation's messages, to match.
+  const searchMsgs = searchOpen && searchQuery.trim() ? msgSignal.value : null;
+  const matchIds = useMemo(() => (searchMsgs ? findMatches(searchMsgs, searchQuery) : []), [searchMsgs, searchQuery]);
+  // Until a step picks one (or when it's gone), the newest match is current.
+  const cursorAt = searchCursor ? matchIds.indexOf(searchCursor) : -1;
+  const matchIndex = cursorAt >= 0 ? cursorAt : matchIds.length - 1;
+  const currentMatch = matchIndex >= 0 ? matchIds[matchIndex]! : null;
+  // A new query starts at the newest match (set here, not in an effect:
+  // an Enter typed straight after must step from it).
+  const onSearchQuery = (q: string): void => {
+    setSearchQuery(q);
+    setSearchCursor(null);
+    const ids = findMatches(msgSignal.peek(), q);
+    const last = ids[ids.length - 1];
+    if (last) jumpTo(last);
+  };
+  const stepMatch = (dir: -1 | 1): void => {
+    if (matchIds.length === 0) return;
+    const next = (matchIndex + dir + matchIds.length) % matchIds.length;
+    const id = matchIds[next]!;
+    setSearchCursor(id);
+    jumpTo(id);
+  };
+  const openSearch = (): void => { setSearchOpen(true); setSearchFocus((n) => n + 1); };
+  const closeSearch = (): void => { setSearchOpen(false); setSearchQuery(''); setSearchCursor(null); };
+  const searchMarks = useMemo<ChatSearchMarks | null>(() => (searchOpen && searchQuery.trim()
+    ? { query: searchQuery, matchIds: new Set(matchIds), currentId: currentMatch }
+    : null), [searchOpen, searchQuery, matchIds, currentMatch]);
+  // Another conversation: no search, no reply in progress.
+  useEffect(() => { closeSearch(); setReplyTarget(null); }, [channel?.name]);
+  // Ctrl/Cmd+F: search this conversation — unless a dialog is open or the
+  // focus is in a field elsewhere (that field's own find, if any).
+  const hasChannel = !!channel;
+  useEffect(() => {
+    if (!hasChannel) return undefined;
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
+      if (document.querySelector('.bds-modal-backdrop, .bds-sheet-backdrop')) return;
+      const ae = document.activeElement as HTMLElement | null;
+      const editable = !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+      if (editable && !mainRef.current?.contains(ae)) return;
+      e.preventDefault();
+      openSearch();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hasChannel]);
 
   // ---- file uploads ----
   const files = getFiles();
@@ -386,7 +496,7 @@ export function ChatArea({
           onTrustCert={onTrustBouncerCert}
           onRejectCert={onRejectBouncerCert}
         />
-        <EmptyState class="chat-area-empty-state">Select a channel from the sidebar, or join one to start chatting.</EmptyState>
+        {welcome ?? <EmptyState class="chat-area-empty-state">Select a channel from the sidebar, or join one to start chatting.</EmptyState>}
       </main>
     );
   }
@@ -404,7 +514,7 @@ export function ChatArea({
   // Topics often carry mIRC colour codes; show the plain text.
   const topic = channel.topic ? stripIrcFormatting(channel.topic).trim() : '';
   return (
-    <main class="chat-area" {...(canUpload ? drop.handlers : {})}>
+    <main class="chat-area" ref={mainRef} {...(canUpload ? drop.handlers : {})}>
       {canUpload && drop.dragging && (
         <div class="chat-drop-overlay" data-testid="chat-drop-overlay" aria-hidden="true">
           <span class="chat-drop-overlay-label">Drop files to upload to {prefix}{display}</span>
@@ -415,7 +525,19 @@ export function ChatArea({
           <PaneBackButton onBack={onBack} />
           <span class="chat-channel-hash">{prefix}</span>
           <span class="chat-channel-label">{display}</span>
-          {registration && prefix === '#' && (
+          {registration && prefix === '#' && registration.atRisk ? (
+            <Button
+              variant="ghost"
+              size={narrow ? 'lg' : 'sm'}
+              class="chat-reg-badge chat-reg-chip"
+              onClick={onOpenRegistration}
+              disabled={!onOpenRegistration}
+              title="Not registered: you lose operator once everyone leaves. Register it so it stays yours."
+              icon={<ShieldOff aria-hidden="true" />}
+            >
+              Unregistered
+            </Button>
+          ) : registration && prefix === '#' && (
             <Button
               variant="ghost"
               size={narrow ? 'lg' : 'sm'}
@@ -439,14 +561,37 @@ export function ChatArea({
           )}
         </div>
         <div class="chat-header-right">
+          <Button
+            variant="ghost"
+            size={narrow ? 'lg' : 'sm'}
+            class="chat-search-btn"
+            pressed={searchOpen}
+            onClick={() => (searchOpen ? closeSearch() : openSearch())}
+            title={`Search this conversation (${isMac() ? '⌘' : 'Ctrl+'}F)`}
+            aria-label="Search this conversation"
+            icon={<Search aria-hidden="true" />}
+          />
           {onShowMembers && (
             <Button
               variant="ghost"
               size={narrow ? 'lg' : 'sm'}
               class="chat-pane-members"
               onClick={onShowMembers}
+              pressed={membersShown}
               title="Members"
               aria-label={`Members (${channel.members.length})`}
+              icon={<Users aria-hidden="true" />}
+            />
+          )}
+          {!onShowMembers && onToggleMembers && (
+            <Button
+              variant="ghost"
+              size="sm"
+              class="chat-members-toggle"
+              pressed={!!membersShown}
+              onClick={onToggleMembers}
+              title={membersShown ? 'Hide members' : 'Show members'}
+              aria-label={`${membersShown ? 'Hide' : 'Show'} members (${channel.members.length})`}
               icon={<Users aria-hidden="true" />}
             />
           )}
@@ -461,8 +606,27 @@ export function ChatArea({
               icon={<Settings aria-hidden="true" />}
             />
           )}
+          {narrow && <HeaderBell />}
         </div>
       </div>
+      {searchOpen && (
+        <ChatSearchBar
+          query={searchQuery}
+          onQuery={onSearchQuery}
+          count={matchIds.length}
+          index={matchIndex}
+          onOlder={() => stepMatch(-1)}
+          onNewer={() => stepMatch(1)}
+          onClose={closeSearch}
+          focusSeq={searchFocus}
+          narrow={narrow}
+          history={onLoadOlder && serverInfo?.scrollbackAvailable ? {
+            loading: !!channel.history?.loading,
+            exhausted: !!channel.history?.exhausted,
+            onLoadOlder: () => onLoadOlder(channel.name),
+          } : null}
+        />
+      )}
       {callStrip}
 
       {offline && (slowReconnect || needsUser) && (
@@ -487,6 +651,20 @@ export function ChatArea({
               <Button variant="secondary" size="sm" class="chat-connection-strip-btn" onClick={() => onRejoin(channel.name)}>Try again</Button>
             </span>
           )}
+        </div>
+      )}
+
+      {registerPrompt && prefix === '#' && (
+        <div class="chat-connection-strip chat-reg-strip" role="status">
+          <ShieldAlert aria-hidden="true" class="chat-reg-strip-icon" />
+          <span class="chat-reg-strip-text">
+            <strong>{prefix}{display}</strong> isn't registered. When everyone leaves, whoever joins first gets operator.
+            Register it so it stays yours.
+          </span>
+          <span class="chat-connection-strip-actions">
+            <Button variant="primary" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onRegister}>Register {prefix}{display}</Button>
+            <Button variant="ghost" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onDismiss}>Not now</Button>
+          </span>
         </div>
       )}
 
@@ -518,6 +696,11 @@ export function ChatArea({
         historyLoading={channel.history?.loading}
         historyExhausted={channel.history?.exhausted}
         historyError={channel.history?.error}
+        beginningNote={channel.name.startsWith('~') ? undefined : prefix === '#'
+          ? "Messages from before you joined aren't available on this server."
+          : "Earlier messages in this conversation aren't available on this server."}
+        jump={jump}
+        search={searchMarks}
       />
 
       <UploadProgress
@@ -540,6 +723,8 @@ export function ChatArea({
         onDismissBanner={onDismissBanner}
         myNick={myNick}
         onFiles={canUpload ? openSheet : undefined}
+        replying={replyTarget ? { nick: replyTarget.from, text: excerptOf(replyTarget.text) } : null}
+        onCancelReply={() => setReplyTarget(null)}
       />
       {sheetFiles && (
         <UploadSheet

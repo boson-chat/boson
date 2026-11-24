@@ -1,0 +1,114 @@
+// Quoted replies (IRCv3 `+draft/reply`, a client-only tag ergo relays to
+// clients with message-tags) and searching the conversation, against the
+// e2e ergo: Reply on a message sends the next line with the original's
+// msgid; an incoming reply shows a quote of its original (a click scrolls
+// to it), or says the original isn't loaded.
+import { test, expect, randomChannel } from './fixtures';
+import { connectGuest, connectPeer, joinViaUi, memberRow, messages, say, waitCmd } from './helpers/chat';
+import type { IrcPeer } from './irc-peer';
+
+test.describe('replies and search', () => {
+  let peers: IrcPeer[] = [];
+  test.afterEach(async () => {
+    await Promise.all(peers.map((p) => p.quit()));
+    peers = [];
+  });
+
+  test('reply to a message, see replies quoted, and search the conversation', async ({ launchApp }) => {
+    const channel = randomChannel('reply');
+    // echo-message: the peer learns its own lines' msgids.
+    const peer = await connectPeer(undefined, ['message-tags', 'echo-message']);
+    peers.push(peer);
+    const { page, nick } = await connectGuest(launchApp);
+    await joinViaUi(page, channel, nick);
+    await peer.join(channel);
+    await expect(memberRow(page, peer.nick)).toBeVisible();
+    // By its own text (a reply's quote holds its original's too).
+    const row = (text: string) => messages(page).locator('.message-row')
+      .filter({ has: page.locator('.message-row-text-body', { hasText: text }) });
+
+    // The peer asks; the echo carries the msgid the server gave it.
+    let mark = peer.mark();
+    peer.privmsg(channel, 'q1 which port does it listen on?');
+    const echo = await peer.waitFor((l) => l.command === 'PRIVMSG' && l.params[1] === 'q1 which port does it listen on?', 15_000, 'echo', mark);
+    const questionId = echo.tags['msgid'];
+    expect(questionId).toBeTruthy();
+    await expect(row('q1 which port')).toBeVisible();
+
+    // Reply from the message's hover toolbar: the composer says who to.
+    await row('q1 which port').hover();
+    await row('q1 which port').getByRole('button', { name: 'Reply', exact: true }).click();
+    const bar = page.locator('.chat-reply-bar');
+    await expect(bar).toContainText(`Replying to ${peer.nick}`);
+    await expect(bar).toContainText('q1 which port does it listen on?');
+    mark = peer.mark();
+    await say(page, 'a1 6697, with TLS');
+    await expect(bar).toHaveCount(0);
+    const sent = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'a1 6697, with TLS', mark);
+    expect(sent.tags['+draft/reply']).toBe(questionId);
+    // Our own line shows the quote too.
+    await expect(row('a1 6697').locator('.message-reply-quote')).toContainText(peer.nick);
+    await expect(row('a1 6697').locator('.message-reply-quote-text')).toHaveText('q1 which port does it listen on?');
+
+    // echo-message: our line came back with the server's msgid, which it
+    // now carries (one line, not two), so it can be replied to — by us…
+    const ownId = sent.tags['msgid'];
+    expect(ownId).toBeTruthy();
+    await expect(row('a1 6697')).toHaveCount(1);
+    await row('a1 6697').hover();
+    await row('a1 6697').getByRole('button', { name: 'Reply', exact: true }).click();
+    await expect(bar).toContainText(`Replying to ${nick}`);
+    mark = peer.mark();
+    await say(page, 'a2 and 6667 is going away');
+    const ownReply = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'a2 and 6667 is going away', mark);
+    expect(ownReply.tags['+draft/reply']).toBe(ownId);
+    await expect(row('a2 and 6667').locator('.message-reply-quote-author')).toHaveText(nick);
+    // …and by others: their reply quotes our line.
+    peer.send(`@+draft/reply=${ownId} PRIVMSG ${channel} :r0 thanks`);
+    await expect(row('r0 thanks').locator('.message-reply-quote-author')).toHaveText(nick);
+    await expect(row('r0 thanks').locator('.message-reply-quote-text')).toHaveText('a1 6697, with TLS');
+
+    // Escape cancels a reply in progress; the next line is plain.
+    await row('q1 which port').hover();
+    await row('q1 which port').getByRole('button', { name: 'Reply', exact: true }).click();
+    await expect(bar).toBeVisible();
+    await page.locator('textarea.chat-textarea').press('Escape');
+    await expect(bar).toHaveCount(0);
+
+    // An incoming reply: quoted; a click on the quote scrolls to the original.
+    for (let i = 0; i < 40; i++) peer.privmsg(channel, `filler ${i} ${'lorem ipsum '.repeat(4)}`);
+    await expect(row('filler 39')).toBeVisible();
+    peer.send(`@+draft/reply=${questionId} PRIVMSG ${channel} :r1 and the admin port is 8080`);
+    const reply = row('r1 and the admin port');
+    await expect(reply.locator('.message-reply-quote-author')).toHaveText(peer.nick);
+    await expect(reply.locator('.message-reply-quote-text')).toHaveText('q1 which port does it listen on?');
+    await expect(row('q1 which port')).not.toBeInViewport();
+    await reply.locator('.message-reply-quote').click();
+    await expect(row('q1 which port')).toBeInViewport();
+    await expect(page.locator('.vrow-flash')).toContainText('q1 which port');
+
+    // A reply to a message that isn't loaded says so (back at the bottom:
+    // the list only renders the rows on screen).
+    await messages(page).evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    await expect(row('r1 and the admin port')).toBeInViewport();
+    peer.send(`@+draft/reply=not-a-real-msgid PRIVMSG ${channel} :r2 replying to something older`);
+    await expect(row('r2 replying').locator('.message-reply-quote')).toHaveText('Original message not loaded');
+
+    // Search: Ctrl/Cmd+F from the chat, a count, newest first, step older.
+    await messages(page).click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+f' : 'Control+f');
+    const search = page.getByRole('searchbox', { name: 'Search this conversation' });
+    await expect(search).toBeFocused();
+    await search.fill('port');
+    const count = page.locator('.chat-search-count');
+    await expect(count).toHaveText('2 of 2');
+    await expect(page.locator('.vrow-search-current')).toContainText('r1 and the admin port');
+    await search.press('Enter');
+    await expect(count).toHaveText('1 of 2');
+    await expect(page.locator('.vrow-search-current')).toContainText('q1 which port');
+    await expect(page.locator('.vrow-search-current')).toBeInViewport();
+    await search.press('Escape');
+    await expect(page.getByRole('search')).toHaveCount(0);
+    await expect(page.locator('.vrow-search-match')).toHaveCount(0);
+  });
+});

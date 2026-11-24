@@ -184,10 +184,16 @@ export class ServerSession {
     });
   }
 
-  privmsg(target: string, message: string, ack?: number): void {
+  // `tags`: IRCv3 client-only tags for the line (`+draft/reply` on a
+  // reply). Only sent when given; the server must have `message-tags`.
+  privmsg(target: string, message: string, ack?: number, tags?: Record<string, string>): void {
     this.engine._sendForSession({
       type: 'privmsg',
-      params: { serverId: this.serverId, target, message, ...(ack ? { ack } : {}) },
+      params: {
+        serverId: this.serverId, target, message,
+        ...(ack ? { ack } : {}),
+        ...(tags && Object.keys(tags).length > 0 ? { tags } : {}),
+      },
     });
   }
 

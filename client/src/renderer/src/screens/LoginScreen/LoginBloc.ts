@@ -5,6 +5,10 @@ import {
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { HttpError } from '../../shared/http/http.client';
+import {
+  allSignupErrors, serverFieldError, signupFieldError,
+  type SignupField, type SignupFieldErrors,
+} from '../../modules/auth/signup-rules';
 import { signOut } from '../../modules/signout/sign-out';
 
 export type LoginMode = 'login' | 'signup';
@@ -47,6 +51,10 @@ export interface LoginState {
   // 'unlock' (the account has a key: the password it was made with) or
   // 'create' (a new account: pick one). A keychain copy skips this.
   identityPrompt: 'unlock' | 'create' | null;
+  // Sign-up: problems shown under each field (checked when the field is
+  // left, and all at once on submit; the auth service's refusals land here
+  // too when they belong to a field).
+  fieldErrors: SignupFieldErrors;
 }
 
 export type LoginListener = (state: LoginState) => void;
@@ -73,6 +81,19 @@ const UNRECOVERABLE_BLOB_MARKER = 'blob too short';
  *   - subscribe() fires immediately with the current state and on every change
  *   - public methods are verbs (commands) wired to view inputs/buttons
  */
+// The tab the next login screen opens on: leaving guest mode with "Create
+// account" lands on Signup. Read (and reset) by the next LoginBloc.
+let nextMode: LoginMode | null = null;
+export function openLoginOn(mode: LoginMode): void { nextMode = mode; }
+
+function withFieldError(errors: SignupFieldErrors, field: SignupField, problem: string | null): SignupFieldErrors {
+  if (problem) return { ...errors, [field]: problem };
+  if (!(field in errors)) return errors;
+  const next = { ...errors };
+  delete next[field];
+  return next;
+}
+
 export class LoginBloc {
   private readonly auth: AuthService;
   private readonly directory: DirectoryService;
@@ -96,6 +117,7 @@ export class LoginBloc {
     ssoProviders: [],
     ssoPending: null,
     identityPrompt: null,
+    fieldErrors: {},
   };
 
   private readonly sso: SSOBridge | null;
@@ -106,6 +128,10 @@ export class LoginBloc {
     this.directory = deps.directory;
     this.identity = deps.identity;
     this.sso = deps.sso === undefined ? ssoBridge() : deps.sso;
+    if (nextMode) {
+      this.state = { ...this.state, mode: nextMode };
+      nextMode = null;
+    }
   }
 
   // Fetches the identity providers for the "Sign in with …" buttons. Only
@@ -209,7 +235,7 @@ export class LoginBloc {
     if (this.state.mode === mode && this.state.error === null) return;
     // Switching tabs clears any error from the other mode so the user isn't
     // greeted by a stale "wrong password" message after flipping to Signup.
-    this.setState({ ...this.state, mode, error: null, notice: null });
+    this.setState({ ...this.state, mode, error: null, notice: null, fieldErrors: {} });
   }
 
   setLogin(login: string): void {
@@ -219,7 +245,31 @@ export class LoginBloc {
 
   setUsername(username: string): void {
     if (this.state.username === username) return;
-    this.setState({ ...this.state, username });
+    this.setState(this.revalidated({ ...this.state, username }));
+  }
+
+  // The user left a sign-up field: say what's wrong with it, if anything.
+  // Empty fields aren't flagged until submit.
+  blurField(field: SignupField): void {
+    if (this.state.mode !== 'signup') return;
+    const value = field === 'confirmPassword' ? this.state.confirmPassword : this.state[field];
+    if (!value) return;
+    const problem = signupFieldError(field, this.state);
+    if ((this.state.fieldErrors[field] ?? null) === problem) return;
+    this.setState({ ...this.state, fieldErrors: withFieldError(this.state.fieldErrors, field, problem) });
+  }
+
+  // Fields already flagged are re-checked as they're edited, so a fixed
+  // problem disappears at once (a new one waits for the next blur).
+  private revalidated(next: LoginState): LoginState {
+    const flagged = Object.keys(next.fieldErrors) as SignupField[];
+    if (flagged.length === 0) return next;
+    let fieldErrors = next.fieldErrors;
+    for (const f of flagged) {
+      const problem = signupFieldError(f, next);
+      fieldErrors = withFieldError(fieldErrors, f, problem);
+    }
+    return { ...next, fieldErrors };
   }
 
   // Live feedback for the sign-up username field (null = fine or empty).
@@ -229,17 +279,17 @@ export class LoginBloc {
 
   setEmail(email: string): void {
     if (this.state.email === email) return;
-    this.setState({ ...this.state, email });
+    this.setState(this.revalidated({ ...this.state, email }));
   }
 
   setPassword(password: string): void {
     if (this.state.password === password) return;
-    this.setState({ ...this.state, password });
+    this.setState(this.revalidated({ ...this.state, password }));
   }
 
   setConfirmPassword(confirmPassword: string): void {
     if (this.state.confirmPassword === confirmPassword) return;
-    this.setState({ ...this.state, confirmPassword });
+    this.setState(this.revalidated({ ...this.state, confirmPassword }));
   }
 
   async signIn(): Promise<void> {
@@ -328,19 +378,15 @@ export class LoginBloc {
   }
 
   async signUp(): Promise<void> {
-    const { username, email, password, confirmPassword } = this.state;
-    // Local validation runs before we touch the network. Confirm-password is
-    // optional (only enforced when the user typed one).
-    const nameProblem = validateUsername(username.trim());
-    if (nameProblem) {
-      this.setState({ ...this.state, error: `Username: ${nameProblem}`, unrecoverable: null });
+    const { username, email, password } = this.state;
+    // Every field is checked before we touch the network; problems show
+    // next to their fields.
+    const fieldErrors = allSignupErrors(this.state);
+    if (Object.keys(fieldErrors).length > 0) {
+      this.setState({ ...this.state, fieldErrors, error: null, unrecoverable: null });
       return;
     }
-    if (confirmPassword && password !== confirmPassword) {
-      this.setState({ ...this.state, error: "Passwords don't match.", unrecoverable: null });
-      return;
-    }
-    this.setState({ ...this.state, busy: true, error: null, notice: null, unrecoverable: null });
+    this.setState({ ...this.state, busy: true, error: null, notice: null, unrecoverable: null, fieldErrors: {} });
     try {
       const { verificationRequired } = await this.auth.signUp({ username: username.trim(), email, password });
       if (verificationRequired) {
@@ -360,9 +406,12 @@ export class LoginBloc {
       await this.persistIdentity();
       this.setState({ ...this.state, busy: false });
     } catch (err) {
+      const onField = serverFieldError(err);
       this.setState({
         ...this.state,
-        error: describeAuthError(err),
+        ...(onField
+          ? { fieldErrors: { ...this.state.fieldErrors, [onField.field]: onField.message }, error: null }
+          : { error: describeAuthError(err) }),
         busy: false,
       });
     }
@@ -380,6 +429,16 @@ export class LoginBloc {
     if (this.state.awaitingConfirmation !== null) {
       this.setState({ ...this.state, error: 'Not verified yet — open the link in the email first.' });
     }
+  }
+
+  // Back on the app after opening the link (the window regained focus):
+  // try signing in without being asked. Still unverified → stay on the
+  // panel quietly; Continue is still there.
+  async retryAfterVerification(): Promise<void> {
+    const { awaitingConfirmation, busy, password, login } = this.state;
+    if (awaitingConfirmation === null || busy || !password || !login) return;
+    this.setState({ ...this.state, mode: 'login' });
+    await this.signIn();
   }
 
   async resendVerification(): Promise<void> {

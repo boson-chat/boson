@@ -57,7 +57,7 @@ async function attachBouncerNetwork(page: Page, z: ZncUser, name: string): Promi
 
 async function openServerSettings(page: Page, section: RegExp): Promise<Locator> {
   await sidebar(page).getByRole('button', { name: 'Server details' }).click();
-  const settings = page.locator('main.server-settings');
+  const settings = page.locator('section.server-settings');
   await expect(settings).toBeVisible();
   await settings.getByRole('tab', { name: section }).click();
   return settings;

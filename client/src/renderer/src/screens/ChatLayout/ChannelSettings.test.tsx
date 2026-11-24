@@ -28,27 +28,50 @@ function renderSettings(over: { channel?: ChatChannel; myRank?: number } = {}) {
   return handlers;
 }
 
+const MODERATED = 'Only people with a voice can talk';
+
 describe('ChannelSettings', () => {
   it('fetches modes + ban list on mount', () => {
     const h = renderSettings();
     expect(h.onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it('renders the sections + reflects current modes/bans', () => {
+  it('groups settings by intent in plain words + reflects current modes/bans', () => {
     renderSettings();
-    expect(screen.getByText('Modes')).toBeInTheDocument();
-    expect(screen.getByText('Topic')).toBeInTheDocument();
+    for (const h of ['Topic', 'Who can join', 'Who can talk', 'Visibility', 'Bans (1)']) {
+      expect(screen.getByRole('heading', { name: h })).toBeInTheDocument();
+    }
+    // No raw IRC mode letters in the labels.
+    expect(document.querySelector('.chan-settings')!.textContent).not.toMatch(/\(\+[a-zA-Z]\)/);
+    // A nick ban reads as the nick, the mask under it.
+    expect(screen.getByText('troll')).toBeInTheDocument();
     expect(screen.getByText('troll!*@*')).toBeInTheDocument();
     // +m is set → its checkbox is checked.
-    const moderated = screen.getByLabelText('Moderated (+m)') as HTMLInputElement;
+    const moderated = screen.getByLabelText(MODERATED) as HTMLInputElement;
     expect(moderated.checked).toBe(true);
+  });
+
+  it('bans someone picked from the member list (by their host when known)', () => {
+    const channel = chan({ members: [
+      { nick: 'me', prefix: '@' }, { nick: 'troll', prefix: '', hostname: 'bad.example' }, { nick: 'boss', prefix: '@' },
+    ] as ChatChannel['members'] });
+    const handlers = { onSetMode: vi.fn(), onSetTopic: vi.fn(), onAddBan: vi.fn(), onRemoveBan: vi.fn(), onRefresh: vi.fn() };
+    render(<ChannelSettings channel={channel} myRank={3} myNick="me" {...handlers} />);
+    const ban = screen.getByRole('button', { name: 'Ban' }) as HTMLButtonElement;
+    expect(ban.disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /^Person to ban/ }));
+    // Not ourselves, nor someone of our own rank.
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['troll']);
+    fireEvent.click(screen.getByRole('option', { name: /troll/ }));
+    fireEvent.click(ban);
+    expect(handlers.onAddBan).toHaveBeenCalledWith('*!*@bad.example');
   });
 
   it('toggling a mode sends the composed fragment', () => {
     const h = renderSettings();
-    fireEvent.click(screen.getByLabelText('Invite only (+i)')); // currently off → +i
+    fireEvent.click(screen.getByLabelText('Invite only')); // currently off → +i
     expect(h.onSetMode).toHaveBeenCalledWith('+i');
-    fireEvent.click(screen.getByLabelText('Moderated (+m)')); // currently on → -m
+    fireEvent.click(screen.getByLabelText(MODERATED)); // currently on → -m
     expect(h.onSetMode).toHaveBeenCalledWith('-m');
   });
 
@@ -60,7 +83,7 @@ describe('ChannelSettings', () => {
 
   it('disables controls when not an operator', () => {
     renderSettings({ myRank: 1 }); // voice only
-    expect((screen.getByLabelText('Moderated (+m)') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText(MODERATED) as HTMLInputElement).disabled).toBe(true);
     expect(screen.getByText(/need channel operator/i)).toBeInTheDocument();
     expect((screen.getByRole('button', { name: 'Remove' }) as HTMLButtonElement).disabled).toBe(true);
   });

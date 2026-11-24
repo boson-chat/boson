@@ -95,6 +95,7 @@ describe('LoginBloc', () => {
         ssoProviders: [],
         ssoPending: null,
         identityPrompt: null,
+        fieldErrors: {},
       });
     });
 
@@ -286,45 +287,68 @@ describe('LoginBloc', () => {
   });
 
   describe('signUp', () => {
-    it('happy path calls auth.signUp and parks in awaitingConfirmation', async () => {
-      const { bloc, auth, identity } = buildBloc();
+    const fill = (bloc: LoginBloc, pw = 'secret456789'): void => {
+      bloc.setMode('signup');
       bloc.setUsername('bob');
       bloc.setEmail('bob@test.dev');
-      bloc.setPassword('secret456');
+      bloc.setPassword(pw);
+      bloc.setConfirmPassword(pw);
+    };
+
+    it('happy path calls auth.signUp and parks in awaitingConfirmation', async () => {
+      const { bloc, auth, identity } = buildBloc();
+      fill(bloc);
       await bloc.signUp();
 
-      expect(auth.signUp).toHaveBeenCalledWith({ username: 'bob', email: 'bob@test.dev', password: 'secret456' });
+      expect(auth.signUp).toHaveBeenCalledWith({ username: 'bob', email: 'bob@test.dev', password: 'secret456789' });
       // Identity is intentionally NOT initialized here — there's no
       // session until the email is verified and the user signs in. That
       // first sign-in mints the identity.
       expect(identity.initializeForNewUser).not.toHaveBeenCalled();
       expect(bloc.getState().busy).toBe(false);
       expect(bloc.getState().error).toBeNull();
+      expect(bloc.getState().fieldErrors).toEqual({});
       expect(bloc.getState().awaitingConfirmation).toBe('bob@test.dev');
       // Continue will sign in by username.
       expect(bloc.getState().login).toBe('bob');
     });
 
-    it('rejects an invalid username before calling the service', async () => {
+    it('rejects an invalid username before calling the service, next to the field', async () => {
       const { bloc, auth } = buildBloc();
+      fill(bloc);
       bloc.setUsername('9 lives');
       expect(bloc.usernameProblem()).toMatch(/letter/);
-      bloc.setEmail('x@test.dev');
-      bloc.setPassword('secret456');
       await bloc.signUp();
       expect(auth.signUp).not.toHaveBeenCalled();
-      expect(bloc.getState().error).toMatch(/^Username:/);
+      expect(bloc.getState().fieldErrors.username).toMatch(/letter/);
+      expect(bloc.getState().error).toBeNull();
+    });
+
+    it('checks each field when it is left, and clears the problem as it is fixed', () => {
+      const { bloc } = buildBloc();
+      bloc.setMode('signup');
+      bloc.setEmail('bob@');
+      bloc.blurField('email');
+      expect(bloc.getState().fieldErrors.email).toMatch(/name@example.com/);
+      bloc.setPassword('short');
+      bloc.blurField('password');
+      expect(bloc.getState().fieldErrors.password).toBe('Use at least 10 characters.');
+      bloc.setPassword('long enough now');
+      expect(bloc.getState().fieldErrors.password).toBeUndefined();
+      bloc.setEmail('bob@test.dev');
+      expect(bloc.getState().fieldErrors).toEqual({});
+      // An empty field isn't flagged on blur.
+      bloc.blurField('username');
+      expect(bloc.getState().fieldErrors.username).toBeUndefined();
     });
 
     it('without verification (signUp signed in), creates the identity right away', async () => {
       const { bloc, identity } = buildBloc({
         auth: { signUp: vi.fn(async () => ({ verificationRequired: false })) } as Partial<AuthService>,
       });
-      bloc.setUsername('bob');
-      bloc.setEmail('bob@test.dev');
-      bloc.setPassword('secret456');
+      fill(bloc);
       await bloc.signUp();
-      expect(identity.initializeForNewUser).toHaveBeenCalledWith('secret456');
+      expect(identity.initializeForNewUser).toHaveBeenCalledWith('secret456789');
       expect(bloc.getState().awaitingConfirmation).toBeNull();
     });
 
@@ -340,29 +364,41 @@ describe('LoginBloc', () => {
       expect(bloc.getState().email).toBe('bob@test.dev');
     });
 
-    it("emits a Passwords don't match error when confirm differs", async () => {
+    it("says Passwords don't match next to the confirm field", async () => {
       const { bloc, auth } = buildBloc();
-      bloc.setMode('signup');
-      bloc.setUsername('bob');
-      bloc.setEmail('bob@test.dev');
-      bloc.setPassword('a');
-      bloc.setConfirmPassword('b');
+      fill(bloc);
+      bloc.setConfirmPassword('something else');
       await bloc.signUp();
 
       expect(auth.signUp).not.toHaveBeenCalled();
-      expect(bloc.getState().error).toBe("Passwords don't match.");
+      expect(bloc.getState().fieldErrors.confirmPassword).toBe("Passwords don't match.");
     });
 
-    it('auth.signUp rejection surfaces the error', async () => {
-      const { bloc } = buildBloc({
-        auth: { signUp: vi.fn(async () => { throw new AuthError('email_taken', 'email taken', 409); }) } as Partial<AuthService>,
-      });
-      bloc.setUsername('bob');
-      bloc.setPassword('pw');
-      await bloc.signUp();
+    it("puts the service's field refusals next to their fields, in the app's words", async () => {
+      const cases: Array<[AuthError, string, RegExp]> = [
+        [new AuthError('email_taken', 'email taken', 409), 'email', /already an account/],
+        [new AuthError('username_taken', 'username taken', 409), 'username', /taken/],
+        [new AuthError('weak_password', 'password must be at least 12 characters', 400), 'password', /^Use at least 12 characters\.$/],
+      ];
+      for (const [err, field, re] of cases) {
+        const { bloc } = buildBloc({
+          auth: { signUp: vi.fn(async () => { throw err; }) } as Partial<AuthService>,
+        });
+        fill(bloc);
+        await bloc.signUp();
+        expect(bloc.getState().fieldErrors[field as 'email']).toMatch(re);
+        expect(bloc.getState().error).toBeNull();
+        expect(bloc.getState().busy).toBe(false);
+      }
+    });
 
-      expect(bloc.getState().error).toMatch(/already exists/);
-      expect(bloc.getState().busy).toBe(false);
+    it('other refusals show above the buttons', async () => {
+      const { bloc } = buildBloc({
+        auth: { signUp: vi.fn(async () => { throw new AuthError('registration_closed', 'closed', 403); }) } as Partial<AuthService>,
+      });
+      fill(bloc);
+      await bloc.signUp();
+      expect(bloc.getState().error).toMatch(/closed/);
     });
   });
 

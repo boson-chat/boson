@@ -123,6 +123,11 @@ const SERVER_LOG_CAP = 200;
 // A sent message still unconfirmed after this long (see send()) gets the
 // connection checked: a healthy server answers well within it.
 const ACK_STALL_MS = 4000;
+// echo-message: how long a sent line waits for its echo (see awaitEcho).
+const ECHO_WAIT_MS = 60_000;
+// A line longer than this (UTF-8 bytes) may come back in parts: the engine
+// splits what doesn't fit one IRC line.
+const ECHO_SPLIT_MIN_BYTES = 300;
 // How long a rejoin (ChatService.rejoin) waits for the JOIN or a refusal.
 const REJOIN_TIMEOUT_MS = 15_000;
 
@@ -225,6 +230,10 @@ export interface ChatPersistence {
   scope: { userId: string; serverId: string; serverName?: string };
 }
 
+// Getting our nick back after connecting under a fallback (see
+// startNickReclaim): asks again after each of these delays.
+const NICK_RECLAIM_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000];
+
 // ChatFeedback is out-of-band UI signaling driven by slash commands.
 // Examples: bad usage, unknown command, /help output. These never belong in
 // the channel log (they're not from the network); the UI surfaces them as a
@@ -302,6 +311,31 @@ export const SLASH_COMMANDS: readonly SlashCommandSpec[] = [
   { name: 'topic',   usage: '/topic [new topic]',   description: 'Set (or view) the current channel topic' },
   { name: 'raw',     usage: '/raw <IRC line>',     description: 'Send a raw IRC protocol line. Power-user escape hatch.' },
 ];
+
+function utf8Length(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+// IRCv3 replies: a client-only tag carrying the msgid of the message
+// answered. Still a draft spec, so servers (Ergo, soju) relay it as
+// `+draft/reply`; the ratified name `+reply` is read too.
+export const REPLY_TAG = '+draft/reply';
+const REPLY_TAGS = [REPLY_TAG, '+reply'] as const;
+
+// `{ replyTo }` from a line's tags, or nothing.
+export function replyOf(tags: Record<string, string> | undefined): { replyTo?: string } {
+  if (!tags) return {};
+  for (const t of REPLY_TAGS) {
+    const v = tags[t];
+    if (v) return { replyTo: v };
+  }
+  return {};
+}
+
+export interface SendOptions {
+  // The msgid of the message this one answers (a reply).
+  replyTo?: string;
+}
 
 // ChatService owns channel/message state for the connected IRC session.
 // It listens to engine events and exposes actions (join, send, setActive).
@@ -533,6 +567,62 @@ export class ChatService {
     if (deps?.bouncer) {
       this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerConfigured: true };
     }
+    this.wantedNick = myNick;
+  }
+
+  // ----- Getting our nick back -----
+  //
+  // The nick we connected with (or last asked for with /nick). When the
+  // server registers us under a fallback instead (nick_, because our previous
+  // connection still holds the nick, typically for a minute after a reload),
+  // we keep asking for it back on a backoff, say so once, and say when it
+  // worked. Not on bouncer connections (the bouncer owns the nick).
+  private wantedNick: string;
+  private reclaimTimer: ReturnType<typeof setTimeout> | null = null;
+  private reclaimAttempt = 0;
+  private reclaimNoted = false;
+
+  private stopNickReclaim(): void {
+    if (this.reclaimTimer) { clearTimeout(this.reclaimTimer); this.reclaimTimer = null; }
+    this.reclaimAttempt = 0;
+    this.reclaimNoted = false;
+  }
+
+  private hasWantedNick(): boolean {
+    return !this.wantedNick || this.myNick.toLowerCase() === this.wantedNick.toLowerCase();
+  }
+
+  // After registration: start getting the nick back when we didn't get it.
+  private startNickReclaim(): void {
+    this.stopNickReclaim();
+    if (this.bouncerConn || this.hasWantedNick()) return;
+    this.scheduleNickReclaim();
+  }
+
+  private scheduleNickReclaim(): void {
+    if (this.reclaimAttempt >= NICK_RECLAIM_DELAYS_MS.length) return;
+    const delay = NICK_RECLAIM_DELAYS_MS[this.reclaimAttempt++]!;
+    this.reclaimTimer = setTimeout(() => {
+      this.reclaimTimer = null;
+      this.tryReclaimNick();
+    }, delay);
+  }
+
+  private tryReclaimNick(): void {
+    if (this.bouncerConn || this.hasWantedNick()) return;
+    if (!this.reclaimNoted) {
+      this.reclaimNoted = true;
+      this.noteHere(`“${this.wantedNick}” is still in use, most likely by your previous session, so you're “${this.myNick}” for now. Boson will switch you back as soon as it's free.`);
+    }
+    this.session.nick(this.wantedNick);
+    this.scheduleNickReclaim();
+  }
+
+  // The holder of our nick left or renamed: ask right away.
+  private nickFreed(nick: string): void {
+    if (this.bouncerConn || this.hasWantedNick() || !this.welcomed) return;
+    if (nick.toLowerCase() !== this.wantedNick.toLowerCase()) return;
+    this.session.nick(this.wantedNick);
   }
 
   // Whether to persist + hydrate messages locally. Off for bouncer connections
@@ -748,6 +838,7 @@ export class ChatService {
     for (const t of this.rejoinTimers.values()) clearTimeout(t);
     this.rejoinTimers.clear();
     if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
+    this.stopNickReclaim();
     // Drop the engine's services-framework subscription so a fresh
     // service-framework event after detach can't fire emit() against
     // a torn-down chat service.
@@ -1428,11 +1519,14 @@ export class ChatService {
     return this.ergoAccountService;
   }
 
-  send(channel: string, message: string): void {
+  send(channel: string, message: string, opts: SendOptions = {}): void {
     // Whitespace-only is nothing to send, except BLANK_LINE: a paste's blank
     // line (see input()).
     if (!message.trim() && message !== BLANK_LINE) return;
     const id = this.id();
+    // A reply carries the msgid it answers, only where the server relays
+    // client tags (the composer falls back to `@nick` otherwise).
+    const replyTo = opts.replyTo && this.repliesSupported() ? opts.replyTo : undefined;
     // Optimistic local echo — IRC doesn't reflect our own PRIVMSGs back —
     // marked pending until the server confirms it.
     this.appendMessage(channel, {
@@ -1442,10 +1536,144 @@ export class ChatService {
       text: message,
       timestamp: Date.now(),
       pending: true,
+      ...(replyTo ? { replyTo } : {}),
     });
     // Sent while a reconnect is still under way, it goes nowhere; it stays
     // pending and resendPending sends it once registered / rejoined.
-    this.sendTracked(this.channelKey(channel), id, message);
+    this.sendTracked(this.channelKey(channel), id, message, replyTo);
+  }
+
+  // ---- echo-message ---------------------------------------------------
+  //
+  // With IRCv3 echo-message the server sends each of our lines back, with
+  // its msgid and server time. We still show a line the moment it's sent
+  // (the local copy); its echo then gives that copy the msgid (so it can be
+  // replied to, and replies to it find it) instead of adding a second line.
+  //
+  // Matching: every line we send waits in `awaitingEcho` (conversation, kind,
+  // text), and an echo takes the oldest waiting entry with the same
+  // conversation + text — lines to one target reach the server, and come
+  // back, in the order sent, so FIFO pairs them even when the same text was
+  // sent twice in a row. (labeled-response would pair them by label, but
+  // needs a label on every line through the engine's send queue and its
+  // coalescing; the order is already guaranteed per target.) A long line the
+  // engine split comes back in parts: the first part matches the start of
+  // the waiting text and takes the msgid, the rest are swallowed.
+  //
+  // An echo nothing waits for was sent from elsewhere — another device on
+  // the same bouncer account — and is shown once, as ours (msgid dedupe).
+  // Lines to services (NickServ IDENTIFY …), bouncer modules and CTCP other
+  // than ACTION never get a line of their own.
+  private awaitingEcho: Array<{ key: string; id: string; kind: ChatMessageKind; text: string; at: number; offset: number }> = [];
+
+  private echoEnabled(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('echo-message');
+  }
+
+  private awaitEcho(key: string, id: string, kind: ChatMessageKind, text: string): void {
+    if (!this.echoEnabled()) return;
+    const now = Date.now();
+    // A resend replaces the entry of the send that never came back.
+    this.awaitingEcho = this.awaitingEcho.filter((a) => a.id !== id && now - a.at < ECHO_WAIT_MS);
+    this.awaitingEcho.push({ key, id, kind, text, at: now, offset: 0 });
+  }
+
+  private handleOwnEcho(e: IrcEvent): void {
+    const t = e.Target!;
+    const isChannel = t.startsWith('#') || t.startsWith('&');
+    let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
+    let text = e.Message ?? '';
+    const ctcp = parseCtcp(text);
+    if (ctcp) {
+      // CTCP requests and replies (VERSION, PING, the engine's answers) are
+      // machine talk: nothing to show. ACTION is `/me`.
+      if (ctcp.command !== 'ACTION' || e.Kind === 'NOTICE') return;
+      kind = 'action';
+      text = ctcp.args;
+    }
+    if (this.matchEcho(t, kind, text, e)) return;
+    // Commands to services and bouncer modules have no conversation of
+    // their own (unless one was opened: /msg NickServ … matched above).
+    if (!isChannel && (isServiceSender(t) || isServerWildcardTarget(t))) return;
+    // From another device: once, as ours. (A note to self comes back twice,
+    // as the echo and as the delivery: same msgid, kept once.)
+    this.appendMessage(t, {
+      id: this.id(),
+      kind,
+      from: this.myNick,
+      text,
+      timestamp: this.timestampOf(e),
+      msgid: e.Tags?.msgid,
+      ...replyOf(e.Tags),
+      ...this.serverTimeOf(e),
+    });
+  }
+
+  // Pair an echo with the line waiting for it; true when it was one of ours.
+  private matchEcho(target: string, kind: ChatMessageKind, text: string, e: IrcEvent): boolean {
+    const now = Date.now();
+    this.awaitingEcho = this.awaitingEcho.filter((a) => now - a.at < ECHO_WAIT_MS);
+    const lower = target.toLowerCase();
+    const trimEnd = (x: string): string => x.replace(/\s+$/, '');
+    const want = trimEnd(text);
+    const same = (a: { key: string; kind: ChatMessageKind }): boolean => a.key.toLowerCase() === lower && a.kind === kind;
+    // The whole line (a blank paste line may come back trimmed)…
+    let i = this.awaitingEcho.findIndex((a) => same(a) && a.offset === 0 && trimEnd(a.text) === want);
+    let whole = i >= 0;
+    // …or the next part of a long line the engine split.
+    if (i < 0 && want.trim()) {
+      i = this.awaitingEcho.findIndex((a) => {
+        if (!same(a) || utf8Length(a.text) < ECHO_SPLIT_MIN_BYTES) return false;
+        return a.text.slice(a.offset).trimStart().startsWith(want.trimStart());
+      });
+    }
+    if (i < 0) return false;
+    const a = this.awaitingEcho[i]!;
+    if (!whole) {
+      const rest = a.text.slice(a.offset);
+      const skipped = rest.length - rest.trimStart().length;
+      const first = a.offset === 0;
+      a.offset += skipped + want.trimStart().length;
+      whole = trimEnd(a.text.slice(a.offset)) === '';
+      if (!first) {
+        if (whole) this.awaitingEcho.splice(i, 1);
+        return true;
+      }
+    }
+    if (whole) this.awaitingEcho.splice(i, 1);
+    this.adoptEcho(a.key, a.id, e);
+    return true;
+  }
+
+  // The local copy takes the echo's msgid and server time; it has reached
+  // the server, so it's no longer pending (a reconnect won't resend it).
+  private adoptEcho(key: string, id: string, e: IrcEvent): void {
+    const ch = this.channels.get(key);
+    if (!ch) return;
+    const msgid = e.Tags?.msgid;
+    let updated: ChatMessage | null = null;
+    const next = ch.messages.peek().map((m) => {
+      if (m.id !== id) return m;
+      const { pending: _sent, ...rest } = m;
+      updated = { ...rest, ...(msgid ? { msgid } : {}), ...this.serverTimeOf(e) };
+      return updated;
+    });
+    if (!updated) return;
+    ch.messages.value = next;
+    this.emit();
+    // The stored copy too (same id and time: replaced, not added).
+    if (this.persistMessages && this.persistence) {
+      const { history, scope } = this.persistence;
+      void history
+        .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, stripPending(updated))
+        .catch(() => {});
+    }
+  }
+
+  // Whether a reply can be sent as a real one (IRCv3 `+draft/reply`): the
+  // server negotiated `message-tags`, so it relays client-only tags.
+  repliesSupported(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('message-tags');
   }
 
   // Delivery tracking. A message written to a connection that has silently
@@ -1458,10 +1686,12 @@ export class ChatService {
   private unacked: Array<{ seq: number; channel: string; id: string }> = [];
   private ackStallTimer: ReturnType<typeof setTimeout> | null = null;
 
-  private sendTracked(channel: string, id: string, text: string): void {
+  private sendTracked(channel: string, id: string, text: string, replyTo?: string): void {
+    this.awaitEcho(channel, id, 'message', text);
     const seq = ++this.ackSeq;
     this.unacked.push({ seq, channel, id });
-    this.session.privmsg(channel, text, seq);
+    if (replyTo) this.session.privmsg(channel, text, seq, { [REPLY_TAG]: replyTo });
+    else this.session.privmsg(channel, text, seq);
     if (!this.ackStallTimer) {
       this.ackStallTimer = setTimeout(() => {
         this.ackStallTimer = null;
@@ -1505,7 +1735,7 @@ export class ChatService {
     if (!ch) return;
     this.unacked = this.unacked.filter((u) => u.channel !== key);
     for (const m of ch.messages.peek()) {
-      if (m.pending) this.sendTracked(key, m.id, m.text);
+      if (m.pending) this.sendTracked(key, m.id, m.text, m.replyTo);
     }
   }
 
@@ -1794,7 +2024,7 @@ export class ChatService {
   // A line of a multi-line paste keeps its indentation, and a blank line in
   // one arrives as a single space (IRC can't send an empty line), which is
   // sent as is so the receiver gets the paragraph break.
-  input(text: string): void {
+  input(text: string, opts: SendOptions = {}): void {
     const trimmed = text.trim();
     if (!trimmed && text !== BLANK_LINE) return;
     if (trimmed.startsWith('/') && !trimmed.startsWith('//')) {
@@ -1808,7 +2038,7 @@ export class ChatService {
     // Allow `//foo` as an escape for a literal leading slash.
     const line = text.replace(/\s+$/, '') || BLANK_LINE;
     const payload = trimmed.startsWith('//') ? line.replace('//', '/') : line;
-    this.send(this.activeChannel, payload);
+    this.send(this.activeChannel, payload, opts);
   }
 
   private executeCommand(raw: string): void {
@@ -1943,6 +2173,8 @@ export class ChatService {
     // authoritative than anything we could re-enforce. On success the
     // NICK echo comes back as a regular event and handleEvent renames
     // the member entries across every joined channel.
+    this.wantedNick = next;
+    this.stopNickReclaim();
     this.session.nick(next);
   }
 
@@ -2006,14 +2238,16 @@ export class ChatService {
     if (!args.trim()) return this.systemHere('Usage: /me <action>');
     // CTCP ACTION: PRIVMSG body wrapped in \x01ACTION ...\x01
     const wrapped = `ACTION ${args}`;
+    const id = this.id();
     this.session.privmsg(this.activeChannel, wrapped);
     this.appendMessage(this.activeChannel, {
-      id: this.id(),
+      id,
       kind: 'action',
       from: this.myNick,
       text: args,
       timestamp: Date.now(),
     });
+    this.awaitEcho(this.channelKey(this.activeChannel), id, 'action', args);
   }
 
   private cmdClear(): void {
@@ -2530,7 +2764,10 @@ export class ChatService {
     // This is intentionally noisy — the panel exists so users / devs can see
     // exactly what the engine is forwarding during connect (NOTICE / 001 /
     // MOTD / ISUPPORT) and during normal operation.
-    this.appendServerLog({
+    // Not our own lines echoed back (echo-message): that would put what we
+    // sent services — IDENTIFY with a password — in the log.
+    const ownEcho = (e.Kind === 'PRIVMSG' || e.Kind === 'NOTICE') && this.isMe(e.From) && this.echoEnabled();
+    if (!ownEcho) this.appendServerLog({
       id: this.id(),
       kind: e.Kind,
       from: e.From,
@@ -2554,6 +2791,8 @@ export class ChatService {
       case 'PRIVMSG':
       case 'NOTICE': {
         if (!e.Target) return;
+        // echo-message: our own line, back from the server with its msgid.
+        if (this.isMe(e.From) && this.echoEnabled()) { this.handleOwnEcho(e); return; }
         const t = e.Target;
         const isToMe = this.isMe(t);
         const isChannel = t.startsWith('#') || t.startsWith('&');
@@ -2666,6 +2905,7 @@ export class ChatService {
           text,
           timestamp: ts,
           msgid: e.Tags?.msgid,
+          ...replyOf(e.Tags),
           ...this.serverTimeOf(e),
         });
         // Mirror real-user DMs (1:1, addressed to us, not a channel, not the
@@ -2977,6 +3217,7 @@ export class ChatService {
           const member = this.anyMember(e.From);
           this.seen.note(e.From, { user: e.User || member?.user, host: e.Host || member?.hostname });
         }
+        this.nickFreed(e.From);
         this.channels.forEach((c) => {
           const member = c.members.find((m) => m.nick === e.From);
           c.members = c.members.filter((m) => m.nick !== e.From);
@@ -3013,7 +3254,13 @@ export class ChatService {
         this.channels.forEach((c) => {
           c.members = c.members.map((m) => (m.nick === e.From ? { ...m, nick: newNick } : m));
         });
-        if (e.From === this.myNick) this.myNick = newNick;
+        if (e.From === this.myNick) {
+          this.myNick = newNick;
+          if (this.reclaimNoted && this.hasWantedNick()) this.noteHere(`You're “${newNick}” again.`);
+          if (this.hasWantedNick()) this.stopNickReclaim();
+        } else {
+          this.nickFreed(e.From);
+        }
         this.emit();
         break;
       }
@@ -3225,6 +3472,10 @@ export class ChatService {
         // DMs never mirror). See also the 004 sync below as a backstop.
         this.syncMyNickFromNumeric(e.Target);
         this.welcomed = true;
+        this.startNickReclaim();
+        // A new connection: echoes of lines sent on the last one won't come
+        // (what's still pending is resent, and waits again).
+        this.awaitingEcho = [];
         this.requestAttachBacklog();
         for (const key of Array.from(this.channels.keys())) {
           if (!key.startsWith('#') && !key.startsWith('&')) this.resendPending(key);
@@ -3827,6 +4078,7 @@ export class ChatService {
       text,
       timestamp: this.timestampOf(e),
       msgid: e.Tags?.msgid,
+      ...replyOf(e.Tags),
       ...this.serverTimeOf(e),
     });
   }
@@ -3930,7 +4182,9 @@ export class ChatService {
     const ch = this.ensureChannel(channel);
     // De-dupe (msgid or content) so live + chathistory + bouncer-replay copies
     // of the same message collapse instead of stacking up on every reconnect.
-    if (this.isDuplicateMessage(ch, msg)) return;
+    // A line we just sent is never a copy (a paste can repeat a line within
+    // the same millisecond).
+    if (!msg.pending && this.isDuplicateMessage(ch, msg)) return;
     // Immutable reassignment (the signal must see a new array reference to
     // notify). Insert by timestamp so out-of-order arrivals — chiefly ZNC/
     // bouncer buffer replay, whose messages carry old server-time tags — land

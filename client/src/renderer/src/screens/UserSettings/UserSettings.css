@@ -453,6 +453,10 @@
   .user-settings-menu > .bds-row-nav.bds-row-selected { border-bottom-color: var(--accent); }
   .user-settings-menu .bds-row-main { min-height: var(--control-lg); padding-right: var(--space-4); }
   .user-settings-body { padding-left: 0; padding-top: var(--space-4); }
+  /* More tabs past an edge: that edge fades out. */
+  .user-settings-menu[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  .user-settings-menu[data-more-start] { mask-image: linear-gradient(to right, transparent, #000 40px); }
+  .user-settings-menu[data-more-start][data-more-end] { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
 }
 
 /* Account → linked sign-ins ("Sign in with …" identities). */

@@ -499,8 +499,10 @@ function WebsiteEmbed({
     );
   }
 
+  // No preview to be had: no card at all — the link is right there in the
+  // message, so a card that only repeats it is noise.
+  if (state.phase === 'error') return null;
   const hint = state.phase === 'loading' ? 'Loading preview…'
-    : state.phase === 'error' ? 'Preview unavailable — open in browser'
     : unfurl ? 'Click to load preview' : 'Open in browser';
   return (
     <div class="embed embed-website">

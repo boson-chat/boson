@@ -87,6 +87,13 @@
 .bds-btn-ghost.bds-btn-size-lg { padding: 0 var(--space-2); }
 .bds-btn-size-xl { --bds-btn-h: var(--control-xl); --bds-btn-icon: 28px; padding: 0 var(--space-6); font-size: var(--text-lg); border-radius: var(--radius-lg); }
 
+/* Phones: every button is a 44px touch target (DESIGN.md), whatever size
+   it was given for the desktop. sm keeps its smaller type and padding. */
+@media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
+  .bds-btn-size-sm,
+  .bds-btn-size-md { --bds-btn-h: var(--control-lg); }
+}
+
 /* Icon-only: as wide as it is tall. */
 .bds-btn.bds-btn-icon-only { width: var(--bds-btn-h); padding: 0; }
 .bds-btn-round { border-radius: 50%; }

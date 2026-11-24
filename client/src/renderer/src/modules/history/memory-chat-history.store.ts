@@ -22,7 +22,11 @@ export class MemoryChatHistoryStore implements ChatHistoryStore {
   async append(scope: HistoryScope, msg: ChatMessage): Promise<void> {
     const key = scopeKey(scope);
     const cur = this.data.get(key) ?? [];
-    cur.push(msg);
+    // The same message again (it got its msgid from the echo): replace it,
+    // as IndexedDB's put does (its key is time + id).
+    const at = cur.findIndex((m) => m.id === msg.id && m.timestamp === msg.timestamp);
+    if (at >= 0) cur[at] = msg;
+    else cur.push(msg);
     // Evict oldest until we're back under the cap. Compare on stored
     // insertion order — these arrays are append-only, so index 0 is oldest.
     if (cur.length > HISTORY_CAP) {

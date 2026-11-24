@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import type { ComponentChildren } from 'preact';
+import type { ComponentChildren, VNode } from 'preact';
 import './Modal.css';
 
 interface ModalProps {
@@ -10,8 +10,14 @@ interface ModalProps {
   closeOnBackdropClick?: boolean;
   // 'default' (~720px) for forms + settings; 'wide' (~960px) for content
   // that benefits from extra horizontal room — e.g. the server directory
-  // card grid needs room for 2-3 columns.
-  size?: 'default' | 'wide';
+  // card grid needs room for 2-3 columns; 'compact' (~440px) for a short
+  // question (ConfirmDialog), docked to the bottom on phones, not full screen.
+  size?: 'default' | 'wide' | 'compact';
+  // The dialog's accessible name when it has no `title` (the content brings
+  // its own header).
+  label?: string;
+  // Extra class on the dialog panel (its size, for one use).
+  class?: string;
 }
 
 // EXIT_DURATION_MS must match the CSS `.bds-modal-backdrop` exit
@@ -22,7 +28,19 @@ interface ModalProps {
 // `.bds-modal-backdrop-exit` block.
 const EXIT_DURATION_MS = 220;
 
-export function Modal({ open, onClose, title, children, closeOnBackdropClick = true, size = 'default' }: ModalProps) {
+// Where an open dialog renders. The shared package has no preact/compat (it
+// changes how every onChange behaves), so by default a Modal renders in
+// place. The app hands in preact/compat's createPortal at startup so every
+// dialog lands at the end of <body>: a transformed or stacked ancestor (the
+// phone layout's sliding layers) can then neither trap it under the title
+// bar nor clip it. Context still flows through a portal.
+type ModalPortal = (node: VNode, container: Element) => VNode;
+let modalPortal: ModalPortal | null = null;
+export function setModalPortal(portal: ModalPortal | null): void {
+  modalPortal = portal;
+}
+
+export function Modal({ open, onClose, title, children, closeOnBackdropClick = true, size = 'default', label, class: extraClass }: ModalProps) {
   // Hold the latest onClose in a ref so the keydown effect doesn't re-bind
   // (and steal focus from controlled inputs) on every parent render.
   const onCloseRef = useRef(onClose);
@@ -69,16 +87,16 @@ export function Modal({ open, onClose, title, children, closeOnBackdropClick = t
 
   if (!mounted) return null;
 
-  return (
+  const dialog = (
     <div
       class={`bds-modal-backdrop ${visible ? 'is-open' : ''}`}
       onClick={() => { if (closeOnBackdropClick) onClose(); }}
     >
       <div
-        class={`bds-modal ${size === 'wide' ? 'bds-modal-wide' : ''}`}
+        class={`bds-modal ${size === 'wide' ? 'bds-modal-wide' : size === 'compact' ? 'bds-modal-compact' : ''}${extraClass ? ` ${extraClass}` : ''}`}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={title ?? label}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
@@ -91,4 +109,5 @@ export function Modal({ open, onClose, title, children, closeOnBackdropClick = t
       </div>
     </div>
   );
+  return modalPortal && typeof document !== 'undefined' ? modalPortal(dialog, document.body) : dialog;
 }

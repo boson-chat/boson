@@ -197,7 +197,7 @@ describe('UserSettings — Identity panel (account mode)', () => {
 
   it('surfaces a 400 from PATCH /me as a too-short error', async () => {
     const directory = stubDirectory({
-      updateMe: vi.fn(async () => { throw new HttpError(400, 'too short', null); }),
+      updateMe: vi.fn(async () => { throw new HttpError(400, 'handle must be at least 3 characters', { error: 'handle must be at least 3 characters' }); }),
     } as unknown as Partial<DirectoryService>);
     const { container } = renderSettings({ authedHandle: 'alice', directory });
     await waitFor(() => {
@@ -209,6 +209,25 @@ describe('UserSettings — Identity panel (account mode)', () => {
     fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
 
     expect(await screen.findByText(/at least 3 characters/i)).toBeInTheDocument();
+  });
+
+  it("shows the backend's reason for an invalid_handle 400 (A4)", async () => {
+    const directory = stubDirectory({
+      updateMe: vi.fn(async () => {
+        throw new HttpError(400, 'handle must start with a letter or one of []\\`_^{|}', { error: 'handle must start with a letter or one of []\\`_^{|}', code: 'invalid_handle' });
+      }),
+    } as unknown as Partial<DirectoryService>);
+    const { container } = renderSettings({ authedHandle: 'alice', directory });
+    await waitFor(() => {
+      expect(handleInput(container).value).toBe('alice');
+    });
+    const input = handleInput(container);
+    await userEvent.setup().clear(input);
+    await userEvent.setup().type(input, 'alicia');
+    fireEvent.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    expect(await screen.findByText('Handle must start with a letter or one of []\\`_^{|}.')).toBeInTheDocument();
+    expect(screen.queryByText(/at least 3 characters/i)).toBeNull();
   });
 
   it('falls back silently to authedHandle if /me throws', async () => {
@@ -255,7 +274,7 @@ describe('UserSettings — Account recovery code', () => {
     await waitFor(() => {
       expect(screen.getByText('Your recovery code')).toBeInTheDocument();
     });
-    expect(screen.getByText('abcd-ef5h')).toBeInTheDocument();
+    expect(screen.getByLabelText('recovery code')).toHaveTextContent('abcd-ef5h');
     expect(identity.enrollRecoveryCode).toHaveBeenCalled();
     expect(directory.updateSecretWraps).toHaveBeenCalledWith({ recoveryBlob: 'rec-b64' });
   });
@@ -474,5 +493,25 @@ describe('UserSettings — About: in-app updates', () => {
     await openAbout();
     expect(screen.queryByRole('button', { name: 'Check for updates' })).toBeNull();
     expect(screen.queryByLabelText('Install updates automatically')).toBeNull();
+  });
+});
+
+describe('UserSettings — before signing in', () => {
+  it('shows only Appearance and About, not the account sections', () => {
+    renderSettings({ signedOut: true, authedHandle: null, authedEmail: null });
+    const tabs = screen.getAllByRole('tab').map((t) => t.textContent ?? '');
+    expect(tabs.some((t) => t.startsWith('Appearance'))).toBe(true);
+    expect(tabs.some((t) => t.startsWith('About'))).toBe(true);
+    expect(tabs.some((t) => /^(Identity|Account|Bouncer)/.test(t))).toBe(false);
+    expect(screen.queryByText(/Signed in to your Boson account/)).toBeNull();
+  });
+});
+
+describe('UserSettings — Identity wording', () => {
+  it('says what the handle is in plain words', () => {
+    renderSettings({ authedHandle: 'alice' });
+    expect(screen.getByText('How people find you on Boson, and your name in chat.')).toBeInTheDocument();
+    expect(screen.queryByText(/sanitisation/)).toBeNull();
+    expect(screen.queryByText(/next connect/)).toBeNull();
   });
 });

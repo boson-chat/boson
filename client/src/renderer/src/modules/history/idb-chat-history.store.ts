@@ -217,6 +217,7 @@ export function rowToMessage(row: StoredRow): ChatMessage {
     text: row.text,
     timestamp: row.timestamp,
     ...(row.msgid ? { msgid: row.msgid } : {}),
+    ...(row.replyTo ? { replyTo: row.replyTo } : {}),
     ...(row.serverTime !== undefined ? { serverTime: row.serverTime } : {}),
     ...(row.user ? { user: row.user } : {}),
     ...(row.host ? { host: row.host } : {}),

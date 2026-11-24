@@ -36,3 +36,25 @@ export function isTouchPhone(): boolean {
   if (platform === 'ios' || platform === 'android') return true;
   return window.matchMedia('(pointer: coarse)').matches;
 }
+
+// Tablets in portrait and narrow desktop windows (701-1023px; an iPad in
+// landscape, 1024, keeps the columns): wider than a phone, too
+// narrow for rail + channels + chat + members side by side. The member list
+// (and the call panel) open as an overlay there instead.
+export const MID_QUERY = '(min-width: 701px) and (max-width: 1023px)';
+
+/** True while the viewport is mid-width (and not phone-narrow). */
+export function useMid(): boolean {
+  const query = (): boolean => typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+    && window.matchMedia(MID_QUERY).matches && !window.matchMedia(NARROW_QUERY).matches;
+  const [mid, setMid] = useState(query);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mqs = [window.matchMedia(MID_QUERY), window.matchMedia(NARROW_QUERY)];
+    const onChange = (): void => setMid(query());
+    onChange();
+    for (const mq of mqs) mq.addEventListener('change', onChange);
+    return () => { for (const mq of mqs) mq.removeEventListener('change', onChange); };
+  }, []);
+  return mid;
+}

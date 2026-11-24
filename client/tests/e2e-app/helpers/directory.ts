@@ -67,7 +67,7 @@ export async function railContextMenu(page: Page, name: string): Promise<Locator
 export async function openServerSettings(page: Page, name: string): Promise<Locator> {
   const menu = await railContextMenu(page, name);
   await menu.getByRole('menuitem', { name: 'Server details' }).click();
-  const settings = page.locator('main.server-settings');
+  const settings = page.locator('section.server-settings');
   await expect(settings.getByRole('heading', { level: 1 })).toHaveText(name);
   return settings;
 }
@@ -120,3 +120,9 @@ function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+
+// Right-click a rail tile → Leave server → confirm it.
+export async function leaveServer(page: Page, name: string): Promise<void> {
+  await (await railContextMenu(page, name)).getByRole('menuitem', { name: 'Leave server' }).click();
+  await page.getByRole('dialog', { name: /^Leave .*\?$/ }).getByRole('button', { name: 'Leave server' }).click();
+}

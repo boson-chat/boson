@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/preact';
+import { act, render, screen, fireEvent, within } from '@testing-library/preact';
 import { ServerRail, type ServerRailTile } from './ServerRail';
 
 function tile(over: Partial<ServerRailTile> = {}): ServerRailTile {
@@ -57,6 +57,10 @@ describe('ServerRail on a phone', () => {
     const leave = screen.getByRole('menuitem', { name: 'Leave server' });
     expect(leave.classList.contains('bds-menu-item-danger')).toBe(true);
     fireEvent.click(leave);
+    // It asks first.
+    expect(onLeaveServer).not.toHaveBeenCalled();
+    const ask = screen.getByRole('dialog', { name: 'Leave Libera.Chat?' });
+    fireEvent.click(within(ask).getByRole('button', { name: 'Leave server' }));
     expect(onLeaveServer).toHaveBeenCalledWith('s1');
   });
 

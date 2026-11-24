@@ -1,7 +1,7 @@
-import { render, type ComponentChildren } from 'preact';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { NARROW_QUERY } from '../../hooks/narrow';
 import { Sheet } from '../Sheet/Sheet';
+import { Layer } from '../Layer/Layer';
 import '../Menu/Menu.css';
 import './Select.css';
 
@@ -119,7 +119,7 @@ export function Select<T extends string>({
         <path d="M4 6l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" />
       </svg>
       {open && (
-        <Layer>
+        <Layer class="bds-select-layer">
           <SelectList
             mode={open}
             listId={listId}
@@ -151,28 +151,6 @@ function matchFrom<T extends string>(options: ReadonlyArray<SelectOption<T>>, fr
     if (!o.disabled && o.label.toLowerCase().startsWith(q)) return i;
   }
   return -1;
-}
-
-// Renders its children into a <div> at the end of <body> (above Modals and
-// Sheets). The shared package has no preact/compat, so no createPortal: a
-// second render root does the same for a list that needs no context.
-function Layer({ children }: { children: ComponentChildren }) {
-  const host = useRef<HTMLDivElement | null>(null);
-  useLayoutEffect(() => {
-    const el = document.createElement('div');
-    el.className = 'bds-select-layer';
-    document.body.appendChild(el);
-    host.current = el;
-    return () => {
-      render(null, el);
-      el.remove();
-      host.current = null;
-    };
-  }, []);
-  useLayoutEffect(() => {
-    if (host.current) render(<>{children}</>, host.current);
-  });
-  return null;
 }
 
 interface ListProps<T extends string> {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { MicOff, Mic, Video, VideoOff, Volume2 } from 'lucide-preact';
+import { MicOff, Mic, Users, Video, VideoOff, Volume2 } from 'lucide-preact';
 import { Button, EmptyState, ListRow } from '@boson/shared';
 import { useVideo } from '../../modules/video';
 import type { VoiceRoom, VoiceRoomParticipant } from '../../modules/voice';
@@ -8,6 +8,7 @@ import { BottomSheet } from './BottomSheet';
 import { setVoiceUi, useVoiceServer, useVoiceUi, type VoiceView } from './VoiceRooms';
 import { isGuestParticipant } from '../../modules/voice/guest-id';
 import { GuestBadge } from './GuestBadge';
+import { PeoplePanel, type PanelPerson } from './CallPanel';
 import './PreJoin.css';
 
 // Before joining a voice channel: who's there, your camera preview (or
@@ -95,7 +96,13 @@ function PreviewTile({ camOn, starting, error, self, selfAvatar, facing, attach,
 }
 
 /** Desktop: the voice channel's pre-join view, in place of the chat. */
-export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (nick: string) => string | undefined }) {
+// `people`: mid width only, where "In this call" (PreJoinPeople) is an
+// overlay this header button opens and closes, like the members toggle.
+export function VoicePreJoin({ self, avatarFor, people: peopleToggle }: {
+  self: string;
+  avatarFor?: (nick: string) => string | undefined;
+  people?: { open: boolean; toggle: () => void };
+}) {
   const { view } = useVoiceUi();
   const j = usePreJoin(view);
   if (!view || !j.room || j.joinedHere) return null;
@@ -108,6 +115,11 @@ export function VoicePreJoin({ self, avatarFor }: { self: string; avatarFor?: (n
         <Volume2 size={20} aria-hidden="true" />
         <span class="prejoin-title">{j.room.name}</span>
         <span class="prejoin-count">{people.length} in call</span>
+        {peopleToggle && (
+          <Button variant="ghost" size="sm" class="prejoin-people-toggle" pressed={peopleToggle.open}
+            onClick={peopleToggle.toggle} title="In this call" aria-label={`In this call (${people.length})`}
+            icon={<Users aria-hidden="true" />} />
+        )}
       </header>
       <div class="prejoin-body">
         <div class="prejoin-tiles" aria-label={`In ${j.room.name}`}>
@@ -209,18 +221,33 @@ export function VoiceJoinSheet({ self, avatarFor }: { self: string; avatarFor?: 
         </div>
         <PreviewTile cls="joinsheet-preview" camOn={j.camOn} starting={!!preview?.starting} error={preview?.error}
           self={self} selfAvatar={avatarFor?.(self)} facing={preview?.facing} attach={(el) => j.video?.attachPreview(el)} />
-        <div class="joinsheet-toggles">
-          <Button variant="secondary" size="lg" fullWidth pressed={j.micOn} onClick={j.toggleMic}
-            icon={j.micOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />}>
-            {j.micOn ? 'Mic on' : 'Muted'}
-          </Button>
-          <Button variant="secondary" size="lg" fullWidth pressed={j.camOn} onClick={j.toggleCam}
-            icon={j.camOn ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />}>
-            {j.camOn ? 'Camera on' : 'Camera off'}
-          </Button>
+        <div class="joinsheet-go">
+          <div class="joinsheet-toggles">
+            <Button variant="secondary" size="lg" fullWidth pressed={j.micOn} onClick={j.toggleMic}
+              icon={j.micOn ? <Mic aria-hidden="true" /> : <MicOff aria-hidden="true" />}>
+              {j.micOn ? 'Mic on' : 'Muted'}
+            </Button>
+            <Button variant="secondary" size="lg" fullWidth pressed={j.camOn} onClick={j.toggleCam}
+              icon={j.camOn ? <Video aria-hidden="true" /> : <VideoOff aria-hidden="true" />}>
+              {j.camOn ? 'Camera on' : 'Camera off'}
+            </Button>
+          </div>
+          <Button variant="primary" size="lg" fullWidth onClick={j.join}>Join call</Button>
         </div>
-        <Button variant="primary" size="lg" fullWidth onClick={j.join}>Join call</Button>
       </div>
     </BottomSheet>
   );
+}
+
+// The right panel while you look at a voice channel before joining it: who
+// is in this call (not the text channel's members).
+export function PreJoinPeople({ avatarFor, width }: { avatarFor?: (nick: string) => string | undefined; width?: number }) {
+  const { view } = useVoiceUi();
+  const { server } = useVoiceServer(view?.host ?? '');
+  if (!view) return null;
+  const room = server?.rooms?.find((r) => r.id === view.roomId);
+  const people: PanelPerson[] = (room?.participants ?? []).map((p) => ({
+    key: `${p.sessionId}:${p.userId}`, name: p.name, guest: isGuestParticipant(p), speaking: p.speaking, muted: p.muted || p.deafened,
+  }));
+  return <PeoplePanel title="In this call" people={people} avatarFor={avatarFor} width={width} empty="Nobody's here yet." />;
 }
