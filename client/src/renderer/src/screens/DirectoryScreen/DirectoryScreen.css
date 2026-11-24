@@ -578,3 +578,15 @@
   flex-direction: column;
   gap: var(--space-4);
 }
+
+/* Phones have no top bar: the directory's own header, under the status bar
+   (env() is 0 in a narrow desktop window, under its title bar). */
+.directory-phone-head {
+  flex: none;
+  height: calc(54px + env(safe-area-inset-top, 0px));
+  padding-top: env(safe-area-inset-top, 0px);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+  --count-ring: var(--surface);
+}
+.directory-phone-head + .directory-container { padding-top: var(--space-4); }

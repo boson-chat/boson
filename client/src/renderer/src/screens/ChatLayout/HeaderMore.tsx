@@ -2,7 +2,7 @@ import { useRef, useState } from 'preact/hooks';
 import { EllipsisVertical } from 'lucide-preact';
 import { Button, Count, Menu, MenuItem } from '@boson/shared';
 import { hasNotificationsOpener, openNotifications } from '../../modules/ui/open-notifications';
-import { titleBarYields } from '../TitleBar/TitleBar';
+import { titleBarYields } from '../../shared/window-controls';
 import { useUnreadNotes } from '../Notifications/NotificationsPanel';
 
 interface HeaderMoreProps {

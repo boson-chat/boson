@@ -11,12 +11,13 @@
   background: var(--bg);
 }
 .mcall-head {
-  height: 56px;
+  /* No top bar on a phone: clear the status bar. */
+  height: calc(56px + env(safe-area-inset-top, 0px));
   flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 8px;
+  padding: env(safe-area-inset-top, 0px) 8px 0;
   border-bottom: 1px solid var(--border);
 }
 .mcall-t:focus-visible { outline: none; box-shadow: var(--focus-ring); }

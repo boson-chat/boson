@@ -119,6 +119,37 @@ for (const [w, h, name] of SIZES) {
       if (phone) await expect(page.locator('.chat-header-more-dot')).toHaveCount(0);
       else await expect(page.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
     });
+
+    if (phone) {
+      test('no top bar: the bell is in the rail, under you, with the ⋮ dot\'s count', async ({ page }) => {
+        await page.goto(`${BASE}${platform(name)}&memos=1`);
+        await expect(page.locator('.title-bar')).toHaveCount(0);
+        // The conversation's ⋮ and the rail's bell count the same.
+        await page.getByRole('button', { name: 'More options' }).click();
+        const item = page.getByRole('menuitem', { name: /^Notifications, \d+ unread/ });
+        const n = Number((await item.getAttribute('aria-label'))!.match(/\d+/)![0]);
+        expect(n).toBeGreaterThan(0);
+        await page.keyboard.press('Escape');
+        await page.getByRole('button', { name: 'Back to channels' }).click();
+        const bell = page.locator('.server-rail').getByRole('button', { name: `Notifications, ${n} new` });
+        await expect(bell).toBeVisible();
+        await expect(bell.locator('.notes-bell-badge')).toHaveText(String(n));
+        const b = (await bell.boundingBox())!;
+        expect(b.width).toBeGreaterThanOrEqual(44);
+        expect(b.height).toBeGreaterThanOrEqual(44);
+        await bell.click();
+        // Full screen, from the top (no top bar over it).
+        const list = page.getByRole('dialog', { name: 'Notifications' });
+        await expect(list).toBeVisible();
+        expect((await list.boundingBox())!.y).toBe(0);
+        await expect(list.locator('.notes-dot')).toHaveCount(n);
+        await fits(page);
+        await page.screenshot({ path: test.info().outputPath(`rail-bell-${name}.png`) });
+        await list.getByRole('button', { name: 'Mark all read' }).click();
+        await list.getByRole('button', { name: /^Back/ }).click();
+        await expect(page.locator('.server-rail').getByRole('button', { name: 'Notifications', exact: true })).toBeVisible();
+      });
+    }
   });
 }
 

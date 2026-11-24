@@ -716,6 +716,8 @@ function chatView(): void {
   installVoice();
   installVideo();
   installFriends();
+  // ?memos=1: unread memos and DMs in the bell (no toasts).
+  if (q0.get('memos') === '1') for (const m of MEMOS) getMemoStore().append({ ...m });
   const session = makeSession();
   const chat = new ChatService(
     session as never,
@@ -759,6 +761,8 @@ function chatView(): void {
       onLeaveServer={() => {}}
       onSelectServer={() => {}}
       onBrowseServers={() => {}}
+      // &header=1: the server header's topic and gear, as on a real server.
+      {...(q0.get('header') === '1' ? { serverDescription: 'A home for self-hosters', onOpenServerSettings: () => {} } : {})}
     />
   
     );
@@ -995,9 +999,13 @@ function multiDirView(): void {
 
 function directoryView(): void {
   installApi(true);
+  // ?platform=ios|android: a phone app; &frame=1: inside the app frame.
+  const platform = q0.get('platform');
+  if (platform) (window as { bosonPlatform?: string }).bosonPlatform = platform;
+  const screen = <DirectoryScreen directory={directoryService()} engine={null} identity={makeIdentity()} />;
   render(
     <AuthProvider service={makeAuth(true)}>
-      <DirectoryScreen directory={directoryService()} engine={null} identity={makeIdentity()} />
+      {q0.get('frame') === '1' ? <ShotFrame>{screen}</ShotFrame> : screen}
     </AuthProvider>,
     app(),
   );

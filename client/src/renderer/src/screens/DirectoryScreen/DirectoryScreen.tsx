@@ -1,6 +1,6 @@
 import type { JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { Plus, SlidersHorizontal } from 'lucide-preact';
+import { Plus, Settings, SlidersHorizontal } from 'lucide-preact';
 import { AuthError, describeAuthError, useAuthService, useAuthState, validateHandle } from '../../modules/auth';
 import { describeHandleError } from '../../modules/directory/handle-error';
 import { clearRecoveryPending, isRecoveryPending, markRecoveryPending } from '../../modules/identity/recovery-pending';
@@ -19,9 +19,13 @@ import type { IdentityService } from '../../modules/identity';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { ChatLayout } from '../ChatLayout';
 import { ServerSettings } from '../ChatLayout/ServerSettings';
-import { useNarrow } from '../../shared/narrow';
+import { useNarrow, useNoTitleBar } from '../../shared/narrow';
+import { openUserSettings } from '../../modules/ui/open-settings';
+import { openNotifications } from '../../modules/ui/open-notifications';
+import { NotificationsBell } from '../Notifications/NotificationsBell';
+import { useUnreadNotes } from '../Notifications/NotificationsPanel';
 import { getVoiceController } from '../../modules/voice';
-import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, Select, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
+import { AtomLoader, Avatar, Badge, BarLoader, Button, EmptyState, Field, Input, ListRow, Modal, PageHeader, Select, StatusDot, Tabs, Toggle, WarningBanner } from '@boson/shared';
 import { DirectoryBloc, type DirectoryState, activeConnection } from './DirectoryBloc';
 import { findListing } from '../../modules/directory/listing-match';
 import { joinsLabel } from '../../modules/directory/autojoin';
@@ -115,6 +119,8 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   // it comes back before the directory.
   const sessionUserId = authState.session?.user?.id ?? '';
   const [recoveryPending, setRecoveryPending] = useState(() => !guestNick && isRecoveryPending(sessionUserId));
+  // Phones: no top bar (the directory gets a header of its own).
+  const noTitleBar = useNoTitleBar();
   useEffect(() => {
     setRecoveryPending(!guestNick && isRecoveryPending(sessionUserId));
   }, [sessionUserId, guestNick]);
@@ -414,6 +420,9 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
 
   return (
     <div class="directory-screen">
+      {/* Phones have no top bar: the directory's own header, with the bell
+          and settings that were there. */}
+      {noTitleBar && <DirectoryPhoneHeader />}
       <div class="directory-container">
         {recoveryPending && me && identity.isUnlocked() ? (
           <div class="directory-setup-stage">
@@ -431,6 +440,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
             directory={directory}
             networks={networks}
             identity={identity}
+            titled={noTitleBar}
           />
         )}
       </div>
@@ -439,7 +449,24 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   );
 }
 
+// A phone's directory header (no top bar there): its title, the bell and
+// settings, clear of the status bar.
+function DirectoryPhoneHeader() {
+  const unread = useUnreadNotes();
+  return (
+    <PageHeader layout="phone" class="directory-phone-head" title="Server Directory" actions={(
+      <>
+        <NotificationsBell size="lg" count={unread} countWord="new" onClick={openNotifications} />
+        <Button variant="ghost" size="lg" aria-label="User settings" title="User settings"
+          icon={<Settings aria-hidden="true" />} onClick={() => openUserSettings()} />
+      </>
+    )} />
+  );
+}
+
 interface DirectoryBodyProps {
+  // The screen's header already names it (a phone's): no second title.
+  titled?: boolean;
   bloc: DirectoryBloc;
   state: DirectoryState;
   engine: EngineClient | null;
@@ -452,7 +479,7 @@ interface DirectoryBodyProps {
 // directory screen and the modal overlay variant so the two views stay in
 // lockstep (no risk of drift between "browsing for the first time" and
 // "browsing to switch servers mid-chat").
-function DirectoryBody({ bloc, state, engine, directory, networks, identity }: DirectoryBodyProps) {
+function DirectoryBody({ bloc, state, engine, directory, networks, identity, titled = false }: DirectoryBodyProps) {
   const {
     me, servers, filteredServers, query, language, showNsfw, error, connections, searching,
     tag, sort, facets, hasMore, loadingMore, legacyDirectory, directoryFailures, serverFilters,
@@ -528,7 +555,7 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity }: D
       {view === 'directory' && (<>
       <div class="directory-header">
         <div class="directory-header-row">
-          <h1 class="directory-title">Server Directory</h1>
+          {!titled && <h1 class="directory-title">Server Directory</h1>}
           <div class="directory-header-actions">
             {anyConnected && !state.showChat && (
               <Button variant="secondary" size="sm" onClick={() => bloc.openChat()}>Back to chat</Button>

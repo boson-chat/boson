@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, BosonGlyph, Button, Count, StatusDot } from '@boson/shared';
+import { Badge, BosonGlyph, Button, StatusDot } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
-import { getWindowBridge, isDarwin, isMobile } from '../../shared/window-controls';
+import { getWindowBridge, isDarwin, isMobile, titleBarYields } from '../../shared/window-controls';
 import { useVoice } from '../../modules/voice';
 import { useNarrow } from '../../shared/narrow';
 import { openCall, useCallClock } from '../ChatLayout/call-shared';
-import { Bell } from 'lucide-preact';
+import { NotificationsBell } from '../Notifications/NotificationsBell';
 import './TitleBar.css';
 
 interface TitleBarProps {
@@ -42,15 +42,6 @@ interface TitleBarProps {
 // via CSS so the user can drag the window from any non-button area. Each
 // button overrides to `no-drag` so clicks register.
 
-/**
- * Whether the title bar steps aside in a phone's conversation (its header
- * carries the bell then): only where it holds no window controls or drag
- * region (the iOS / Android app, the web build).
- */
-export function titleBarYields(): boolean {
-  return isMobile() || (window as { bosonShell?: string }).bosonShell === 'web';
-}
-
 export function TitleBar({
   onOpenSettings, userLabel, userMode, avatarUrl, onOpenNotifications, notificationsCount = 0, notificationsOpen = false,
   updateReady, onOpenUpdate,
@@ -58,10 +49,11 @@ export function TitleBar({
   const darwin = isDarwin();
   const web = (window as { bosonShell?: string }).bosonShell === 'web';
   const mobile = isMobile();
-  // Phones (and narrow windows): the phone's top bar, the same bar as the
-  // desktop's, taller, with your avatar in place of your name.
+  // Narrow windows (and tablets in the app): the phone's top bar, the same
+  // bar as the desktop's, taller, with your avatar in place of your name.
   const narrow = useNarrow();
   const phone = mobile || narrow;
+  const hidden = narrow && titleBarYields();
   const bridge = getWindowBridge();
   const [maximized, setMaximized] = useState(false);
 
@@ -75,8 +67,11 @@ export function TitleBar({
     return () => { cancelled = true; unsubscribe(); };
   }, [bridge]);
 
+  // Phones (the app, the web build at phone width): no top bar at all.
+  if (hidden) return null;
+
   return (
-    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''} ${mobile ? 'title-bar-mobile' : ''} ${phone ? 'title-bar-phone' : ''} ${phone && titleBarYields() ? 'title-bar-yields' : ''}`}>
+    <div class={`title-bar ${darwin ? 'title-bar-darwin' : ''} ${mobile ? 'title-bar-mobile' : ''} ${phone ? 'title-bar-phone' : ''}`}>
       <div class="title-bar-drag">
         <BosonGlyph size={phone ? 20 : 16} class="title-bar-mark" />
         <span class="title-bar-title">Boson</span>
@@ -98,21 +93,12 @@ export function TitleBar({
             </Button>
           )}
           {onOpenNotifications && (
-            <Button
-              variant="ghost"
+            <NotificationsBell
               size={phone ? 'lg' : 'sm'}
-              class={`title-bar-inbox title-bar-bell${notificationsOpen ? ' title-bar-bell-on' : ''}`}
-              aria-label={notificationsCount > 0 ? `Notifications, ${notificationsCount} unread` : 'Notifications'}
-              aria-haspopup="dialog"
-              aria-expanded={notificationsOpen}
-              title="Notifications"
+              class="title-bar-inbox"
+              count={notificationsCount}
+              open={notificationsOpen}
               onClick={onOpenNotifications}
-              icon={(
-                <>
-                  <Bell aria-hidden="true" />
-                  <Count value={notificationsCount} size={phone ? 'md' : 'sm'} overlay class="title-bar-inbox-badge" />
-                </>
-              )}
             />
           )}
           {onOpenSettings && (phone ? (

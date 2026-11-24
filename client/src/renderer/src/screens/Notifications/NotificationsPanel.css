@@ -20,7 +20,8 @@
   box-shadow: var(--shadow-toast);
   overflow: hidden;
 }
-/* Phones: full screen under the top bar, with a back arrow. */
+/* Phones: full screen (under the top bar where there is one: a tablet in
+   the app), with a back arrow. */
 .notes-phone {
   position: fixed;
   top: calc(52px + env(safe-area-inset-top, 0px));
@@ -85,9 +86,10 @@
 /* A row's own buttons (Accept / Ignore, Call back, Join), under its text. */
 .notes-actions { display: flex; gap: var(--space-2); padding: 0 0 10px calc(32px + var(--space-3)); }
 .notes-phone .notes-actions { padding-left: calc(38px + var(--space-3)); }
-/* Opened from a phone's conversation header, with the title bar stepped
-   aside: from the top of the screen. */
-body:has(.title-bar-yields):has(.app-shell.is-narrow.phone-chat, .app-shell.is-narrow.phone-members) .notes-phone {
+/* Phones without the top bar (opened from the rail's bell or the
+   conversation header's ⋮): from the top of the screen, its header clear
+   of the status bar. */
+body:not(:has(.title-bar)) .notes-phone {
   top: 0;
   padding-top: env(safe-area-inset-top, 0px);
 }

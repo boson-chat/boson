@@ -1,7 +1,8 @@
-// The phone layout matches the desktop's: the top bar (BOSON, the inbox,
-// your avatar), the slim rail (MY, SERVERS, the servers, "+") beside the
-// full-width channel list with a compact header, and pages full screen with
-// a back arrow. No bottom bar, no drawer with a strip of the chat.
+// The phone layout matches the desktop's, without its top bar: the slim
+// rail (you, the bell, SERVERS, the servers, "+") beside the full-width
+// channel list, whose server header comes first, as tall as a
+// conversation's; pages full screen with a back arrow. No bottom bar, no
+// drawer with a strip of the chat.
 import { expect, test, type Page } from '@playwright/test';
 
 const PHONES = [[390, 844, 'iphone'], [360, 800, 'android']] as const;
@@ -18,7 +19,7 @@ async function fits(page: Page): Promise<void> {
 }
 
 for (const [w, h, phone] of PHONES) {
-  test(`${phone} (${w}×${h}): top bar, slim rail and the channel list; channels open full screen`, async ({ page }) => {
+  test(`${phone} (${w}×${h}): no top bar, the slim rail with the bell and the channel list; channels open full screen`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await page.goto(`/shots.html?view=chat&voice=rooms&friends=1&missed=1&frame=1&platform=${phone === 'iphone' ? 'ios' : 'android'}`);
     // A launch opens onto the last channel; back shows the list.
@@ -30,23 +31,39 @@ for (const [w, h, phone] of PHONES) {
       const r = (s: string) => { const e = document.querySelector(s); if (!e) return null; const b = e.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; };
       return {
         bar: r('.title-bar'), rail: r('.server-rail'), list: r('.channel-sidebar'), head: r('.channel-sidebar-header'),
+        you: r('.server-rail .my-tile'), bell: r('.server-rail .rail-bell'), divider: r('.server-rail .rail-divider'),
         tabs: document.querySelectorAll('.phone-tabs').length, chat: document.querySelectorAll('.chat-area').length,
         controls: document.querySelectorAll('.title-bar-btn').length, scroll: document.documentElement.scrollWidth - innerWidth,
       };
     });
-    // One bar at the top, no window controls; nothing at the bottom.
+    // No top bar, no window controls; nothing at the bottom.
+    expect(m.bar).toBeNull();
     expect(m.controls).toBe(0);
     expect(m.tabs).toBe(0);
     expect(m.chat).toBe(0);
     expect(m.scroll).toBeLessThanOrEqual(0);
-    // The slim rail, then the list to the edge, under the bar.
+    // The slim rail and the list, from the top, the list to the edge.
     expect(m.rail!.w).toBeLessThanOrEqual(64);
-    expect(m.rail!.y).toBeGreaterThanOrEqual(m.bar!.y + m.bar!.h - 1);
+    expect(m.rail!.y).toBe(0);
+    expect(m.head!.y).toBe(0);
     expect(m.list!.x).toBeGreaterThanOrEqual(m.rail!.x + m.rail!.w - 1);
     expect(m.list!.x + m.list!.w).toBeGreaterThan(w - 2);
-    // A compact server header, not the big banner.
+    // The bell: under you, above SERVERS, a 44px target.
+    expect(m.bell!.y).toBeGreaterThanOrEqual(m.you!.y + m.you!.h);
+    expect(m.divider!.y).toBeGreaterThanOrEqual(m.bell!.y + m.bell!.h);
+    expect(m.bell!.w).toBeGreaterThanOrEqual(44);
+    expect(m.bell!.h).toBeGreaterThanOrEqual(44);
+    await expect(page.getByRole('button', { name: /^Notifications/ })).toBeVisible();
+    // Your avatar is the rail's; settings are in My space.
+    await expect(page.getByRole('button', { name: 'User settings' })).toHaveCount(0);
+    // A compact server header, as tall as the conversation's.
     expect(m.head!.h).toBeLessThanOrEqual(64);
-    await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible();
+    await page.locator('.channel-item', { hasText: 'dev' }).click();
+    const chatHead = (await page.locator('.chat-header').boundingBox())!;
+    expect(chatHead.y).toBe(0);
+    expect(Math.abs(chatHead.height - m.head!.h)).toBeLessThanOrEqual(0.5);
+    await page.getByRole('button', { name: 'Back to channels' }).click();
+    await expect(shell(page)).toHaveClass(/\bphone-home\b/);
     await fits(page);
     await page.screenshot({ path: test.info().outputPath(`home-${phone}.png`) });
 
@@ -65,17 +82,19 @@ for (const [w, h, phone] of PHONES) {
     // MY: Friends and Calls above the direct messages; each full screen.
     await page.getByRole('button', { name: /^You: friends, calls and messages/ }).click();
     const rows = page.locator('.my-sidebar .my-row').getByRole('button');
-    await expect(rows.nth(0)).toHaveAccessibleName('Friends, 1 request');
-    await expect(rows.nth(1)).toHaveAccessibleName('Calls, 1 missed');
+    // Settings first (the top bar's avatar opened them), then Friends and Calls.
+    await expect(rows.nth(0)).toHaveAccessibleName('Settings');
+    await expect(rows.nth(1)).toHaveAccessibleName('Friends, 1 request');
+    await expect(rows.nth(2)).toHaveAccessibleName('Calls, 1 missed');
     await fits(page);
     await page.screenshot({ path: test.info().outputPath(`my-${phone}.png`) });
-    await rows.nth(0).click();
+    await rows.nth(1).click();
     await expect(page.getByRole('main', { name: 'Friends' })).toBeVisible();
     await expect(shell(page)).toHaveClass(/\bphone-friends\b/);
     await fits(page);
     await page.screenshot({ path: test.info().outputPath(`friends-${phone}.png`) });
     await page.getByRole('button', { name: 'Back to MY' }).click();
-    await page.locator('.my-sidebar .my-row').getByRole('button').nth(1).click();
+    await page.locator('.my-sidebar .my-row').getByRole('button').nth(2).click();
     await expect(page.getByRole('main', { name: 'Calls' })).toBeVisible();
     await fits(page);
     await page.getByRole('button', { name: 'Back to MY' }).click();
@@ -201,3 +220,17 @@ test.describe('swipes', () => {
     });
   }
 });
+
+// Only phones lose the top bar: a desktop keeps it with the bell, and so
+// does a narrow desktop window (it holds the window controls).
+for (const [w, h, name] of [[1280, 800, 'desktop'], [339, 734, 'narrow desktop window']] as const) {
+  test(`${name} (${w}×${h}): the top bar keeps the bell and your avatar; no bell in the rail`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto('/shots.html?view=chat&voice=rooms&friends=1&frame=1&memos=1');
+    const bar = page.locator('.title-bar');
+    await expect(bar).toBeVisible();
+    await expect(bar.getByRole('button', { name: /^Notifications, \d+ unread$/ })).toBeVisible();
+    await expect(bar.getByRole('button', { name: 'User settings' })).toBeVisible();
+    await expect(page.locator('.rail-bell')).toHaveCount(0);
+  });
+}
