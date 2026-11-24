@@ -98,8 +98,10 @@ for (const [w, h, name] of SIZES) {
       // unread a dot on ⋮.
       if (phone) {
         await expect(page.locator('.chat-header-more-dot')).toBeVisible();
-        await page.getByRole('button', { name: 'More options' }).click();
-        await page.getByRole('menuitem', { name: /^Notifications, \d+ unread/ }).click();
+        // The toasts sit over the phone header until they time out; open
+        // the menu from the keyboard rather than wait for them to go.
+        await page.getByRole('button', { name: 'More options' }).press('Enter');
+        await page.getByRole('menuitem', { name: /^Notifications, \d+ unread/ }).press('Enter');
       } else {
         await page.getByRole('button', { name: /^Notifications, \d+ unread/ }).click();
       }
