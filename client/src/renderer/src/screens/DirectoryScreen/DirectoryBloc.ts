@@ -3,6 +3,7 @@ import { ChatService, type ChatState } from '../../modules/chat';
 import { DEFAULT_WINDOWS } from '../../modules/chat/chat.service';
 import { createOlderStore, type OlderStore } from '../../modules/history/older-store';
 import { seenNamespace, seenStoreFor } from '../../modules/seen';
+import { readMarkerStoreFor } from '../../modules/chat/read-markers';
 import { registerForSignOut, signOut as signOutEverywhere } from '../../modules/signout/sign-out';
 import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
@@ -2248,6 +2249,9 @@ export class DirectoryBloc {
       // Who people were after they've left (local only; per user + server,
       // kept across reconnects and runs).
       seen: seenStoreFor(seenNamespace(server.id, userId)),
+      // How far each conversation was read, so unread badges survive
+      // closing the app (local; synced with the server's read markers).
+      readMarkers: readMarkerStoreFor(seenNamespace(server.id, userId)),
     });
     if (opts.carry) chat.seedConversations(opts.carry);
     else {

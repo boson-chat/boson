@@ -3,6 +3,7 @@ import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
 import { MemoryOlderStore, lineIdentity, type OlderStore } from '../history/older-store';
 import { containsNickMention } from './mention';
+import { ReadMarkerStore } from './read-markers';
 import type { NotifyEvent } from '../ui/notifier';
 import {
   SERVICE_CHANNEL,
@@ -474,6 +475,20 @@ export class ChatService {
   // connections when the app passes one in (deps.seen), else this
   // connection's own, in memory.
   readonly seen: SeenStore;
+  // Read markers (see read-markers.ts and the "Read markers" section).
+  private readonly readMarkers: ReadMarkerStore;
+  // Conversations whose marker this run only guessed (the attach time,
+  // for one never read before): a server's MARKREAD replaces it outright.
+  private readonly guessedMarkers = new Set<string>();
+  // What the server last said (or was told) each conversation is read up
+  // to, so we only send MARKREAD when it moves past that.
+  private readonly serverMarkers = new Map<string, number>();
+  // Debounced MARKREAD sends, per conversation: the stamp to send.
+  private readonly markReadPending = new Map<string, number>();
+  private markReadTimer: ReturnType<typeof setTimeout> | null = null;
+  // When this connection registered (001): the baseline for a conversation
+  // with no marker — what came before it is history, what came after is new.
+  private attachedAt = 0;
   // Nicks (lower-case) the user /whois'd by hand, until the reply ends: a
   // 401 for one prints what we remember of them.
   private readonly typedWhois = new Set<string>();
@@ -582,9 +597,13 @@ export class ChatService {
       windows?: MemoryWindows;
       // Remembered identities ("seen"), one per server. Default: in memory.
       seen?: SeenStore;
+      // How far each conversation was read, one per (user, server), kept
+      // across runs (see read-markers.ts). Default: in memory.
+      readMarkers?: ReadMarkerStore;
     },
   ) {
     this.seen = deps?.seen ?? new SeenStore('memory');
+    this.readMarkers = deps?.readMarkers ?? new ReadMarkerStore('memory');
     this.older = deps?.olderStore ?? new MemoryOlderStore(OLDER_CAP);
     this.olderShared = !!deps?.olderStore;
     this.windows = deps?.windows ?? null;
@@ -872,6 +891,8 @@ export class ChatService {
     for (const t of this.rejoinTimers.values()) clearTimeout(t);
     this.rejoinTimers.clear();
     if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
+    if (this.markReadTimer) { clearTimeout(this.markReadTimer); this.markReadTimer = null; }
+    this.markReadPending.clear();
     this.stopNickReclaim();
     // Drop the engine's services-framework subscription so a fresh
     // service-framework event after detach can't fire emit() against
@@ -979,6 +1000,7 @@ export class ChatService {
     if (this.isForeground === value) return;
     this.isForeground = value;
     if (value && this.activeChannel) {
+      this.markViewed(this.activeChannel);
       const ch = this.channels.get(this.activeChannel);
       if (ch && (ch.unread > 0 || ch.mentions > 0)) {
         ch.unread = 0;
@@ -2352,6 +2374,7 @@ export class ChatService {
         ch.unread = 0;
         ch.mentions = 0;
       }
+      this.markViewed(key);
     }
     this.emit();
     // If the channel was joined but its NAMES haven't populated, ask the
@@ -2387,6 +2410,162 @@ export class ChatService {
     return !!nick && !!this.myNick && nick.toLowerCase() === this.myNick.toLowerCase();
   }
 
+  // ---- Read markers ----
+  //
+  // How far the user has read each conversation (read-markers.ts), so
+  // what arrived while the app was closed still shows as unread when the
+  // backlog comes in. Stamps are server-time when the server sent one (it
+  // stays put across reconnects; `timestamp` is re-corrected for clock skew
+  // each time), else our clock. With IRCv3 draft/read-marker the server
+  // keeps them too and tells every client of the account (MARKREAD).
+
+  private readMarkerSupported(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('draft/read-marker');
+  }
+
+  // The conversation is on screen: the user is looking at it.
+  private isViewing(key: string): boolean {
+    return this.isForeground && this.activeChannel === key;
+  }
+
+  private static stampOf(m: ChatMessage): number {
+    return m.serverTime ?? m.timestamp;
+  }
+
+  // Lines that count towards unread: from someone else, a real message.
+  private countsAsUnread(m: ChatMessage): boolean {
+    if (m.pending || this.isMe(m.from)) return false;
+    if (m.kind !== 'message' && m.kind !== 'action' && m.kind !== 'notice') return false;
+    return !!m.from && m.from !== '***';
+  }
+
+  // A conversation with no marker yet starts at this connection's attach:
+  // everything before it is old history (as it always was), what came after
+  // is new. Guessed, so a server's MARKREAD still overrides it.
+  private ensureMarker(key: string): void {
+    if (key === SERVICE_CHANNEL || this.readMarkers.get(key) !== undefined) return;
+    const at = this.attachedAt || Date.now();
+    // In the server's clock, like the stamps it's compared with.
+    this.readMarkers.set(key, at + this.clockOffset);
+    this.guessedMarkers.add(key);
+  }
+
+  // Unread + mentions in what's in memory after `marker`.
+  private countAfter(ch: InternalChannel, marker: number): { unread: number; mentions: number } {
+    const isDM = !ch.name.startsWith('#') && !ch.name.startsWith('&');
+    let unread = 0;
+    let mentions = 0;
+    for (const m of ch.messages.peek()) {
+      if (ChatService.stampOf(m) <= marker || !this.countsAsUnread(m)) continue;
+      unread++;
+      if (isDM || containsNickMention(m.text, this.myNick)) mentions++;
+    }
+    return { unread, mentions };
+  }
+
+  // After backlog lands in a conversation that isn't on screen: whatever is
+  // newer than its marker is unread. Only raises the counters (live lines
+  // already counted are among them). No notification: it isn't new to the
+  // server, only to this device. `baseline`: an attach's history batch —
+  // a conversation never read before gets its marker now.
+  private reconcileUnread(key: string, baseline = false): void {
+    if (key === SERVICE_CHANNEL) return;
+    const ch = this.channels.get(key);
+    if (!ch) return;
+    if (baseline) this.ensureMarker(key);
+    const marker = this.readMarkers.get(key);
+    if (marker === undefined) return;
+    const { unread, mentions } = this.countAfter(ch, marker);
+    if (unread > ch.unread) ch.unread = unread;
+    if (mentions > ch.mentions) ch.mentions = mentions;
+  }
+
+  // The user has seen everything in `key` (it's open on screen): move its
+  // marker to the newest line and tell the server.
+  private markViewed(key: string): void {
+    if (key === SERVICE_CHANNEL) return;
+    const ch = this.channels.get(key);
+    if (!ch) return;
+    let newest: number | undefined;
+    const msgs = ch.messages.peek();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]!;
+      // Messages only: joins, parts and our own notes ("You joined …") are
+      // stamped on this device's clock when they happen, not by the server.
+      if (m.pending || (m.kind !== 'message' && m.kind !== 'action' && m.kind !== 'notice')) continue;
+      newest = ChatService.stampOf(m);
+      break;
+    }
+    if (newest === undefined) return;
+    // A guessed marker (the attach time) gives way to what was really read.
+    let moved: boolean;
+    if (this.guessedMarkers.delete(key)) {
+      this.readMarkers.set(key, newest);
+      moved = true;
+    } else {
+      moved = this.readMarkers.advance(key, newest);
+    }
+    if (moved || (this.serverMarkers.get(key) ?? -Infinity) < newest) this.queueMarkRead(key, newest);
+  }
+
+  // Send MARKREAD for `key`, debounced: reading a busy channel moves the
+  // marker on every line.
+  private queueMarkRead(key: string, stamp: number): void {
+    if (!this.readMarkerSupported() || !this.welcomed) return;
+    if ((this.serverMarkers.get(key) ?? -Infinity) >= stamp) return;
+    this.markReadPending.set(key, stamp);
+    if (this.markReadTimer) return;
+    this.markReadTimer = setTimeout(() => this.flushMarkRead(), ChatService.MARKREAD_DEBOUNCE_MS);
+  }
+
+  static readonly MARKREAD_DEBOUNCE_MS = 1000;
+
+  private flushMarkRead(): void {
+    this.markReadTimer = null;
+    if (!this.readMarkerSupported()) { this.markReadPending.clear(); return; }
+    for (const [key, stamp] of this.markReadPending) {
+      if ((this.serverMarkers.get(key) ?? -Infinity) >= stamp) continue;
+      this.serverMarkers.set(key, stamp);
+      this.session.raw(`MARKREAD ${key} timestamp=${new Date(stamp).toISOString()}`);
+    }
+    this.markReadPending.clear();
+  }
+
+  // MARKREAD from the server: on join, in reply to a query, or because
+  // another client of the account read the conversation.
+  private handleServerMarker(target: string, param: string): void {
+    const key = this.channelKey(target);
+    if (key === SERVICE_CHANNEL) return;
+    const value = param.startsWith('timestamp=') ? param.slice('timestamp='.length) : '';
+    const stamp = value && value !== '*' ? Date.parse(value) : NaN;
+    if (Number.isNaN(stamp)) {
+      // The server knows nothing yet: hand it ours.
+      const local = this.readMarkers.get(key);
+      if (local !== undefined && !this.guessedMarkers.has(key)) this.queueMarkRead(key, local);
+      return;
+    }
+    // What the server holds now (an older one than we sent means it never
+    // stored ours).
+    this.serverMarkers.set(key, stamp);
+    const local = this.readMarkers.get(key);
+    const guessed = this.guessedMarkers.has(key);
+    if (local === undefined || guessed || stamp > local) {
+      this.readMarkers.set(key, stamp);
+      this.guessedMarkers.delete(key);
+      const ch = this.channels.get(key);
+      if (ch && !this.isViewing(key)) {
+        const { unread, mentions } = this.countAfter(ch, stamp);
+        ch.unread = unread;
+        ch.mentions = mentions;
+      }
+      this.emit();
+    } else if (stamp < local) {
+      // We've read further than the server knows (offline, or a server that
+      // only just got the cap): catch it up.
+      this.queueMarkRead(key, local);
+    }
+  }
+
   // Bump unread + mention counts for an incoming message in `channel`.
   // No-op when the message is from us, or when this server is foregrounded
   // AND the channel matches the active one (the user is literally watching
@@ -2399,7 +2578,7 @@ export class ChatService {
   // handler calls bumpUnread BEFORE appendMessage (which is what would
   // otherwise create the channel), so a DM from a brand-new sender would
   // silently no-op without this guard.
-  private bumpUnread(channel: string, from: string, text: string, notice = false): void {
+  private bumpUnread(channel: string, from: string, text: string, notice = false, stamp?: number): void {
     if (this.isMe(from)) return;
     const key = this.channelKey(channel);
     // Service / server log channel never bumps — it's informational, and the
@@ -2439,6 +2618,16 @@ export class ChatService {
 
     if (open) return;
     const ch = this.ensureChannel(channel);
+    // A conversation never read before: start its marker now, so this line
+    // (and any after it) still count as unread after a restart.
+    this.ensureMarker(key);
+    // A guessed marker sits at the attach time on OUR clock; a server whose
+    // clock runs a little behind stamps live lines before it. Keep the
+    // guess below every line counted live.
+    const marker = this.readMarkers.get(key);
+    if (stamp !== undefined && this.guessedMarkers.has(key) && marker !== undefined && stamp <= marker) {
+      this.readMarkers.set(key, stamp - 1);
+    }
     ch.unread += 1;
     if (isMention) ch.mentions += 1;
   }
@@ -2931,7 +3120,7 @@ export class ChatService {
         // Bump unread counters BEFORE appendMessage — appendMessage emits to
         // subscribers, and we want them to see the fresh counter state in
         // the same render cycle. Otherwise the badge lags by one message.
-        if (!isBacklog && !quiet) this.bumpUnread(channel, e.From, text, e.Kind === 'NOTICE');
+        if (!isBacklog && !quiet) this.bumpUnread(channel, e.From, text, e.Kind === 'NOTICE', e.Tags?.time ? eventTimestamp(e) : ts);
         this.appendMessage(channel, {
           id: this.id(),
           kind,
@@ -2942,6 +3131,9 @@ export class ChatService {
           ...replyOf(e.Tags),
           ...this.serverTimeOf(e),
         });
+        // Replayed while we were away (a bouncer's buffer, ZNC playback):
+        // unread when newer than how far the user had read.
+        if (isBacklog && !quiet) this.reconcileUnread(this.channelKey(channel));
         // Mirror real-user DMs (1:1, addressed to us, not a channel, not the
         // server-wildcard pseudo-channel, not our own echo) into the Inbox so
         // it holds everything addressed to the user. Unlike services these
@@ -3050,6 +3242,11 @@ export class ChatService {
           this.updateMemberField(e.From, { realname: e.Message || undefined });
           if (e.Message) this.seen.note(e.From, { realname: e.Message, ...(e.Host ? { user: e.User, host: e.Host } : {}) });
         }
+        break;
+      }
+      case 'MARKREAD': {
+        // draft/read-marker: MARKREAD <target> timestamp=<ts|*>
+        if (e.Target) this.handleServerMarker(e.Target, e.Message ?? '');
         break;
       }
       case 'BATCH': {
@@ -3525,6 +3722,7 @@ export class ChatService {
         // DMs never mirror). See also the 004 sync below as a backstop.
         this.syncMyNickFromNumeric(e.Target);
         this.welcomed = true;
+        this.attachedAt = Date.now();
         this.startNickReclaim();
         // A new connection: echoes of lines sent on the last one won't come
         // (what's still pending is resent, and waits again).
@@ -3785,6 +3983,10 @@ export class ChatService {
         ch.messages.value = this.windows
           ? this.capMessages(key, [...prepend, ...ch.messages.peek()])
           : [...prepend, ...ch.messages.peek()];
+        // Lines kept on this device from last time, newer than the marker,
+        // were never read (a live unread from the last run).
+        if (this.isViewing(key)) this.markViewed(key);
+        else this.reconcileUnread(key);
         this.emit();
       })
       .catch(() => {
@@ -3897,6 +4099,9 @@ export class ChatService {
     for (const t of targets) {
       if (t.startsWith('#') || t.startsWith('&') || t === '*') continue;
       if (t.toLowerCase() === this.myNick.toLowerCase()) continue;
+      // Ask how far it was read first (channels get theirs with the JOIN),
+      // so the backlog that follows is counted against it.
+      if (this.readMarkerSupported()) this.session.raw(`MARKREAD ${t}`);
       this.requestBacklog(t);
     }
   }
@@ -4314,6 +4519,12 @@ export class ChatService {
     this.pendingHistoryKind.delete(key);
     this.pendingHistorySeq.delete(key);
     this.clearLoadOlderTimeout(key);
+    // An attach's backlog: what arrived since the user last read it is
+    // unread (or, open on screen, it's read now).
+    if (batch.kind === 'latest') {
+      if (this.isViewing(key)) this.markViewed(key);
+      else this.reconcileUnread(key, true);
+    }
     this.emit();
     // Persist the backlog so it survives reconnects / offline. Skipped on
     // bouncer connections (the bouncer is the archive; see persistMessages).
@@ -4380,6 +4591,8 @@ export class ChatService {
     // Bounded in-memory cap, trimmed from the front (oldest) into `older`.
     next = this.capMessages(this.channelKey(channel), next, true);
     ch.messages.value = next;
+    // A line landing in the conversation on screen has been seen.
+    if (this.isViewing(ch.name)) this.markViewed(ch.name);
     this.emit();
     // Mirror to persistence (fire-and-forget). The store enforces its own cap
     // so callers don't need to think about eviction. Skipped on bouncer

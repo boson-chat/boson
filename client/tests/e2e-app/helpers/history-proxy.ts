@@ -2,6 +2,9 @@
 // (the e2e ergo runs with history off): it offers the `chathistory` cap,
 // ACKs it when the app asks, and answers CHATHISTORY LATEST / BEFORE /
 // AROUND itself, from a scripted backlog per channel. Everything else is ergo's.
+// With `readMarker`, it also offers IRCv3 `draft/read-marker`: it keeps a read
+// marker per channel, sends it after each JOIN, answers MARKREAD, and can
+// push one as if another client of the account had read the channel.
 import { createConnection, createServer, type Socket } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { IRC_HOST, IRC_PORT } from '../fixtures';
@@ -21,10 +24,19 @@ export interface HistoryProxy {
   stallBefore: boolean;
   /** The CHATHISTORY commands the app sent, in order. */
   readonly requests: string[];
+  /** The MARKREAD commands the app sent, in order (readMarker only). */
+  readonly markreads: string[];
+  /** The stored read marker for a channel (ISO), if any. */
+  marker(channel: string): string | undefined;
+  /** Set a channel's marker without telling anyone (read while the app was away). */
+  setMarker(channel: string, time: number): void;
+  /** Another client read `channel` up to `time`: store it and tell every connection. */
+  pushMarker(channel: string, time: number): void;
   close(): Promise<void>;
 }
 
 const CAP = 'chathistory';
+const READ_MARKER = 'draft/read-marker';
 
 // Splits a socket's bytes into IRC lines (without the CRLF).
 function lines(sock: Socket, onLine: (line: string) => void): void {
@@ -65,16 +77,29 @@ function refTime(all: HistoryLine[], ref: string): number {
   return NaN;
 }
 
-export async function startHistoryProxy(): Promise<HistoryProxy> {
+export async function startHistoryProxy(opts: { readMarker?: boolean } = {}): Promise<HistoryProxy> {
   const history = new Map<string, HistoryLine[]>();
   const live = new Set<Socket>();
   const requests: string[] = [];
+  const markreads: string[] = [];
+  const markers = new Map<string, string>();
+  // Connections that negotiated draft/read-marker: how to reach them.
+  const markerClients = new Set<(line: string) => void>();
+  const ours = opts.readMarker ? [CAP, READ_MARKER] : [CAP];
   let batchSeq = 0;
   const proxy: HistoryProxy = {
     port: 0,
     stallBefore: false,
     setHistory: (channel, ls) => { history.set(channel.toLowerCase(), ls); },
     requests,
+    markreads,
+    marker: (channel) => markers.get(channel.toLowerCase()),
+    setMarker: (channel, time) => { markers.set(channel.toLowerCase(), new Date(time).toISOString()); },
+    pushMarker: (channel, time) => {
+      const iso = new Date(time).toISOString();
+      markers.set(channel.toLowerCase(), iso);
+      for (const send of markerClients) send(`:proxy.history MARKREAD ${channel} timestamp=${iso}`);
+    },
     close: () => new Promise<void>((resolve) => {
       for (const s of live) s.destroy();
       live.clear();
@@ -91,11 +116,21 @@ export async function startHistoryProxy(): Promise<HistoryProxy> {
     upstream.on('error', end).on('close', end);
     const toClient = (l: string): void => { if (!client.destroyed) client.write(`${l}\r\n`); };
     const toUpstream = (l: string): void => { if (!upstream.destroyed) upstream.write(`${l}\r\n`); };
-    let wantsCap = false;
+    let wantsCap: string[] = [];
     let nick = '*';
+    const markerLine = (target: string): string =>
+      `:proxy.history MARKREAD ${target} timestamp=${markers.get(target.toLowerCase()) ?? '*'}`;
+    client.on('close', () => markerClients.delete(toClient));
 
     const answer = (params: string[]): void => {
       const [sub = '', target = '', ref = '', limitArg = '50'] = params;
+      // No private conversations to list: an empty targets batch.
+      if (sub.toUpperCase() === 'TARGETS') {
+        const id = `t${++batchSeq}`;
+        toClient(`:proxy.history BATCH +${id} draft/chathistory-targets`);
+        toClient(`:proxy.history BATCH -${id}`);
+        return;
+      }
       const limit = Math.max(1, Number(limitArg) || 50);
       const all = [...(history.get(target.toLowerCase()) ?? [])].sort((a, b) => a.time - b.time);
       let page: HistoryLine[] = [];
@@ -125,13 +160,26 @@ export async function startHistoryProxy(): Promise<HistoryProxy> {
       if (command === 'NICK' && params[0]) nick = params[0];
       if (command === 'CAP' && (params[0] ?? '').toUpperCase() === 'REQ') {
         const caps = (params[params.length - 1] ?? '').split(' ').filter(Boolean);
-        if (caps.includes(CAP)) {
-          wantsCap = true;
-          const rest = caps.filter((c) => c !== CAP);
-          if (rest.length === 0) { toClient(`:proxy.history CAP ${nick} ACK :${CAP}`); return; }
+        const mine = caps.filter((c) => ours.includes(c));
+        if (mine.length > 0) {
+          if (mine.includes(READ_MARKER)) markerClients.add(toClient);
+          const rest = caps.filter((c) => !ours.includes(c));
+          if (rest.length === 0) { toClient(`:proxy.history CAP ${nick} ACK :${mine.join(' ')}`); return; }
+          wantsCap = mine;
           toUpstream(`CAP REQ :${rest.join(' ')}`);
           return;
         }
+      }
+      if (command === 'MARKREAD' && opts.readMarker) {
+        markreads.push(line);
+        const [target = '', ts] = params;
+        if (ts) {
+          const t = Date.parse(ts.replace(/^timestamp=/, ''));
+          const cur = markers.get(target.toLowerCase());
+          if (!Number.isNaN(t) && (!cur || t > Date.parse(cur))) markers.set(target.toLowerCase(), new Date(t).toISOString());
+        }
+        toClient(markerLine(target));
+        return;
       }
       if (command === 'CHATHISTORY') {
         requests.push(line);
@@ -147,10 +195,16 @@ export async function startHistoryProxy(): Promise<HistoryProxy> {
       if (command === 'CAP') {
         const sub = (params[1] ?? '').toUpperCase();
         // The last line of the LS (a continued one has "*" before the list).
-        if (sub === 'LS' && params[2] !== '*') { toClient(`${line} ${CAP}`); return; }
-        if (sub === 'ACK' && wantsCap) { wantsCap = false; toClient(`${line} ${CAP}`); return; }
+        if (sub === 'LS' && params[2] !== '*') { toClient(`${line} ${ours.join(' ')}`); return; }
+        if (sub === 'ACK' && wantsCap.length > 0) { const mine = wantsCap; wantsCap = []; toClient(`${line} ${mine.join(' ')}`); return; }
       }
+      if (command === '001' && params[0]) nick = params[0];
       toClient(line);
+      // Like a server with the cap: the marker follows our own JOIN.
+      if (command === 'JOIN' && markerClients.has(toClient) && params[0]) {
+        const from = line.replace(/^@\S+ /, '').slice(1).split('!')[0] ?? '';
+        if (from.toLowerCase() === nick.toLowerCase()) toClient(markerLine(params[0]));
+      }
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

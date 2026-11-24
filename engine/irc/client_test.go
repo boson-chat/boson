@@ -450,7 +450,7 @@ func TestNew_NegotiatesChathistoryCaps(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	caps := c.girc.Config.SupportedCaps
-	for _, want := range []string{"batch", "chathistory", "draft/chathistory", "server-time", "znc.in/playback", "message-tags", "echo-message"} {
+	for _, want := range []string{"batch", "chathistory", "draft/chathistory", "server-time", "znc.in/playback", "message-tags", "echo-message", "draft/read-marker"} {
 		if _, ok := caps[want]; !ok {
 			t.Errorf("SupportedCaps missing %q", want)
 		}
@@ -532,4 +532,19 @@ func TestTranslate_ForwardsFail(t *testing.T) {
 	assert.Equal(t, "FAIL", got.Kind)
 	assert.Equal(t, []string{"*", "ACCOUNT_REQUIRED"}, got.Args)
 	assert.Equal(t, "You must log in with SASL to join this server", got.Message)
+}
+
+func TestTranslate_MarkreadForwardsTargetAndTimestamp(t *testing.T) {
+	got := translate(girc.Event{
+		Command: "MARKREAD",
+		Source:  &girc.Source{Name: "irc.example.org"},
+		Params:  []string{"#general", "timestamp=2026-11-24T10:00:00.000Z"},
+	})
+	assert.Equal(t, "MARKREAD", got.Kind)
+	assert.Equal(t, "#general", got.Target)
+	assert.Equal(t, "timestamp=2026-11-24T10:00:00.000Z", got.Message)
+
+	unknown := translate(girc.Event{Command: "MARKREAD", Params: []string{"alice", "timestamp=*"}})
+	assert.Equal(t, "alice", unknown.Target)
+	assert.Equal(t, "timestamp=*", unknown.Message)
 }
