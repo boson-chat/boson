@@ -815,6 +815,15 @@ function chatView(): void {
     session.emit({ Kind: 'PRIVMSG', From: 'kestrel', Target: NICK, Message: 'the relay test passed', Tags: { time: min(4) }, Raw: '' });
   }
   chat.setActive(CHAN);
+  // &chans=N: N more channels, the last of them open, so it sits below the
+  // fold of the channel list.
+  const extra = Number(q0.get('chans') ?? 0);
+  for (let i = 1; i <= extra; i++) {
+    const name = `#room-${String(i).padStart(2, '0')}`;
+    session.emit({ Kind: 'JOIN', From: NICK, Target: name, Message: '', Raw: '' });
+    session.emit({ Kind: '366', From: 'irc', Target: name, Message: '', Raw: '' });
+    if (i === extra) chat.setActive(name);
+  }
   // &notify=mention,dm,friend,accepted,missed,started,ring: those arrive
   // (after the page settles), as toasts and in the bell.
   const notify = (q0.get('notify') ?? '').split(',').filter(Boolean);
