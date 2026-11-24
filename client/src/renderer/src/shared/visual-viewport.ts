@@ -12,6 +12,11 @@
 // and undo the page scroll WebKit adds, so the composer sits right on top
 // of the keyboard and the header stays put. Desktop (fine pointers) is left
 // alone.
+//
+// The page itself never scrolls (only the app's panes do): html, body and
+// #app are exactly this height (styles.css), and the iOS shell turns off the
+// webview's own scrolling (desktop/build/ios/main.m), whose keyboard inset
+// would otherwise let the whole page be dragged, with its own scroll bar.
 
 /** Shrinks smaller than this are browser chrome, not a keyboard. */
 export const KEYBOARD_MIN_PX = 120;
@@ -33,7 +38,10 @@ export interface ViewportEnv {
 /** Applies the visual viewport to `env.root` once (exported for tests). */
 export function applyViewport(env: ViewportEnv, baseline: number): void {
   const { root, vv } = env;
-  const height = Math.round(vv.height);
+  // Rounded down: the visual viewport is a fraction of a pixel on a scaled
+  // phone (844pt / 1.15 = 733.9px), and rounding up would make the app that
+  // fraction taller than the page, which would then scroll (see styles.css).
+  const height = Math.floor(vv.height);
   root.style.setProperty('--app-height', `${height}px`);
   root.classList.toggle('kb-open', baseline - height >= KEYBOARD_MIN_PX);
   // WebKit scrolled the page to reveal the focused field: the app already
@@ -41,7 +49,7 @@ export function applyViewport(env: ViewportEnv, baseline: number): void {
   if (env.scrollY() !== 0) env.scrollTo(0);
   // Still panned (the visual viewport moved within the layout viewport,
   // which a page scroll can't undo): follow it.
-  const top = Math.round(vv.offsetTop);
+  const top = Math.floor(vv.offsetTop);
   root.style.setProperty('--app-top', `${top > 0 ? top : 0}px`);
 }
 

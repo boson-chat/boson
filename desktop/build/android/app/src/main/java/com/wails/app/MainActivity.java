@@ -14,6 +14,7 @@ import android.net.Uri;
 import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
 import android.view.WindowInsets;
 import android.os.PowerManager;
 import android.content.pm.PackageManager;
@@ -114,6 +115,14 @@ public class MainActivity extends AppCompatActivity {
     private void setupWebView() {
         webView = findViewById(R.id.webview);
         bridge.setWebView(webView);
+
+        // An app, not a page: the page never scrolls (only its panes do;
+        // the CSS keeps it exactly the window), so no overscroll glow or
+        // stretch and no page scroll bar. The panes' own scroll bars are
+        // drawn by the page and unaffected.
+        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        webView.setVerticalScrollBarEnabled(false);
+        webView.setHorizontalScrollBarEnabled(false);
 
         // Configure WebView settings
         WebSettings settings = webView.getSettings();
