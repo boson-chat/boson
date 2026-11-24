@@ -1,3 +1,9 @@
+## [0.92.0](https://github.com/boson-chat/boson/compare/v0.91.0...v0.92.0) (2026-11-24)
+
+### Features
+
+* UX review fixes — mobile layout, onboarding, confirms, directory, chat replies and search ([#139](https://github.com/boson-chat/boson/issues/139)) ([a3046cb](https://github.com/boson-chat/boson/commit/a3046cb5db0507e823c52ba94baed7cfd94f792a)), closes [#name](https://github.com/boson-chat/boson/issues/name) [#135](https://github.com/boson-chat/boson/issues/135) [#138](https://github.com/boson-chat/boson/issues/138) [#137](https://github.com/boson-chat/boson/issues/137) [auth#26](https://github.com/boson-chat/auth/issues/26) [backend#8](https://github.com/boson-chat/backend/issues/8) [#140](https://github.com/boson-chat/boson/issues/140)
+
 ## [0.91.0](https://github.com/boson-chat/boson/compare/v0.90.2...v0.91.0) (2026-11-23)
 
 ### Features
