@@ -1,3 +1,9 @@
+## [0.95.1](https://github.com/boson-chat/boson/compare/v0.95.0...v0.95.1) (2026-11-24)
+
+### Bug Fixes
+
+* **phone:** channel list opens on the channel you're in ([#147](https://github.com/boson-chat/boson/issues/147)) ([89c4548](https://github.com/boson-chat/boson/commit/89c454819247d9d9ab2246d913669389b77e88ac))
+
 ## [0.95.0](https://github.com/boson-chat/boson/compare/v0.94.1...v0.95.0) (2026-11-24)
 
 ### Features
