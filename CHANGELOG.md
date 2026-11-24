@@ -1,3 +1,9 @@
+## [0.94.1](https://github.com/boson-chat/boson/compare/v0.94.0...v0.94.1) (2026-11-24)
+
+### Bug Fixes
+
+* the app never scrolls as a page on phones, only its panes do ([#145](https://github.com/boson-chat/boson/issues/145)) ([a3c8318](https://github.com/boson-chat/boson/commit/a3c83185c3cc5cd68649f12ab55611a99cb20fdf)), closes [#app](https://github.com/boson-chat/boson/issues/app) [#app](https://github.com/boson-chat/boson/issues/app)
+
 ## [0.94.0](https://github.com/boson-chat/boson/compare/v0.93.0...v0.94.0) (2026-11-24)
 
 ### Features
