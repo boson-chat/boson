@@ -1,3 +1,9 @@
+## [0.94.0](https://github.com/boson-chat/boson/compare/v0.93.0...v0.94.0) (2026-11-24)
+
+### Features
+
+* phones drop the top bar; the bell joins the server rail ([#143](https://github.com/boson-chat/boson/issues/143)) ([d40d003](https://github.com/boson-chat/boson/commit/d40d003a63517ad9357e647d92ecdb12366d5597))
+
 ## [0.93.0](https://github.com/boson-chat/boson/compare/v0.92.1...v0.93.0) (2026-11-24)
 
 ### Features
