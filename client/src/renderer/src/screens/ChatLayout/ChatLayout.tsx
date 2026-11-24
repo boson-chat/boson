@@ -11,6 +11,10 @@ import { VoiceSection } from './VoiceSection';
 import { ChannelVoiceAdd, ChannelVoiceRooms } from './VoiceRooms';
 import { VoiceBar } from './VoiceBar';
 import { ChatArea } from './ChatArea';
+import { SearchPage } from './SearchPage';
+import { signal } from '@preact/signals';
+import type { ChatMessage } from '../../modules/chat';
+import { conversationSearch, historySource, revealResult } from '../../modules/search/search-session';
 import { UserPanel } from './UserPanel';
 import { ServerWelcome, welcomeChannels } from './ServerWelcome';
 import { ChannelSettings, type ChannelSettingsTab } from './ChannelSettings';
@@ -304,6 +308,57 @@ export function ChatLayout({
   // Resolves a nick → profile-image URL for Boson members on this server
   // (own avatar + presence matches), shared by the chat stream + member list.
   const avatarFor = useAvatarFor(activeServerId ?? null);
+
+  // The full-page search (header Search, Ctrl/Cmd+F): over the conversation
+  // (on desktop the member list makes way for its Context panel). A result
+  // opened goes to the conversation, with "Back to results" to return.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchFocus, setSearchFocus] = useState(0);
+  const [searchRestoring, setSearchRestoring] = useState(false);
+  const [searchJump, setSearchJump] = useState<{ id: string; seq: number; query: string } | null>(null);
+  const searchJumpSeq = useRef(0);
+  useEffect(() => { setSearchOpen(false); setSearchJump(null); }, [activeKey]);
+  const activeConvName = active?.name ?? null;
+  const searchSession = activeConvName ? conversationSearch(activeServerId ?? serverHost ?? '', activeConvName) : null;
+  const searchHistory = useMemo(
+    () => (activeConvName && typeof chat.fetchHistory === 'function' ? historySource(chat, activeConvName) : null),
+    [chat, activeConvName],
+  );
+  const liveMessages = active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null;
+  const searchMessages = useMemo(() => liveMessages ?? signal<ChatMessage[]>(active?.messages ?? []), [liveMessages, active?.messages]);
+  const openSearch = (): void => {
+    setSearchRestoring(false);
+    setSearchOpen(true);
+    setSearchFocus((n) => n + 1);
+    setMidPanel(false);
+  };
+  const openSearchResult = async (m: ChatMessage): Promise<void> => {
+    if (!activeConvName || !searchSession) return;
+    const id = typeof chat.revealHistory === 'function'
+      ? await revealResult(chat, activeConvName, searchSession.pager.getState().lines, m)
+      : m.id;
+    if (!id) throw new Error('it is no longer available');
+    setSearchOpen(false);
+    searchJumpSeq.current += 1;
+    setSearchJump({ id, seq: searchJumpSeq.current, query: searchSession.ui.query });
+  };
+  const searchPage = searchOpen && active && searchSession ? (
+    <SearchPage
+      key={activeKey}
+      conversation={active.name}
+      session={searchSession}
+      messages={searchMessages}
+      members={active.members}
+      history={searchHistory}
+      avatarFor={avatarFor}
+      narrow={narrow}
+      wide={!narrow && !mid}
+      focusSeq={searchFocus}
+      restoring={searchRestoring}
+      onClose={() => { setSearchOpen(false); setSearchJump(null); }}
+      onOpenResult={openSearchResult}
+    />
+  ) : null;
   // In a call: its stage (desktop) or call screen (phone) takes the
   // chat's place while you're on it.
   const { video, snap: videoSnap } = useVideo();
@@ -592,6 +647,12 @@ export function ChatLayout({
           // opens the overlay, wider it docks / undocks the column.
           membersShown={!narrow && isChannel ? (mid ? midPanel : membersOpen.open) : undefined}
           onToggleMembers={!narrow && isChannel ? (mid ? () => setMidPanel((o) => !o) : membersOpen.toggle) : undefined}
+          searchOpen={searchOpen}
+          onOpenSearch={active ? openSearch : undefined}
+          searchPage={searchPage}
+          searchJump={searchJump}
+          onBackToResults={() => { setSearchRestoring(true); setSearchOpen(true); }}
+          onDismissSearchJump={() => setSearchJump(null)}
         />
   );
   const userPanel = (
@@ -638,7 +699,7 @@ export function ChatLayout({
   const phoneBack: PhonePageId | null | undefined = phonePage === null ? undefined : phonePage === 'members' ? 'chat' : null;
   const phoneForward: PhonePageId | undefined = phonePage === null ? (active && !friendsUi.my ? 'chat' : undefined)
     : phonePage === 'chat' && isChannel ? 'members' : undefined;
-  const swipe = useSwipeNav(phoneRef, narrow && !phoneCallOpen, phoneBack !== undefined, phoneForward !== undefined,
+  const swipe = useSwipeNav(phoneRef, narrow && !phoneCallOpen && !searchOpen, phoneBack !== undefined, phoneForward !== undefined,
     (dir) => setFriendsUi({ phone: dir === 'back' ? phoneBack ?? null : phoneForward ?? null }));
   const phoneUnder = swipe.dir === 'back' ? phoneBack : swipe.dir === 'forward' ? phoneForward : undefined;
   const phoneLayers: Array<PhonePageId | null> = phoneUnder === undefined ? [phonePage] : [phoneUnder, phonePage];
@@ -717,7 +778,7 @@ export function ChatLayout({
                 : myView === 'calls' ? calls('desktop')
                   : chatArea}
             {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, null) : null)
-              : myView === 'chat' ? rightPanel(userPanel, membersHandle, membersOpen.open) : null}
+              : myView === 'chat' ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null}
             <ScreenPicker />
           </>
         ) : <>
@@ -738,7 +799,7 @@ export function ChatLayout({
               voice channel's text chat, if it has one. */}
           {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, membersHandle) : null)
             : prejoinOpen ? rightPanel(<PreJoinPeople avatarFor={avatarFor} width={membersW} />, membersHandle)
-              : rightPanel(userPanel, membersHandle, membersOpen.open)}
+              : rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen)}
           <ScreenPicker />
         </>
       )}

@@ -558,11 +558,13 @@ interface MessageListProps {
    *  where it does, instead of a blank pane. */
   beginningNote?: string;
   /** Scroll to this message (and flash it) whenever `seq` changes: a search
-   *  match, or a reply's original. */
+   *  result opened here. (A reply's original is jumped to from its quote.) */
   jump?: { id: string; seq: number } | null;
-  /** In-conversation search: the rows holding a match are marked (the one
-   *  at `currentId` most), and the query highlighted in their text. */
+  /** Search: the rows holding a match are marked (the one at `currentId`
+   *  most), and the query highlighted in their text. */
   search?: ChatSearchMarks | null;
+  /** Back to the bottom (the newest lines) whenever this changes. */
+  toLatest?: number;
 }
 
 export interface ChatSearchMarks {
@@ -658,7 +660,7 @@ function listRows(items: readonly RenderItem[]): ListRow[] {
 export const MessageList = memo(function MessageList({
   messages, members, myNick, scrollRef, nickActions, channelName, avatarFor,
   onLoadOlder, onViewport, historySupported, historyLoading, historyExhausted, historyError, beginningNote,
-  jump, search,
+  jump, search, toLatest = 0,
 }: MessageListProps) {
   // Reading `.value` subscribes THIS component to the channel's message signal.
   // A metadata emit that re-renders the parent passes the same signal ref, so
@@ -689,6 +691,13 @@ export const MessageList = memo(function MessageList({
   // Stable for the memoised rows (a reply quote's click).
   const onJumpTo = useMemo(() => (id: string) => requestJumpRef.current(id), []);
   useEffect(() => { if (jump) requestJumpRef.current(jump.id); }, [jump?.seq]);
+  // Jump to latest: stick to the bottom again (the next layout pass puts it there).
+  useEffect(() => {
+    if (!toLatest) return;
+    pendingJump.current = null;
+    atBottomRef.current = true;
+    setHeightsVersion((n) => n + 1);
+  }, [toLatest]);
   useEffect(() => {
     if (!flashKey) return undefined;
     const t = setTimeout(() => setFlashKey(null), 1600);

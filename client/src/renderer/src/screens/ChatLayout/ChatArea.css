@@ -1378,36 +1378,10 @@ button.message-reply-quote:focus-visible { outline: 2px solid var(--accent); out
   .vrow-flash > * { animation: none; background: color-mix(in oklab, var(--accent), transparent 85%); }
 }
 
-/* ---- In-conversation search ---------------------------------------- */
+/* ---- A search result opened in the conversation ------------------- */
 
-.chat-search {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-6);
-  border-bottom: 1px solid var(--border-soft);
-  background: var(--surface);
-  flex-shrink: 0;
-}
-.chat-search-row { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
-.chat-search-field { flex: 1; min-width: 0; max-width: 420px; }
-.chat-search-field .bds-input { width: 100%; }
-.chat-search-count {
-  min-width: 5.5em;
-  padding: 0 var(--space-2);
-  font-size: var(--text-sm);
-  font-variant-numeric: tabular-nums;
-  color: var(--fg-3);
-  white-space: nowrap;
-}
-.chat-search-close { margin-left: auto; }
-.chat-search-more { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-2); font-size: var(--text-sm); color: var(--fg-3); }
-.app-shell.is-narrow .chat-search { padding: var(--space-1) var(--space-3); }
-.app-shell.is-narrow .chat-search-field { max-width: none; }
-.app-shell.is-narrow .chat-search-count { min-width: 0; padding: 0 var(--space-1); }
-
-/* Rows holding a match; the current one stands out. The matched words
-   themselves are drawn with the CSS Custom Highlight API. */
+/* The row of a search result opened here (SearchPage), and the match in
+   it, drawn with the CSS Custom Highlight API. */
 .vrow-search-match > .message-row,
 .vrow-search-match > .message-action { box-shadow: inset 2px 0 0 color-mix(in oklab, var(--accent), transparent 55%); }
 .vrow-search-current > .message-row,
@@ -1449,3 +1423,7 @@ button.message-reply-quote:focus-visible { outline: 2px solid var(--accent); out
    on the bottom line as the text grows. */
 .app-shell.is-narrow .chat-input-wrap { padding: 3px; }
 .app-shell.is-narrow .chat-send-btn { margin: 0 0 0 var(--space-1); border-radius: var(--radius-lg); }
+
+/* The conversation's parts, laid out as the chat area's own children; a
+   wrapper only so the search page over them can make them inert. */
+.chat-area-conv { display: contents; }

@@ -95,7 +95,8 @@ function makeSession(): { emit(e: IrcEvent): void } {
       const lines = chanservReplies(target, body);
       if (lines) setTimeout(() => { for (const l of lines) listener?.({ Kind: 'NOTICE', From: target, Target: NICK, Message: l, Raw: '' }); }, 40);
     },
-    list: () => {}, away: () => {}, nick: () => {}, nickservIdentify: () => {}, raw: () => {},
+    list: () => {}, away: () => {}, nick: () => {}, nickservIdentify: () => {},
+    raw: (line: string) => { if (listener) searchHistoryAnswer(line, listener); },
     onEvent: (fn: EventListener) => { listener = fn; return () => { listener = null; }; },
     onChannelDirectory: () => () => {},
     onServicesFramework: () => () => {},
@@ -105,6 +106,66 @@ function makeSession(): { emit(e: IrcEvent): void } {
 }
 
 const min = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+
+// ?search=1: the server keeps history (CHATHISTORY), ~1200 scripted lines of
+// #dev going back weeks, answered from here — for the full-page search's
+// shots (Older results, the end of history, a result opened). &hist=N sets
+// how many lines it keeps.
+const searchMode = new URLSearchParams(location.search).get('search') === '1';
+const SEARCH_LINES = Number(new URLSearchParams(location.search).get('hist') ?? 1200);
+const searchHistory: Array<{ time: number; from: string; text: string; msgid: string }> = (() => {
+  if (!searchMode) return [];
+  const who = ['nova', 'kestrel', 'mox', 'pixel', 'orbit', 'jrmu'];
+  const said = [
+    'did the migration finish?',
+    'the DNS record for chat. points at the old box still',
+    'fixed, TTL is short so give it 5 minutes',
+    'works now, thanks',
+    'switched the resolver, DNS over TLS is on now',
+    'can someone check the reverse DNS for the new VPS?',
+    'propagation takes a while, DNS TTL was 3600',
+    'deploy is green on staging',
+    'who has the pager this week?',
+    'rolling the ircd config now, expect a short netsplit',
+    'the cert renewal cron ran at 04:00 as expected',
+    'see https://status.nebula.example for the incident notes',
+    'backups verified, restore test took 11 minutes',
+    'bumping the relay to the new build',
+  ];
+  const now = Date.now() - 20 * 60_000;
+  // Deterministic: the same history on every load.
+  let seed = 7;
+  const rnd = (n: number): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+  return Array.from({ length: SEARCH_LINES }, (_, i) => {
+    const age = (SEARCH_LINES - i) * 47 * 60_000;
+    return { time: now - age, from: who[rnd(who.length)]!, text: said[rnd(said.length)]!, msgid: `sh-${i}` };
+  });
+})();
+let searchBatch = 0;
+function searchHistoryAnswer(line: string, emit: EventListener): void {
+  if (!searchMode) return;
+  const [cmd, sub = '', target = '', ref = '', limitArg = '50'] = line.split(' ');
+  if (cmd !== 'CHATHISTORY' || target.toLowerCase() !== CHAN) return;
+  const limit = Number(limitArg) || 50;
+  const [kind, value = ''] = ref.split('=');
+  const at = kind === 'timestamp' ? Date.parse(value) : searchHistory.find((l) => l.msgid === value)?.time ?? Date.now();
+  const all = searchHistory;
+  let page: typeof all = [];
+  if (sub === 'LATEST') page = all.slice(-limit);
+  else if (sub === 'BEFORE') page = all.filter((l) => l.time < at).slice(-limit);
+  else if (sub === 'AROUND') {
+    const i = all.findIndex((l) => l.time >= at);
+    page = all.slice(Math.max(0, i - Math.floor(limit / 2)), Math.max(0, i - Math.floor(limit / 2)) + limit);
+  }
+  const ref2 = `sb${++searchBatch}`;
+  setTimeout(() => {
+    emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: [`+${ref2}`, 'chathistory', target], Raw: '' });
+    for (const l of page) {
+      emit({ Kind: 'PRIVMSG', From: l.from, Target: target, Message: l.text, Tags: { batch: ref2, time: new Date(l.time).toISOString(), msgid: l.msgid }, Raw: '' });
+    }
+    emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: [`-${ref2}`], Raw: '' });
+  }, 350);
+}
 
 // ?chanserv=ergo|anope|atheme|unregistered|guest|unreadable|offer: the
 // channel's ChanServ registration, driven by scripted services replies.
@@ -662,6 +723,7 @@ function chatView(): void {
     { history: { append: async () => {}, load: async () => [] } as never, scope: { userId: 'u', serverId: 's1', serverName: 'Nebula' } },
   );
   chat.attach();
+  if (searchMode) session.emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: 'batch server-time message-tags chathistory', Args: ['ACK'], Raw: '' });
   if (chanservMode) {
     const version = chanservMode === 'anope' || chanservMode === 'unreadable' ? 'UnrealIRCd-6.1.8' : chanservMode === 'atheme' ? 'solanum-1.0' : 'ergo-2.19.1';
     session.emit({ Kind: '004', From: 'irc.nebula.example', Target: NICK, Message: '', Args: ['irc.nebula.example', version], Raw: '' });

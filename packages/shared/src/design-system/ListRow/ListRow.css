@@ -54,6 +54,8 @@ button.bds-row-main:focus-visible { outline: none; box-shadow: var(--focus-ring)
 @media (hover: hover) {
   .bds-row-item.bds-row-clickable:hover { background: var(--surface-hover); }
 }
+/* A picked item (a search result shown beside the list): raised, with the 2px accent edge. */
+.bds-row-item.bds-row-selected, .bds-row-item.bds-row-selected:hover { background: var(--surface-raised); box-shadow: inset 2px 0 0 var(--accent); }
 
 /* nav */
 .bds-row-nav {

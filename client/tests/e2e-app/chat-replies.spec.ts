@@ -1,20 +1,19 @@
 // Quoted replies (IRCv3 `+draft/reply`, a client-only tag ergo relays to
-// clients with message-tags) and searching the conversation, against the
-// e2e ergo: Reply on a message sends the next line with the original's
+// clients with message-tags), against the e2e ergo: Reply on a message sends the next line with the original's
 // msgid; an incoming reply shows a quote of its original (a click scrolls
 // to it), or says the original isn't loaded.
 import { test, expect, randomChannel } from './fixtures';
 import { connectGuest, connectPeer, joinViaUi, memberRow, messages, say, waitCmd } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
 
-test.describe('replies and search', () => {
+test.describe('replies', () => {
   let peers: IrcPeer[] = [];
   test.afterEach(async () => {
     await Promise.all(peers.map((p) => p.quit()));
     peers = [];
   });
 
-  test('reply to a message, see replies quoted, and search the conversation', async ({ launchApp }) => {
+  test('reply to a message and see replies quoted', async ({ launchApp }) => {
     const channel = randomChannel('reply');
     // echo-message: the peer learns its own lines' msgids.
     const peer = await connectPeer(undefined, ['message-tags', 'echo-message']);
@@ -93,22 +92,5 @@ test.describe('replies and search', () => {
     await expect(row('r1 and the admin port')).toBeInViewport();
     peer.send(`@+draft/reply=not-a-real-msgid PRIVMSG ${channel} :r2 replying to something older`);
     await expect(row('r2 replying').locator('.message-reply-quote')).toHaveText('Original message not loaded');
-
-    // Search: Ctrl/Cmd+F from the chat, a count, newest first, step older.
-    await messages(page).click({ position: { x: 5, y: 5 } });
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+f' : 'Control+f');
-    const search = page.getByRole('searchbox', { name: 'Search this conversation' });
-    await expect(search).toBeFocused();
-    await search.fill('port');
-    const count = page.locator('.chat-search-count');
-    await expect(count).toHaveText('2 of 2');
-    await expect(page.locator('.vrow-search-current')).toContainText('r1 and the admin port');
-    await search.press('Enter');
-    await expect(count).toHaveText('1 of 2');
-    await expect(page.locator('.vrow-search-current')).toContainText('q1 which port');
-    await expect(page.locator('.vrow-search-current')).toBeInViewport();
-    await search.press('Escape');
-    await expect(page.getByRole('search')).toHaveCount(0);
-    await expect(page.locator('.vrow-search-match')).toHaveCount(0);
   });
 });

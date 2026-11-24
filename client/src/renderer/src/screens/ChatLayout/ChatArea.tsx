@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { signal, type Signal } from '@preact/signals';
-import { ArrowLeft, PlugZap, Search, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
+import { ArrowDown, ArrowLeft, PlugZap, Search, Settings, ShieldAlert, ShieldCheck, ShieldOff, Unplug, Users } from 'lucide-preact';
 import { BarLoader, Button, EmptyState, StatusDot } from '@boson/shared';
 import { useNarrow } from '../../shared/narrow';
 import type { ChatChannel, ChatMessage, SendOptions, ServerInfo, ServerLogEntry } from '../../modules/chat';
@@ -13,7 +13,6 @@ import type { EngineState } from '../../modules/engine';
 import { ChatInputBloc, type ChatInputState } from './ChatInputBloc';
 import { ChatInputBar } from './ChatInputBar';
 import { MessageList, excerptOf, type ChatSearchMarks } from './message-render';
-import { ChatSearchBar, findMatches } from './ChatSearch';
 import { UploadSheet, type UploadItem } from './UploadSheet';
 import { UploadProgress } from './UploadProgress';
 import { getFiles, ircTextBudget, MAX_BATCH_FILES, type FilesUsage } from '../../modules/files';
@@ -141,6 +140,16 @@ interface ChatAreaProps {
   // Sends a message to a given channel of the active server (a finished
   // upload's link, which may land after the user switched channels).
   onSendTo?: (channel: string, message: string) => void;
+  // The full-page search (SearchPage): open over the conversation, and the
+  // header's Search / Ctrl+F opening it. Without onOpenSearch: no Search.
+  searchOpen?: boolean;
+  onOpenSearch?: () => void;
+  searchPage?: ComponentChildren;
+  // A search result opened here: scrolled to, flashed and its match marked,
+  // with "Back to results" and "Jump to latest" floating over the list.
+  searchJump?: { id: string; seq: number; query: string } | null;
+  onBackToResults?: () => void;
+  onDismissSearchJump?: () => void;
 }
 
 function isMac(): boolean {
@@ -195,6 +204,12 @@ export function ChatArea({
   welcome,
   serverHost,
   onSendTo,
+  searchOpen = false,
+  onOpenSearch,
+  searchPage,
+  searchJump = null,
+  onBackToResults,
+  onDismissSearchJump,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A quick reconnect (an app switch, a network hop) shows nothing; the
@@ -286,51 +301,31 @@ export function ChatArea({
     };
   }, [nickActions, bloc]);
 
-  // ---- in-conversation search ----
+  // ---- search (the full page: SearchPage, over the conversation) ----
   const mainRef = useRef<HTMLElement | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchFocus, setSearchFocus] = useState(0);
-  // The current match (a message id), and a scroll-to request for the list.
-  const [searchCursor, setSearchCursor] = useState<string | null>(null);
-  const [jump, setJump] = useState<{ id: string; seq: number } | null>(null);
-  const jumpSeq = useRef(0);
-  const jumpTo = (id: string): void => { jumpSeq.current += 1; setJump({ id, seq: jumpSeq.current }); };
-  // Read only while searching: the conversation's messages, to match.
-  const searchMsgs = searchOpen && searchQuery.trim() ? msgSignal.value : null;
-  const matchIds = useMemo(() => (searchMsgs ? findMatches(searchMsgs, searchQuery) : []), [searchMsgs, searchQuery]);
-  // Until a step picks one (or when it's gone), the newest match is current.
-  const cursorAt = searchCursor ? matchIds.indexOf(searchCursor) : -1;
-  const matchIndex = cursorAt >= 0 ? cursorAt : matchIds.length - 1;
-  const currentMatch = matchIndex >= 0 ? matchIds[matchIndex]! : null;
-  // A new query starts at the newest match (set here, not in an effect:
-  // an Enter typed straight after must step from it).
-  const onSearchQuery = (q: string): void => {
-    setSearchQuery(q);
-    setSearchCursor(null);
-    const ids = findMatches(msgSignal.peek(), q);
-    const last = ids[ids.length - 1];
-    if (last) jumpTo(last);
-  };
-  const stepMatch = (dir: -1 | 1): void => {
-    if (matchIds.length === 0) return;
-    const next = (matchIndex + dir + matchIds.length) % matchIds.length;
-    const id = matchIds[next]!;
-    setSearchCursor(id);
-    jumpTo(id);
-  };
-  const openSearch = (): void => { setSearchOpen(true); setSearchFocus((n) => n + 1); };
-  const closeSearch = (): void => { setSearchOpen(false); setSearchQuery(''); setSearchCursor(null); };
-  const searchMarks = useMemo<ChatSearchMarks | null>(() => (searchOpen && searchQuery.trim()
-    ? { query: searchQuery, matchIds: new Set(matchIds), currentId: currentMatch }
-    : null), [searchOpen, searchQuery, matchIds, currentMatch]);
-  // Another conversation: no search, no reply in progress.
-  useEffect(() => { closeSearch(); setReplyTarget(null); }, [channel?.name]);
+  // A result opened here: its row marked (the query highlighted in it).
+  const searchMarks = useMemo<ChatSearchMarks | null>(() => (searchJump
+    ? { query: searchJump.query, matchIds: new Set([searchJump.id]), currentId: searchJump.id }
+    : null), [searchJump]);
+  // Jump to latest: back to the bottom of the conversation.
+  const [latestSeq, setLatestSeq] = useState(0);
+  // The page closed (not to a result): the focus back on the header's Search.
+  const searchBtnRef = useRef<HTMLButtonElement>(null);
+  const wasSearchOpen = useRef(searchOpen);
+  useEffect(() => {
+    if (wasSearchOpen.current && !searchOpen && !searchJump) searchBtnRef.current?.focus();
+    wasSearchOpen.current = searchOpen;
+  }, [searchOpen]);
+  // Another conversation: no reply in progress.
+  useEffect(() => { setReplyTarget(null); }, [channel?.name]);
   // Ctrl/Cmd+F: search this conversation — unless a dialog is open or the
   // focus is in a field elsewhere (that field's own find, if any).
   const hasChannel = !!channel;
+  const openSearchRef = useRef(onOpenSearch);
+  openSearchRef.current = onOpenSearch;
+  const canSearch = !!onOpenSearch;
   useEffect(() => {
-    if (!hasChannel) return undefined;
+    if (!hasChannel || !canSearch) return undefined;
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey) || e.altKey || e.shiftKey || e.key.toLowerCase() !== 'f') return;
       if (document.querySelector('.bds-modal-backdrop, .bds-sheet-backdrop')) return;
@@ -338,11 +333,11 @@ export function ChatArea({
       const editable = !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
       if (editable && !mainRef.current?.contains(ae)) return;
       e.preventDefault();
-      openSearch();
+      openSearchRef.current?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hasChannel]);
+  }, [hasChannel, canSearch]);
 
   // ---- file uploads ----
   const files = getFiles();
@@ -515,247 +510,255 @@ export function ChatArea({
   const topic = channel.topic ? stripIrcFormatting(channel.topic).trim() : '';
   return (
     <main class="chat-area" ref={mainRef} {...(canUpload ? drop.handlers : {})}>
-      {canUpload && drop.dragging && (
-        <div class="chat-drop-overlay" data-testid="chat-drop-overlay" aria-hidden="true">
-          <span class="chat-drop-overlay-label">Drop files to upload to {prefix}{display}</span>
+      {/* The conversation stays mounted (its place kept) under the search page. */}
+      <div class="chat-area-conv" inert={searchOpen || undefined} aria-hidden={searchOpen || undefined}>
+        {canUpload && drop.dragging && (
+          <div class="chat-drop-overlay" data-testid="chat-drop-overlay" aria-hidden="true">
+            <span class="chat-drop-overlay-label">Drop files to upload to {prefix}{display}</span>
+          </div>
+        )}
+        <div class="chat-header">
+          <div class="chat-header-left">
+            <PaneBackButton onBack={onBack} />
+            <span class="chat-channel-hash">{prefix}</span>
+            <span class="chat-channel-label">{display}</span>
+            {/* A phone's header is the name: the topic (in channel settings)
+                and the registration badge (an unregistered channel keeps its
+                "Register it" strip) stay on wider screens. */}
+            {narrow ? null : registration && prefix === '#' && registration.atRisk ? (
+              <Button
+                variant="ghost"
+                size={narrow ? 'lg' : 'sm'}
+                class="chat-reg-badge chat-reg-chip"
+                onClick={onOpenRegistration}
+                disabled={!onOpenRegistration}
+                title="Not registered: you lose operator once everyone leaves. Register it so it stays yours."
+                icon={<ShieldOff aria-hidden="true" />}
+              >
+                Unregistered
+              </Button>
+            ) : registration && prefix === '#' && (
+              <Button
+                variant="ghost"
+                size={narrow ? 'lg' : 'sm'}
+                tone={registration.registered ? 'success' : undefined}
+                class={`chat-reg-badge${registration.registered ? ' chat-reg-badge-on' : ''}`}
+                onClick={onOpenRegistration}
+                disabled={!onOpenRegistration}
+                title={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
+                aria-label={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
+                icon={registration.registered ? <ShieldCheck aria-hidden="true" /> : <ShieldOff aria-hidden="true" />}
+              />
+            )}
+            {topic && !narrow && (
+              <span
+                class="chat-channel-topic"
+                title={topic}
+                aria-label={`Topic: ${topic}`}
+              >
+                {topic}
+              </span>
+            )}
+          </div>
+          <div class="chat-header-right">
+            {onOpenSearch && (
+              <Button
+                variant="ghost"
+                size={narrow ? 'lg' : 'sm'}
+                class="chat-search-btn"
+                buttonRef={searchBtnRef}
+                pressed={searchOpen}
+                onClick={onOpenSearch}
+                title={`Search this conversation (${isMac() ? '⌘' : 'Ctrl+'}F)`}
+                aria-label={narrow ? `Search in ${prefix}${display}` : 'Search this conversation'}
+                icon={<Search aria-hidden="true" />}
+              />
+            )}
+            {narrow ? (
+              <HeaderMore
+                memberCount={onShowMembers ? channel.members.length : undefined}
+                onMembers={onShowMembers}
+                onSettings={onOpenChannelSettings}
+              />
+            ) : null}
+            {!narrow && onShowMembers && (
+              <Button
+                variant="ghost"
+                size={narrow ? 'lg' : 'sm'}
+                class="chat-pane-members"
+                onClick={onShowMembers}
+                pressed={membersShown}
+                title="Members"
+                aria-label={`Members (${channel.members.length})`}
+                icon={<Users aria-hidden="true" />}
+              />
+            )}
+            {!narrow && !onShowMembers && onToggleMembers && (
+              <Button
+                variant="ghost"
+                size="sm"
+                class="chat-members-toggle"
+                pressed={!!membersShown}
+                onClick={onToggleMembers}
+                title={membersShown ? 'Hide members' : 'Show members'}
+                aria-label={`${membersShown ? 'Hide' : 'Show'} members (${channel.members.length})`}
+                icon={<Users aria-hidden="true" />}
+              />
+            )}
+            {!narrow && onOpenChannelSettings && (
+              <Button
+                variant="ghost"
+                size="sm"
+                class="chat-channel-gear"
+                onClick={onOpenChannelSettings}
+                title="Channel settings"
+                aria-label="Channel settings"
+                icon={<Settings aria-hidden="true" />}
+              />
+            )}
+          </div>
         </div>
-      )}
-      <div class="chat-header">
-        <div class="chat-header-left">
-          <PaneBackButton onBack={onBack} />
-          <span class="chat-channel-hash">{prefix}</span>
-          <span class="chat-channel-label">{display}</span>
-          {/* A phone's header is the name: the topic (in channel settings)
-              and the registration badge (an unregistered channel keeps its
-              "Register it" strip) stay on wider screens. */}
-          {narrow ? null : registration && prefix === '#' && registration.atRisk ? (
-            <Button
-              variant="ghost"
-              size={narrow ? 'lg' : 'sm'}
-              class="chat-reg-badge chat-reg-chip"
-              onClick={onOpenRegistration}
-              disabled={!onOpenRegistration}
-              title="Not registered: you lose operator once everyone leaves. Register it so it stays yours."
-              icon={<ShieldOff aria-hidden="true" />}
-            >
-              Unregistered
-            </Button>
-          ) : registration && prefix === '#' && (
-            <Button
-              variant="ghost"
-              size={narrow ? 'lg' : 'sm'}
-              tone={registration.registered ? 'success' : undefined}
-              class={`chat-reg-badge${registration.registered ? ' chat-reg-badge-on' : ''}`}
-              onClick={onOpenRegistration}
-              disabled={!onOpenRegistration}
-              title={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
-              aria-label={registration.registered ? `Registered${registration.founder ? ` to ${registration.founder}` : ''}` : 'Not registered'}
-              icon={registration.registered ? <ShieldCheck aria-hidden="true" /> : <ShieldOff aria-hidden="true" />}
-            />
-          )}
-          {topic && !narrow && (
-            <span
-              class="chat-channel-topic"
-              title={topic}
-              aria-label={`Topic: ${topic}`}
-            >
-              {topic}
-            </span>
-          )}
-        </div>
-        <div class="chat-header-right">
-          <Button
-            variant="ghost"
-            size={narrow ? 'lg' : 'sm'}
-            class="chat-search-btn"
-            pressed={searchOpen}
-            onClick={() => (searchOpen ? closeSearch() : openSearch())}
-            title={`Search this conversation (${isMac() ? '⌘' : 'Ctrl+'}F)`}
-            aria-label={narrow ? `Search in ${prefix}${display}` : 'Search this conversation'}
-            icon={<Search aria-hidden="true" />}
+        {callStrip}
+
+        {offline && (slowReconnect || needsUser) && (
+          <ConnectionStrip
+            engineState={engineState}
+            reconnectActive={reconnectActive}
+            connectionError={connectionError}
+            onReconnect={onReconnect}
+            onCancelReconnect={onCancelReconnect}
           />
-          {narrow ? (
-            <HeaderMore
-              memberCount={onShowMembers ? channel.members.length : undefined}
-              onMembers={onShowMembers}
-              onSettings={onOpenChannelSettings}
-            />
-          ) : null}
-          {!narrow && onShowMembers && (
-            <Button
-              variant="ghost"
-              size={narrow ? 'lg' : 'sm'}
-              class="chat-pane-members"
-              onClick={onShowMembers}
-              pressed={membersShown}
-              title="Members"
-              aria-label={`Members (${channel.members.length})`}
-              icon={<Users aria-hidden="true" />}
-            />
-          )}
-          {!narrow && !onShowMembers && onToggleMembers && (
-            <Button
-              variant="ghost"
-              size="sm"
-              class="chat-members-toggle"
-              pressed={!!membersShown}
-              onClick={onToggleMembers}
-              title={membersShown ? 'Hide members' : 'Show members'}
-              aria-label={`${membersShown ? 'Hide' : 'Show'} members (${channel.members.length})`}
-              icon={<Users aria-hidden="true" />}
-            />
-          )}
-          {!narrow && onOpenChannelSettings && (
-            <Button
-              variant="ghost"
-              size="sm"
-              class="chat-channel-gear"
-              onClick={onOpenChannelSettings}
-              title="Channel settings"
-              aria-label="Channel settings"
-              icon={<Settings aria-hidden="true" />}
-            />
-          )}
-        </div>
-      </div>
-      {searchOpen && (
-        <ChatSearchBar
-          query={searchQuery}
-          onQuery={onSearchQuery}
-          count={matchIds.length}
-          index={matchIndex}
-          onOlder={() => stepMatch(-1)}
-          onNewer={() => stepMatch(1)}
-          onClose={closeSearch}
-          focusSeq={searchFocus}
-          narrow={narrow}
-          history={onLoadOlder && serverInfo?.scrollbackAvailable ? {
-            loading: !!channel.history?.loading,
-            exhausted: !!channel.history?.exhausted,
-            onLoadOlder: () => onLoadOlder(channel.name),
-          } : null}
-        />
-      )}
-      {callStrip}
+        )}
 
-      {offline && (slowReconnect || needsUser) && (
-        <ConnectionStrip
-          engineState={engineState}
-          reconnectActive={reconnectActive}
-          connectionError={connectionError}
-          onReconnect={onReconnect}
-          onCancelReconnect={onCancelReconnect}
-        />
-      )}
-
-      {!offline && joining && (
-        <div class="chat-connection-strip chat-join-strip" role="status" data-state={joinError ? 'failed' : 'joining'}>
-          <StatusDot status={joinError ? 'offline' : 'accent'} size={8} pulse={!joinError} class="chat-engine-dot" />
-          <span class="chat-connection-strip-label">
-            {joinError ? `Couldn't join ${prefix}${display}` : `Joining ${prefix}${display}…`}
-          </span>
-          {joinError && <span class="chat-connection-strip-reason">{joinError}</span>}
-          {joinError && onRejoin && (
-            <span class="chat-connection-strip-actions">
-              <Button variant="secondary" size="sm" class="chat-connection-strip-btn" onClick={() => onRejoin(channel.name)}>Try again</Button>
+        {!offline && joining && (
+          <div class="chat-connection-strip chat-join-strip" role="status" data-state={joinError ? 'failed' : 'joining'}>
+            <StatusDot status={joinError ? 'offline' : 'accent'} size={8} pulse={!joinError} class="chat-engine-dot" />
+            <span class="chat-connection-strip-label">
+              {joinError ? `Couldn't join ${prefix}${display}` : `Joining ${prefix}${display}…`}
             </span>
-          )}
-        </div>
-      )}
+            {joinError && <span class="chat-connection-strip-reason">{joinError}</span>}
+            {joinError && onRejoin && (
+              <span class="chat-connection-strip-actions">
+                <Button variant="secondary" size="sm" class="chat-connection-strip-btn" onClick={() => onRejoin(channel.name)}>Try again</Button>
+              </span>
+            )}
+          </div>
+        )}
 
-      {registerPrompt && prefix === '#' && (
-        <div class="chat-connection-strip chat-reg-strip" role="status">
-          <ShieldAlert aria-hidden="true" class="chat-reg-strip-icon" />
-          <span class="chat-reg-strip-text">
-            <strong>{prefix}{display}</strong> isn't registered. When everyone leaves, whoever joins first gets operator.
-            Register it so it stays yours.
-          </span>
-          <span class="chat-connection-strip-actions">
-            <Button variant="primary" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onRegister}>Register {prefix}{display}</Button>
-            <Button variant="ghost" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onDismiss}>Not now</Button>
-          </span>
-        </div>
-      )}
+        {registerPrompt && prefix === '#' && (
+          <div class="chat-connection-strip chat-reg-strip" role="status">
+            <ShieldAlert aria-hidden="true" class="chat-reg-strip-icon" />
+            <span class="chat-reg-strip-text">
+              <strong>{prefix}{display}</strong> isn't registered. When everyone leaves, whoever joins first gets operator.
+              Register it so it stays yours.
+            </span>
+            <span class="chat-connection-strip-actions">
+              <Button variant="primary" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onRegister}>Register {prefix}{display}</Button>
+              <Button variant="ghost" size="sm" class="chat-connection-strip-btn" onClick={registerPrompt.onDismiss}>Not now</Button>
+            </span>
+          </div>
+        )}
 
-      <PendingConfirmationBanner
-        serverId={activeServerId ?? null}
-        serverName={serverName}
-        onOpenSettings={onOpenServerSettings}
-      />
-
-      <BouncerUpstreamBanner
-        serverInfo={serverInfo}
-        serverName={serverName}
-        onConnect={onBouncerConnect}
-        onTrustCert={onTrustBouncerCert}
-        onRejectCert={onRejectBouncerCert}
-      />
-
-      <MessageList
-        messages={msgSignal}
-        members={channel.members}
-        myNick={myNick}
-        scrollRef={scrollRef}
-        nickActions={rowNickActions}
-        channelName={channel.name}
-        avatarFor={avatarFor}
-        onLoadOlder={onLoadOlder ? () => onLoadOlder(channel.name) : undefined}
-        onViewport={onViewport}
-        historySupported={!!onLoadOlder && !!serverInfo?.scrollbackAvailable}
-        historyLoading={channel.history?.loading}
-        historyExhausted={channel.history?.exhausted}
-        historyError={channel.history?.error}
-        beginningNote={channel.name.startsWith('~') ? undefined : prefix === '#'
-          ? "Messages from before you joined aren't available on this server."
-          : "Earlier messages in this conversation aren't available on this server."}
-        jump={jump}
-        search={searchMarks}
-      />
-
-      <UploadProgress
-        uploads={channelUploads}
-        onCancel={(id) => files?.cancel(id)}
-        onDismiss={(id) => files?.dismiss(id)}
-        onCancelAll={serverHost && uploadTarget ? () => files?.cancelAll(serverHost, uploadTarget) : undefined}
-      />
-
-      <TypingIndicator nicks={channel.typing} />
-
-      <ChatInputBar
-        state={state}
-        bloc={bloc}
-        placeholder={joining && !offline
-          ? (joinError ? `Not in ${prefix}${display}` : `Joining ${prefix}${display}…`)
-          : `Message ${prefix}${display}`}
-        disabled={joining && !offline}
-        bannerError={bannerError}
-        onDismissBanner={onDismissBanner}
-        myNick={myNick}
-        onFiles={canUpload ? openSheet : undefined}
-        replying={replyTarget ? { nick: replyTarget.from, text: excerptOf(replyTarget.text) } : null}
-        onCancelReply={() => setReplyTarget(null)}
-      />
-      {sheetFiles && (
-        <UploadSheet
-          open
-          files={sheetFiles}
-          target={`${prefix}${display}`}
-          limits={filesAvail?.limits ?? null}
-          usage={usage}
-          homeLabel={filesAvail?.home ? filesAvail.label : undefined}
-          notice={sheetNotice}
-          onSend={sendUploads}
-          onCancel={closeSheet}
-          onAdd={openSheet}
-          onRemove={(f) => {
-            setSheetNotice(undefined);
-            setSheetFiles((fs) => {
-              const next = (fs ?? []).filter((x) => x !== f);
-              return next.length ? next : null;
-            });
-          }}
+        <PendingConfirmationBanner
+          serverId={activeServerId ?? null}
+          serverName={serverName}
+          onOpenSettings={onOpenServerSettings}
         />
-      )}
+
+        <BouncerUpstreamBanner
+          serverInfo={serverInfo}
+          serverName={serverName}
+          onConnect={onBouncerConnect}
+          onTrustCert={onTrustBouncerCert}
+          onRejectCert={onRejectBouncerCert}
+        />
+
+        <MessageList
+          messages={msgSignal}
+          members={channel.members}
+          myNick={myNick}
+          scrollRef={scrollRef}
+          nickActions={rowNickActions}
+          channelName={channel.name}
+          avatarFor={avatarFor}
+          onLoadOlder={onLoadOlder ? () => onLoadOlder(channel.name) : undefined}
+          onViewport={onViewport}
+          historySupported={!!onLoadOlder && !!serverInfo?.scrollbackAvailable}
+          historyLoading={channel.history?.loading}
+          historyExhausted={channel.history?.exhausted}
+          historyError={channel.history?.error}
+          beginningNote={channel.name.startsWith('~') ? undefined : prefix === '#'
+            ? "Messages from before you joined aren't available on this server."
+            : "Earlier messages in this conversation aren't available on this server."}
+          jump={searchJump}
+          search={searchMarks}
+          toLatest={latestSeq}
+        />
+
+        {searchJump && (
+          <div class="search-return">
+            <div class="search-return-pills">
+              {onBackToResults && (
+                <Button variant="secondary" size={narrow ? 'sm' : 'md'} class="search-return-back" onClick={onBackToResults}
+                  icon={<ArrowLeft aria-hidden="true" />}>
+                  Back to results
+                </Button>
+              )}
+              <Button variant="primary" size={narrow ? 'sm' : 'md'} class="search-return-latest"
+                onClick={() => { setLatestSeq((n) => n + 1); onDismissSearchJump?.(); }}
+                icon={<ArrowDown aria-hidden="true" />}>
+                Jump to latest
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <UploadProgress
+          uploads={channelUploads}
+          onCancel={(id) => files?.cancel(id)}
+          onDismiss={(id) => files?.dismiss(id)}
+          onCancelAll={serverHost && uploadTarget ? () => files?.cancelAll(serverHost, uploadTarget) : undefined}
+        />
+
+        <TypingIndicator nicks={channel.typing} />
+
+        <ChatInputBar
+          state={state}
+          bloc={bloc}
+          placeholder={joining && !offline
+            ? (joinError ? `Not in ${prefix}${display}` : `Joining ${prefix}${display}…`)
+            : `Message ${prefix}${display}`}
+          disabled={joining && !offline}
+          bannerError={bannerError}
+          onDismissBanner={onDismissBanner}
+          myNick={myNick}
+          onFiles={canUpload ? openSheet : undefined}
+          replying={replyTarget ? { nick: replyTarget.from, text: excerptOf(replyTarget.text) } : null}
+          onCancelReply={() => setReplyTarget(null)}
+        />
+        {sheetFiles && (
+          <UploadSheet
+            open
+            files={sheetFiles}
+            target={`${prefix}${display}`}
+            limits={filesAvail?.limits ?? null}
+            usage={usage}
+            homeLabel={filesAvail?.home ? filesAvail.label : undefined}
+            notice={sheetNotice}
+            onSend={sendUploads}
+            onCancel={closeSheet}
+            onAdd={openSheet}
+            onRemove={(f) => {
+              setSheetNotice(undefined);
+              setSheetFiles((fs) => {
+                const next = (fs ?? []).filter((x) => x !== f);
+                return next.length ? next : null;
+              });
+            }}
+          />
+        )}
+      </div>
+      {searchOpen && searchPage}
     </main>
   );
 }

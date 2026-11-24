@@ -1,7 +1,7 @@
 import { signal, type Signal } from '@preact/signals';
 import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
-import { MemoryOlderStore, type OlderStore } from '../history/older-store';
+import { MemoryOlderStore, lineIdentity, type OlderStore } from '../history/older-store';
 import { containsNickMention } from './mention';
 import type { NotifyEvent } from '../ui/notifier';
 import {
@@ -140,6 +140,32 @@ function stripPending(m: ChatMessage): ChatMessage {
 // Default chathistory request size (messages per page), capped by the
 // server's CHATHISTORY=<max> ISUPPORT token when smaller.
 const CHATHISTORY_REQUEST_LIMIT = 50;
+// Search's history requests (fetchHistory): the most asked for at once when
+// the server doesn't say its own maximum (ISUPPORT CHATHISTORY=<max>), and
+// how long one waits for its batch.
+const HISTORY_QUERY_DEFAULT_LIMIT = 100;
+const HISTORY_QUERY_TIMEOUT_MS = 15_000;
+
+// A CHATHISTORY batch being received: the conversation's own backlog
+// (latest / before), or a search's request (query), which goes back to
+// whoever asked instead of into the conversation.
+interface HistoryBatch {
+  target: string;
+  kind: 'latest' | 'before' | 'query';
+  msgs: ChatMessage[];
+  query?: HistoryQuery;
+}
+
+interface HistoryQuery {
+  seq: number;
+  target: string;
+  resolve: (msgs: ChatMessage[]) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** Where a fetchHistory page starts: before / around a message, by msgid or time. */
+export type HistoryRef = { msgid: string } | { timestamp: number };
 // On attach, private conversations with activity this recent get their
 // backlog pulled too (CHATHISTORY TARGETS). Channels come from their JOIN.
 const DM_BACKLOG_WINDOW_MS = 30 * 24 * 60 * 60_000;
@@ -381,7 +407,7 @@ export class ChatService {
   private clockOffset = 0;
   // ---- Chathistory (IRCv3 backlog/scrollback) -------------------------
   // Active BATCH refs → buffered history messages, keyed by the batch ref.
-  private readonly batches = new Map<string, { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] }>();
+  private readonly batches = new Map<string, HistoryBatch>();
   // Channels we've already auto-requested LATEST backlog for (once per open).
   private readonly historyRequested = new Set<string>();
   // Set once the server 421s a CHATHISTORY command (advertised the cap but
@@ -408,8 +434,15 @@ export class ChatService {
   // ZNC playback: `PLAY *` went out for this attach, covering every buffer
   // (channels and queries), so per-JOIN requests would only repeat it.
   private playedAll = false;
-  // Per-channel kind of the in-flight request, read when its BATCH starts.
+  // Per-channel kind of the in-flight request, read when its BATCH starts,
+  // and when it went out (historySeq), to tell it apart from a search's.
   private readonly pendingHistoryKind = new Map<string, 'latest' | 'before'>();
+  private readonly pendingHistorySeq = new Map<string, number>();
+  private historySeq = 0;
+  // Search's own history requests (fetchHistory), per lowercased target,
+  // oldest first: answered in batches of their own, kept out of the
+  // conversation.
+  private readonly historyQueries = new Map<string, HistoryQuery[]>();
   // Per-channel watchdog for an in-flight scroll-back request. If the server
   // never answers (no BATCH at all), this fires and surfaces an error in the
   // ribbon instead of leaving the spinner stuck. Cleared when a flush resolves.
@@ -835,6 +868,7 @@ export class ChatService {
     this.namesRetryCount.clear();
     for (const t of this.loadOlderTimers.values()) clearTimeout(t);
     this.loadOlderTimers.clear();
+    this.failHistoryQueries(() => true, 'Disconnected');
     for (const t of this.rejoinTimers.values()) clearTimeout(t);
     this.rejoinTimers.clear();
     if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
@@ -3028,14 +3062,23 @@ export class ChatService {
           const type = args[1] ?? '';
           const target = args[2] ?? '';
           if (type === 'chathistory' || type === 'draft/chathistory' || type === 'znc.in/playback') {
-            const kind = this.pendingHistoryKind.get(this.channelKey(target)) ?? 'latest';
-            this.batches.set(ref.slice(1), { target, kind, msgs: [] });
+            const query = this.takeHistoryQuery(target);
+            if (query) {
+              this.batches.set(ref.slice(1), { target, kind: 'query', msgs: [], query });
+            } else {
+              const kind = this.pendingHistoryKind.get(this.channelKey(target)) ?? 'latest';
+              this.batches.set(ref.slice(1), { target, kind, msgs: [] });
+            }
           } else if (type === 'chathistory-targets' || type === 'draft/chathistory-targets') {
             this.targetBatches.set(ref.slice(1), []);
           }
         } else if (ref.startsWith('-')) {
           const batch = this.batches.get(ref.slice(1));
-          if (batch) { this.batches.delete(ref.slice(1)); this.flushHistoryBatch(batch); }
+          if (batch) {
+            this.batches.delete(ref.slice(1));
+            if (batch.query) this.settleHistoryQuery(batch.query, [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp));
+            else this.flushHistoryBatch(batch);
+          }
           const targets = this.targetBatches.get(ref.slice(1));
           if (targets) { this.targetBatches.delete(ref.slice(1)); this.requestTargetsBacklog(targets); }
         }
@@ -3079,6 +3122,15 @@ export class ChatService {
         this.emitFeedback({ kind: 'error', text: reason ?? `Cannot join ${chan}: ${e.Message || 'refused by the server'}` });
         break;
       }
+      case 'FAIL': {
+        // A CHATHISTORY request refused (FAIL CHATHISTORY <code> … <target>
+        // :<why>): a search's request for that target gives up.
+        if ((e.Args?.[0] ?? '').toUpperCase() === 'CHATHISTORY') {
+          const args = new Set((e.Args ?? []).map((a) => a.toLowerCase()));
+          this.failHistoryQueries((q) => args.has(q.target), e.Message || 'The server refused the history request');
+        }
+        break;
+      }
       case '421': {
         // ERR_UNKNOWNCOMMAND. If it's for CHATHISTORY, the server advertised
         // the cap but doesn't implement the command (e.g. ZNC < 1.8 relaying
@@ -3088,6 +3140,7 @@ export class ChatService {
           for (const ch of this.channels.values()) {
             if (ch.history?.loading) ch.history = { loading: false, exhausted: true };
           }
+          this.failHistoryQueries(() => true, 'This server does not support CHATHISTORY');
           this.emit();
         }
         break;
@@ -3753,6 +3806,7 @@ export class ChatService {
       this.older.drop(key);
       this.revealed.delete(key);
       this.pendingHistoryKind.delete(key);
+      this.pendingHistorySeq.delete(key);
       this.clearLoadOlderTimeout(key);
       if (this.activeChannel === key) {
         // Fall back to another conversation the user can see — never the
@@ -3822,6 +3876,7 @@ export class ChatService {
   private requestAttachBacklog(): void {
     this.historyRequested.clear();
     this.batches.clear();
+    this.failHistoryQueries(() => true, 'Reconnected before the server answered');
     this.targetBatches.clear();
     this.playedAll = false;
     if (this.chathistorySupported()) {
@@ -3855,15 +3910,135 @@ export class ChatService {
     if (this.historyRequested.has(key)) return;
     if (this.chathistorySupported()) {
       this.historyRequested.add(key);
-      this.pendingHistoryKind.set(key, 'latest');
+      this.expectHistory(key, 'latest');
       this.session.raw(`CHATHISTORY LATEST ${target} * ${this.chathistoryLimit()}`);
     } else if (this.playbackSupported()) {
       this.historyRequested.add(key);
       // Already on its way in the attach's `PLAY *`.
       if (this.playedAll) return;
-      this.pendingHistoryKind.set(key, 'latest');
+      this.expectHistory(key, 'latest');
       this.session.privmsg('*playback', `PLAY ${target} 0`);
     }
+  }
+
+  // A request for a conversation's own backlog is going out: its batch is
+  // the next one for that target (unless a search asked first).
+  private expectHistory(key: string, kind: 'latest' | 'before'): void {
+    this.pendingHistoryKind.set(key, kind);
+    this.pendingHistorySeq.set(key, ++this.historySeq);
+  }
+
+  // ---- Search's history requests ----
+  //
+  // The full-page search pages back through the server's history on its
+  // own: each request is answered in a batch of its own, handed back to the
+  // caller and kept OUT of the conversation (no unread counts, no
+  // persistence, the view untouched). Only CHATHISTORY goes to the server:
+  // the query itself never leaves the device.
+
+  /** How many messages one fetchHistory request may ask for (the server's CHATHISTORY maximum, when it says). */
+  historyQueryLimit(): number {
+    const max = this.serverInfo.chathistoryMax;
+    return max && max > 0 ? max : HISTORY_QUERY_DEFAULT_LIMIT;
+  }
+
+  /**
+   * One page of `target`'s server history, oldest first: CHATHISTORY BEFORE
+   * (older than `ref`) or AROUND (centred on it). Rejects without
+   * CHATHISTORY, on a 421 / FAIL, a reconnect, or no answer in time.
+   */
+  fetchHistory(target: string, sub: 'BEFORE' | 'AROUND', ref: HistoryRef, limit: number): Promise<ChatMessage[]> {
+    if (!this.chathistorySupported()) return Promise.reject(new Error('This server does not keep history'));
+    const n = Math.max(1, Math.min(Math.floor(limit), this.historyQueryLimit()));
+    const refArg = 'msgid' in ref ? `msgid=${ref.msgid}` : `timestamp=${new Date(ref.timestamp).toISOString()}`;
+    const lower = target.toLowerCase();
+    return new Promise<ChatMessage[]>((resolve, reject) => {
+      const q: HistoryQuery = {
+        seq: ++this.historySeq,
+        target: lower,
+        resolve,
+        reject,
+        timer: setTimeout(() => {
+          this.dropHistoryQuery(q);
+          reject(new Error('No response from server'));
+        }, HISTORY_QUERY_TIMEOUT_MS),
+      };
+      const list = this.historyQueries.get(lower) ?? [];
+      list.push(q);
+      this.historyQueries.set(lower, list);
+      this.session.raw(`CHATHISTORY ${sub} ${target} ${refArg} ${n}`);
+    });
+  }
+
+  // The search request a chathistory batch for `target` answers, if it's
+  // the oldest request still waiting for that target.
+  private takeHistoryQuery(target: string): HistoryQuery | undefined {
+    const lower = target.toLowerCase();
+    const q = this.historyQueries.get(lower)?.[0];
+    if (!q) return undefined;
+    const key = this.channelKey(target);
+    const own = this.pendingHistoryKind.has(key) ? this.pendingHistorySeq.get(key) ?? 0 : Infinity;
+    if (own < q.seq) return undefined;
+    this.dropHistoryQuery(q);
+    return q;
+  }
+
+  private dropHistoryQuery(q: HistoryQuery): void {
+    clearTimeout(q.timer);
+    const list = this.historyQueries.get(q.target);
+    if (!list) return;
+    const i = list.indexOf(q);
+    if (i >= 0) list.splice(i, 1);
+    if (list.length === 0) this.historyQueries.delete(q.target);
+  }
+
+  private settleHistoryQuery(q: HistoryQuery, msgs: ChatMessage[]): void {
+    clearTimeout(q.timer);
+    q.resolve(msgs);
+  }
+
+  private failHistoryQueries(which: (q: HistoryQuery) => boolean, reason: string): void {
+    for (const list of Array.from(this.historyQueries.values())) {
+      for (const q of [...list]) {
+        if (!which(q)) continue;
+        this.dropHistoryQuery(q);
+        q.reject(new Error(reason));
+      }
+    }
+  }
+
+  /**
+   * Put lines from search's history into the conversation (opening a
+   * result there): merged in by time, without the copies already shown,
+   * kept in memory while the user reads them (like a scroll-back page),
+   * not counted as unread and not saved. Returns the conversation's own id
+   * for `focus` (its copy there), or null when it isn't shown.
+   */
+  revealHistory(channel: string, msgs: readonly ChatMessage[], focus: ChatMessage): string | null {
+    const key = this.channelKey(channel);
+    const ch = this.channels.get(key);
+    if (!ch) return null;
+    const ids = new Set<string>();
+    const fresh = msgs.filter((m) => {
+      const id = lineIdentity(m);
+      if (ids.has(id) || this.isDuplicateMessage(ch, m)) return false;
+      ids.add(id);
+      return true;
+    }).map(stripPending);
+    if (fresh.length > 0) {
+      const merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
+      this.revealed.set(key, (this.revealed.get(key) ?? 0) + fresh.length);
+      ch.messages.value = merged;
+      this.emit();
+    }
+    const shown = ch.messages.peek();
+    for (let i = shown.length - 1; i >= 0; i--) {
+      const m = shown[i]!;
+      if (m.id === focus.id) return m.id;
+      if (focus.msgid && m.msgid) { if (m.msgid === focus.msgid) return m.id; continue; }
+      if (m.from === focus.from && m.text === focus.text && sameTime(m, focus)) return m.id;
+    }
+    return null;
   }
 
   // Arm the scroll-back watchdog for a channel: if no flush resolves the
@@ -3906,7 +4081,7 @@ export class ChatService {
       if (!first) return; // nothing to anchor before yet
       const pivot = new Date(first.timestamp).toISOString();
       ch.history = { loading: true, exhausted: false };
-      this.pendingHistoryKind.set(key, 'before');
+      this.expectHistory(key, 'before');
       this.armLoadOlderTimeout(key);
       this.emit();
       this.session.raw(`CHATHISTORY BEFORE ${ch.name} timestamp=${pivot} ${this.chathistoryLimit()}`);
@@ -3917,7 +4092,7 @@ export class ChatService {
       if (!first) return;
       const toSec = Math.floor(first.timestamp / 1000);
       ch.history = { loading: true, exhausted: false };
-      this.pendingHistoryKind.set(key, 'before');
+      this.expectHistory(key, 'before');
       this.armLoadOlderTimeout(key);
       this.emit();
       this.session.privmsg('*playback', `PLAY ${ch.name} 0 ${toSec}`);
@@ -4054,7 +4229,7 @@ export class ChatService {
 
   // Buffer one message that arrived inside an active chathistory BATCH.
   private bufferHistoryMessage(
-    batch: { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] },
+    batch: HistoryBatch,
     e: IrcEvent,
   ): void {
     // Replayed lines carry the sender's prefix too: remember it, as of then.
@@ -4113,7 +4288,7 @@ export class ChatService {
   // server returned a short page). A scroll-back page lands above what's
   // shown; an attach's backlog can be newer than lines carried over from
   // before the reconnect, so it is merged, not just prepended.
-  private flushHistoryBatch(batch: { target: string; kind: 'latest' | 'before'; msgs: ChatMessage[] }): void {
+  private flushHistoryBatch(batch: HistoryBatch): void {
     const ch = this.ensureChannel(batch.target);
     const key = this.channelKey(batch.target);
     const sorted = [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp);
@@ -4137,6 +4312,7 @@ export class ChatService {
       exhausted: this.older.has(key) ? false : serverHistory ? batch.msgs.length < this.chathistoryLimit() : true,
     };
     this.pendingHistoryKind.delete(key);
+    this.pendingHistorySeq.delete(key);
     this.clearLoadOlderTimeout(key);
     this.emit();
     // Persist the backlog so it survives reconnects / offline. Skipped on
