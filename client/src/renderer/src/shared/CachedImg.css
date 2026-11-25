@@ -1,0 +1,52 @@
+/* An inline image's frame (CachedImg.tsx ImageFrame): sized before the
+   image loads, so nothing around it moves when it lands. While it loads,
+   a surface-coloured box with the design system's shimmer bar along its
+   foot. */
+.img-frame {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-sizing: content-box;
+}
+.img-frame > .img-frame-img {
+  max-width: none;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+  background: none;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+.img-frame[data-state='loaded'] > .img-frame-img { opacity: 1; }
+/* A guessed frame, once its image is in: just the image (its height kept,
+   letterboxed when it's shorter). */
+.img-frame[data-reserved='guess'][data-state='loaded'] {
+  border-color: transparent;
+  background: transparent;
+}
+.img-frame[data-reserved='guess'] > .img-frame-img { object-position: left top; }
+.img-frame-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.img-frame-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-3);
+  font-size: var(--text-xs);
+}

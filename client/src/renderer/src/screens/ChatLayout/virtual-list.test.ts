@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { bottomOf, captureAnchor, DEFAULT_ROW_HEIGHT, HeightCache, Layout, restoreAnchor } from './virtual-list';
+import {
+  bottomOf, captureAnchor, DEFAULT_ROW_HEIGHT, HeightCache, Layout, placeAnchored, restoreAnchor, userAtBottom,
+} from './virtual-list';
 
 const keys = (n: number, from = 0) => Array.from({ length: n }, (_, i) => `m${i + from}`);
 
@@ -97,5 +99,52 @@ describe('anchoring', () => {
   it('bottom', () => {
     expect(bottomOf(1000, 300)).toBe(700);
     expect(bottomOf(100, 300)).toBe(0);
+  });
+});
+
+describe('placeAnchored: keeping the reader\'s row without fighting their scroll', () => {
+  const base = { scrollTop: 1000, skew: 0, topPad: 600, start: 10 };
+
+  it('not scrolling: moves scrollTop to the row (and no skew)', () => {
+    expect(placeAnchored({ ...base, target: 1040, active: false })).toEqual({ scrollTop: 1040, skew: 0 });
+    expect(placeAnchored({ ...base, target: 1000.3, active: false })).toEqual({ scrollTop: null, skew: 0 });
+  });
+
+  it('mid-scroll: the top spacer takes the difference, scrollTop is left alone', () => {
+    // Rows above came in 40px taller than estimated: the model's target is
+    // 40px further down; the spacer grows 40px less → skew −40.
+    expect(placeAnchored({ ...base, target: 1040, active: true })).toEqual({ scrollTop: null, skew: -40 });
+    // Shorter than estimated: skew +25.
+    expect(placeAnchored({ ...base, target: 975, active: true })).toEqual({ scrollTop: null, skew: 25 });
+    // Already in place with the skew it has: nothing changes.
+    expect(placeAnchored({ ...base, target: 1040, skew: -40, active: true })).toEqual({ scrollTop: null, skew: -40 });
+  });
+
+  it('settles once the scroll stops: skew gone, scrollTop moved by it in one write', () => {
+    // Skew −40 kept the row at 1000 on screen; the model has it at 1040.
+    expect(placeAnchored({ ...base, target: 1040, skew: -40, active: false })).toEqual({ scrollTop: 1040, skew: 0 });
+  });
+
+  it('writes instead when the spacer can\'t take it (or there is none)', () => {
+    // The spacer would go below zero.
+    expect(placeAnchored({ ...base, topPad: 30, target: 1040, active: true })).toEqual({ scrollTop: 1040, skew: 0 });
+    // The first row is rendered: a skew would be a gap above it.
+    expect(placeAnchored({ ...base, start: 0, target: 1040, skew: -10, active: true })).toEqual({ scrollTop: 1040, skew: 0 });
+  });
+
+  it('no anchor: settles any skew in place', () => {
+    expect(placeAnchored({ ...base, target: null, skew: 30, active: true })).toEqual({ scrollTop: 970, skew: 0 });
+    expect(placeAnchored({ ...base, target: null, active: true })).toEqual({ scrollTop: null, skew: 0 });
+  });
+});
+
+describe('userAtBottom', () => {
+  it('scrolling up leaves the bottom at once, even inside the slack', () => {
+    expect(userAtBottom(4, true, 24)).toBe(false);
+    expect(userAtBottom(0.5, true, 24)).toBe(true);
+  });
+  it('scrolling down reaches it within the slack', () => {
+    expect(userAtBottom(20, false, 24)).toBe(true);
+    expect(userAtBottom(30, false, 24)).toBe(false);
   });
 });

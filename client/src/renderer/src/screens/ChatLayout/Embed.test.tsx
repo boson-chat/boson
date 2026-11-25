@@ -4,10 +4,12 @@ import { join, resolve } from 'node:path';
 import { render, screen, fireEvent, act } from '@testing-library/preact';
 import { MessageEmbeds, youtubeWrapperOrigin, YOUTUBE_WRAPPER_TIMEOUT_MS } from './Embed';
 import { setEmbedSettings, __resetEmbedSettingsCache } from '../../modules/ui/embeds.store';
+import { clearEmbedMemo } from '../../shared/embed-memo';
 
 beforeEach(() => {
   localStorage.clear();
   __resetEmbedSettingsCache();
+  clearEmbedMemo();
   // Default is auto-load; most of these tests exercise the click-to-load flow,
   // so opt into it explicitly. The auto-load test overrides this.
   setEmbedSettings({ loadMode: 'click' });

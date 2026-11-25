@@ -5,6 +5,7 @@ import (
 	"html"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +20,10 @@ type OgCard struct {
 	SiteName    string `json:"siteName,omitempty"`
 	Author      string `json:"author,omitempty"`
 	Date        string `json:"date,omitempty"` // ISO 8601, when the page has one
+	// The image's size (og:image:width / og:image:height), when the page
+	// says: the renderer reserves the card image's box before it loads.
+	ImageWidth  int `json:"imageWidth,omitempty"`
+	ImageHeight int `json:"imageHeight,omitempty"`
 }
 
 // UnfurlService fetches link previews for the renderer, which can't fetch
@@ -125,6 +130,12 @@ func parseOg(doc, pageURL string) OgCard {
 	card.Description = first(metaContent(doc, "og:description"), metaContent(doc, "description"))
 	card.Image = absolutize(first(metaContent(doc, "og:image"), metaContent(doc, "twitter:image")), pageURL)
 	card.SiteName = metaContent(doc, "og:site_name")
+	if card.Image != "" {
+		w, h := dimension(metaContent(doc, "og:image:width")), dimension(metaContent(doc, "og:image:height"))
+		if w > 0 && h > 0 {
+			card.ImageWidth, card.ImageHeight = w, h
+		}
+	}
 	author := ""
 	if m := authorStrRe.FindStringSubmatch(doc); m != nil {
 		author = m[1]
@@ -137,6 +148,16 @@ func parseOg(doc, pageURL string) OgCard {
 	card.Date = first(metaContent(doc, "article:published_time"), metaContent(doc, "og:article:published_time"),
 		tagContent(doc, metaRe("itemprop", "datePublished")), jsonStr(doc, "uploadDate"), jsonStr(doc, "datePublished"))
 	return card
+}
+
+// dimension reads a positive pixel size ("1200", "630px"); 0 otherwise.
+func dimension(v string) int {
+	v = strings.TrimSuffix(strings.TrimSpace(v), "px")
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 || n > 100_000 {
+		return 0
+	}
+	return n
 }
 
 // absolutize resolves a possibly relative image URL against the page; only

@@ -813,6 +813,19 @@ function chatView(): void {
   session.emit(pm('orbit', 'and a quick walkthrough of the release: https://www.youtube.com/watch?v=dQw4w9WgXcQ', 3));
   session.emit(pm('nova', `${NICK}: are you around? wanted your eyes on the \`#ops\` topic before we cut the build`, 1, { msgid: 'm-mention' }));
 
+  // &scroll=N: N more lines, every third one an image from img.test (the
+  // scroll-stability spec serves those, late), the last one an image too.
+  const scrollLines = Number(q0.get('scroll') ?? 0);
+  for (let i = 0; i < scrollLines; i++) {
+    const who = ['kestrel', 'pixel', 'orbit', 'mox'][i % 4]!;
+    const text = i === scrollLines - 1 || i % 3 === 1
+      ? `shot ${i}: https://img.test/pic-${i}.png`
+      : i % 5 === 0
+        ? `line ${i}: a longer one that wraps onto a second line on most widths, about the relay build and what changed since the last cut of it`
+        : `line ${i}`;
+    session.emit(pm(who, text, 0.5 - i / (scrollLines * 4), { msgid: `sc-${i}` }));
+  }
+
   // Friends: a couple of direct messages (MY lists them).
   if (friendsMode) {
     session.emit({ Kind: 'PRIVMSG', From: 'mox', Target: NICK, Message: 'pairing on the relay later?', Tags: { time: min(20) }, Raw: '' });
@@ -872,8 +885,12 @@ function chatView(): void {
     const el = document.querySelector('.chat-messages');
     if (el) el.scrollTop = el.scrollHeight;
   };
-  setTimeout(pin, 400);
-  setTimeout(pin, 1200);
+  // (Not with &scroll=: those specs scroll it themselves, and the list
+  // keeps itself at the bottom.)
+  if (!scrollLines) {
+    setTimeout(pin, 400);
+    setTimeout(pin, 1200);
+  }
 }
 
 // The app frame for &frame=1: the title bar (bell, avatar) above the layout,

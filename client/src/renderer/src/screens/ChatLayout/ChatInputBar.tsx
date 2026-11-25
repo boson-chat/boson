@@ -84,7 +84,10 @@ export function ChatInputBar({
     return () => document.removeEventListener('mousedown', onDown);
   }, [emojiOpen]);
 
-  useEffect(() => {
+  // Before paint: the composer is its new height in the same frame as the
+  // text (the message list above shrinks or grows with it, and stays at
+  // the bottom), not a frame later.
+  useLayoutEffect(() => {
     autoResize(textareaRef.current);
   }, [state.input]);
 
@@ -352,6 +355,23 @@ export function ChatInputBar({
 
 export function autoResize(el: HTMLTextAreaElement | null) {
   if (!el) return;
+  // Measuring sets the height to auto for a moment. That shrank the whole
+  // composer to one line and grew the message list above it for that
+  // moment, and the list's scrollTop was clamped to fit: sent back up from
+  // the bottom by the growth of the composer it should have stayed above.
+  // Holding the box around the textarea at its height while measuring
+  // keeps the rest of the layout where it is.
+  const hold = el.parentElement;
+  const held = hold ? hold.style.minHeight : '';
+  if (hold) hold.style.minHeight = `${hold.getBoundingClientRect().height}px`;
+  try {
+    measure(el);
+  } finally {
+    if (hold) hold.style.minHeight = held;
+  }
+}
+
+function measure(el: HTMLTextAreaElement): void {
   // Empty: fall back to the CSS min-height (one line). Chromium counts the
   // placeholder in scrollHeight, so measuring an empty textarea while its
   // column is still narrow wraps the placeholder per character and pins the

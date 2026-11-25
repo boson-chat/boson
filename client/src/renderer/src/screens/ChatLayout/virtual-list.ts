@@ -135,3 +135,60 @@ export function restoreAnchor(layout: Layout, anchor: Anchor | null): number | n
 export function bottomOf(scrollHeight: number, clientHeight: number): number {
   return Math.max(0, scrollHeight - clientHeight);
 }
+
+// ---- keeping the place without fighting the user's scroll ----
+//
+// Rows above the viewport change height as the user scrolls back (rows
+// measured for the first time, unlike the estimate they were laid out at).
+// Keeping the reader's row in place then takes a scrollTop write, and a
+// write in the middle of the user's own scroll is what made it skip: it
+// cancels the browser's smooth wheel / keyboard scroll animation (Chromium,
+// WebView2), races the scrolling thread (WebKit: the next wheel delta lands
+// on the old position), and stops a fling on iOS. So while the user is
+// scrolling the difference goes into the top spacer instead ("skew": how
+// much taller it is than the rows it stands for), which keeps the row where
+// it is without touching scrollTop; once they've stopped, the spacer is set
+// right and scrollTop moved by the same amount in one go (nothing on
+// screen moves).
+
+export interface PlaceArgs {
+  // The scroller's scrollTop now (the DOM's: model + skew).
+  scrollTop: number;
+  // The scrollTop (DOM) that keeps the anchor row in place with no skew
+  // (restoreAnchor), or null when there's no anchor to keep.
+  target: number | null;
+  // The top spacer's current skew.
+  skew: number;
+  // The top spacer's height in the model (the rows above `start`).
+  topPad: number;
+  // The first row in the DOM (0: no rows above it stand in a spacer, so a
+  // skew would show as a gap above the first row).
+  start: number;
+  // The user is scrolling right now (a finger down, a wheel / key / drag
+  // scroll within the last moment).
+  active: boolean;
+}
+
+export interface Placement {
+  // The scrollTop to write, or null to leave it.
+  scrollTop: number | null;
+  skew: number;
+}
+
+export function placeAnchored({ scrollTop, target, skew, topPad, start, active }: PlaceArgs): Placement {
+  const write = (to: number): Placement => ({ scrollTop: Math.abs(to - scrollTop) > 0.5 ? to : null, skew: 0 });
+  if (target === null) return skew === 0 ? { scrollTop: null, skew: 0 } : write(Math.max(0, scrollTop - skew));
+  if (active && start > 0) {
+    const next = scrollTop - target;
+    if (topPad + next >= 0) return { scrollTop: null, skew: Math.abs(next - skew) <= 0.5 ? skew : next };
+  }
+  return write(Math.max(0, target));
+}
+
+// Whether the user's own scroll leaves the list at the bottom. Scrolling
+// up leaves it as soon as it moves (a slow trackpad scroll moves a few px
+// at a time: within the slack it was pulled back down on every frame and
+// never got away); scrolling down to within `slack` of the end reaches it.
+export function userAtBottom(distance: number, movedUp: boolean, slack: number): boolean {
+  return movedUp ? distance <= 1 : distance <= slack;
+}
