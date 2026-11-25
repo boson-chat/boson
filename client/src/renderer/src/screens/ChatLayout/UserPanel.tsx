@@ -52,6 +52,9 @@ interface HoverState {
 // passing through a row doesn't flash a card.
 const HOVER_OPEN_DELAY_MS = 150;
 
+// Only channels have members; a DM (a person, a service, ~server) has none to load.
+const isChannelName = (name: string): boolean => name.startsWith('#') || name.startsWith('&');
+
 export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: UserPanelProps) {
   const [hover, setHover] = useState<HoverState | null>(null);
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
@@ -105,7 +108,10 @@ export function UserPanel({ channel, nickActions, avatarFor, width, onBack }: Us
         {!channel && (
           <EmptyState class="user-panel-placeholder">No channel selected.</EmptyState>
         )}
-        {channel && total === 0 && (
+        {channel && !isChannelName(channel.name) && (
+          <EmptyState class="user-panel-placeholder">A direct message has no member list.</EmptyState>
+        )}
+        {channel && isChannelName(channel.name) && total === 0 && (
           <div class="user-panel-loading">
             <AtomLoader size={26} label="Loading members" />
             <span>Loading members…</span>

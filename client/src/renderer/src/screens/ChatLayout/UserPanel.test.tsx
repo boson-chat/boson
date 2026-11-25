@@ -271,3 +271,16 @@ describe('UserPanel on a phone', () => {
     expect(document.querySelector('.bds-sheet')).toBeNull();
   });
 });
+
+describe('UserPanel outside channels', () => {
+  it('a DM (here a service) has no member list, so nothing loads forever', () => {
+    render(<UserPanel channel={makeChannel({ name: 'NickServ' })} />);
+    expect(screen.queryByText('Loading members…')).toBeNull();
+    expect(screen.getByText('A direct message has no member list.')).toBeTruthy();
+  });
+
+  it('a channel still waiting for its NAMES shows the loader', () => {
+    render(<UserPanel channel={makeChannel({ name: '#general' })} />);
+    expect(screen.getByText('Loading members…')).toBeTruthy();
+  });
+});

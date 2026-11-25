@@ -786,7 +786,7 @@ export function ChatLayout({
                 : myView === 'calls' ? calls('desktop')
                   : chatArea}
             {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, null) : null)
-              : myView === 'chat' ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null}
+              : myView === 'chat' ? (!active || isChannel ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null) : null}
             <ScreenPicker />
           </>
         ) : <>
@@ -807,7 +807,7 @@ export function ChatLayout({
               voice channel's text chat, if it has one. */}
           {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, membersHandle) : null)
             : prejoinOpen ? rightPanel(<PreJoinPeople avatarFor={avatarFor} width={membersW} />, membersHandle)
-              : rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen)}
+              : (!active || isChannel ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null)}
           <ScreenPicker />
         </>
       )}
