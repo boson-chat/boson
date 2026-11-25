@@ -62,6 +62,7 @@ export const DEVICE_KEYS: KeySet = {
     'boson:privacy:v1', // remember hosts / show hosts
     'boson:embeds:v1', // link preview preferences
     'boson:voice-servers:v1', // cache of networks' public boson.json (web)
+    'boson:services-verdict:v1', // which services package each network runs
   ],
   secure: [],
 };

@@ -548,3 +548,21 @@ func TestTranslate_MarkreadForwardsTargetAndTimestamp(t *testing.T) {
 	assert.Equal(t, "alice", unknown.Target)
 	assert.Equal(t, "timestamp=*", unknown.Message)
 }
+
+// Config.ServicesFramework seeds the verdict (no probe on welcome).
+func TestNew_SeedsServicesFramework(t *testing.T) {
+	c, err := New(Config{Hostname: "irc", Port: 6697, Nick: "alice", ServicesFramework: FrameworkAtheme})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Services(); got != FrameworkAtheme {
+		t.Fatalf("Services() = %q, want atheme", got)
+	}
+	c2, err := New(Config{Hostname: "irc", Port: 6697, Nick: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c2.Services(); got != "" {
+		t.Fatalf("unseeded Services() = %q, want empty", got)
+	}
+}

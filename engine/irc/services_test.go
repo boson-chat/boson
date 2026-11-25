@@ -335,3 +335,65 @@ func TestServicesState_TimeoutFallbackSkipsIfAlreadyClassified(t *testing.T) {
 		t.Fatalf("expected one verdict (atheme), got %v", verdicts)
 	}
 }
+
+// A verdict remembered from an earlier connection: no probe traffic on
+// welcome (only the auto-IDENTIFY), and the verdict is announced instead.
+func TestServicesState_SeededVerdictSkipsProbe(t *testing.T) {
+	s := newServicesState()
+	s.setNickservPassword("hunter2")
+	var got []ServicesFramework
+	s.setOnChange(func(fw ServicesFramework) { got = append(got, fw) })
+	s.seed(FrameworkAnope)
+
+	var sends []string
+	var scheduled int
+	s.onWelcome(
+		func(target, body string) { sends = append(sends, target+" "+body) },
+		func(time.Duration, func()) { scheduled++ },
+	)
+	if len(sends) != 1 || sends[0] != "NickServ IDENTIFY hunter2" {
+		t.Fatalf("sends = %q, want only the IDENTIFY", sends)
+	}
+	if scheduled != 0 {
+		t.Fatalf("scheduled %d probe timers, want none", scheduled)
+	}
+	if len(got) != 1 || got[0] != FrameworkAnope {
+		t.Fatalf("announced %v, want [anope]", got)
+	}
+	if s.snapshot() != FrameworkAnope {
+		t.Fatalf("framework = %q", s.snapshot())
+	}
+	// A 001 re-emit announces nothing more.
+	s.onWelcome(func(target, body string) { sends = append(sends, target+" "+body) }, func(time.Duration, func()) {})
+	if len(got) != 1 || len(sends) != 1 {
+		t.Fatalf("re-welcome: announced %v, sends %q", got, sends)
+	}
+}
+
+// "unknown" (or junk) isn't a verdict worth trusting: probe as before.
+func TestServicesState_SeedUnknownStillProbes(t *testing.T) {
+	for _, fw := range []ServicesFramework{FrameworkUnknown, "", "bogus"} {
+		s := newServicesState()
+		s.seed(fw)
+		var sends []string
+		s.onWelcome(func(target, body string) { sends = append(sends, target+" "+body) }, func(time.Duration, func()) {})
+		if len(sends) != 3 || sends[0] != "NickServ VERSION" {
+			t.Fatalf("seed %q: sends = %q, want the VERSION probes", fw, sends)
+		}
+		if s.snapshot() != "" {
+			t.Fatalf("seed %q: framework = %q, want unclassified", fw, s.snapshot())
+		}
+	}
+}
+
+// The extra service nicks count as services.
+func TestIsServiceSender_ExtraServices(t *testing.T) {
+	for _, n := range []string{"Global", "InfoServ", "StatServ", "ALIS", "ChanFix", "SpamServ", "irc.rizon.cc"} {
+		if !IsServiceSender(n) {
+			t.Errorf("IsServiceSender(%q) = false", n)
+		}
+	}
+	if IsServiceSender("py-ctcp") {
+		t.Error("py-ctcp is an ordinary nick")
+	}
+}

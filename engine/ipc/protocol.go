@@ -33,6 +33,10 @@ type ConnectParams struct {
 	// reconnect. When non-empty the engine auto-sends NickServ IDENTIFY
 	// after RPL_WELCOME. Omit / empty to disable.
 	NickservPassword string `json:"nickservPassword,omitempty"`
+	// ServicesFramework: the services package (atheme / anope / ergo) an
+	// earlier connection to this server detected; skips the detection
+	// probe on welcome. Empty or "unknown": probe as before.
+	ServicesFramework string `json:"servicesFramework,omitempty"`
 	// ServerPass is the IRC PASS line for bouncer auth (ZNC:
 	// "username[/network]:password"), sent before registration. Empty for
 	// direct connections. Sensitive — never logged.

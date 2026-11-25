@@ -35,6 +35,11 @@ type Config struct {
 	// Stored plain-text on the renderer side and passed down on each
 	// connect / reconnect.
 	NickservPassword string
+	// ServicesFramework: the services package an earlier connection to this
+	// network detected (atheme / anope / ergo). When set, the welcome probe
+	// (VERSION, then HELP, to NickServ/ChanServ/HostServ) isn't sent. Empty
+	// or "unknown" probes as before.
+	ServicesFramework ServicesFramework
 	// ServerPass, when non-empty, is sent as the IRC PASS line before
 	// registration (girc.Config.ServerPass). Used for bouncer auth — ZNC
 	// expects `username[/network]:password`. girc marks the PASS event
@@ -284,6 +289,7 @@ func New(cfg Config) (*Client, error) {
 	c.sendq.unpaced = c.bouncerLocal
 	c.installCTCPReplies()
 	c.services.setNickservPassword(cfg.NickservPassword)
+	c.services.seed(cfg.ServicesFramework)
 	c.bouncer.send = c.sendRawLine
 	c.bouncer.after = c.afterConnLifetime
 	c.bouncer.selfNick = c.girc.GetNick

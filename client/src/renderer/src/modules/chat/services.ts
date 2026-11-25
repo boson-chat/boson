@@ -35,6 +35,11 @@ const SERVICE_NICKS: ReadonlySet<string> = new Set([
   'gameserv',
   'statserv',
   'helpserv',
+  'infoserv',
+  'seenserv',
+  'spamserv',
+  'chanfix',
+  'alis',    // Libera's channel list service
   'global',  // network-wide announcements
 ]);
 
@@ -533,4 +538,48 @@ export function detectServicesFramework(noticeBody: string): ServicesFramework {
   if (/\batheme\b/i.test(noticeBody)) return 'atheme';
   if (/\banope\b/i.test(noticeBody)) return 'anope';
   return null;
+}
+
+// What a line the user sent a service shows in the conversation: passwords
+// are masked (`IDENTIFY ••••••`). Only the shown copy — the real text is
+// what goes to the server. Covers the password-bearing commands of
+// Atheme / Anope / Ergo NickServ and ChanServ; anything else is shown as is.
+export const SECRET_MASK = '••••••';
+export function maskServiceSecret(target: string, text: string): string {
+  const svc = target.toLowerCase();
+  if (svc !== 'nickserv' && svc !== 'chanserv') return text;
+  const parts = text.trim().split(/\s+/);
+  const cmd = (parts[0] ?? '').toUpperCase();
+  const args = parts.slice(1);
+  if (args.length === 0) return text;
+  // Which argument positions (0-based, after the command) hold a secret.
+  let secret: number[] = [];
+  if (svc === 'nickserv') {
+    switch (cmd) {
+      case 'IDENTIFY': case 'ID': case 'LOGIN':
+        secret = [args.length - 1]; break; // [account] <password>
+      case 'REGISTER':
+        secret = [0]; break; // <password> [email]
+      case 'GHOST': case 'RECOVER': case 'RELEASE': case 'REGAIN': case 'DROP':
+        secret = args.length >= 2 ? [1] : []; break; // <nick> <password>
+      case 'PASSWD':
+        secret = args.map((_, i) => i); break; // Ergo: <old> <new> [<new>]
+      case 'SET':
+        if (/^PASS(WORD)?$/i.test(args[0] ?? '')) secret = args.slice(1).map((_, i) => i + 1);
+        break;
+      case 'SAREGISTER':
+        secret = args.length >= 2 ? [1] : []; break; // <nick> <password>
+    }
+  } else {
+    switch (cmd) {
+      case 'IDENTIFY':
+        secret = args.length >= 2 ? [args.length - 1] : []; break; // <#chan> <password>
+      case 'SET':
+        if (/^PASS(WORD)?$/i.test(args[1] ?? '')) secret = args.slice(2).map((_, i) => i + 2);
+        break;
+    }
+  }
+  if (secret.length === 0) return text;
+  const masked = args.map((a, i) => (secret.includes(i) ? SECRET_MASK : a));
+  return [parts[0], ...masked].join(' ');
 }

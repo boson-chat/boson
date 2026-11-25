@@ -4,6 +4,7 @@ import { DEFAULT_WINDOWS } from '../../modules/chat/chat.service';
 import { createOlderStore, type OlderStore } from '../../modules/history/older-store';
 import { seenNamespace, seenStoreFor } from '../../modules/seen';
 import { readMarkerStoreFor } from '../../modules/chat/read-markers';
+import { loadServicesVerdict, servicesVerdicts } from '../../modules/chat/services-verdict';
 import { registerForSignOut, signOut as signOutEverywhere } from '../../modules/signout/sign-out';
 import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
@@ -2239,6 +2240,8 @@ export class DirectoryBloc {
       sasl,
       ...(oauthbearer ? { oauthbearer } : {}),
       nickservPassword,
+      // Known from an earlier connection: no services probe this time.
+      ...(loadServicesVerdict(server.id) ? { servicesFramework: loadServicesVerdict(server.id) } : {}),
       serverPass,
       tlsInsecure,
       // Bouncer hints for the engine: treat this as a bouncer link from the
@@ -2282,6 +2285,8 @@ export class DirectoryBloc {
       // How far each conversation was read, so unread badges survive
       // closing the app (local; synced with the server's read markers).
       readMarkers: readMarkerStoreFor(seenNamespace(server.id, userId)),
+      // The services package, remembered so the next connect needn't probe.
+      servicesVerdicts,
     });
     if (opts.carry) chat.seedConversations(opts.carry);
     else {
