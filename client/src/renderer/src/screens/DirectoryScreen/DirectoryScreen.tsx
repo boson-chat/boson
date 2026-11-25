@@ -34,7 +34,7 @@ import { useNetworkThemes } from '../../modules/ui/theme';
 import { useNetworkThemeSync } from './network-theme-sync';
 import type { ServerRailTile } from '../ChatLayout/ServerRail';
 import type { MyDm } from '../Friends/MySpace';
-import { SERVICE_CHANNEL } from '../../modules/chat/services';
+import { collectMyDms } from '../Friends/my-dms';
 import { startNotificationBridge, type VoiceScope } from '../../modules/notifications/bridge';
 import { joinVoice, openCalls, openFriends } from '../Notifications/navigate';
 import './DirectoryScreen.css';
@@ -253,17 +253,11 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
       ...(brand.available ? { networkTheme: { enabled: brand.enabled } } : {}),
     };
   });
-  // MY's direct messages: every connected server's, in rail order.
-  const myDms = (): MyDm[] => {
-    const out: MyDm[] = [];
-    for (const c of connections) {
-      for (const ch of c.chat.getState().channels) {
-        if (/^[#&]/.test(ch.name) || ch.name === SERVICE_CHANNEL) continue;
-        out.push({ serverId: c.serverId, serverName: c.server.name, name: ch.name, unread: ch.unread, mentions: ch.mentions });
-      }
-    }
-    return out;
-  };
+  // MY's direct messages: every connected server's people, newest first.
+  const myDms = (): MyDm[] => collectMyDms(connections.map((c) => {
+    const st = c.chat.getState();
+    return { serverId: c.serverId, serverName: c.server.name, myNick: st.myNick, channels: st.channels };
+  }));
   const toggleNetworkTheme = (serverId: string, on: boolean): void => {
     const c = connections.find((x) => x.serverId === serverId);
     if (c) themes.setNetworkEnabled(c.server.hostname, on);

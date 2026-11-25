@@ -27,6 +27,11 @@ test('desktop (1440×900): MY is your avatar with a dot, then SERVERS, then the 
   const rows = page.locator('.my-sidebar .my-row').getByRole('button');
   await expect(rows.nth(0)).toHaveAccessibleName('Friends, 1 request');
   await expect(rows.nth(1)).toHaveAccessibleName('Calls, 2 missed');
+  // Direct messages: people only (the NickServ conversation stays out),
+  // newest received first: kestrel wrote 4 minutes ago, mox 20.
+  await expect(page.locator('.my-sidebar')).not.toContainText('NickServ');
+  const titles = await page.locator('.my-sidebar .my-row .bds-row-title').allInnerTexts();
+  expect(titles.filter((t) => !/^(Friends|Calls|Settings)$/.test(t.trim())).map((t) => t.trim())).toEqual(['kestrel', 'mox']);
   await expect(page.getByRole('main', { name: 'Friends' })).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('my-friends-1440.png') });
 
