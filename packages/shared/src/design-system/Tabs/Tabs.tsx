@@ -39,7 +39,9 @@ export function Tabs({ tabs, active, onChange, label }: TabsProps) {
     }
     const listBox = list.getBoundingClientRect();
     const btnBox = btn.getBoundingClientRect();
-    setIndicator({ left: btnBox.left - listBox.left, width: btnBox.width });
+    // + scrollLeft: in a tablist that scrolls sideways (narrow screens)
+    // the bar sits in the scrolled content, not the visible box.
+    setIndicator({ left: btnBox.left - listBox.left + list.scrollLeft, width: btnBox.width });
   }, [active, tabs]);
 
   return (
