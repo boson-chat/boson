@@ -367,6 +367,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           connectionError={active.error}
           onOpenServerSettings={(id) => setServerSettingsForId(id)}
           onLeaveServer={(id) => bloc.disconnect(id)}
+          onMarkServerRead={(id) => bloc.markServerRead(id)}
           onBouncerConnect={(id) => bloc.bouncerConnect(id)}
           onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
           onReorderServers={(ids) => bloc.reorderServers(ids)}

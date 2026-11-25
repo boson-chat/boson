@@ -32,7 +32,7 @@ export function NotificationsSection() {
         <SwitchRow title="Friends" description="Requests and accepts." checked={s.friends} disabled={off} onChange={(v) => update({ friends: v })} />
         <SwitchRow title="Calls" description="Missed calls, and calls starting in voice channels you're in." checked={s.calls} disabled={off} onChange={(v) => update({ calls: v })} />
         <SwitchRow title="Every channel message" description="Noisy: every message in every channel." checked={s.allMessages} disabled={off} onChange={(v) => update({ allMessages: v })} />
-        <p class="user-settings-hint">Per channel: right-click a channel (long-press on a phone) → Notifications: All messages, Mentions only or Nothing.</p>
+        <p class="user-settings-hint">Per server: Server settings → Notifications sets what its channels and DMs notify about. Per channel: Channel settings, or right-click a channel (long-press on a phone) → Notifications.</p>
       </SettingsGroup>
       <SettingsGroup title="Incoming calls">
         <IncomingCallsSetting label={false} />

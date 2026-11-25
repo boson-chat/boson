@@ -30,7 +30,7 @@ test.describe('channel operation', () => {
     const dialog = page.getByRole('dialog', { name: `Channel settings — ${channel}` });
     await expect(dialog).toBeVisible();
     // We created the channel → operator → everything is editable.
-    await expect(dialog.getByText('You need channel operator (@) to change these.')).toHaveCount(0);
+    await expect(dialog.getByText('You need channel operator (@) to change the settings below.')).toHaveCount(0);
     // Opening it fetched the ban list.
     await expect(dialog.getByText('No bans set.')).toBeVisible();
 
@@ -139,7 +139,7 @@ test.describe('channel operation', () => {
 
     await page.getByRole('button', { name: 'Channel settings' }).click();
     const dialog = page.getByRole('dialog', { name: `Channel settings — ${channel}` });
-    await expect(dialog.getByText('You need channel operator (@) to change these.')).toBeVisible();
+    await expect(dialog.getByText('You need channel operator (@) to change the settings below.')).toBeVisible();
     await expect(dialog.getByRole('checkbox', { name: 'Only operators can change the topic' })).toBeChecked();
     await expect(dialog.getByRole('checkbox', { name: 'Only people with a voice can talk' })).toBeDisabled();
     await expect(dialog.locator('textarea.chan-topic')).toBeDisabled();

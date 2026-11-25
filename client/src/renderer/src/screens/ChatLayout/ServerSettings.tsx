@@ -1,6 +1,6 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, ChipInput, Count, Divider, EmptyState, Field, Input, Modal, PageHeader, SwitchRow, Tabs, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, ChipInput, Count, Divider, EmptyState, Field, Input, ListRow, Modal, PageHeader, Segmented, SwitchRow, Tabs, useTransientFlag } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
 import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
 import type { SavedServerBouncer } from '../../modules/session';
@@ -17,10 +17,14 @@ import { HttpError } from '../../shared/http/http.client';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
 import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
 import {
-  AtSign, ChevronLeft, Cpu, Hash, Info, Mail, Palette, Pencil, Plug, ScrollText, Search, Server, ServerCog, ShieldCheck,
+  AtSign, Bell, ChevronLeft, Cpu, Hash, Info, Mail, Palette, Pencil, Plug, ScrollText, Search, Server, ServerCog, ShieldCheck,
   SquareTerminal, ToggleLeft, User, UserRound, VenetianMask, X, type LucideIcon,
 } from 'lucide-preact';
 import { useNarrow } from '../../shared/narrow';
+import {
+  getServerLevels, LEVEL_LABEL, onNotificationSettingsChange, ownChannelLevels, setChannelLevel, setServerLevels,
+  type ChannelLevel, type DmLevel,
+} from '../../modules/ui/notifications.store';
 import { BACK_TO_SETTINGS, SettingsMenu, SettingsPhoneList, SettingsPhoneRow, type SettingsEntry } from '../../shared/settings/SettingsNav';
 import './ServerSettings.css';
 
@@ -34,14 +38,14 @@ import './ServerSettings.css';
 // The sections, in four groups:
 //
 //   This server  About · Appearance (when the network has a theme)
-//   You here     Identity · Bouncer · Actions
+//   You here     Identity · Notifications · Bouncer · Actions
 //   Owner        Edit · Operators (only for the listing's owner)
 //   Technical    Software · Log · Advanced
 //
 // Advanced's services commands (NickServ, ChanServ, …) are tabs on the
 // desktop and, on a phone, a second list that drills into each one.
 
-export type ServerSectionId = 'about' | 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'bouncer' | 'appearance' | 'actions' | 'log';
+export type ServerSectionId = 'about' | 'info' | 'identity' | 'notifications' | 'advanced' | 'edit' | 'opers' | 'bouncer' | 'appearance' | 'actions' | 'log';
 type SectionId = ServerSectionId;
 
 // The network's own theme (network themes), when it has one.
@@ -205,9 +209,10 @@ const GROUP_TITLE: Record<GroupId, string> = {
 };
 
 const MENU: ReadonlyArray<SettingsEntry<SectionId, GroupId>> = [
-  { id: 'about',      label: 'About',      group: 'server',    keywords: 'description website network nick notifications' },
+  { id: 'about',      label: 'About',      group: 'server',    keywords: 'description website network nick' },
   { id: 'appearance', label: 'Appearance', group: 'server',    keywords: 'network theme colours colors logo' },
   { id: 'identity',   label: 'Identity',   group: 'you',       keywords: 'nick nickname nickserv account password register identify claim email drop' },
+  { id: 'notifications', label: 'Notifications', group: 'you', keywords: 'notify alerts mentions mute channels direct messages dms' },
   { id: 'bouncer',    label: 'Bouncer',    group: 'you',       keywords: 'znc bnc route upstream network' },
   { id: 'actions',    label: 'Actions',    group: 'you',       keywords: 'reconnect disconnect connection' },
   { id: 'edit',       label: 'Edit',       group: 'owner',     keywords: 'directory listing profile name description tags languages nsfw icon banner' },
@@ -219,7 +224,7 @@ const MENU: ReadonlyArray<SettingsEntry<SectionId, GroupId>> = [
 
 const ICON: Record<SectionId, LucideIcon> = {
   about: Info, appearance: Palette,
-  identity: User, bouncer: Server, actions: Plug,
+  identity: User, notifications: Bell, bouncer: Server, actions: Plug,
   edit: Pencil, opers: ShieldCheck,
   info: Cpu, log: ScrollText, advanced: SquareTerminal,
 };
@@ -235,7 +240,7 @@ export function ServerSettings({
   // pass ownership context. Filtering at render time keeps the menu
   // uncluttered for the 99% of viewers who don't own the row.
   const editable = !!(directoryEntry && onSaveProfile);
-  const visibleMenu = MENU.filter((m) => (editable || (m.id !== 'edit' && m.id !== 'opers')) && (networkTheme || m.id !== 'appearance'));
+  const visibleMenu = MENU.filter((m) => (editable || (m.id !== 'edit' && m.id !== 'opers')) && (networkTheme || m.id !== 'appearance') && (serverId || m.id !== 'notifications'));
   const shown = (id: string | null | undefined): SectionId | null =>
     visibleMenu.some((m) => m.id === id) ? (id as SectionId) : null;
   const [section, setSection] = useState<SectionId>(() => shown(initialSection) ?? 'about');
@@ -272,6 +277,7 @@ export function ServerSettings({
         />
       )}
       {id === 'info' && <InfoSection info={serverInfo} />}
+      {id === 'notifications' && serverId && <NotificationsServerSection serverId={serverId} serverName={serverDisplayName} />}
       {id === 'identity' && (
         <IdentitySection
           myNick={myNick}
@@ -343,6 +349,11 @@ export function ServerSettings({
       case 'identity': {
         const status = serverId ? getServiceCredentialsStore().get(serverId)?.status : undefined;
         return status ? `${myNick} · ${statusLabel(status)}` : myNick;
+      }
+      case 'notifications': {
+        if (!serverId) return '';
+        const lv = getServerLevels(serverId);
+        return `Channels: ${LEVEL_LABEL[lv.channels]} · DMs: ${lv.dms === 'all' ? 'All' : 'Nothing'}`;
       }
       case 'bouncer':
         if (!bouncerRoute?.route) return 'Off';
@@ -454,7 +465,7 @@ const CONNECTION_LABEL: Record<EngineState, string> = {
 };
 
 // What the server is (its listing's description and site), who you are on
-// it, and where its notifications are set.
+// it.
 function AboutSection({ name, description, website, network, myNick, onChangeNick }: {
   name: string;
   description?: string;
@@ -491,13 +502,78 @@ function AboutSection({ name, description, website, network, myNick, onChangeNic
               </span>
             )}
           />
-          <Divider />
-          <DetailRow
-            label="Notifications"
-            customValue={<span class="server-settings-empty">Set per channel: right-click a channel (or long-press it) → Notifications.</span>}
-          />
         </div>
       </Card>
+    </SectionFrame>
+  );
+}
+
+// What this server's channels and DMs notify about, and the conversations
+// that have a level of their own (set in Channel settings, or a channel's
+// context menu). The app-wide switches (toasts, system notifications,
+// sound, which kinds) are in User settings → Notifications.
+function NotificationsServerSection({ serverId, serverName }: { serverId: string; serverName: string }) {
+  const [, setVersion] = useState(0);
+  useEffect(() => onNotificationSettingsChange(() => setVersion((n) => n + 1)), []);
+  const lv = getServerLevels(serverId);
+  const own = ownChannelLevels(serverId);
+  const channels = own.filter((o) => /^[#&]/.test(o.channel));
+  const dms = own.filter((o) => !/^[#&]/.test(o.channel));
+  const ownRows = (rows: typeof own) => (
+    <ul class="server-settings-notify-own">
+      {rows.map((o) => (
+        <ListRow
+          key={o.channel}
+          as="li"
+          title={o.channel}
+          subtitle={LEVEL_LABEL[o.level]}
+          trailing={<Button variant="ghost" size="sm" onClick={() => setChannelLevel(serverId, o.channel, 'default')}>Use server's</Button>}
+        />
+      ))}
+    </ul>
+  );
+  return (
+    <SectionFrame
+      title="Notifications"
+      description={`What ${serverName} notifies you about. A channel or DM can have its own setting (in its Channel settings, or right-click / long-press it in the list). How you're told (toasts, system notifications, sound) is in User settings → Notifications.`}
+    >
+      <Card>
+        <div class="server-settings-card-body server-settings-notify">
+          <div class="server-settings-notify-row">
+            <span class="server-settings-notify-label" id="notify-channels-label">Channels</span>
+            <Segmented<ChannelLevel>
+              labelledBy="notify-channels-label"
+              value={lv.channels}
+              onChange={(v) => setServerLevels(serverId, { channels: v })}
+              options={[{ id: 'all', label: 'All' }, { id: 'mentions', label: 'Mentions' }, { id: 'nothing', label: 'Nothing' }]}
+            />
+            <p class="server-settings-hint">{lv.channels === 'all' ? 'Every message in every channel here.' : lv.channels === 'mentions' ? 'When someone says your nick.' : 'No notifications from channels here.'}</p>
+          </div>
+          <Divider />
+          <div class="server-settings-notify-row">
+            <span class="server-settings-notify-label" id="notify-dms-label">Direct messages</span>
+            <Segmented<DmLevel>
+              labelledBy="notify-dms-label"
+              value={lv.dms}
+              onChange={(v) => setServerLevels(serverId, { dms: v })}
+              options={[{ id: 'all', label: 'All' }, { id: 'nothing', label: 'Nothing' }]}
+            />
+            <p class="server-settings-hint">{lv.dms === 'all' ? 'Every direct message here.' : 'No notifications from direct messages here.'}</p>
+          </div>
+        </div>
+      </Card>
+      {channels.length > 0 && (
+        <>
+          <h3 class="server-settings-notify-heading">Channels with their own setting</h3>
+          <Card>{ownRows(channels)}</Card>
+        </>
+      )}
+      {dms.length > 0 && (
+        <>
+          <h3 class="server-settings-notify-heading">Direct messages with their own setting</h3>
+          <Card>{ownRows(dms)}</Card>
+        </>
+      )}
     </SectionFrame>
   );
 }

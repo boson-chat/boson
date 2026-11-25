@@ -11,7 +11,7 @@ import {
 } from './ChannelSidebarBloc';
 import { useChannelReorder, type ReorderSection } from './channel-reorder';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
-import { getChannelLevel, setChannelLevel, type ChannelLevel } from '../../modules/ui/notifications.store';
+import { getOwnChannelLevel, LEVEL_LABEL, serverDefaultLevel, setChannelLevel, type ChannelLevel } from '../../modules/ui/notifications.store';
 import { BottomSheet } from './BottomSheet';
 import { ADMINS_ONLY_TEXT, type ChannelCreation } from '../../modules/chanserv/creation';
 import { isNarrow, useNarrow } from '../../shared/narrow';
@@ -34,6 +34,8 @@ interface ChannelSidebarProps {
   onSelect: (name: string) => void;
   onJoin: (name: string) => void;
   onPart: (name: string) => void;
+  // Mark a conversation read (its menu, when it has unread).
+  onMarkRead?: (name: string) => void;
   // The DM section's "All": every server's direct messages (in You).
   onOpenAllDms?: () => void;
   // The user's own order for this server's list (channel keys; see
@@ -94,6 +96,7 @@ export function ChannelSidebar({
   onSelect,
   onJoin,
   onPart,
+  onMarkRead,
   onOpenAllDms,
   channelOrder,
   defaultChannelOrder,
@@ -179,13 +182,16 @@ export function ChannelSidebar({
     if (i > 0) actions.push({ label: 'Move up', onClick: () => reorder.step(name, section, -1) });
     if (i !== -1 && i < names.length - 1) actions.push({ label: 'Move down', onClick: () => reorder.step(name, section, 1) });
     if (customOrder && onResetChannelOrder) actions.push({ label: 'Reset order', onClick: onResetChannelOrder });
+    const conv = channels.find((c) => c.name === name);
+    if (onMarkRead && conv && (conv.unread > 0 || conv.mentions > 0)) actions.push({ label: 'Mark as read', onClick: () => onMarkRead(name) });
     if (serverId) {
-      const level = getChannelLevel(serverId, name);
-      const pick = (l: ChannelLevel) => () => setChannelLevel(serverId, name, l);
+      const own = getOwnChannelLevel(serverId, name);
+      const pick = (l: ChannelLevel | 'default') => () => setChannelLevel(serverId, name, l);
       actions.push(
-        { label: 'Notifications: All messages', checked: level === 'all', onClick: pick('all') },
-        { label: 'Notifications: Mentions only', checked: level === 'mentions', onClick: pick('mentions') },
-        { label: 'Notifications: Nothing', checked: level === 'nothing', onClick: pick('nothing') },
+        { label: `Notifications: Server default (${LEVEL_LABEL[serverDefaultLevel(serverId, name)]})`, checked: own === undefined, onClick: pick('default') },
+        { label: 'Notifications: All messages', checked: own === 'all', onClick: pick('all') },
+        { label: 'Notifications: Mentions only', checked: own === 'mentions', onClick: pick('mentions') },
+        { label: 'Notifications: Nothing', checked: own === 'nothing', onClick: pick('nothing') },
       );
     }
     // Leaving lives here (not as an × on the row, one slip from a click):

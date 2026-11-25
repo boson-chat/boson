@@ -319,6 +319,43 @@ describe('DirectoryBloc', () => {
       bloc.dispose();
     });
 
+    it('synced preferences: a newer copy is applied live; a change here goes up with the servers', async () => {
+      vi.useFakeTimers();
+      localStorage.clear();
+      const { __resetNotificationSettingsCache, getNotificationSettings, getServerLevels, setServerLevels } = await import('../../modules/ui/notifications.store');
+      __resetNotificationSettingsCache();
+      const dir = fakeDirectory({ user: fakeUser(), servers: [] });
+      const remote = {
+        servers: [], activeServerId: null,
+        prefs: { updatedAt: Date.now() - 1000, values: {
+          'boson:notifications:v1': JSON.stringify({ sound: false }),
+          'boson:notifications:servers:v1': JSON.stringify({ s1: { channels: 'all' } }),
+        } },
+      };
+      (dir.getSavedSession as ReturnType<typeof vi.fn>).mockResolvedValue(remote);
+      const store = new SessionStore(memoryStorage());
+      const saveSilent = vi.spyOn(store, 'saveSilent');
+      const bloc = new DirectoryBloc({
+        auth: fakeAuth(), directory: dir, identity: fakeIdentity(), engine: null, sessionStore: store,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      // The servers part is the saved session; the preferences apply.
+      expect(saveSilent).toHaveBeenCalledWith({ servers: [], activeServerId: null });
+      expect(getNotificationSettings().sound).toBe(false);
+      expect(getServerLevels('s1').channels).toBe('all');
+      expect(dir.putSavedSession).not.toHaveBeenCalled(); // taking it isn't a change
+      // A change here: pushed (debounced) with the servers.
+      setServerLevels('s1', { dms: 'nothing' });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(dir.putSavedSession).toHaveBeenCalledTimes(1);
+      const sent = (dir.putSavedSession as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { prefs: { updatedAt: number; values: Record<string, string> } };
+      expect(JSON.parse(sent.prefs.values['boson:notifications:servers:v1']!)).toEqual({ s1: { channels: 'all', dms: 'nothing' } });
+      expect(sent.prefs.updatedAt).toBeGreaterThan(remote.prefs.updatedAt);
+      bloc.dispose();
+      localStorage.clear();
+      __resetNotificationSettingsCache();
+    });
+
     it('a failed directory list is fetched again', async () => {
       vi.useFakeTimers();
       const list = vi.fn(async () => [fakeServer('a')]);

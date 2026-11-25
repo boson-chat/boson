@@ -361,3 +361,41 @@ describe('ReadMarkerStore', () => {
     expect(s.get('#y')).toBe(5);
   });
 });
+
+describe('mark as read (a channel or the whole server)', () => {
+  it("a channel: its counts clear, the marker moves to the newest line, the server's too", () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const a = run(device(), WITH_MARKERS);
+    joinWithHistory(a.session, '#lobby', [['alice', 'old', iso(30)]], () => {
+      a.session.emit(ev({ Kind: 'MARKREAD', Target: '#lobby', Message: `timestamp=${iso(60)}` }));
+    });
+    const t = new Date(Date.now() - 1000).toISOString();
+    a.session.emit(ev({ Kind: 'PRIVMSG', From: 'alice', Target: '#lobby', Message: 'Nyan: ping', Tags: { time: t } }));
+    expect(conv(a.chat, '#lobby')).toMatchObject({ unread: 2, mentions: 1 });
+    a.chat.markRead('#Lobby');
+    expect(conv(a.chat, '#lobby')).toMatchObject({ unread: 0, mentions: 0 });
+    expect(a.chat.getState().activeChannel).toBe('#home'); // not opened
+    vi.advanceTimersByTime(1000);
+    expect(markreads(a.session)).toEqual([`MARKREAD #lobby timestamp=${t}`]);
+  });
+
+  it('the server: every conversation on it', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const a = run(device(), WITH_MARKERS);
+    for (const c of ['#lobby', '#dev']) {
+      joinWithHistory(a.session, c, [['alice', 'x', iso(30)]], () => {
+        a.session.emit(ev({ Kind: 'MARKREAD', Target: c, Message: `timestamp=${iso(60)}` }));
+      });
+    }
+    a.session.emit(ev({ Kind: 'PRIVMSG', From: 'bob', Target: 'Nyan', Message: 'hi', Tags: { time: new Date(Date.now() - 500).toISOString() } }));
+    expect(a.chat.getState().channels.filter((c) => c.unread > 0).map((c) => c.name).sort()).toEqual(['#dev', '#lobby', 'bob']);
+    a.chat.markAllRead();
+    expect(a.chat.getState().channels.every((c) => c.unread === 0 && c.mentions === 0)).toBe(true);
+    vi.advanceTimersByTime(1000);
+    expect(markreads(a.session, '#lobby')).toHaveLength(1);
+    expect(markreads(a.session, '#dev')).toHaveLength(1);
+    // A new line afterwards counts again.
+    a.session.emit(ev({ Kind: 'PRIVMSG', From: 'alice', Target: '#dev', Message: 'later', Tags: { time: new Date().toISOString() } }));
+    expect(conv(a.chat, '#dev')?.unread).toBe(1);
+  });
+});

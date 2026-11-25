@@ -117,3 +117,4 @@
   margin-bottom: var(--space-2);
 }
 .chan-ban-advanced-summary:hover { color: var(--fg-2); }
+.chan-notify-select { max-width: 320px; }
