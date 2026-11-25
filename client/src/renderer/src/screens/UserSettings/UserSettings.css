@@ -440,18 +440,24 @@
     flex-direction: row;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0 0 var(--space-2);
+    /* Room past the first and last tab, so neither sits on the edge. */
+    padding: 0 var(--space-2) var(--space-2);
+    scroll-padding-inline: var(--space-2);
+    scrollbar-width: none;
     border-right: none;
     border-bottom: 1px solid var(--border-soft);
     gap: var(--space-1);
   }
+  .user-settings-menu::-webkit-scrollbar { display: none; }
   .user-settings-menu > .bds-row { flex-shrink: 0; }
   .user-settings-menu .bds-row-sub { display: none; }
   /* Across the top the selected entry's accent edge goes under it (as a
      tab's), and each entry is a 44px touch target. */
   .user-settings-menu > .bds-row-nav { border-left: 0; border-bottom: 2px solid transparent; }
   .user-settings-menu > .bds-row-nav.bds-row-selected { border-bottom-color: var(--accent); }
-  .user-settings-menu .bds-row-main { min-height: var(--control-lg); padding-right: var(--space-4); }
+  /* Label centred in its box: the same padding both sides (beats the nav
+     row's own 0 right padding). */
+  .user-settings-menu > .bds-row-nav.bds-row-clickable .bds-row-main { min-height: var(--control-lg); padding: 0 var(--space-3); }
   .user-settings-body { padding-left: 0; padding-top: var(--space-4); }
   /* More tabs past an edge: that edge fades out. */
   .user-settings-menu[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
