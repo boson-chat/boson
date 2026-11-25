@@ -43,6 +43,7 @@ import { getVoiceController } from './modules/voice';
 import { getVideoController } from './modules/video';
 import { openCall } from './screens/ChatLayout/call-shared';
 import { setFriendsUi } from './screens/Friends/friends-ui';
+import { collectMyDms } from './screens/Friends/my-dms';
 import { CallOverlays } from './screens/Friends/CallOverlays';
 import { TitleBar } from './screens/TitleBar/TitleBar';
 import { configureDirectorySources } from './modules/directory/sources';
@@ -756,7 +757,7 @@ function chatView(): void {
         { serverId: 's3', name: 'Quasar', engineState: 'connected' },
       ]}
       activeServerId="s1"
-      myDms={friendsMode ? chat.getState().channels.filter((c) => !/^[#&~]/.test(c.name)).map((c) => ({ serverId: 's1', serverName: 'Nebula', name: c.name, unread: c.unread, mentions: c.mentions })) : undefined}
+      myDms={friendsMode ? collectMyDms([{ serverId: 's1', serverName: 'Nebula', myNick: NICK, channels: chat.getState().channels }]) : undefined}
       onOpenDm={(_s, name) => chat.setActive(name)}
       // &late=1: the saved channel list's order (see the late join below).
       {...(q0.get('late') === '1' ? { defaultChannelOrder: ['#members', '#dev', '#ops'] } : {})}
@@ -815,6 +816,8 @@ function chatView(): void {
   if (friendsMode) {
     session.emit({ Kind: 'PRIVMSG', From: 'mox', Target: NICK, Message: 'pairing on the relay later?', Tags: { time: min(20) }, Raw: '' });
     session.emit({ Kind: 'PRIVMSG', From: 'kestrel', Target: NICK, Message: 'the relay test passed', Tags: { time: min(4) }, Raw: '' });
+    // A service conversation (the user /msg'd NickServ): not a person, so not in MY.
+    chat.openDM('NickServ');
   }
   chat.setActive(CHAN);
   // &late=1: #members is saved first but only lets registered users in, so

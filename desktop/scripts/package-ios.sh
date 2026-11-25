@@ -27,8 +27,16 @@
 #                   scripts/ios_provision.py makes through the App Store
 #                   Connect API (APPLE_API_KEY, APPLE_API_KEY_ID,
 #                   APPLE_API_ISSUER; needs an Admin or App Manager key).
-#   PROVISIONING_PROFILE / CODESIGN_IDENTITY  use these instead
+#   PROVISIONING_PROFILE / CODESIGN_IDENTITY  use these instead (with a
+#                   profile no iPhone needs to be connected unless RUN=1:
+#                   how CI builds the release IPA; never replaced by one
+#                   ios_provision.py makes)
+#   CODESIGN_KEYCHAIN  sign from this keychain instead of the search list
 #   DEVICE_ID       the iPhone's UDID (default: the first connected one)
+#   IPA_OUT / IPA_BASE_URL  also write the OTA-installable Boson-ios.ipa and
+#                   its itms-services manifest Boson-ios.plist into IPA_OUT,
+#                   the manifest pointing at IPA_BASE_URL/Boson-ios.ipa
+#                   (scripts/ios_ota.py; device builds only)
 #   OPUS_PREFIX     where the static libopus for voice is built and cached
 #                   (default desktop/build/.opus; scripts/build-opus.sh)
 #
@@ -144,12 +152,18 @@ plutil -lint "$app/Info.plist" >/dev/null
 # 5. Sign. Simulator: ad hoc. Device: the development identity, with the
 #    profile embedded and the matching entitlements.
 if [[ "$PLATFORM" == "device" ]]; then
-  if [[ -z "${DEVICE_ID:-}" ]]; then
-    DEVICE_ID="$(xcrun devicectl list devices --hide-headers 2>/dev/null | awk '/physical|paired/ && !/simulated/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')"
-  fi
-  [[ -n "${DEVICE_ID:-}" ]] || { echo "no iPhone connected (or pass DEVICE_ID=<UDID>)" >&2; exit 1; }
   profile="${PROVISIONING_PROFILE:-}"
   identity="${CODESIGN_IDENTITY:-}"
+  keychain=()
+  [[ -n "${CODESIGN_KEYCHAIN:-}" ]] && keychain=(--keychain "$CODESIGN_KEYCHAIN")
+  # The device picks the profile and is where RUN=1 installs; a given
+  # profile needs none.
+  if [[ -z "$profile" || "${RUN:-}" == "1" ]]; then
+    if [[ -z "${DEVICE_ID:-}" ]]; then
+      DEVICE_ID="$(xcrun devicectl list devices --hide-headers 2>/dev/null | awk '/physical|paired/ && !/simulated/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')"
+    fi
+    [[ -n "${DEVICE_ID:-}" ]] || { echo "no iPhone connected (or pass DEVICE_ID=<UDID>)" >&2; exit 1; }
+  fi
   if [[ -z "$profile" ]]; then
     # An Xcode-managed profile for our team that includes this device.
     team="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$desktop/build/ios/Device.entitlements" | cut -d. -f1)"
@@ -164,19 +178,32 @@ if [[ "$PLATFORM" == "device" ]]; then
     done
   fi
   if [[ -n "$profile" && -z "$identity" ]]; then
-    identity="$(security find-identity -v -p codesigning | awk '/Apple Development/ { print $2; exit }')"
+    identity="$(security find-identity -v -p codesigning ${CODESIGN_KEYCHAIN:+"$CODESIGN_KEYCHAIN"} | awk '/Apple Development/ { print $2; exit }')"
+  fi
+  # A given profile is never replaced by one ios_provision.py makes (CI must
+  # not create anything): no identity for it is an error.
+  if [[ -n "${PROVISIONING_PROFILE:-}" && -z "$identity" ]]; then
+    echo "no Apple Development identity${CODESIGN_KEYCHAIN:+ in $CODESIGN_KEYCHAIN} for PROVISIONING_PROFILE" >&2
+    exit 1
   fi
   if [[ -z "$profile" || -z "$identity" ]]; then
     identity="$(python3 "$here/ios_provision.py" --udid "$DEVICE_ID" --out "$out/development.mobileprovision")"
     profile="$out/development.mobileprovision"
   fi
   cp "$profile" "$app/embedded.mobileprovision"
-  codesign --force --sign "$identity" --entitlements "$desktop/build/ios/Device.entitlements" --timestamp=none "$app"
+  codesign --force --sign "$identity" ${keychain[@]+"${keychain[@]}"} --entitlements "$desktop/build/ios/Device.entitlements" --timestamp=none "$app"
 else
   codesign --force --sign - "$app"
 fi
 codesign --verify --verbose=1 "$app"
 echo "app: $app"
+
+# 5b. The OTA package: the IPA and its itms-services manifest.
+if [[ -n "${IPA_OUT:-}" ]]; then
+  [[ "$PLATFORM" == "device" ]] || { echo "IPA_OUT needs IOS_PLATFORM=device" >&2; exit 1; }
+  [[ -n "${IPA_BASE_URL:-}" ]] || { echo "IPA_OUT needs IPA_BASE_URL" >&2; exit 1; }
+  python3 "$here/ios_ota.py" --app "$app" --out "$IPA_OUT" --base-url "$IPA_BASE_URL"
+fi
 
 # 6. Run.
 if [[ "${RUN:-}" == "1" && "$PLATFORM" == "device" ]]; then
