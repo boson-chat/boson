@@ -462,6 +462,23 @@ describe('ChatService', () => {
     expect(chat.getState().channels).toHaveLength(0);
   });
 
+  it('our own PART in another nick case (another client on the bouncer) still removes the channel', () => {
+    const { chat, engine } = makeChat('Me');
+    const left: string[] = [];
+    chat.onSelfMembership((e) => { if (e.kind === 'part') left.push(e.channel); });
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'Me', Target: '#General' }));
+    engine.emit(makeEvent({ Kind: 'PART', From: 'me', Target: '#General' }));
+    expect(chat.getState().channels).toHaveLength(0);
+    expect(left).toEqual(['#general']);
+  });
+
+  it('a KICK of our nick in another case removes the channel', () => {
+    const { chat, engine } = makeChat('Me');
+    engine.emit(makeEvent({ Kind: 'JOIN', From: 'Me', Target: '#general' }));
+    engine.emit(makeEvent({ Kind: 'KICK', From: 'op', Target: '#general', Args: ['ME'] }));
+    expect(chat.getState().channels).toHaveLength(0);
+  });
+
   it('PART from another user just logs in the channel', () => {
     const { chat, engine } = makeChat('me');
     engine.emit(makeEvent({ Kind: 'JOIN', From: 'me', Target: '#general' }));
