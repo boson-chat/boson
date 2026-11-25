@@ -1,3 +1,9 @@
+## [0.95.3](https://github.com/boson-chat/boson/compare/v0.95.2...v0.95.3) (2026-11-25)
+
+### Bug Fixes
+
+* **bouncer:** a channel parted on another client stays parted ([#151](https://github.com/boson-chat/boson/issues/151)) ([9d928d0](https://github.com/boson-chat/boson/commit/9d928d0dec27b7630ca0660cb46b045b3fb49129))
+
 ## [0.95.2](https://github.com/boson-chat/boson/compare/v0.95.1...v0.95.2) (2026-11-25)
 
 ### Bug Fixes
