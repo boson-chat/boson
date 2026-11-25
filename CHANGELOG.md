@@ -1,3 +1,9 @@
+## [0.97.2](https://github.com/boson-chat/boson/compare/v0.97.1...v0.97.2) (2026-11-25)
+
+### Bug Fixes
+
+* **chat:** no skip scrolling back through tall messages ([#158](https://github.com/boson-chat/boson/issues/158)) ([2089a03](https://github.com/boson-chat/boson/commit/2089a03dc5251f3a4ecc6a2f15173b1dbeb5a1f7))
+
 ## [0.97.1](https://github.com/boson-chat/boson/compare/v0.97.0...v0.97.1) (2026-11-25)
 
 ### Bug Fixes
