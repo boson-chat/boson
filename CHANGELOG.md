@@ -1,3 +1,9 @@
+## [0.97.0](https://github.com/boson-chat/boson/compare/v0.96.1...v0.97.0) (2026-11-25)
+
+### Features
+
+* **settings:** Server settings grouped like User settings; phones drill down ([#156](https://github.com/boson-chat/boson/issues/156)) ([0ac2d03](https://github.com/boson-chat/boson/commit/0ac2d03ce9437d990bd4fd59fddd588947600143))
+
 ## [0.96.1](https://github.com/boson-chat/boson/compare/v0.96.0...v0.96.1) (2026-11-25)
 
 ### Bug Fixes
