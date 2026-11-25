@@ -186,6 +186,9 @@ export interface PlaceArgs {
   // The user is scrolling right now (a finger down, a wheel / key / drag
   // scroll within the last moment).
   active: boolean;
+  // Where the top spacer starts (DOM): with start 0 a skew shows as a gap
+  // between it and the first row, fine while that gap is above the viewport.
+  spacerTop?: number;
 }
 
 export interface Placement {
@@ -194,12 +197,15 @@ export interface Placement {
   skew: number;
 }
 
-export function placeAnchored({ scrollTop, target, skew, topPad, start, active }: PlaceArgs): Placement {
+export function placeAnchored({ scrollTop, target, skew, topPad, start, active, spacerTop }: PlaceArgs): Placement {
   const write = (to: number): Placement => ({ scrollTop: Math.abs(to - scrollTop) > 0.5 ? to : null, skew: 0 });
   if (target === null) return skew === 0 ? { scrollTop: null, skew: 0 } : write(Math.max(0, scrollTop - skew));
-  if (active && start > 0) {
+  if (active) {
     const next = scrollTop - target;
-    if (topPad + next >= 0) return { scrollTop: null, skew: Math.abs(next - skew) <= 0.5 ? skew : next };
+    // The first row in the DOM: the gap a skew leaves above it must stay
+    // out of sight (rows above it in the spacer always cover it).
+    const hidden = start > 0 || (spacerTop !== undefined && scrollTop >= spacerTop + next);
+    if (hidden && topPad + next >= 0) return { scrollTop: null, skew: Math.abs(next - skew) <= 0.5 ? skew : next };
   }
   return write(Math.max(0, target));
 }

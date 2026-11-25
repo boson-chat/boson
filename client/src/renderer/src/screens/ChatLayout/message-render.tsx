@@ -639,6 +639,12 @@ const SCROLL_IDLE_MS = 150;
 const INPUT_SCROLL_MS = 400;
 // Older lines wait at most this long for the user's scroll to stop.
 const HOLD_OLDER_MAX_MS = 1500;
+// Measuring ahead while the list is still (see MessageList): rows up to this
+// far above the viewport, this many new ones per pass, never more than
+// IDLE_MEASURE_SPAN rows in the DOM above the usual window.
+const IDLE_MEASURE_PX = 4000;
+const IDLE_MEASURE_BATCH = 30;
+const IDLE_MEASURE_SPAN = 90;
 
 interface ListRow {
   key: string;
@@ -821,6 +827,22 @@ export const MessageList = memo(function MessageList({
   if (!noLayout) {
     if (view) ({ start, end } = layout.range(view.top, view.height, OVERSCAN));
     else start = Math.max(0, rows.length - INITIAL_ROWS);
+    // Not scrolling: measure ahead. Rows above that have never been laid out
+    // are only guessed at (the average height; a pasted document is many
+    // times that); measured mid-scroll, the difference has to be made up
+    // under the user. So while the list is still, the nearest of them (up to
+    // IDLE_MEASURE_PX above) are put in the DOM a batch at a time and
+    // measured: by the time the user scrolls there they're known.
+    if (view && start > 0 && !pendingJump.current && !userScrolling()) {
+      const lo = layout.indexAt(Math.max(layout.top, view.top - IDLE_MEASURE_PX));
+      const floor = Math.max(lo, start - IDLE_MEASURE_SPAN);
+      for (let i = start - 1; i >= floor; i--) {
+        if (rowHeights.get(rows[i]!.key) === undefined) {
+          start = Math.max(floor, i - IDLE_MEASURE_BATCH + 1);
+          break;
+        }
+      }
+    }
   }
   const topModel = noLayout ? 0 : layout.offsetOf(start) - layout.top;
   const topPad = noLayout ? 0 : Math.max(0, topModel + skewRef.current);
@@ -918,7 +940,7 @@ export const MessageList = memo(function MessageList({
       // The reader's row where it was: mid-scroll by the spacer, else (and
       // once the scroll stops) by scrollTop.
       const place = placeAnchored({
-        scrollTop: el.scrollTop, target: anchorTarget, skew: skewRef.current, topPad: spacerModel, start, active: userScrolling(),
+        scrollTop: el.scrollTop, target: anchorTarget, skew: skewRef.current, topPad: spacerModel, start, active: userScrolling(), spacerTop: now.top,
       });
       if (place.skew !== skewRef.current) setSkew(place.skew);
       if (place.scrollTop !== null) {
@@ -1160,7 +1182,8 @@ export const MessageList = memo(function MessageList({
       if (settleTimer.current) clearTimeout(settleTimer.current);
       settleTimer.current = setTimeout(() => {
         settleTimer.current = null;
-        if (skewRef.current !== 0 || heldBack.current) setHeightsVersion((n) => n + 1);
+        // Settle the spacer, let held lines in, measure ahead.
+        setHeightsVersion((n) => n + 1);
       }, SCROLL_IDLE_MS + 20);
     }
     if (!ours && (placedTop.current === null || Math.abs(el.scrollTop - placedTop.current) > 1)) {

@@ -825,6 +825,18 @@ function chatView(): void {
         : `line ${i}`;
     session.emit(pm(who, text, 0.5 - i / (scrollLines * 4), { msgid: `sc-${i}` }));
   }
+  // &tall=N: N pasted multi-line blocks (markdown documents, one line per
+  // PRIVMSG) between short lines, far taller than the average row: a list
+  // that guesses unmeasured rows' heights has the most to correct here.
+  const tallBlocks = Number(q0.get('tall') ?? 0);
+  for (let b = 0; b < tallBlocks; b++) {
+    const who = ['kestrel', 'pixel', 'orbit', 'mox'][b % 4]!;
+    const at = 600 - b * 10; // minutes ago, oldest first
+    session.emit(pm('nova', `short ${b}`, at + 2, { msgid: `ts-${b}` }));
+    const n = 4 + (b % 5) * 3;
+    const lines = [`## Notes ${b}`, ...Array.from({ length: n }, (_, j) => `- point ${j} of block ${b}, with enough words to wrap on a phone`)];
+    lines.forEach((l, j) => session.emit(pm(who, l, at - j / 60, { msgid: `tb-${b}-${j}` })));
+  }
 
   // Friends: a couple of direct messages (MY lists them).
   if (friendsMode) {
