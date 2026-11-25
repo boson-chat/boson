@@ -1,3 +1,9 @@
+## [0.95.7](https://github.com/boson-chat/boson/compare/v0.95.6...v0.95.7) (2026-11-25)
+
+### Bug Fixes
+
+* **settings:** clean narrow layout for User and Server settings ([#153](https://github.com/boson-chat/boson/issues/153)) ([19958da](https://github.com/boson-chat/boson/commit/19958da38826b886103b04e54113201f886d3d46))
+
 ## [0.95.6](https://github.com/boson-chat/boson/compare/v0.95.5...v0.95.6) (2026-11-25)
 
 ### Bug Fixes
