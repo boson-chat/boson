@@ -3,7 +3,8 @@ import { usePauseOffscreen } from '../../shared/use-offscreen';
 import { Download, FileText, FileX } from 'lucide-preact';
 import { Button } from '@boson/shared';
 import { filesViewUrl, formatBytes, formatDuration, type FilesLink } from '../../modules/files';
-import { INLINE_BOX, imagesBridge, reserveStyle, useCachedImage } from '../../shared/image-cache';
+import { INLINE_BOX, imagesBridge, knownDims, rememberDims, useCachedImage, videoStyle } from '../../shared/image-cache';
+import { FrameView, ImageFrame } from '../../shared/CachedImg';
 import './Uploads.css';
 
 // A link to a network's files host, inline: an image as a thumbnail (click
@@ -83,12 +84,12 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
   if (cached) {
     if (img.mode === 'gone') return <ExpiredCard link={link} />;
     if (img.mode === 'error' || !img.src) return <FileCard link={link} meta={{}} phase="error" openExternal={openExternal} />;
-    // Streamed from the cache's file on disk (a thumbnail); its box held at
-    // the size it had last time.
+    // Streamed from the cache's file on disk (a thumbnail), in a frame
+    // sized before it loads (its size last time, else a guess).
     return (
       <div class="files-embed files-image" data-testid="files-embed" data-state="ready" data-media="image">
         <button type="button" class="files-image-btn" onClick={() => onOpenImage(link.url)} aria-label={`Open ${link.name}`}>
-          <img src={img.src} alt={link.name} style={reserveStyle(img.dims, 280)} data-src={link.url} onLoad={img.onLoad} onError={img.onError} />
+          <ImageFrame url={link.url} kind="file" state={img} alt={link.name} />
         </button>
       </div>
     );
@@ -96,6 +97,14 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
 
   if (state.phase === 'expired') return <ExpiredCard link={link} />;
   if (state.phase === 'loading') {
+    // An image's frame is the one it will load into: nothing moves when it does.
+    if (link.media === 'image') {
+      return (
+        <div class="files-embed files-image" data-testid="files-embed" data-state="loading" data-media="image" aria-label={`Loading ${link.name}`}>
+          <FrameView url={link.url} src={null} dims={knownDims(link.url)} alt={link.name} />
+        </div>
+      );
+    }
     return <div class={`files-embed files-loading files-loading-${link.media}`} data-testid="files-embed" data-state="loading" aria-label={`Loading ${link.name}`} />;
   }
   const meta = state.phase === 'ready' ? state.meta : {};
@@ -105,7 +114,7 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
     return (
       <div class="files-embed files-image" data-testid="files-embed" data-state="ready" data-media="image">
         <button type="button" class="files-image-btn" onClick={() => onOpenImage(link.url)} aria-label={`Open ${link.name}`}>
-          <img src={state.blob} alt={link.name} />
+          <FrameView url={link.url} src={state.blob} dims={knownDims(link.url)} alt={link.name} />
         </button>
       </div>
     );
@@ -114,7 +123,18 @@ export function FilesEmbed({ link, onOpenImage, openExternal }: {
     return (
       <div class="files-embed files-video" data-testid="files-embed" data-state="ready" data-media="video">
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-        <video ref={player} src={view} controls preload="metadata" aria-label={link.name} />
+        <video
+          ref={player}
+          src={view}
+          controls
+          preload="metadata"
+          aria-label={link.name}
+          style={videoStyle(knownDims(link.url), 360)}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget as HTMLVideoElement;
+            if (v.videoWidth && v.videoHeight) rememberDims(link.url, { w: v.videoWidth, h: v.videoHeight });
+          }}
+        />
         <FootLine link={link} meta={meta} openExternal={openExternal} />
       </div>
     );

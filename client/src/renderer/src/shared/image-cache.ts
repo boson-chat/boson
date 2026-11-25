@@ -62,33 +62,134 @@ export function imageCacheUrl(url: string, kind: ImageKind, box?: Box | null): s
 }
 
 // ---- known sizes ----
+//
+// Learnt when an image loads; kept in memory (MAX_DIMS) and, the most
+// recent PERSIST_DIMS of them, in localStorage, so a conversation's history
+// shown again after a restart lays its images out at their size at once.
 
 const MAX_DIMS = 5000;
+const PERSIST_DIMS = 1500;
+export const DIMS_STORAGE_KEY = 'boson:image-dims:v1';
 // Map order = insertion order: the oldest go first past the cap.
 const dimsByUrl = new Map<string, Box>();
+let dimsLoaded = false;
+let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function dimsStore(): Storage | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadDims(): void {
+  if (dimsLoaded) return;
+  dimsLoaded = true;
+  try {
+    const raw = dimsStore()?.getItem(DIMS_STORAGE_KEY);
+    if (!raw) return;
+    const rows = JSON.parse(raw) as unknown;
+    if (!Array.isArray(rows)) return;
+    for (const r of rows) {
+      if (!Array.isArray(r) || typeof r[0] !== 'string') continue;
+      const w = Number(r[1]);
+      const h = Number(r[2]);
+      if (w > 0 && h > 0 && !dimsByUrl.has(r[0])) dimsByUrl.set(r[0], { w, h });
+    }
+  } catch {
+    // Unreadable: start empty.
+  }
+}
+
+// Written a moment after the last change (images load in bursts).
+function scheduleSave(): void {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    saveDimsNow();
+  }, 1000);
+}
+
+export function saveDimsNow(): void {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  const s = dimsStore();
+  if (!s) return;
+  const all = Array.from(dimsByUrl.entries());
+  const rows = all.slice(Math.max(0, all.length - PERSIST_DIMS)).map(([u, b]) => [u, b.w, b.h]);
+  try {
+    if (rows.length === 0) s.removeItem(DIMS_STORAGE_KEY);
+    else s.setItem(DIMS_STORAGE_KEY, JSON.stringify(rows));
+  } catch {
+    // Full or blocked: the sizes stay in memory.
+  }
+}
 
 // Sign-out: empty the shell's image cache (avatars, link previews, uploaded
 // files' previews from this account's conversations) and the known sizes.
 export async function clearImagesForSignOut(): Promise<void> {
-  dimsByUrl.clear();
+  forgetDims();
   await imagesBridge()?.clear();
 }
 
 export function knownDims(url: string): Box | undefined {
+  loadDims();
   return dimsByUrl.get(url);
 }
 
 export function rememberDims(url: string, box: Box): void {
   if (!(box.w > 0 && box.h > 0)) return;
+  loadDims();
   const have = dimsByUrl.get(url);
   if (have && have.w === box.w && have.h === box.h) return;
   dimsByUrl.delete(url);
-  dimsByUrl.set(url, box);
+  dimsByUrl.set(url, { w: box.w, h: box.h });
   while (dimsByUrl.size > MAX_DIMS) dimsByUrl.delete(dimsByUrl.keys().next().value!);
+  scheduleSave();
 }
 
 export function forgetDims(): void {
   dimsByUrl.clear();
+  dimsLoaded = true;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  try { dimsStore()?.removeItem(DIMS_STORAGE_KEY); } catch { /* blocked */ }
+}
+
+// Tests: drop the in-memory copy, so the next read loads from storage.
+export function reloadDimsForTest(): void {
+  dimsByUrl.clear();
+  dimsLoaded = false;
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+}
+
+// ---- an image's box before it loads ----
+
+// The box an image of unknown size gets while it loads (and keeps: once
+// it's in, only the frame's width follows the image, never its height).
+export const GUESS_BOX: Box = { w: 320, h: 240 };
+
+// The size an image of `natural` size is shown at inside maxW × maxH,
+// never scaled up.
+export function fitWithin(natural: Box, maxW: number, maxH: number): Box {
+  const s = Math.min(1, maxW / natural.w, maxH / natural.h);
+  return { w: Math.max(1, Math.round(natural.w * s)), h: Math.max(1, Math.round(natural.h * s)) };
+}
+
+// An image frame's inline style, decided before the image loads: its size
+// last time when that's known (a width and an aspect ratio, so a narrower
+// column scales it down evenly), else GUESS_BOX (a fixed height the image
+// is fitted into). Either way the height doesn't change when it lands.
+export function frameStyle(dims: Box | undefined, maxW: number, maxH: number): string {
+  if (!dims) return `width:${Math.min(GUESS_BOX.w, maxW)}px;height:${Math.min(GUESS_BOX.h, maxH)}px`;
+  const fit = fitWithin(dims, maxW, maxH);
+  return `width:${fit.w}px;aspect-ratio:${dims.w} / ${dims.h}`;
+}
+
+// A video's box before its metadata: its size last time, else 16:9; as
+// wide as the column allows under maxH.
+export function videoStyle(dims: Box | undefined, maxH: number): string {
+  const d = dims ?? { w: 16, h: 9 };
+  return `width:min(100%, ${Math.round((maxH * d.w) / d.h)}px);aspect-ratio:${d.w} / ${d.h}`;
 }
 
 // Inline size for an image of `dims` under a max height (CSS keeps

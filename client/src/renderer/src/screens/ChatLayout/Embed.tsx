@@ -10,9 +10,10 @@ import {
 } from '../../modules/ui/embeds.store';
 import { getUnfurl } from '../../shared/unfurl';
 import { getSpotify, type SpotifyInfo } from '../../shared/spotify';
-import { CachedImg } from '../../shared/CachedImg';
+import { CachedImg, ImageFrame } from '../../shared/CachedImg';
+import { memoFetch, memoGet } from '../../shared/embed-memo';
 import { useOffscreen, usePauseOffscreen } from '../../shared/use-offscreen';
-import { INLINE_BOX, type ImageKind } from '../../shared/image-cache';
+import { INLINE_BOX, knownDims, rememberDims, videoStyle, type ImageKind } from '../../shared/image-cache';
 
 type SpotifyFn = (url: string) => Promise<SpotifyInfo | null>;
 import './Embed.css';
@@ -34,7 +35,11 @@ function formatDate(iso: string): string {
 // Optional unfurl fetcher (window.bosonUnfurl: the desktop shell, or the
 // boson API on the web). When absent,
 // website embeds just open externally on click.
-export interface OgCard { title?: string; description?: string; image?: string; siteName?: string; author?: string; date?: string; url: string }
+export interface OgCard {
+  title?: string; description?: string; image?: string; siteName?: string; author?: string; date?: string; url: string;
+  // og:image:width / og:image:height, when the page gives them.
+  imageWidth?: number; imageHeight?: number;
+}
 export type UnfurlFn = (url: string) => Promise<OgCard | null>;
 
 // All embeds for a message, below its text. Click-to-load by default: chips are
@@ -109,8 +114,9 @@ function EmbedItem({
 // Image: click-to-load thumbnail → click opens a full-screen in-app lightbox.
 // Inline it's the cache's thumbnail (a big image scaled down once, on disk);
 // the lightbox loads the full one. Its box is reserved from the size the
-// cache reported, so nothing jumps when it lands.
+// cache reported (or a guess, kept), so nothing jumps when it lands.
 const INLINE_MAX_H = 280;
+const INLINE_MAX_W = 420;
 
 function ImageEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; dismissBtn: preact.ComponentChildren }) {
   const [loaded, setLoaded] = useState(auto);
@@ -120,7 +126,7 @@ function ImageEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
       {dismissBtn}
       {loaded ? (
         <button type="button" class="embed-media-btn" onClick={() => setLightbox(true)} aria-label="Open image">
-          <CachedImg class="embed-img" url={c.url} box={INLINE_BOX} maxHeight={INLINE_MAX_H} loading="lazy" />
+          <ImageFrame imgClass="embed-img" url={c.url} box={INLINE_BOX} maxWidth={INLINE_MAX_W} maxHeight={INLINE_MAX_H} />
         </button>
       ) : (
         <Button variant="secondary" size="sm" class="embed-chip" onClick={() => setLoaded(true)}>
@@ -132,7 +138,9 @@ function ImageEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
   );
 }
 
-// Direct video file: click-to-load → inline HTML5 player.
+// Direct video file: click-to-load → inline HTML5 player, its box reserved
+// (its size last time, else 16:9) so its metadata arriving moves nothing.
+const VIDEO_MAX_H = 360;
 function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; dismissBtn: preact.ComponentChildren }) {
   const [loaded, setLoaded] = useState(auto);
   const video = useRef<HTMLVideoElement>(null);
@@ -142,7 +150,19 @@ function VideoEmbed({ c, auto, dismissBtn }: { c: ClassifiedUrl; auto: boolean; 
       {dismissBtn}
       {loaded ? (
         // eslint-disable-next-line jsx-a11y/media-has-caption
-        <video ref={video} class="embed-video-el" src={c.url} controls preload="metadata" autoPlay={!auto} />
+        <video
+          ref={video}
+          class="embed-video-el"
+          src={c.url}
+          controls
+          preload="metadata"
+          autoPlay={!auto}
+          style={videoStyle(knownDims(c.url), VIDEO_MAX_H)}
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget as HTMLVideoElement;
+            if (v.videoWidth && v.videoHeight) rememberDims(c.url, { w: v.videoWidth, h: v.videoHeight });
+          }}
+        />
       ) : (
         <Button variant="secondary" size="sm" class="embed-chip" onClick={() => setLoaded(true)}>
           <span class="embed-chip-icon">🎬</span> Video · {c.domain} — click to play
@@ -178,7 +198,8 @@ function YouTubeEmbed({
   c, auto, unfurl, dismissBtn,
 }: { c: ClassifiedUrl; auto: boolean; unfurl?: UnfurlFn; dismissBtn: preact.ComponentChildren }) {
   const [stage, setStage] = useState<'chip' | 'facade' | 'play'>(auto ? 'facade' : 'chip');
-  const [card, setCard] = useState<OgCard | null>(null);
+  // A card fetched before (this row shown earlier) is there at once.
+  const [card, setCard] = useState<OgCard | null>(() => (auto && unfurl ? memoGet<OgCard>('unfurl', c.url) ?? null : null));
   const id = c.youtubeId!;
   const thumb = `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
   // YouTube's player needs a real origin/referrer or it errors ("Error 153 /
@@ -219,9 +240,9 @@ function YouTubeEmbed({
 
   // Once past the inert chip, fetch the video title (OG) for the card header.
   useEffect(() => {
-    if (stage === 'chip' || !unfurl) return;
+    if (stage === 'chip' || !unfurl || card) return;
     let alive = true;
-    void unfurl(c.url).then((og) => { if (alive && og) setCard(og); }).catch(() => { /* title is optional */ });
+    void memoFetch('unfurl', c.url, unfurl).then((og) => { if (alive && og) setCard(og); }).catch(() => { /* title is optional */ });
     return () => { alive = false; };
   }, [stage, unfurl, c.url]);
 
@@ -293,8 +314,10 @@ function SpotifyEmbed({
   c, spotify, dismissBtn,
 }: { c: ClassifiedUrl; spotify?: SpotifyFn; dismissBtn: preact.ComponentChildren }) {
   const type = c.spotifyType!;
-  const [info, setInfo] = useState<SpotifyInfo | null>(null);
-  const [loading, setLoading] = useState(!!spotify);
+  // Fetched before (this row shown earlier): the whole card at once.
+  const memo = spotify ? memoGet<SpotifyInfo>('spotify', c.url) : undefined;
+  const [info, setInfo] = useState<SpotifyInfo | null>(memo ?? null);
+  const [loading, setLoading] = useState(!!spotify && memo === undefined);
   const [playing, setPlaying] = useState<string | null>(null); // currently-playing preview URL
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -302,9 +325,10 @@ function SpotifyEmbed({
 
   useEffect(() => {
     if (!spotify) { setLoading(false); return; }
+    if (memoGet('spotify', c.url) !== undefined) return;
     let alive = true;
     setLoading(true);
-    spotify(c.url)
+    memoFetch('spotify', c.url, spotify)
       .then((d) => { if (alive) { setInfo(d); setLoading(false); } })
       .catch(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -460,21 +484,23 @@ function FileEmbed({ c, dismissBtn }: { c: ClassifiedUrl; onDismiss: () => void;
 function WebsiteEmbed({
   c, settings, unfurl, dismissBtn,
 }: { c: ClassifiedUrl; settings: EmbedSettings; unfurl?: UnfurlFn; dismissBtn: preact.ComponentChildren }) {
-  const [state, setState] = useState<{ phase: 'idle' | 'loading' | 'done' | 'error'; card?: OgCard }>(
-    { phase: 'idle' },
-  );
+  // Auto mode, and fetched before (this row shown earlier): the card at once.
+  const [state, setState] = useState<{ phase: 'idle' | 'loading' | 'done' | 'error'; card?: OgCard }>(() => {
+    const memo = settings.loadMode === 'auto' && unfurl ? memoGet<OgCard>('unfurl', c.url) : undefined;
+    return memo === undefined ? { phase: 'idle' } : memo ? { phase: 'done', card: memo } : { phase: 'error' };
+  });
 
   const load = (): void => {
     if (!unfurl) { openExternal(c.url); return; } // no fetcher → just open
     setState({ phase: 'loading' });
-    void unfurl(c.url)
+    void memoFetch('unfurl', c.url, unfurl)
       .then((card) => setState(card ? { phase: 'done', card } : { phase: 'error' }))
       .catch(() => setState({ phase: 'error' }));
   };
 
   // Auto mode: unfurl once on mount.
   useEffect(() => {
-    if (settings.loadMode === 'auto' && unfurl) load();
+    if (settings.loadMode === 'auto' && unfurl && state.phase === 'idle') load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -491,7 +517,7 @@ function WebsiteEmbed({
           {card.description && <span class="embed-card-desc">{card.description}</span>}
           {card.image && (
             <a class="embed-card-media" href={c.url} target="_blank" rel="noopener noreferrer" aria-label={card.title ?? c.domain}>
-              <CachedImg class="embed-card-img" url={card.image} box={INLINE_BOX} loading="lazy" />
+              <CachedImg class="embed-card-img" url={card.image} box={INLINE_BOX} loading="lazy" style={cardImageStyle(card)} />
             </a>
           )}
         </div>
@@ -517,4 +543,15 @@ function WebsiteEmbed({
       </button>
     </div>
   );
+}
+
+// A card's image box, before it loads: the page's og:image size, else the
+// size it had last time, else OpenGraph's usual 1.91:1. Across the card,
+// under its max height (Embed.css), cropped to fill.
+export function cardImageStyle(card: OgCard): string {
+  const dims = card.imageWidth && card.imageHeight
+    ? { w: card.imageWidth, h: card.imageHeight }
+    : card.image ? knownDims(card.image) : undefined;
+  const d = dims ?? { w: 191, h: 100 };
+  return `aspect-ratio:${d.w} / ${d.h}`;
 }

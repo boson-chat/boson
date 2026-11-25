@@ -37,6 +37,16 @@ func TestParseOg(t *testing.T) {
 		t.Fatalf("meta author/date: %+v", m)
 	}
 
+	d := parseOg(`<meta property="og:image:width" content="1200"><meta property="og:image" content="https://e.com/a.png">
+      <meta property="og:image:height" content="630px">`, "https://e.com")
+	if d.Image != "https://e.com/a.png" || d.ImageWidth != 1200 || d.ImageHeight != 630 {
+		t.Fatalf("image size: %+v", d)
+	}
+	if b := parseOg(`<meta property="og:image" content="https://e.com/a.png"><meta property="og:image:width" content="wide">
+      <meta property="og:image:height" content="630">`, "https://e.com"); b.ImageWidth != 0 || b.ImageHeight != 0 {
+		t.Fatalf("bad image size kept: %+v", b)
+	}
+
 	yt := strings.Repeat("x", 5000) + `<script type="application/ld+json">
       {"@type":"VideoObject","author":{"@type":"Person","name":"abe's projects"},"uploadDate":"2025-02-20T10:00:44-08:00"}
       </script><meta property="og:title" content="I built my ideal mini computer">`

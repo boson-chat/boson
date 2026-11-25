@@ -19,6 +19,7 @@ import { clearReadMarkers } from '../chat/read-markers';
 import { clearOlderSpill } from '../history/older-store';
 import { clearSearchSessions } from '../search/search-session';
 import { clearImagesForSignOut } from '../../shared/image-cache';
+import { clearEmbedMemo } from '../../shared/embed-memo';
 import { clearChannelLevelsForSignOut } from '../ui/notifications.store';
 import { clearGuestVoiceIdsForSignOut } from '../voice/guest-id';
 import { getNotifier } from '../ui/notifier';
@@ -67,7 +68,7 @@ export function appSignOutParticipants({ engine, identity, history, secure, sync
     { name: 'services-credentials', phase: 'wipe', clearForSignOut: () => getServiceCredentialsStore().clearForSignOut?.() },
     { name: 'bouncer-profile', phase: 'wipe', clearForSignOut: () => getBouncerStore().clearForSignOut?.() },
     { name: 'avatars', phase: 'wipe', clearForSignOut: () => clearAvatarsForSignOut() },
-    { name: 'images', phase: 'wipe', clearForSignOut: () => clearImagesForSignOut() },
+    { name: 'images', phase: 'wipe', clearForSignOut: () => { clearEmbedMemo(); return clearImagesForSignOut(); } },
     { name: 'directories', phase: 'wipe', clearForSignOut: () => getDirectorySources().clearForSignOut() },
     { name: 'guest-voice-id', phase: 'wipe', clearForSignOut: () => clearGuestVoiceIdsForSignOut() },
     { name: 'channel-permissions', phase: 'wipe', clearForSignOut: () => resetCreationCache() },
