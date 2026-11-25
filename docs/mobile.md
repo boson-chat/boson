@@ -341,8 +341,11 @@ button is hidden on phones (`VideoState.canShareScreen`).
   on release tags attached to the GitHub Release as `Boson-android.apk`
   when it was signed with the release key (secrets `ANDROID_KEYSTORE`,
   `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`).
-  Still to come: an iOS simulator build on PRs and — once we want devices
-  — the iOS build uploaded to TestFlight. Store submission stays manual.
+  The `ios` job builds a development-signed IPA for the registered test
+  devices and attaches it with an over-the-air install manifest
+  (`Boson-ios.ipa`, `Boson-ios.plist`; [ios-release.md](ios-release.md)).
+  Still to come: an iOS simulator build on PRs and the TestFlight upload.
+  Store submission stays manual.
 - **Versions:** iOS 16+, Android 8.0 (API 26)+ (decided).
 
 ## Testing
