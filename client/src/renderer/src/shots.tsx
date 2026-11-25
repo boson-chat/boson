@@ -758,6 +758,8 @@ function chatView(): void {
       activeServerId="s1"
       myDms={friendsMode ? chat.getState().channels.filter((c) => !/^[#&~]/.test(c.name)).map((c) => ({ serverId: 's1', serverName: 'Nebula', name: c.name, unread: c.unread, mentions: c.mentions })) : undefined}
       onOpenDm={(_s, name) => chat.setActive(name)}
+      // &late=1: the saved channel list's order (see the late join below).
+      {...(q0.get('late') === '1' ? { defaultChannelOrder: ['#members', '#dev', '#ops'] } : {})}
       onLeaveServer={() => {}}
       onSelectServer={() => {}}
       onBrowseServers={() => {}}
@@ -815,6 +817,17 @@ function chatView(): void {
     session.emit({ Kind: 'PRIVMSG', From: 'kestrel', Target: NICK, Message: 'the relay test passed', Tags: { time: min(4) }, Raw: '' });
   }
   chat.setActive(CHAN);
+  // &late=1: #members is saved first but only lets registered users in, so
+  // it's refused until NickServ has identified us and joins after #ops.
+  if (q0.get('late') === '1') {
+    chat.join('#members', { focus: false });
+    session.emit({ Kind: '477', From: 'irc', Target: NICK, Message: 'You need to be identified', Args: ['#members', 'x'], Raw: '' });
+    session.emit({ Kind: 'JOIN', From: NICK, Target: '#ops', Message: '', Raw: '' });
+    setTimeout(() => {
+      chat.join('#members', { focus: false });
+      session.emit({ Kind: 'JOIN', From: NICK, Target: '#members', Message: '', Raw: '' });
+    }, 400);
+  }
   // &chans=N: N more channels, the last of them open, so it sits below the
   // fold of the channel list.
   const extra = Number(q0.get('chans') ?? 0);

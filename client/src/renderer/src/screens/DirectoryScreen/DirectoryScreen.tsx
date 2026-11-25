@@ -376,6 +376,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
           onBouncerDisconnect={(id) => bloc.bouncerDisconnect(id)}
           onReorderServers={(ids) => bloc.reorderServers(ids)}
           channelOrder={bloc.channelOrder(active.serverId)}
+          defaultChannelOrder={bloc.defaultChannelOrder(active.serverId)}
           onReorderChannels={(names) => bloc.reorderChannels(active.serverId, names)}
           onResetChannelOrder={() => bloc.resetChannelOrder(active.serverId)}
           serverDescription={activeListing?.description}

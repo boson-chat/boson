@@ -1773,6 +1773,33 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('reorderChannels() keeps a channel that is still waiting to join (e.g. for NickServ) in its place', async () => {
+    const engine = fakeEngine();
+    const a = fakeServer('a');
+    const store = new SessionStore(memoryStorage());
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: fakeDirectory({ user: fakeUser('alice'), servers: [a] }),
+      identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client,
+      sessionStore: store,
+    });
+    await flushPromises(4);
+    await bloc.connect(a);
+    await flushPromises(2);
+    // #members (first) is refused until we've identified; the user swaps
+    // the two that are in the list meanwhile.
+    store.setChannels('a', ['#members', '#x', '#z']);
+    expect(bloc.defaultChannelOrder('a')).toEqual(['#members', '#x', '#z']);
+    bloc.reorderChannels('a', ['#z', '#x']);
+    expect(bloc.channelOrder('a')).toEqual(['#members', '#z', '#x']);
+    // A channel the user leaves drops out of both.
+    store.removeChannel('a', '#x');
+    expect(bloc.channelOrder('a')).toEqual(['#members', '#z']);
+    expect(bloc.defaultChannelOrder('a')).toEqual(['#members', '#z']);
+    bloc.dispose();
+  });
+
   it('connect() to a different server adds a second concurrent connection', async () => {
     const engine = fakeEngine();
     const a = fakeServer('a');
