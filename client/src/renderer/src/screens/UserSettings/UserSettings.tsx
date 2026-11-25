@@ -1,7 +1,7 @@
-import { Fragment, type ComponentChildren } from 'preact';
+import type { ComponentChildren } from 'preact';
 import { useEffect, useState } from 'preact/hooks';
 import { ChevronLeft } from 'lucide-preact';
-import { ListRow, Modal, PageHeader } from '@boson/shared';
+import { Modal, PageHeader } from '@boson/shared';
 import { loadGuestSession } from '../../modules/guest/guest';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
@@ -9,6 +9,7 @@ import type { AuthService } from '../../modules/auth';
 import { getVoiceController } from '../../modules/voice';
 import { getNetworkAccounts } from '../../modules/netauth/network-accounts';
 import { useNarrow } from '../../shared/narrow';
+import { BACK_TO_SETTINGS, SettingsMenu } from '../../shared/settings/SettingsNav';
 import { SectionFrame } from './SettingsFrame';
 import { ProfileSection } from './ProfileSection';
 import { AccountSection } from './AccountSection';
@@ -147,7 +148,7 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               class="user-settings-phone-head"
               title={sectionLabel(current, mode)}
               onBack={() => setPhoneSection(null)}
-              backLabel="Back to settings"
+              backLabel={BACK_TO_SETTINGS}
               backIcon={<ChevronLeft size={20} />}
             />
             <div class="user-settings-phone-body" role="region" aria-label={sectionLabel(current, mode)}>
@@ -199,28 +200,14 @@ function DesktopSettings({ menu, mode, signedOut, section, onSection, children }
 }) {
   return (
     <div class="user-settings">
-      <nav class="user-settings-menu" aria-label="Settings sections">
-        {menu.map((m, i) => {
-          // A group's heading (or About's rule) before its first entry:
-          // siblings of the entries, not wrappers.
-          const first = i === 0 || menu[i - 1]!.group !== m.group;
-          const heading = GROUP_TITLE[m.group];
-          return (
-            <Fragment key={m.id}>
-              {first && !signedOut && (heading
-                ? <span class="user-settings-menu-heading" aria-hidden="true">{heading}</span>
-                : <span class="user-settings-menu-rule" aria-hidden="true" />)}
-              <ListRow
-                variant="nav"
-                title={sectionLabel(m, mode)}
-                selected={section === m.id}
-                onClick={() => onSection(m.id)}
-                mainProps={{ role: 'tab', 'aria-selected': section === m.id }}
-              />
-            </Fragment>
-          );
-        })}
-      </nav>
+      <SettingsMenu
+        class="user-settings-menu"
+        entries={menu.map((m) => ({ ...m, label: sectionLabel(m, mode) }))}
+        groupTitle={(g) => GROUP_TITLE[g]}
+        headings={!signedOut}
+        selected={section}
+        onSelect={onSection}
+      />
       <div class="user-settings-body" role="tabpanel">{children}</div>
     </div>
   );

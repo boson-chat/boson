@@ -83,6 +83,11 @@
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
 }
+/* A section's flat card has no edge, so its padding plus the body's only
+   indents the controls away from the heading. Line them up with it (as
+   User settings does). */
+.server-settings-body .bds-card-flat { padding: 0; }
+.server-settings-body .bds-card-flat > .server-settings-card-body { padding: var(--space-2) 0; }
 
 .server-settings-row {
   display: grid;
@@ -623,61 +628,23 @@
 }
 .server-settings-bouncer-upstream > .bds-btn { flex: none; }
 
-/* Phones: as User settings — the section menu scrolls across the top. */
+/* Phones: as User settings — a list of the sections (SettingsPhoneList,
+   shared/settings), then one section full screen under a page header with
+   a back arrow. */
 @media (max-width: 700px), (max-height: 500px) and (pointer: coarse) {
   .bds-modal.server-settings-dialog { height: 100%; }
-  .server-settings-split { flex-direction: column; }
-  .server-settings-menu {
-    width: auto;
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    /* Room past the first and last tab, so neither sits on the edge. */
-    padding: 0 var(--space-2);
-    scroll-padding-inline: var(--space-2);
-    scrollbar-width: none;
-    border-right: none;
-    border-bottom: 1px solid var(--border-soft);
-    gap: var(--space-1);
-    flex-shrink: 0;
+  .server-settings-body { flex: 1; min-height: 0; padding: var(--space-4) var(--space-4) var(--space-6); }
+  /* The page header names the section: its own heading is for screen
+     readers. */
+  .server-settings-phone .server-settings-section-title {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
   }
-  .server-settings-menu::-webkit-scrollbar { display: none; }
-  .server-settings-menu > .bds-row { flex-shrink: 0; }
-  .server-settings-menu .bds-row-sub { display: none; }
-  /* Across the top the selected entry's accent edge goes under it (as a
-     tab's), and each entry is a 44px touch target. */
-  .server-settings-menu > .bds-row-nav { border-left: 0; border-bottom: 2px solid transparent; }
-  .server-settings-menu > .bds-row-nav.bds-row-selected { border-bottom-color: var(--accent); }
-  /* Label centred in its box: the same padding both sides (beats the nav
-     row's own 0 right padding). */
-  .server-settings-menu > .bds-row-nav.bds-row-clickable .bds-row-main { min-height: var(--control-lg); padding: 0 var(--space-3); }
-  /* More tabs past an edge: that edge fades out. */
-  .server-settings-menu[data-more-end] { mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
-  .server-settings-menu[data-more-start] { mask-image: linear-gradient(to right, transparent, #000 40px); }
-  .server-settings-menu[data-more-start][data-more-end] { mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
-  .server-settings-body { padding: var(--space-4); }
+  /* Advanced's command groups: the settings list's rows, edge to edge. */
+  .server-settings-advanced-groups { margin: 0 calc(-1 * var(--space-4)); }
+  .server-settings-advanced-search { max-width: none; }
+  /* A group on its own (no search above it) starts at the top. */
+  .server-settings-advanced > .server-settings-advanced-body:first-child { margin-top: 0; }
 
-  /* Advanced: the services sub-tabs scroll sideways, spaced, rather than
-     squeezing together past the edge. */
-  .server-settings-advanced .bds-tabs {
-    gap: var(--space-4);
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-    /* The tablist's bottom rule stays put while the tabs scroll. */
-    border-bottom: 0;
-    box-shadow: inset 0 -1px 0 var(--border);
-    /* A tab cut by the right edge fades, hinting at more; scrolled to the
-       end, the fade falls on this padding, not the last tab. */
-    padding-right: var(--space-6);
-    mask-image: linear-gradient(to right, #000 calc(100% - var(--space-6)), transparent);
-  }
-  .server-settings-advanced .bds-tabs::-webkit-scrollbar { display: none; }
-  .server-settings-advanced .bds-tab { flex: none; padding-inline: var(--space-1); white-space: nowrap; }
-  .server-settings-advanced .bds-tab-indicator { bottom: 0; }
-  /* No indent: the flat cards' own padding doubled the body's. */
-  .server-settings-advanced-body .bds-card { padding: 0; }
-  .server-settings-advanced-body .server-settings-card-body { padding: 0; }
   /* Each command stacks: what it does across the full width, then its
      input(s) and button on a row below (the input takes the slack). A
      button-only command keeps its button beside the text. */
@@ -689,7 +656,6 @@
   .server-settings-cmd-controls > .bds-btn { flex: none; }
   /* Label above value: a fixed label column leaves values a sliver. */
   .server-settings-row { grid-template-columns: 1fr; gap: var(--space-1); }
-  .server-settings-card-body { padding: var(--space-3) var(--space-4); }
 }
 
 /* About: your nick with a way to change it. */

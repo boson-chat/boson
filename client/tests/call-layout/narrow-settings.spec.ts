@@ -1,9 +1,9 @@
-import { test, expect, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
-// User settings and Server settings on a narrow phone (360px): Server
-// settings' section strip leaves room past its last tab, nothing pushes the
-// body wider than the screen, and Advanced's command rows stack rather than
-// squeeze. (User settings is a drill-down list on phones.)
+// User settings and Server settings on a narrow phone (360px): both are a
+// drill-down list of their sections; nothing pushes the list or a section
+// wider than the screen, and Advanced's command rows stack rather than
+// squeeze.
 
 async function noSideways(page: Page, body: string): Promise<void> {
   const { body: b, doc } = await page.evaluate((sel) => {
@@ -18,16 +18,6 @@ async function noSideways(page: Page, body: string): Promise<void> {
   expect(doc.sw, 'page scrolls sideways').toBeLessThanOrEqual(doc.cw);
 }
 
-// Scrolled to its end, the strip's last tab stops short of the strip's edge.
-async function lastTabInset(strip: Locator): Promise<number> {
-  return strip.evaluate((nav) => {
-    nav.scrollLeft = nav.scrollWidth;
-    const tabs = nav.querySelectorAll<HTMLElement>('[role="tab"]');
-    const last = tabs[tabs.length - 1]!.closest<HTMLElement>('.bds-row') ?? tabs[tabs.length - 1]!;
-    return nav.getBoundingClientRect().right - last.getBoundingClientRect().right;
-  });
-}
-
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a): boolean =>
   a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
@@ -35,22 +25,28 @@ test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 780 });
 });
 
-test('server settings at 360px: no sideways scroll, strip end inset, Advanced rows stack', async ({ page }) => {
-  await page.goto('/shots.html?view=services');
-  const strip = page.locator('.server-settings-menu');
-  const tabs = strip.getByRole('tab');
-  const n = await tabs.count();
+test('server settings at 360px: no sideways scroll in the list or any section, Advanced rows stack', async ({ page }) => {
+  await page.goto('/shots.html?view=services&owner=1&nettheme=1');
+  const dialog = page.getByRole('dialog');
+  const list = dialog.locator('.settings-phone-list');
+  await expect(list).toBeVisible();
+  await noSideways(page, '.settings-phone-list');
+  const rows = list.locator('nav').getByRole('button');
+  const n = await rows.count();
+  expect(n).toBe(10);
   for (let i = 0; i < n; i++) {
-    await tabs.nth(i).click();
+    await rows.nth(i).click();
+    await expect(dialog.getByRole('button', { name: 'Back to settings' })).toBeVisible();
     await noSideways(page, '.server-settings-body');
+    await dialog.getByRole('button', { name: 'Back to settings' }).click();
   }
-  expect(await lastTabInset(strip)).toBeGreaterThanOrEqual(7); // 8px, less sub-pixel scroll rounding
 
-  await strip.getByRole('tab', { name: /^Advanced/ }).click();
-  // The services sub-tabs keep a gap between them and scroll within their strip.
-  const sub = page.locator('.server-settings-advanced .bds-tabs');
-  const boxes = await sub.getByRole('tab').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().toJSON() as DOMRect));
-  for (let i = 1; i < boxes.length; i++) expect(boxes[i]!.left - boxes[i - 1]!.right).toBeGreaterThanOrEqual(8);
+  // Advanced: its command groups are a list too; each opens on its own.
+  await list.locator('nav').getByRole('button', { name: /^Advanced/ }).click();
+  const groups = dialog.getByRole('navigation', { name: 'Command groups' });
+  await noSideways(page, '.server-settings-body');
+  await groups.getByRole('button', { name: /^NickServ/ }).click();
+  await expect(dialog.locator('.bds-page-title')).toHaveText('NickServ');
   await noSideways(page, '.server-settings-body');
 
   // IDENTIFY: the description runs full width; the input sits below it.
@@ -62,9 +58,9 @@ test('server settings at 360px: no sideways scroll, strip end inset, Advanced ro
   expect(overlaps(hint, button)).toBe(false);
   expect(input.y).toBeGreaterThanOrEqual(hint.y + hint.height);
   expect(hint.width).toBeGreaterThan(200);
-  // No double indent: the NickServ card lines up with the search box.
-  const search = (await page.locator('.server-settings-advanced-search input').boundingBox())!;
-  expect(Math.abs(hint.x - search.x)).toBeLessThanOrEqual(1);
+  // No double indent: the NickServ card lines up with the page's text.
+  const body = (await page.locator('.server-settings-body').boundingBox())!;
+  expect(Math.abs(hint.x - (body.x + 16))).toBeLessThanOrEqual(1);
 });
 
 test('user settings at 360px: no sideways scroll in the list or any section', async ({ page }) => {
@@ -72,9 +68,9 @@ test('user settings at 360px: no sideways scroll in the list or any section', as
   // than a strip of tabs.
   await page.goto('/shots.html?view=settings&platform=ios&friends=1&images=1&voice=connected');
   const dialog = page.getByRole('dialog');
-  const list = dialog.locator('.user-settings-phone-list');
+  const list = dialog.locator('.settings-phone-list');
   await expect(list).toBeVisible();
-  await noSideways(page, '.user-settings-phone-list');
+  await noSideways(page, '.settings-phone-list');
   const rows = list.locator('nav').getByRole('button');
   const n = await rows.count();
   expect(n).toBeGreaterThan(5);
