@@ -1,3 +1,9 @@
+## [0.98.0](https://github.com/boson-chat/boson/compare/v0.97.2...v0.98.0) (2026-11-25)
+
+### Features
+
+* notifications per server and channel, synced preferences, mark as read ([#159](https://github.com/boson-chat/boson/issues/159)) ([460d0cf](https://github.com/boson-chat/boson/commit/460d0cf3fdd1c2def513953cef9fb9430e376ed9))
+
 ## [0.97.2](https://github.com/boson-chat/boson/compare/v0.97.1...v0.97.2) (2026-11-25)
 
 ### Bug Fixes
