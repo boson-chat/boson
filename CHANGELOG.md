@@ -1,3 +1,9 @@
+## [0.97.1](https://github.com/boson-chat/boson/compare/v0.97.0...v0.97.1) (2026-11-25)
+
+### Bug Fixes
+
+* **chat:** loading older messages no longer moves the chat ([#157](https://github.com/boson-chat/boson/issues/157)) ([0609f1d](https://github.com/boson-chat/boson/commit/0609f1d9e11e49762d5d8a821eee89c5ba60967d))
+
 ## [0.97.0](https://github.com/boson-chat/boson/compare/v0.96.1...v0.97.0) (2026-11-25)
 
 ### Features
