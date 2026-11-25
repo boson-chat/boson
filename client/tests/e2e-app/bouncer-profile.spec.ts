@@ -51,17 +51,20 @@ test.describe('bouncer profile', () => {
     await continueAsGuest(page, `bp${uid()}`);
 
     let dialog = await openBouncerSettings(page);
-    // Defaults: off, TLS on, verification on, the standard TLS port.
+    // Defaults: off, and its connection fields only show once it's on:
+    // then TLS on, verification on, the standard TLS port.
     await expect(dialog.getByRole('checkbox', { name: 'Use a bouncer', exact: true })).not.toBeChecked();
-    await expect(dialog.getByRole('checkbox', { name: 'Use TLS', exact: true })).toBeChecked();
-    await expect(dialog.getByRole('checkbox', { name: 'Allow self-signed certificate', exact: true })).not.toBeChecked();
-    await expect(field(dialog, 'Port')).toHaveValue('6697');
+    await expect(field(dialog, 'Host')).toHaveCount(0);
+    await expect(dialog.getByRole('checkbox', { name: 'Use TLS', exact: true })).toHaveCount(0);
     await expect(dialog.getByText("Sign in to sync this bouncer across your devices.")).toBeVisible();
 
     // Enabling needs a host AND a username before Save is allowed.
     const save = dialog.getByRole('button', { name: 'Save', exact: true });
     await expect(save).toBeEnabled();
     await toggle(dialog, 'Use a bouncer', true);
+    await expect(dialog.getByRole('checkbox', { name: 'Use TLS', exact: true })).toBeChecked();
+    await expect(dialog.getByRole('checkbox', { name: 'Allow self-signed certificate', exact: true })).not.toBeChecked();
+    await expect(field(dialog, 'Port')).toHaveValue('6697');
     await expect(save).toBeDisabled();
     await field(dialog, 'Host').fill(`  ${host}  `);
     await expect(save).toBeDisabled();
@@ -115,8 +118,8 @@ test.describe('bouncer profile', () => {
     // Clear wipes the form and the stored profile.
     await dialog.getByRole('button', { name: 'Clear', exact: true }).click();
     await expect(dialog.getByText('Saved', { exact: true })).toBeVisible();
-    await expect(field(dialog, 'Host')).toHaveValue('');
     await expect(dialog.getByRole('checkbox', { name: 'Use a bouncer', exact: true })).not.toBeChecked();
+    await expect(field(dialog, 'Host')).toHaveCount(0);
     await closeSettings(dialog);
     // No bouncer and no bouncer networks: the directory has no Bouncer tab.
     await expect(page.getByRole('tab', { name: 'Bouncer' })).toHaveCount(0);

@@ -1,13 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/preact';
 import userEvent from '@testing-library/user-event';
-import { UserSettings, UpdateActions } from './UserSettings';
+import { UserSettings, UpdateActions, platformLabel, resolveSection } from './UserSettings';
 import pkg from '../../../../../package.json';
 import { HttpError } from '../../shared/http/http.client';
 import type { DirectoryService } from '../../modules/directory';
 import type { AuthService } from '../../modules/auth';
 import type { IdentityService } from '../../modules/identity';
-import { clearGuestSession } from '../../modules/guest/guest';
+import { clearGuestSession, saveGuestSession } from '../../modules/guest/guest';
+import { setNetworkAccounts, type NetworkAccounts } from '../../modules/netauth/network-accounts';
 import { SecureBouncerStore, setBouncerStore } from '../../modules/chat/bouncer.store';
 import { InMemorySecureStorage } from '../../shared/secure-storage';
 
@@ -337,6 +338,7 @@ describe('UserSettings — Bouncer panel', () => {
     await freshStore();
     renderSettings();
     fireEvent.click(screen.getByRole('tab', { name: /Bouncer/ }));
+    fireEvent.click(screen.getByLabelText('Use a bouncer'));
     expect(screen.queryByText(/Skips TLS certificate verification/)).toBeNull();
     fireEvent.click(screen.getByLabelText('Allow self-signed certificate'));
     expect(screen.getByText(/Skips TLS certificate verification/)).toBeInTheDocument();
@@ -502,16 +504,193 @@ describe('UserSettings — before signing in', () => {
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent ?? '');
     expect(tabs.some((t) => t.startsWith('Appearance'))).toBe(true);
     expect(tabs.some((t) => t.startsWith('About'))).toBe(true);
-    expect(tabs.some((t) => /^(Identity|Account|Bouncer)/.test(t))).toBe(false);
-    expect(screen.queryByText(/Signed in to your Boson account/)).toBeNull();
+    expect(tabs.some((t) => /^(Profile|Account|Privacy|Bouncer)/.test(t))).toBe(false);
+    expect(screen.queryByText('How you sign in to your Boson account.')).toBeNull();
+    // Two entries need no group headings.
+    expect(document.querySelector('.user-settings-menu-heading')).toBeNull();
   });
 });
 
-describe('UserSettings — Identity wording', () => {
+describe('UserSettings — Profile wording', () => {
   it('says what the handle is in plain words', () => {
     renderSettings({ authedHandle: 'alice' });
     expect(screen.getByText('How people find you on Boson, and your name in chat.')).toBeInTheDocument();
     expect(screen.queryByText(/sanitisation/)).toBeNull();
     expect(screen.queryByText(/next connect/)).toBeNull();
+  });
+});
+
+describe('UserSettings — the menu', () => {
+  const tabNames = (): string[] => screen.getAllByRole('tab').map((t) => t.textContent ?? '');
+  const selected = (): string => screen.getAllByRole('tab').find((t) => t.getAttribute('aria-selected') === 'true')?.textContent ?? '';
+
+  it('groups the sections under You, App and Connections, with About last', () => {
+    renderSettings();
+    const headings = [...document.querySelectorAll('.user-settings-menu-heading')].map((h) => h.textContent);
+    expect(headings).toEqual(['You', 'App', 'Connections']);
+    // In the order the groups read, top to bottom.
+    const nav = document.querySelector('.user-settings-menu')!;
+    const order = [...nav.children].map((el) => el.textContent || '—');
+    expect(order).toEqual([
+      'You', 'Profile', 'Account & security', 'Privacy',
+      'App', 'Appearance', 'Notifications', 'Chat & media',
+      'Connections', 'Directories', 'Bouncer',
+      '—', 'About',
+    ]);
+    // It opens on Profile.
+    expect(selected()).toBe('Profile');
+  });
+
+  it("has no Network accounts where they aren't supported", () => {
+    renderSettings();
+    expect(tabNames()).not.toContain('Network accounts');
+  });
+
+  it('lists Network accounts when the app supports them', () => {
+    const fake = {
+      getSnapshot: () => ({ known: [], sessions: {} }),
+      subscribe: () => () => {},
+      dispose: () => {},
+    } as unknown as NetworkAccounts;
+    setNetworkAccounts(fake);
+    try {
+      renderSettings({ initialSection: 'networks' });
+      expect(selected()).toBe('Network accounts');
+      expect(screen.getByText(/No network accounts yet/)).toBeInTheDocument();
+    } finally {
+      setNetworkAccounts(null);
+    }
+  });
+
+  it.each([
+    ['identity', 'Profile'],
+    ['profile', 'Profile'],
+    ['content', 'Chat & media'],
+    ['chat', 'Chat & media'],
+    ['privacy', 'Privacy'],
+    ['notifications', 'Notifications'],
+    ['account', 'Account & security'],
+    ['about', 'About'],
+  ])('opens at %s (old ids too): %s', (id, tab) => {
+    renderSettings({ initialSection: id });
+    expect(selected()).toBe(tab);
+  });
+
+  it('ignores an unknown section, and voice where there is no voice', () => {
+    expect(resolveSection('nope')).toBeNull();
+    renderSettings({ initialSection: 'voice' });
+    expect(selected()).toBe('Profile');
+    expect(tabNames()).not.toContain('Voice');
+  });
+
+  it('as a guest: Profile is the nick, Account offers an account, Privacy says calls need one', async () => {
+    saveGuestSession({ nick: 'wren' });
+    renderSettings({ authedHandle: null, authedEmail: null });
+    expect(tabNames()).toContain('Account');
+    expect(tabNames()).not.toContain('Account & security');
+    expect(screen.getByDisplayValue('wren')).toBeInTheDocument();
+    expect(screen.getByText('Guest, no account')).toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('tab', { name: 'Account' }));
+    expect(screen.getByRole('button', { name: 'Switch to an account' })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: 'Privacy' }));
+    expect(screen.getByText(/Sign in to a Boson account to choose who can call you/)).toBeInTheDocument();
+    // Remembered hosts are this device's, so they're here for guests too.
+    expect(screen.getByRole('checkbox', { name: 'Remember hosts' })).toBeInTheDocument();
+  });
+});
+
+describe('UserSettings — Account & security', () => {
+  it('puts email, the recovery code, and sign out in one section', async () => {
+    const onSignOut = vi.fn();
+    const onClose = vi.fn();
+    renderSettings({ initialSection: 'account', onSignOut, onClose });
+    expect(screen.getByRole('heading', { name: 'Account & security' })).toBeInTheDocument();
+    expect(screen.getByText('alice@example.dev')).toBeInTheDocument();
+    // The recovery code is a row with a secondary button, not a big CTA.
+    const setUp = await screen.findByRole('button', { name: 'Set up recovery code' });
+    expect(setUp.className).not.toMatch(/primary/);
+    expect(screen.getByText('Not set up')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(onSignOut).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe('UserSettings — Chat & media', () => {
+  beforeEach(() => localStorage.removeItem('boson:embeds:v1'));
+
+  it('link previews are switch rows; the per-kind switches sit under the master and turn off with it', () => {
+    renderSettings({ initialSection: 'content' });
+    const master = screen.getByRole('checkbox', { name: 'Show link previews' });
+    const kinds = ['Load automatically', 'Images', 'Videos', 'YouTube', 'Spotify', 'Website cards'];
+    for (const k of kinds) {
+      const box = screen.getByRole('checkbox', { name: k });
+      expect(box).toBeEnabled();
+      expect(box.closest('.user-settings-nested')).not.toBeNull();
+    }
+    fireEvent.click(master);
+    for (const k of kinds) expect(screen.getByRole('checkbox', { name: k })).toBeDisabled();
+    expect(document.querySelector('.user-settings-nested-off')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem('boson:embeds:v1') ?? '{}')).toMatchObject({ enabled: false });
+    // Click-to-load is "Load automatically" off.
+    fireEvent.click(master);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Load automatically' }));
+    expect(JSON.parse(localStorage.getItem('boson:embeds:v1') ?? '{}')).toMatchObject({ loadMode: 'click' });
+  });
+
+  it('no longer holds the remembered-hosts switches (they are under Privacy)', () => {
+    renderSettings({ initialSection: 'chat' });
+    expect(screen.queryByRole('checkbox', { name: 'Remember hosts' })).toBeNull();
+  });
+});
+
+describe('UserSettings — Privacy', () => {
+  it('holds remembered hosts; showing them in join/part lines needs remembering on', () => {
+    renderSettings({ initialSection: 'privacy' });
+    const remember = screen.getByRole('checkbox', { name: 'Remember hosts' });
+    if (!(remember as HTMLInputElement).checked) fireEvent.click(remember);
+    expect(screen.getByRole('checkbox', { name: 'Show hosts in join/part lines' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Remember hosts' }));
+    expect(screen.getByRole('checkbox', { name: 'Show hosts in join/part lines' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Remember hosts' }));
+    expect(screen.getByRole('button', { name: 'Clear remembered hosts' })).toBeInTheDocument();
+  });
+});
+
+describe('UserSettings — Bouncer: the connection details follow the switch', () => {
+  it('shows host, port and TLS only while "Use a bouncer" is on', async () => {
+    const s = new SecureBouncerStore(new InMemorySecureStorage(), { probeIntervalMs: 1, probeTimeoutMs: 5 });
+    await s.whenHydrated();
+    setBouncerStore(s);
+    renderSettings({ initialSection: 'bouncer' });
+    expect(screen.queryByPlaceholderText('znc.example.com')).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: 'Use TLS' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Use a bouncer' }));
+    expect(screen.getByPlaceholderText('znc.example.com')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', { name: 'Use TLS' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Flood control' })).toBeChecked();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Use a bouncer' }));
+    expect(screen.queryByPlaceholderText('znc.example.com')).toBeNull();
+  });
+});
+
+describe('platformLabel', () => {
+  it.each([
+    ['darwin', 'macOS'], ['MacIntel', 'macOS'], ['win32', 'Windows'], ['Win32', 'Windows'],
+    ['linux', 'Linux'], ['Linux x86_64', 'Linux'], ['ios', 'iOS'], ['iPhone', 'iOS'],
+    ['android', 'Android'], ['Linux armv8l; Android', 'Android'], ['', 'Unknown'],
+  ])('%s: %s', (raw, label) => {
+    expect(platformLabel(raw)).toBe(label);
+  });
+
+  it('About shows the friendly name, not the raw platform', () => {
+    (window as unknown as { bosonPlatform?: string }).bosonPlatform = 'darwin';
+    try {
+      renderSettings({ initialSection: 'about' });
+      expect(screen.getByText('macOS')).toBeInTheDocument();
+    } finally {
+      delete (window as unknown as { bosonPlatform?: string }).bosonPlatform;
+    }
   });
 });

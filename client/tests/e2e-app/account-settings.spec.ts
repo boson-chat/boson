@@ -1,6 +1,6 @@
 // User Settings (title-bar gear) end to end: profile image upload/replace/
 // remove through the backend into MinIO, recovery-code enroll/regenerate,
-// local preferences (content embeds, notifications) surviving a relaunch,
+// local preferences (chat & media embeds, notifications) surviving a relaunch,
 // the About panel, sign-out from settings, and the guest-mode sections.
 import { deflateSync, crc32 } from 'node:zlib';
 import { readFileSync } from 'node:fs';
@@ -136,7 +136,8 @@ test('regenerating the recovery code replaces the wrap: the old code stops worki
   const wrapBefore = wrap();
 
   const dialog = await openSettings(page, 'Account');
-  await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Email' })).toContainText(account.email);
+  await expect(dialog.getByRole('heading', { name: 'Account & security' })).toBeVisible();
+  await expect(dialog.locator('.user-settings-email')).toContainText(account.email);
   await expect(dialog.locator('.user-settings-recovery')).toContainText('Enabled');
   await dialog.getByRole('button', { name: 'Regenerate recovery code' }).click();
 
@@ -209,23 +210,23 @@ test('signing out from settings clears this device like the directory sign-out d
 
 // ---- local preferences -----------------------------------------------------
 
-test('content and notification preferences persist across a relaunch', async ({ launchApp, account }) => {
+test('chat & media and notification preferences persist across a relaunch', async ({ launchApp, account }) => {
   const first = await launchApp();
   expect(await loginAs(first.page, account)).toBe('directory');
-  let dialog = await openSettings(first.page, 'Content');
+  let dialog = await openSettings(first.page, 'Chat & media');
   const box = (d: Locator, label: string) => d.getByRole('checkbox', { name: label, exact: true });
   const flip = async (d: Locator, label: string) => { await d.getByText(label, { exact: true }).click(); };
 
   // Defaults: on + auto-load.
-  await expect(box(dialog, 'Show link embeds')).toBeChecked();
-  await expect(box(dialog, 'Auto-load previews (turn off to load on click — more private)')).toBeChecked();
-  await flip(dialog, 'Auto-load previews (turn off to load on click — more private)');
+  await expect(box(dialog, 'Show link previews')).toBeChecked();
+  await expect(box(dialog, 'Load automatically')).toBeChecked();
+  await flip(dialog, 'Load automatically');
   await flip(dialog, 'YouTube');
   await expect(box(dialog, 'YouTube')).not.toBeChecked();
   // The master switch disables the per-type toggles.
-  await flip(dialog, 'Show link embeds');
+  await flip(dialog, 'Show link previews');
   await expect(box(dialog, 'Images')).toBeDisabled();
-  await flip(dialog, 'Show link embeds');
+  await flip(dialog, 'Show link previews');
   await expect(box(dialog, 'Images')).toBeEnabled();
 
   await dialog.getByRole('tab', { name: /^Notifications/ }).click();
@@ -258,8 +259,8 @@ test('content and notification preferences persist across a relaunch', async ({ 
   // Relaunch (signed-in session restores) → the same values are shown.
   const second = await launchApp();
   await expect(second.page.getByRole('heading', { name: 'Server Directory' })).toBeVisible({ timeout: 45_000 });
-  dialog = await openSettings(second.page, 'Content');
-  await expect(box(dialog, 'Auto-load previews (turn off to load on click — more private)')).not.toBeChecked();
+  dialog = await openSettings(second.page, 'Chat & media');
+  await expect(box(dialog, 'Load automatically')).not.toBeChecked();
   await expect(box(dialog, 'YouTube')).not.toBeChecked();
   await expect(box(dialog, 'Spotify')).toBeChecked();
   await dialog.getByRole('tab', { name: /^Notifications/ }).click();
@@ -286,7 +287,9 @@ test('appearance and about: theme picker, version, update check and the source l
     await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).toContainText('Web (');
     await expect(dialog.getByRole('button', { name: 'Check for updates' })).toHaveCount(0);
   } else {
-    await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).toContainText(process.platform);
+    // Named as people know it (darwin → macOS), not the raw platform.
+    const friendly: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' };
+    await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).toContainText(friendly[process.platform] ?? process.platform);
     // Unpackaged builds have no updater feed: a manual check reports up to date.
     await dialog.getByRole('button', { name: 'Check for updates' }).click();
     await expect(dialog.getByText('Up to date.')).toBeVisible();
@@ -322,10 +325,12 @@ test('guest settings: rename the nick, bouncer form validation, and switch to an
   expect(saved).not.toContain(' ');
   expect(saved).not.toContain('@');
 
-  // Bouncer: enabling it requires host + username before Save is allowed.
+  // Bouncer: the connection fields show once it's switched on, and it
+  // needs a host + username before Save is allowed.
   await dialog.getByRole('tab', { name: /^Bouncer/ }).click();
   await expect(dialog.getByText('Sign in to sync this bouncer across your devices.', { exact: false })).toBeVisible();
   const save = dialog.getByRole('button', { name: 'Save', exact: true });
+  await expect(field(dialog, 'Host')).toHaveCount(0);
   await dialog.getByText('Use a bouncer', { exact: true }).click();
   await expect(save).toBeDisabled();
   await field(dialog, 'Host').fill('znc.example.test');
@@ -337,8 +342,11 @@ test('guest settings: rename the nick, bouncer form validation, and switch to an
   await save.click();
   await expect(dialog.getByText('Saved', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Clear', exact: true }).click();
-  await expect(field(dialog, 'Host')).toHaveValue('');
   await expect(dialog.getByRole('checkbox', { name: 'Use a bouncer', exact: true })).not.toBeChecked();
+  await expect(field(dialog, 'Host')).toHaveCount(0);
+  await dialog.getByText('Use a bouncer', { exact: true }).click();
+  await expect(field(dialog, 'Host')).toHaveValue('');
+  await dialog.getByText('Use a bouncer', { exact: true }).click();
 
   // Account → "Switch to an account" leaves guest mode for the login screen.
   await dialog.getByRole('tab', { name: /^Account/ }).click();

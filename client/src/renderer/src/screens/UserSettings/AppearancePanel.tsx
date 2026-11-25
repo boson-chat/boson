@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, Input, Segmented, Toggle, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, Input, Segmented, SwitchRow, useTransientFlag } from '@boson/shared';
 import {
   THEME_TOKENS, getThemeStore, isThemeColor, parseTheme, serializeTheme,
   useNetworkThemes,
@@ -178,16 +178,12 @@ export function AppearancePanel() {
       </FileDropArea>
       <Card>
         <div class="user-settings-card-body appearance-network">
-          <Toggle
+          <SwitchRow
+            title="Use network themes"
+            description="A network can have its own colours, backgrounds and logo, shown over your theme while you're on it (the light or dark version matching yours). Turn one network's off from its server menu or Server settings."
             checked={networkThemes.globallyEnabled}
             onChange={(on) => networkThemes.setGloballyEnabled(on)}
-            label="Use network themes"
           />
-          <p class="appearance-hint">
-            A network can have its own colours, backgrounds and logo. While you're on it, they show over your theme.
-            If it has a light and a dark version, you get the one that matches your theme.
-            Turn one network's off from its server menu or Server settings.
-          </p>
         </div>
       </Card>
     </div>

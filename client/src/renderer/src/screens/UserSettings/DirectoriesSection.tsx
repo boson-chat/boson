@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, Button, Card, Field, Input, ListRow, Toggle } from '@boson/shared';
+import { Badge, Button, Field, Input, ListRow, Toggle } from '@boson/shared';
 import {
   DirectoryCheckError,
   getDirectorySources,
@@ -7,6 +7,7 @@ import {
   type DirectorySource,
   type DirectorySources,
 } from '../../modules/directory/sources';
+import { SectionFrame, SettingsGroup } from './SettingsFrame';
 
 // Settings → Directories: the network directories the server browser lists
 // from. The default one (directory.boson.chat) can be switched off but not
@@ -42,70 +43,66 @@ export function DirectoriesSection({ sources = getDirectorySources() }: { source
   };
 
   return (
-    <section class="user-settings-section">
-      <div class="user-settings-section-head">
-        <h2 class="user-settings-section-title">Directories</h2>
-        <p class="user-settings-section-desc">
-          The server browser lists networks from these directories and merges them, one card per
-          server. Add a community’s or your own stack’s directory by its address.
-        </p>
-      </div>
-      <div class="user-settings-section-body">
-        <Card>
-          <ul class="settings-rows" aria-label="Your directories">
-            {list.map((d) => (
-              <ListRow
-                key={d.url}
-                as="li"
-                class={d.enabled ? undefined : 'settings-row-off'}
-                title={d.name}
-                meta={d.isDefault ? <Badge tone="info">Default</Badge> : undefined}
-                subtitle={new URL(d.url).host}
-                trailing={<>
-                  <Toggle
-                    checked={d.enabled}
-                    onChange={(v) => sources.setEnabled(d.url, v)}
-                    label={d.enabled ? 'On' : 'Off'}
-                  />
-                  {!d.isDefault && (
-                    <Button variant="ghost" onClick={() => sources.remove(d.url)} aria-label={`Remove ${d.name}`}>
-                      Remove
-                    </Button>
-                  )}
-                </>}
-              >
-                {d.operator && <span class="settings-row-note">Run by {d.operator}</span>}
-              </ListRow>
-            ))}
-          </ul>
-        </Card>
-        <Card>
-          <form class="user-settings-card-body user-settings-form" onSubmit={(e) => { void submit(e); }}>
-            <Field
-              label="Add a directory"
-              hint="Its address, like directory.example.org. Boson checks it’s a directory before adding it."
+    <SectionFrame
+      title="Directories"
+      description="The server browser lists networks from these directories, merged into one card per server."
+    >
+      <SettingsGroup title="Your directories">
+        <ul class="settings-rows settings-rows-switch" aria-label="Your directories">
+          {list.map((d) => (
+            <ListRow
+              key={d.url}
+              as="li"
+              class={d.enabled ? undefined : 'settings-row-off'}
+              title={d.name}
+              meta={d.isDefault ? <Badge tone="info">Default</Badge> : undefined}
+              subtitle={new URL(d.url).host}
+              // The switch is always last, so the switches line up whether
+              // or not a row can be removed.
+              trailing={<>
+                {!d.isDefault && (
+                  <Button variant="ghost" size="sm" onClick={() => sources.remove(d.url)} aria-label={`Remove ${d.name}`}>
+                    Remove
+                  </Button>
+                )}
+                <Toggle
+                  checked={d.enabled}
+                  onChange={(v) => sources.setEnabled(d.url, v)}
+                  ariaLabel={`List servers from ${d.name}`}
+                />
+              </>}
             >
-              <Input
-                value={address}
-                onInput={(e) => { setAddress((e.target as HTMLInputElement).value); setError(null); }}
-                placeholder="directory.example.org"
-                autoComplete="off"
-                spellcheck={false}
-                disabled={full}
-                invalid={!!error}
-              />
-            </Field>
-            {error && <p class="user-settings-error" role="alert">{error}</p>}
-            {full && <p class="user-settings-hint">You’ve reached {MAX_DIRECTORIES} directories. Remove one to add another.</p>}
-            <div class="user-settings-form-actions">
-              {added && <span class="user-settings-saved">Added {added}</span>}
-              <Button type="submit" variant="primary" disabled={full || checking || !address.trim()} loading={checking}>
-                {checking ? 'Checking…' : 'Add directory'}
-              </Button>
-            </div>
-          </form>
-        </Card>
-      </div>
-    </section>
+              {d.operator && <span class="settings-row-note">Run by {d.operator}</span>}
+            </ListRow>
+          ))}
+        </ul>
+      </SettingsGroup>
+      <SettingsGroup>
+        <form class="user-settings-form" onSubmit={(e) => { void submit(e); }}>
+          <Field
+            label="Add a directory"
+            hint="Its address, like directory.example.org: a community’s or your own stack’s. Boson checks it’s a directory before adding it."
+          >
+            <Input
+              value={address}
+              onInput={(e) => { setAddress((e.target as HTMLInputElement).value); setError(null); }}
+              placeholder="directory.example.org"
+              autoComplete="off"
+              spellcheck={false}
+              disabled={full}
+              invalid={!!error}
+            />
+          </Field>
+          {error && <p class="user-settings-error" role="alert">{error}</p>}
+          {full && <p class="user-settings-hint">You’ve reached {MAX_DIRECTORIES} directories. Remove one to add another.</p>}
+          <div class="user-settings-form-actions">
+            {added && <span class="user-settings-saved">Added {added}</span>}
+            <Button type="submit" variant="primary" disabled={full || checking || !address.trim()} loading={checking}>
+              {checking ? 'Checking…' : 'Add directory'}
+            </Button>
+          </div>
+        </form>
+      </SettingsGroup>
+    </SectionFrame>
   );
 }

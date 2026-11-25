@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, Button, Card, Divider, Field, Segmented, Select, Toggle, WarningBanner } from '@boson/shared';
+import { Badge, Button, Card, Divider, Field, Segmented, Select, SwitchRow, WarningBanner } from '@boson/shared';
 import {
   VAD_MAX_DB, VAD_MIN_DB, getVoiceSettings, keyLabel, onVoiceSettingsChange, setVoiceSettings, useVoice,
   type VoiceDevices, type VoiceSettings,
@@ -182,10 +182,13 @@ export function VoiceSettingsSection({ open }: { open: boolean }) {
         </p>
         <QualityCard s={s} phone={phone} call={call} hasVideo={!!video} metered={!!vsnap.state.metered} />
         <Card>
-          <div class="user-settings-card-body user-settings-form">
-            <Field label="Smoother screen shares (experimental)" hint="Shows a shared screen at the pace it was captured, with a small buffer, rather than as frames arrive. Try it if screen shares look jumpy.">
-              <Toggle checked={s.screenPacing} onChange={(on) => setVoiceSettings({ screenPacing: on })} label="Smoother screen shares" />
-            </Field>
+          <div class="user-settings-card-body">
+            <SwitchRow
+              title="Smoother screen shares"
+              description="Experimental. Shows a shared screen at the pace it was captured, with a small buffer, rather than as frames arrive. Try it if screen shares look jumpy."
+              checked={s.screenPacing}
+              onChange={(on) => setVoiceSettings({ screenPacing: on })}
+            />
           </div>
         </Card>
       </div>

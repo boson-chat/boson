@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'preact/hooks';
-import { Badge, Button, Card, EmptyState, ListRow } from '@boson/shared';
+import { Badge, Button, EmptyState, ListRow } from '@boson/shared';
 import { describeAuthError, type LinkedIdentities } from '../../modules/auth';
 import {
   getNetworkAccounts, hostOf, type KnownAuth, type NetworkAccounts, type NetworkAccountsSnapshot,
 } from '../../modules/netauth/network-accounts';
+import { SectionFrame, SettingsGroup } from './SettingsFrame';
 
 // Settings → Network accounts: accounts on self-hosted boson networks, one
 // per network sign-in service, beside the boson.chat account. Each can be
@@ -13,35 +14,26 @@ export function NetworkAccountsSection({ open, accounts = getNetworkAccounts() }
   useEffect(() => (accounts ? accounts.subscribe(setSnap) : undefined), [accounts]);
 
   return (
-    <section class="user-settings-section">
-      <div class="user-settings-section-head">
-        <h2 class="user-settings-section-title">Network accounts</h2>
-        <p class="user-settings-section-desc">
-          Networks that run their own boson server have their own accounts. Signed in, Boson logs you in to that
-          network’s IRC and voice with it. Your boson.chat account stays the main one: your profile picture,
-          encryption key, synced settings and nick claims use it everywhere.
-        </p>
-      </div>
-      <div class="user-settings-section-body">
-        {!accounts || !snap ? (
-          <Card><EmptyState>Network accounts need the desktop app.</EmptyState></Card>
-        ) : snap.known.length === 0 ? (
-          <Card>
-            <EmptyState>
-              No network accounts yet. Join a network that runs its own boson server and it offers its own sign-in.
-            </EmptyState>
-          </Card>
-        ) : (
-          <Card>
-            <ul class="settings-rows" aria-label="Network accounts">
-              {snap.known.map((k) => (
-                <AccountRow key={k.authUrl} accounts={accounts} known={k} snap={snap} open={open} />
-              ))}
-            </ul>
-          </Card>
-        )}
-      </div>
-    </section>
+    <SectionFrame
+      title="Network accounts"
+      description="Networks that run their own boson server have their own accounts: signed in, Boson logs you in to that network's IRC and voice with it. Your boson.chat account stays the main one for your profile, encryption key, synced settings and nick claims."
+    >
+      {!accounts || !snap ? (
+        <EmptyState>Network accounts need the desktop app.</EmptyState>
+      ) : snap.known.length === 0 ? (
+        <EmptyState>
+          No network accounts yet. Join a network that runs its own boson server and it offers its own sign-in.
+        </EmptyState>
+      ) : (
+        <SettingsGroup title="Your network accounts">
+          <ul class="settings-rows" aria-label="Network accounts">
+            {snap.known.map((k) => (
+              <AccountRow key={k.authUrl} accounts={accounts} known={k} snap={snap} open={open} />
+            ))}
+          </ul>
+        </SettingsGroup>
+      )}
+    </SectionFrame>
   );
 }
 
