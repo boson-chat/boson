@@ -660,3 +660,27 @@
 
 /* About: your nick with a way to change it. */
 .server-settings-about-nick { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* Notifications: the server's levels for its channels and DMs, then the
+   conversations with their own. */
+.server-settings-notify-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.server-settings-notify-label {
+  font-weight: 600;
+  color: var(--fg);
+}
+.server-settings-notify-row .server-settings-hint { margin: 0; }
+.server-settings-notify-heading {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--fg-2);
+}
+.server-settings-notify-own {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}

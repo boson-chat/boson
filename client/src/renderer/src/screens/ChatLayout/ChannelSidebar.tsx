@@ -11,7 +11,7 @@ import {
 } from './ChannelSidebarBloc';
 import { useChannelReorder, type ReorderSection } from './channel-reorder';
 import { NickContextMenu, type NickContextAction } from './NickContextMenu';
-import { getChannelLevel, setChannelLevel, type ChannelLevel } from '../../modules/ui/notifications.store';
+import { getOwnChannelLevel, LEVEL_LABEL, serverDefaultLevel, setChannelLevel, type ChannelLevel } from '../../modules/ui/notifications.store';
 import { BottomSheet } from './BottomSheet';
 import { ADMINS_ONLY_TEXT, type ChannelCreation } from '../../modules/chanserv/creation';
 import { isNarrow, useNarrow } from '../../shared/narrow';
@@ -180,12 +180,13 @@ export function ChannelSidebar({
     if (i !== -1 && i < names.length - 1) actions.push({ label: 'Move down', onClick: () => reorder.step(name, section, 1) });
     if (customOrder && onResetChannelOrder) actions.push({ label: 'Reset order', onClick: onResetChannelOrder });
     if (serverId) {
-      const level = getChannelLevel(serverId, name);
-      const pick = (l: ChannelLevel) => () => setChannelLevel(serverId, name, l);
+      const own = getOwnChannelLevel(serverId, name);
+      const pick = (l: ChannelLevel | 'default') => () => setChannelLevel(serverId, name, l);
       actions.push(
-        { label: 'Notifications: All messages', checked: level === 'all', onClick: pick('all') },
-        { label: 'Notifications: Mentions only', checked: level === 'mentions', onClick: pick('mentions') },
-        { label: 'Notifications: Nothing', checked: level === 'nothing', onClick: pick('nothing') },
+        { label: `Notifications: Server default (${LEVEL_LABEL[serverDefaultLevel(serverId, name)]})`, checked: own === undefined, onClick: pick('default') },
+        { label: 'Notifications: All messages', checked: own === 'all', onClick: pick('all') },
+        { label: 'Notifications: Mentions only', checked: own === 'mentions', onClick: pick('mentions') },
+        { label: 'Notifications: Nothing', checked: own === 'nothing', onClick: pick('nothing') },
       );
     }
     // Leaving lives here (not as an × on the row, one slip from a click):

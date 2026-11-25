@@ -4,6 +4,9 @@ import type { ChatChannel } from '../../modules/chat';
 import { banMask, canSetChannelMode, canSetTopic, prefixRank } from '../../modules/chat';
 import { sameName, type ChanServController, type ChanServState, type ChannelPolicy } from '../../modules/chanserv';
 import { ChannelRegistration } from './ChannelRegistration';
+import {
+  getOwnChannelLevel, LEVEL_LABEL, onNotificationSettingsChange, serverDefaultLevel, setChannelLevel, type ChannelLevel,
+} from '../../modules/ui/notifications.store';
 import './ChannelSettings.css';
 
 // ChanServ for this connection, when the network has one.
@@ -30,6 +33,38 @@ interface ChannelSettingsProps {
   initialTab?: ChannelSettingsTab;
   // Our own nick here (not offered as someone to ban).
   myNick?: string;
+  // The server it's on (its notification level; none: not shown).
+  serverId?: string;
+}
+
+// This channel's notifications: the server's default, or its own level.
+// Anyone can set it (it's this device's, not the channel's).
+function ChannelNotifications({ serverId, channel }: { serverId: string; channel: string }) {
+  const [, setVersion] = useState(0);
+  useEffect(() => onNotificationSettingsChange(() => setVersion((n) => n + 1)), []);
+  const own = getOwnChannelLevel(serverId, channel);
+  const fallback = serverDefaultLevel(serverId, channel);
+  type Choice = ChannelLevel | 'default';
+  return (
+    <section class="chan-settings-section" aria-labelledby="chan-sec-notify">
+      <h4 class="chan-settings-heading" id="chan-sec-notify">Notifications</h4>
+      <Select<Choice>
+        labelledBy="chan-sec-notify"
+        class="chan-notify-select"
+        value={own ?? 'default'}
+        onChange={(v) => setChannelLevel(serverId, channel, v)}
+        options={[
+          { value: 'default', label: `Server default (${LEVEL_LABEL[fallback]})` },
+          { value: 'all', label: LEVEL_LABEL.all },
+          { value: 'mentions', label: LEVEL_LABEL.mentions },
+          { value: 'nothing', label: LEVEL_LABEL.nothing },
+        ]}
+      />
+      <p class="chan-settings-note chan-param-hint">
+        Just for you, on this device. The server's default is in Server settings → Notifications.
+      </p>
+    </section>
+  );
 }
 
 // Modes that protect a registered channel ("who can join and talk"): shown
@@ -63,7 +98,7 @@ export function describeBan(mask: string): { who: string; detail?: string } {
 }
 
 export function ChannelSettings({
-  channel, myRank, onSetMode, onSetTopic, onAddBan, onRemoveBan, onRefresh, chanserv, initialTab = 'channel', myNick,
+  channel, myRank, onSetMode, onSetTopic, onAddBan, onRemoveBan, onRefresh, chanserv, initialTab = 'channel', myNick, serverId,
 }: ChannelSettingsProps) {
   const canEdit = canSetChannelMode(myRank);
   const cs = chanserv?.state;
@@ -179,8 +214,9 @@ export function ChannelSettings({
   return (
     <div class="chan-settings">
       {tabs}
+      {serverId && <ChannelNotifications serverId={serverId} channel={channel.name} />}
       {!canEdit && (
-        <p class="chan-settings-note">You need channel operator (@) to change these.</p>
+        <p class="chan-settings-note">You need channel operator (@) to change the settings below.</p>
       )}
 
       <section class="chan-settings-section" aria-labelledby="chan-sec-topic">

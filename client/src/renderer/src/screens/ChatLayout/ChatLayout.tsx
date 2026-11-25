@@ -881,6 +881,7 @@ export function ChatLayout({
             channel={active}
             myRank={myRankHere}
             myNick={state.myNick || myNick}
+            serverId={activeServerId ?? undefined}
             onSetMode={(fragment) => chat.setChannelMode(active.name, fragment)}
             onSetTopic={(text) => chat.setTopic(active.name, text)}
             onAddBan={(mask) => chat.ban(active.name, mask)}

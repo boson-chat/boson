@@ -26,6 +26,7 @@ export const ACCOUNT_KEYS: KeySet = {
     'boson:autojoin-done:v1', // networks already auto-joined
     'boson:guest:v1', // guest mode nick
     'boson:notifications:channels:v1', // per-channel / DM notification levels
+    'boson:notifications:servers:v1', // per-server notification levels
     'boson.netauth.known', // network accounts (self-hosted auth services)
     'boson.netauth.guest', // networks the user chose to use as a guest
     'boson.login.lastServer', // "sign in to another server" last used

@@ -70,7 +70,7 @@ describe('ServerSettings on a phone: a list that drills down', () => {
       servicesFramework: 'atheme',
     })} />);
     expect(screen.queryByRole('tab')).toBeNull();
-    expect(rowTitles()).toEqual(['About', 'Identity', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']);
+    expect(rowTitles()).toEqual(['About', 'Identity', 'Notifications', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']);
     expect(headings()).toEqual(['This server', 'You here', 'Technical']);
     screen.getByRole('button', { name: 'About: irc.boson.example' });
     screen.getByRole('button', { name: 'Identity: alice' });
@@ -175,7 +175,7 @@ describe('ServerSettings on a wide window: a grouped menu', () => {
     phoneWidth(false);
     render(<ServerSettings {...props({ ...owner, initialSection: 'log' })} />);
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent);
-    expect(tabs).toEqual(['About', 'Identity', 'Bouncer', 'Actions', 'Edit', 'Operators', 'Software', 'Log', 'Advanced']);
+    expect(tabs).toEqual(['About', 'Identity', 'Notifications', 'Bouncer', 'Actions', 'Edit', 'Operators', 'Software', 'Log', 'Advanced']);
     expect(Array.from(document.querySelectorAll('.settings-menu-heading')).map((e) => e.textContent))
       .toEqual(['This server', 'You here', 'Owner', 'Technical']);
     // The deep link selected Log.

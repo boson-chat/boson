@@ -33,7 +33,7 @@ test('server settings at 360px: no sideways scroll in the list or any section, A
   await noSideways(page, '.settings-phone-list');
   const rows = list.locator('nav').getByRole('button');
   const n = await rows.count();
-  expect(n).toBe(10);
+  expect(n).toBe(11);
   for (let i = 0; i < n; i++) {
     await rows.nth(i).click();
     await expect(dialog.getByRole('button', { name: 'Back to settings' })).toBeVisible();

@@ -234,6 +234,26 @@ describe('in-app toasts', () => {
     n.notify(ev({ kind: 'mention', text: 'five' }));
     expect(getNotificationFeed().getSnapshot().toasts).toHaveLength(1);
   });
+
+  it("follows the server's level for channels without their own", async () => {
+    const { getNotificationFeed } = await import('../notifications/feed');
+    const { setChannelLevel, setServerLevels } = await import('./notifications.store');
+    const n = new Notifier();
+    const count = (): number => getNotificationFeed().getSnapshot().toasts.length;
+    const before = count();
+    setServerLevels('s1', { channels: 'all' });
+    n.notify(ev({ kind: 'message', text: 'everything here' }));
+    expect(count()).toBe(before + 1);
+    setServerLevels('s1', { channels: 'nothing' });
+    n.notify(ev({ kind: 'mention', text: 'muted server' }));
+    expect(count()).toBe(before + 1);
+    // Its own level wins over the server's.
+    setChannelLevel('s1', '#general', 'mentions');
+    n.notify(ev({ kind: 'mention', text: 'own level' }));
+    expect(count()).toBe(before + 2);
+    setServerLevels('s1', { channels: 'mentions' });
+    setChannelLevel('s1', '#general', 'default');
+  });
 });
 
 describe('Notifier.clearForSignOut', () => {
