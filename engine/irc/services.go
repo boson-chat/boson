@@ -78,6 +78,11 @@ var serviceNicks = map[string]bool{
 	"gameserv":  true,
 	"statserv":  true,
 	"helpserv":  true,
+	"infoserv":  true,
+	"seenserv":  true,
+	"spamserv":  true,
+	"chanfix":   true,
+	"alis":      true,
 	"global":    true,
 }
 
@@ -224,6 +229,12 @@ type servicesState struct {
 	probeFired        bool
 	autoIdentifyFired bool
 
+	// A verdict remembered from an earlier connection to this network
+	// (the renderer keeps it per server). While set, onWelcome skips the
+	// VERSION/HELP probe — it only exists to learn what this says — and
+	// announces it instead, so the renderer's UI doesn't wait on a probe.
+	seeded bool
+
 	// Optional auto-identify password, set at connect time. When set, the
 	// `001` handler sends `PRIVMSG NickServ IDENTIFY <password>` before
 	// the VERSION probes. Empty means no auto-identify.
@@ -254,6 +265,21 @@ func (s *servicesState) setNickservPassword(pw string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nickservPassword = pw
+}
+
+// seed starts from a verdict an earlier connection to this network reached.
+// Only a definite package counts: "unknown" (or anything unrecognised) keeps
+// probing, in case the network's services changed or a probe was lost.
+func (s *servicesState) seed(fw ServicesFramework) {
+	switch fw {
+	case FrameworkAtheme, FrameworkAnope, FrameworkErgo:
+	default:
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.framework = fw
+	s.seeded = true
 }
 
 // framework returns the current verdict — empty string when unclassified.
@@ -324,13 +350,21 @@ func (s *servicesState) onWelcome(
 	s.mu.Lock()
 	password := s.nickservPassword
 	shouldIdentify := !s.autoIdentifyFired && password != ""
-	shouldProbe := !s.probeFired
+	shouldProbe := !s.probeFired && !s.seeded
+	announce := !s.probeFired && s.seeded
+	known := s.framework
+	cb := s.onChange
 	s.autoIdentifyFired = true
 	s.probeFired = true
 	s.mu.Unlock()
 
 	if shouldIdentify {
 		send("NickServ", "IDENTIFY "+password)
+	}
+	// Known from before: no probe traffic (it lands in services' logs and,
+	// on history-keeping servers, in the user's stored DMs), just the verdict.
+	if announce && cb != nil {
+		cb(known)
 	}
 	if shouldProbe {
 		// Probe several services with VERSION first — the fast path

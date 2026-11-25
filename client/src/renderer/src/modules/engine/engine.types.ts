@@ -21,6 +21,10 @@ export interface ConnectParams {
   // RPL_WELCOME. Plain-text in localStorage today, shipped on every
   // connect / reconnect.
   nickservPassword?: string;
+  // The services package (atheme / anope / ergo) an earlier connection to
+  // this server detected. The engine then skips its detection probe
+  // (VERSION / HELP to the services) on welcome.
+  servicesFramework?: string;
   // Bouncer (ZNC/BNC) auth: the IRC PASS line, "username[/network]:password",
   // sent before registration (girc.Config.ServerPass). Omitted for direct
   // connections. Sensitive — never log it.

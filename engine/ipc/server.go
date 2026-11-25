@@ -470,6 +470,7 @@ func (s *session) handleConnect(ctx context.Context, p ConnectParams) {
 		TLS:                   p.TLS,
 		Nick:                  p.Nick,
 		NickservPassword:      p.NickservPassword,
+		ServicesFramework:     irc.ServicesFramework(p.ServicesFramework),
 		ServerPass:            p.ServerPass,
 		TLSInsecure:           p.TLSInsecure,
 		Bouncer:               p.Bouncer,

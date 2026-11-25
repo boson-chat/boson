@@ -12,7 +12,9 @@ import {
   isNickServSender,
   isServerWildcardTarget,
   isServiceSender,
+  maskServiceSecret,
   nickServReplyToStatus,
+  SECRET_MASK,
 } from './services';
 import { getServiceCredentialsStore, type AccountStatus } from './services-credentials';
 import { getAdapter } from './adapters';
@@ -179,6 +181,27 @@ const BACKLOG_AGE_MS = 30_000;
 // ZNC buffer playback without server-time: see ChatService.inZncPlayback.
 const ZNC_QUERY_PLAYBACK = '\0query';
 const ZNC_PLAYBACK_MAX_MS = 60_000;
+
+// How long after the user's last command to a service (or its last reply
+// line) its replies still go to the user's conversation with it.
+const SERVICE_REPLY_WINDOW_MS = 30_000;
+
+// The session, with every PRIVMSG it sends reported (target) first — how
+// ChatService tells the app's automatic service requests from the user's.
+function trackServiceSends(session: ServerSession, note: (target: string) => void): ServerSession {
+  return new Proxy(session, {
+    get(t, p) {
+      if (p === 'privmsg') {
+        return (target: string, ...rest: unknown[]) => {
+          note(target);
+          return (t.privmsg as (...a: unknown[]) => unknown)(target, ...rest);
+        };
+      }
+      const v = Reflect.get(t, p, t) as unknown;
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+    },
+  });
+}
 
 // A CTCP message: \x01COMMAND [args]\x01 (the closing \x01 is optional in
 // the wild). Null for ordinary text.
@@ -579,8 +602,13 @@ export class ChatService {
   // auto-IDENTIFY on welcome by itself). Snapshot taken in attach().
   private passwordAtConnect = false;
 
+  // The connection. Every PRIVMSG the app sends through it to a service
+  // counts as an automatic request (see serviceAsks); only the compose path
+  // (send → sendTracked) marks one as the user's.
+  private readonly session: ServerSession;
+
   constructor(
-    private readonly session: ServerSession,
+    session: ServerSession,
     private myNick: string,
     persistence?: ChatPersistence,
     deps?: {
@@ -600,8 +628,13 @@ export class ChatService {
       // How far each conversation was read, one per (user, server), kept
       // across runs (see read-markers.ts). Default: in memory.
       readMarkers?: ReadMarkerStore;
+      // Where the detected services package is remembered per server, so
+      // the next connect skips the detection probe (see services-verdict.ts).
+      servicesVerdicts?: { save(serverId: string, framework: string): void };
     },
   ) {
+    this.session = trackServiceSends(session, (target) => this.noteServiceAsk(target, 'auto'));
+    this.servicesVerdicts = deps?.servicesVerdicts ?? null;
     this.seen = deps?.seen ?? new SeenStore('memory');
     this.readMarkers = deps?.readMarkers ?? new ReadMarkerStore('memory');
     this.older = deps?.olderStore ?? new MemoryOlderStore(OLDER_CAP);
@@ -751,6 +784,8 @@ export class ChatService {
     this.unsubscribeServices = this.session.onServicesFramework((fw) => {
       if (this.servicesFramework === fw) return;
       this.servicesFramework = fw;
+      const sid = this.serverScope?.serverId;
+      if (sid && fw) this.servicesVerdicts?.save(sid, fw);
       this.chanservCtl?.updateSignals();
       this.emit();
     });
@@ -1583,13 +1618,17 @@ export class ChatService {
     // A reply carries the msgid it answers, only where the server relays
     // client tags (the composer falls back to `@nick` otherwise).
     const replyTo = opts.replyTo && this.repliesSupported() ? opts.replyTo : undefined;
+    // A password typed to a service (IDENTIFY …) is shown masked; the real
+    // line is kept aside for a resend.
+    const shown = this.isServiceTarget(channel) ? maskServiceSecret(channel, message) : message;
+    if (shown !== message) this.secretLines.set(id, message);
     // Optimistic local echo — IRC doesn't reflect our own PRIVMSGs back —
     // marked pending until the server confirms it.
     this.appendMessage(channel, {
       id,
       kind: 'message',
       from: this.myNick,
-      text: message,
+      text: shown,
       timestamp: Date.now(),
       pending: true,
       ...(replyTo ? { replyTo } : {}),
@@ -1748,6 +1787,9 @@ export class ChatService {
     this.unacked.push({ seq, channel, id });
     if (replyTo) this.session.privmsg(channel, text, seq, { [REPLY_TAG]: replyTo });
     else this.session.privmsg(channel, text, seq);
+    // Typed by the user (the compose box, /msg): a service's replies to it
+    // belong in their conversation with it.
+    this.noteServiceAsk(channel, 'user');
     if (!this.ackStallTimer) {
       this.ackStallTimer = setTimeout(() => {
         this.ackStallTimer = null;
@@ -1791,7 +1833,12 @@ export class ChatService {
     if (!ch) return;
     this.unacked = this.unacked.filter((u) => u.channel !== key);
     for (const m of ch.messages.peek()) {
-      if (m.pending) this.sendTracked(key, m.id, m.text, m.replyTo);
+      if (!m.pending) continue;
+      const real = this.secretLines.get(m.id);
+      // A masked line whose real text didn't survive (a previous
+      // connection's): never send the mask itself.
+      if (real === undefined && m.text.includes(SECRET_MASK)) continue;
+      this.sendTracked(key, m.id, real ?? m.text, m.replyTo);
     }
   }
 
@@ -3053,6 +3100,10 @@ export class ChatService {
         // we receive is always for us (see the drop guard above). Gating on
         // myNick here is exactly what silently broke memos on a renamed
         // connection.
+        // Where it goes is decided before the account-status classifier
+        // runs: that can send NickServ a request of its own (INFO after an
+        // identify), which mustn't claim the reply that triggered it.
+        const privateTo = isChannel ? null : this.privateRoute(e, isWildcard);
         if (isNickServSender(e.From)) {
           this.maybeUpdateAccountStatus(e.Message);
         }
@@ -3067,9 +3118,7 @@ export class ChatService {
         //   - real channel (#foo): keep the original target
         //   - service / server-host / wildcard: pseudo `~server` (quiet log)
         //   - DM from a real user: virtual channel keyed by the sender
-        let channel = isChannel
-          ? t
-          : (isServiceSender(e.From) || isWildcard ? SERVICE_CHANNEL : e.From);
+        let channel = privateTo ?? t;
         let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
         let text = e.Message;
         // CTCP other than ACTION (VERSION / PING / TIME / CLIENTINFO … and
@@ -3138,7 +3187,7 @@ export class ChatService {
         // server-wildcard pseudo-channel, not our own echo) into the Inbox so
         // it holds everything addressed to the user. Unlike services these
         // STAY visible as a chat conversation too.
-        if (!isBacklog && !quiet && isToMe && !isChannel && !isWildcard && !isServiceSender(e.From) && !this.isMe(e.From)) {
+        if (!isBacklog && !quiet && isToMe && !isChannel && channel !== SERVICE_CHANNEL && !isServiceSender(e.From) && !this.isMe(e.From)) {
           this.storeInboxEntry(e.From, text, 'dm');
         }
         // Mirror channel mentions of our nick into the Inbox (Mentions tab)
@@ -3721,6 +3770,9 @@ export class ChatService {
         // connection silently drops every service reply (memos never fill,
         // DMs never mirror). See also the 004 sync below as a backstop.
         this.syncMyNickFromNumeric(e.Target);
+        // The engine's own traffic on welcome (auto-IDENTIFY, the services
+        // probe): what these services say next isn't for a conversation.
+        for (const svc of ['NickServ', 'ChanServ', 'HostServ']) this.noteServiceAsk(svc, 'auto');
         this.welcomed = true;
         this.attachedAt = Date.now();
         this.startNickReclaim();
@@ -4099,6 +4151,10 @@ export class ChatService {
     for (const t of targets) {
       if (t.startsWith('#') || t.startsWith('&') || t === '*') continue;
       if (t.toLowerCase() === this.myNick.toLowerCase()) continue;
+      // Services, servers and bouncer modules: what's stored with them is
+      // the app's own automatic traffic (the services probe, IDENTIFY …),
+      // never a conversation to bring back.
+      if (isServiceSender(t) || isServerWildcardTarget(t)) continue;
       // Ask how far it was read first (channels get theirs with the JOIN),
       // so the backlog that follows is counted against it.
       if (this.readMarkerSupported()) this.session.raw(`MARKREAD ${t}`);
@@ -4432,6 +4488,60 @@ export class ChatService {
     this.markScrollbackAvailable();
   }
 
+  // ---- Services: whose request a reply answers -------------------------
+  //
+  // A service conversation (@NickServ, @ChanServ …) shows what the user
+  // typed to that service and its replies, like any IRC client. Everything
+  // the app sends services by itself — the engine's probe and IDENTIFY on
+  // welcome, account flows, ChanServ settings, MemoServ for the Inbox,
+  // silent INFO lookups — stays out of it: those replies go to the quiet
+  // ~server log (or the UI that asked reads them first).
+  //
+  // The latest request to each service decides: sendTracked (the compose
+  // path, /msg) marks the user's; every other PRIVMSG through the session
+  // (trackServiceSends) marks an automatic one, and so does welcome. A reply
+  // goes to the conversation while the latest request was the user's and
+  // it is still coming (within SERVICE_REPLY_WINDOW_MS of the last line, so
+  // a long HELP keeps flowing). New automatic flows are hidden by default.
+  private serviceAsks = new Map<string, { by: 'user' | 'auto'; at: number }>();
+  // The real text of lines shown masked (IDENTIFY ••••••), by message id.
+  private secretLines = new Map<string, string>();
+  private readonly servicesVerdicts: { save(serverId: string, framework: string): void } | null;
+
+  private isServiceTarget(target: string): boolean {
+    return !/^[#&]/.test(target) && isServiceSender(target) && !isServerWildcardTarget(target);
+  }
+
+  private noteServiceAsk(target: string, by: 'user' | 'auto'): void {
+    if (!this.isServiceTarget(target)) return;
+    this.serviceAsks.set(this.channelKey(target), { by, at: Date.now() });
+  }
+
+  // Which conversation a private PRIVMSG / NOTICE (not to a channel) goes to.
+  private privateRoute(e: IrcEvent, isWildcard: boolean): string {
+    const from = e.From;
+    const key = this.channelKey(from);
+    if (isWildcard) return SERVICE_CHANNEL;
+    if (isServiceSender(from)) {
+      const ask = this.serviceAsks.get(key);
+      const now = Date.now();
+      if (ask?.by === 'user' && now - ask.at < SERVICE_REPLY_WINDOW_MS) {
+        ask.at = now;
+        // The user's conversation with it (they may have closed it since).
+        this.ensureChannel(from);
+        return from;
+      }
+      return SERVICE_CHANNEL;
+    }
+    // A NOTICE from someone the user has no conversation with — a bot's
+    // scan, a network's announcer — isn't the start of one, unless it names
+    // the user (a person trying to get their attention). A PRIVMSG is.
+    if (e.Kind === 'NOTICE' && !this.channels.has(key) && !containsNickMention(e.Message ?? '', this.myNick)) {
+      return SERVICE_CHANNEL;
+    }
+    return from;
+  }
+
   // Buffer one message that arrived inside an active chathistory BATCH.
   private bufferHistoryMessage(
     batch: HistoryBatch,
@@ -4447,6 +4557,10 @@ export class ChatService {
     if (e.Kind !== 'PRIVMSG' && e.Kind !== 'NOTICE') return;
     let text = e.Message ?? '';
     let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
+    // CTCP other than ACTION (VERSION scans and our replies, PING …) is
+    // machine talk, live or replayed: never a line.
+    const ctcp = parseCtcp(text);
+    if (ctcp && (ctcp.command !== 'ACTION' || e.Kind === 'NOTICE')) return;
     if (text.startsWith('ACTION ') && text.endsWith('')) {
       text = text.slice('ACTION '.length, -1);
       kind = 'action';
@@ -4494,6 +4608,15 @@ export class ChatService {
   // shown; an attach's backlog can be newer than lines carried over from
   // before the reconnect, so it is merged, not just prepended.
   private flushHistoryBatch(batch: HistoryBatch): void {
+    // A private conversation that only exists in the server's history as
+    // NOTICEs (a bot's scans, a server's notices) isn't one: it isn't
+    // brought back unless the user already has it open.
+    if (!/^[#&]/.test(batch.target) && !this.channels.has(this.channelKey(batch.target))
+      && !batch.msgs.some((m) => m.kind !== 'notice')) {
+      this.pendingHistoryKind.delete(this.channelKey(batch.target));
+      this.pendingHistorySeq.delete(this.channelKey(batch.target));
+      return;
+    }
     const ch = this.ensureChannel(batch.target);
     const key = this.channelKey(batch.target);
     const sorted = [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp);

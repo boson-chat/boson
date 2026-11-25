@@ -14,12 +14,18 @@ export interface HistoryLine {
   time: number;
   from: string;
   text: string;
+  /** PRIVMSG (default) or NOTICE. */
+  kind?: 'PRIVMSG' | 'NOTICE';
+  /** Who it was sent to (default: the conversation it's stored under). */
+  to?: string;
 }
 
 export interface HistoryProxy {
   port: number;
-  /** Set a channel's backlog (any order). */
+  /** Set a channel's (or private conversation's) backlog (any order). */
   setHistory(channel: string, lines: HistoryLine[]): void;
+  /** The private conversations CHATHISTORY TARGETS lists (default none). */
+  setTargets(targets: string[]): void;
   /** Leave CHATHISTORY BEFORE unanswered (a server that went quiet). */
   stallBefore: boolean;
   /** The CHATHISTORY commands the app sent, in order. */
@@ -87,10 +93,12 @@ export async function startHistoryProxy(opts: { readMarker?: boolean } = {}): Pr
   const markerClients = new Set<(line: string) => void>();
   const ours = opts.readMarker ? [CAP, READ_MARKER] : [CAP];
   let batchSeq = 0;
+  let targets: string[] = [];
   const proxy: HistoryProxy = {
     port: 0,
     stallBefore: false,
     setHistory: (channel, ls) => { history.set(channel.toLowerCase(), ls); },
+    setTargets: (ts) => { targets = ts; },
     requests,
     markreads,
     marker: (channel) => markers.get(channel.toLowerCase()),
@@ -124,10 +132,12 @@ export async function startHistoryProxy(opts: { readMarker?: boolean } = {}): Pr
 
     const answer = (params: string[]): void => {
       const [sub = '', target = '', ref = '', limitArg = '50'] = params;
-      // No private conversations to list: an empty targets batch.
+      // The private conversations set with setTargets (none by default).
       if (sub.toUpperCase() === 'TARGETS') {
         const id = `t${++batchSeq}`;
         toClient(`:proxy.history BATCH +${id} draft/chathistory-targets`);
+        const stamp = new Date().toISOString();
+        for (const t of targets) toClient(`@batch=${id} :proxy.history CHATHISTORY TARGETS ${t} ${stamp}`);
         toClient(`:proxy.history BATCH -${id}`);
         return;
       }
@@ -150,7 +160,7 @@ export async function startHistoryProxy(opts: { readMarker?: boolean } = {}): Pr
       const id = `h${++batchSeq}`;
       toClient(`:proxy.history BATCH +${id} chathistory ${target}`);
       for (const l of page) {
-        toClient(`@batch=${id};time=${new Date(l.time).toISOString()};msgid=${msgidOf(l)} :${l.from}!h@history.test PRIVMSG ${target} :${l.text}`);
+        toClient(`@batch=${id};time=${new Date(l.time).toISOString()};msgid=${msgidOf(l)} :${l.from}!h@history.test ${l.kind ?? 'PRIVMSG'} ${l.to ?? target} :${l.text}`);
       }
       toClient(`:proxy.history BATCH -${id}`);
     };
