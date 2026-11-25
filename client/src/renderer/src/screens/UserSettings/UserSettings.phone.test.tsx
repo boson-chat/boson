@@ -40,7 +40,7 @@ describe('UserSettings on a phone', () => {
     const row = screen.getByRole('button', { name: /^Bouncer: Off$/ });
     expect(screen.getByRole('button', { name: /^Account & security: alice@example.dev$/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Your profile: alice/ })).toBeInTheDocument();
-    expect([...document.querySelectorAll('.user-settings-phone-heading')].map((h) => h.textContent))
+    expect([...document.querySelectorAll('.settings-phone-heading')].map((h) => h.textContent))
       .toEqual(['You', 'App', 'Connections', 'About']);
     fireEvent.click(row);
     expect(screen.getByRole('heading', { level: 1, name: 'Bouncer' })).toBeInTheDocument();
@@ -60,8 +60,8 @@ describe('UserSettings on a phone', () => {
   it('search narrows the list', () => {
     renderSettings();
     fireEvent.input(screen.getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'push to talk' } });
-    expect([...document.querySelectorAll('.user-settings-phone-list nav .bds-row-title')].map((t) => t.textContent)).toEqual([]);
+    expect([...document.querySelectorAll('.settings-phone-list nav .bds-row-title')].map((t) => t.textContent)).toEqual([]);
     fireEvent.input(screen.getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'youtube' } });
-    expect([...document.querySelectorAll('.user-settings-phone-list nav .bds-row-title')].map((t) => t.textContent)).toEqual(['Chat & media']);
+    expect([...document.querySelectorAll('.settings-phone-list nav .bds-row-title')].map((t) => t.textContent)).toEqual(['Chat & media']);
   });
 });

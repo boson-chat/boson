@@ -507,7 +507,7 @@ describe('UserSettings — before signing in', () => {
     expect(tabs.some((t) => /^(Profile|Account|Privacy|Bouncer)/.test(t))).toBe(false);
     expect(screen.queryByText('How you sign in to your Boson account.')).toBeNull();
     // Two entries need no group headings.
-    expect(document.querySelector('.user-settings-menu-heading')).toBeNull();
+    expect(document.querySelector('.settings-menu-heading')).toBeNull();
   });
 });
 
@@ -526,7 +526,7 @@ describe('UserSettings — the menu', () => {
 
   it('groups the sections under You, App and Connections, with About last', () => {
     renderSettings();
-    const headings = [...document.querySelectorAll('.user-settings-menu-heading')].map((h) => h.textContent);
+    const headings = [...document.querySelectorAll('.settings-menu-heading')].map((h) => h.textContent);
     expect(headings).toEqual(['You', 'App', 'Connections']);
     // In the order the groups read, top to bottom.
     const nav = document.querySelector('.user-settings-menu')!;

@@ -295,6 +295,7 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
               setServerSettingsForId(null);
             }}
             onChangeNick={(nick) => target.chat.changeNick(nick)}
+            connectionState={target.engineState}
             serverId={target.serverId}
             servicesFramework={chatState.servicesFramework}
             isOper={chatState.myOper}

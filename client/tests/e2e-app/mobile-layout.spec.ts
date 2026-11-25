@@ -148,7 +148,7 @@ test.describe('phone layout', () => {
     await expect.poll(async () => (await dialog.boundingBox())!.height).toBeGreaterThan(vp.height - 2);
     // It opens on the list of sections (edge to edge); a row opens its
     // section full screen, and the back arrow returns to the list.
-    const list = dialog.locator('.user-settings-phone-list');
+    const list = dialog.locator('.settings-phone-list');
     await expect(list).toBeVisible();
     expect((await list.boundingBox())!.width).toBeGreaterThan(vp.width - 2);
     await list.locator('nav').getByRole('button', { name: /^Notifications/ }).click();

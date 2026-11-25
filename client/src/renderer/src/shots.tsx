@@ -1151,7 +1151,11 @@ function inboxView(): void {
   render(<NotificationsPanel layout="desktop" onClose={() => {}} />, app());
 }
 
+// ?owner=1: you own the listing (Edit and Operators show); ?nettheme=1:
+// the network has a theme (Appearance shows); ?section=<id> opens a section.
 function servicesView(): void {
+  const q = new URLSearchParams(location.search);
+  const owner = q.get('owner') === '1';
   const serverInfo = {
     serverName: 'irc.nebula.example', version: 'ngircd-27', network: 'Nebula',
     enabledCaps: ['sasl', 'server-time', 'message-tags', 'chathistory', 'account-notify'],
@@ -1170,6 +1174,15 @@ function servicesView(): void {
       onChangeNick={() => {}}
       onTriggerAutoIdentify={() => {}}
       onDetectAccountState={async () => 'identified'}
+      initialSection={q.get('section')}
+      connectionState="connected"
+      isOper={owner}
+      directoryEntry={owner ? {
+        serverId: 's1', name: 'Nebula', description: 'A friendly network for self-hosters.',
+        tags: ['selfhosting', 'linux'], languages: ['en'], isNsfw: false,
+      } : undefined}
+      onSaveProfile={owner ? async () => {} : undefined}
+      networkTheme={q.get('nettheme') === '1' ? { enabled: true, globallyEnabled: true, onToggle: () => {} } : undefined}
     />,
     app(),
   );

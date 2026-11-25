@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'preact/hooks';
 import {
-  Bell, BookOpen, ChevronRight, Globe, Info, KeyRound, Lock, MessageSquareText, Mic, Palette, Server, User,
+  Bell, BookOpen, Globe, Info, KeyRound, Lock, MessageSquareText, Mic, Palette, Server, User,
 } from 'lucide-preact';
-import { Input, ListRow } from '@boson/shared';
 import { Avatar } from '../../shared/Avatar/Avatar';
+import { SettingsPhoneList, SettingsPhoneRow } from '../../shared/settings/SettingsNav';
 import type { DirectoryService } from '../../modules/directory';
 import { getThemeStore } from '../../modules/ui/theme';
 import { getNotificationSettings } from '../../modules/ui/notifications.store';
@@ -21,8 +21,9 @@ import { GROUP_TITLE, sectionLabel, type GroupId, type MenuEntry, type SectionId
 // Phones: User settings opens on this list (the desktop's left menu, as a
 // page): the sections in their groups, each with what it's set to now, and
 // a chevron. A row opens its section full screen; its header's back arrow
-// comes back here. Built like My space's list: nav rows with an icon, the
-// channel list's section headings.
+// comes back here. The list itself is shared with Server settings
+// (shared/settings/SettingsNav.tsx); this adds User settings' icons, hints
+// and the profile card.
 
 const ICON: Record<SectionId, typeof User> = {
   profile: User, account: KeyRound, privacy: Lock,
@@ -44,60 +45,19 @@ export function PhoneSettingsList({ menu, mode, authedHandle, authedEmail, guest
   onOpen: (id: SectionId) => void;
 }) {
   const hint = useSectionHints({ mode, authedHandle, authedEmail, guestNick });
-  const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const shown = q
-    ? menu.filter((m) => `${sectionLabel(m, mode)} ${hint(m.id)} ${m.keywords}`.toLowerCase().includes(q))
-    : menu;
   // Signed in: who you are, at the top (it opens Profile).
-  const showCard = mode === 'account' && !q && menu.some((m) => m.id === 'profile');
-
+  const showCard = mode === 'account' && menu.some((m) => m.id === 'profile');
   return (
-    <div class="user-settings-phone-list">
-      {menu.length > 4 && (
-        <div class="user-settings-phone-search">
-          <Input
-            type="search"
-            value={query}
-            placeholder="Search settings"
-            aria-label="Search settings"
-            autoComplete="off"
-            spellcheck={false}
-            onInput={(e) => setQuery((e.target as HTMLInputElement).value)}
-          />
-        </div>
-      )}
-      {showCard && (
+    <SettingsPhoneList
+      entries={menu.map((m) => ({ ...m, label: sectionLabel(m, mode) }))}
+      groupTitle={(g) => PHONE_GROUP_TITLE[g]}
+      icon={(id) => ICON[id]}
+      hint={hint}
+      onOpen={onOpen}
+      header={showCard && (
         <ProfileCard handle={authedHandle} email={authedEmail} directory={directory} open={open} onOpen={() => onOpen('profile')} />
       )}
-      {shown.length === 0 && <p class="user-settings-phone-empty">No settings match “{query.trim()}”.</p>}
-      <nav aria-label="Settings sections">
-        {shown.map((m, i) => {
-          const first = i === 0 || shown[i - 1]!.group !== m.group;
-          const Icon = ICON[m.id];
-          const label = sectionLabel(m, mode);
-          const sub = hint(m.id);
-          return (
-            <div key={m.id} class="user-settings-phone-item">
-              {first && menu.length > 2 && (
-                <div class="user-settings-phone-heading" aria-hidden="true">{PHONE_GROUP_TITLE[m.group]}</div>
-              )}
-              <ListRow
-                variant="nav"
-                size="lg"
-                class="user-settings-phone-row"
-                leading={<Icon size={16} aria-hidden="true" />}
-                title={label}
-                subtitle={sub || undefined}
-                ariaLabel={sub ? `${label}: ${sub}` : label}
-                trailing={<ChevronRight size={16} aria-hidden="true" class="user-settings-phone-chevron" />}
-                onClick={() => onOpen(m.id)}
-              />
-            </div>
-          );
-        })}
-      </nav>
-    </div>
+    />
   );
 }
 
@@ -119,15 +79,12 @@ function ProfileCard({ handle, email, directory, open, onOpen }: {
     return () => { live = false; };
   }, [open, directory]);
   return (
-    <ListRow
-      variant="nav"
-      size="lg"
-      class="user-settings-phone-row user-settings-phone-profile"
+    <SettingsPhoneRow
+      class="user-settings-phone-profile"
       leading={<Avatar nick={name || '?'} url={url} size={40} />}
       title={name ?? 'You'}
       subtitle={email ?? undefined}
       ariaLabel={`Your profile: ${name ?? 'you'}`}
-      trailing={<ChevronRight size={16} aria-hidden="true" class="user-settings-phone-chevron" />}
       onClick={onOpen}
     />
   );

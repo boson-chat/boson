@@ -1,8 +1,8 @@
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { Badge, Button, Card, ChipInput, Count, Divider, EmptyState, Field, Input, ListRow, Modal, PageHeader, Tabs, Toggle, useTransientFlag } from '@boson/shared';
+import { Badge, Button, Card, ChipInput, Count, Divider, EmptyState, Field, Input, Modal, PageHeader, SwitchRow, Tabs, useTransientFlag } from '@boson/shared';
 import type { ServerInfo, ServerLogEntry } from '../../modules/chat';
-import type { BouncerUpstreamState } from '../../modules/engine';
+import type { BouncerUpstreamState, EngineState } from '../../modules/engine';
 import type { SavedServerBouncer } from '../../modules/session';
 import {
   getServiceCredentialsStore,
@@ -16,26 +16,33 @@ import { FileDropArea, FileDropHint } from '../../shared/FileDrop/FileDropArea';
 import { HttpError } from '../../shared/http/http.client';
 import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendResult, UnsupportedResult } from '../../modules/chat/account-service';
 import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
-import { ChevronLeft, X } from 'lucide-preact';
+import {
+  AtSign, ChevronLeft, Cpu, Hash, Info, Mail, Palette, Pencil, Plug, ScrollText, Search, Server, ServerCog, ShieldCheck,
+  SquareTerminal, ToggleLeft, User, UserRound, VenetianMask, X, type LucideIcon,
+} from 'lucide-preact';
 import { useNarrow } from '../../shared/narrow';
-import { useTabStrip } from '../../shared/tab-strip';
+import { BACK_TO_SETTINGS, SettingsMenu, SettingsPhoneList, SettingsPhoneRow, type SettingsEntry } from '../../shared/settings/SettingsNav';
 import './ServerSettings.css';
 
-// Server settings screen. Renders to the right of the persistent ServerRail
-// (the user can still switch servers). Internally split into:
-//   - left menu: section nav (Info / Identity / Actions / Log)
-//   - body: content for the active section
+// Server settings: a dialog over the chat (a full-screen sheet on a phone),
+// built like User settings (shared/settings/SettingsNav.tsx):
 //
-// Sections:
-//   - Info     : read-only network metadata (version, hostname, IRCv3 caps)
-//   - Identity : current nick + how-to hint for NickServ identification
-//   - Actions  : Reconnect / Disconnect
-//   - Log      : every raw IRC event the engine forwarded for this connection
+//   desktop  a left menu with group headings, the chosen section beside it
+//   phones   a list of the sections, each with what it's set to now; a row
+//            opens its section under a page header with "Back to settings"
 //
-// Deliberately not a chat-style log — see the Log section for the dev-tools
-// view of NickServ replies + CAP frames + numerics.
+// The sections, in four groups:
+//
+//   This server  About · Appearance (when the network has a theme)
+//   You here     Identity · Bouncer · Actions
+//   Owner        Edit · Operators (only for the listing's owner)
+//   Technical    Software · Log · Advanced
+//
+// Advanced's services commands (NickServ, ChanServ, …) are tabs on the
+// desktop and, on a phone, a second list that drills into each one.
 
-type SectionId = 'about' | 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'bouncer' | 'appearance' | 'actions' | 'log';
+export type ServerSectionId = 'about' | 'info' | 'identity' | 'advanced' | 'edit' | 'opers' | 'bouncer' | 'appearance' | 'actions' | 'log';
+type SectionId = ServerSectionId;
 
 // The network's own theme (network themes), when it has one.
 export interface NetworkThemeSetting {
@@ -181,153 +188,270 @@ interface ServerSettingsProps {
   onBouncerDisconnect?: () => void;
   // The network's theme switch; absent when the network has no theme.
   networkTheme?: NetworkThemeSetting;
+  // Open at this section (its id: 'identity', 'bouncer', …). An unknown or
+  // hidden one opens on About (desktop) or the list (phone).
+  initialSection?: string | null;
+  // The connection's state, for the phone list's Actions row.
+  connectionState?: EngineState;
 }
 
-interface MenuItem {
-  id: SectionId;
-  label: string;
-  description: string;
-}
+type GroupId = 'server' | 'you' | 'owner' | 'technical';
 
-// About first (what this server is, and you on it); the technical
-// sections — software and IRCv3 capabilities, the raw log, raw commands —
-// last.
-const MENU: readonly MenuItem[] = [
-  { id: 'about',    label: 'About',     description: 'This server, and you on it' },
-  { id: 'identity', label: 'Identity',  description: 'Your nick + NickServ login' },
-  { id: 'edit',     label: 'Edit',      description: 'Directory profile — owner only' },
-  { id: 'opers',    label: 'Operators', description: 'Grant operator access — owner only' },
-  { id: 'bouncer',  label: 'Bouncer',   description: 'Route this server through your ZNC' },
-  { id: 'appearance', label: 'Appearance', description: "This network's theme" },
-  { id: 'actions',  label: 'Actions',   description: 'Reconnect or disconnect' },
-  { id: 'info',     label: 'Software',  description: 'Server version + IRCv3 capabilities (technical)' },
-  { id: 'log',      label: 'Log',       description: 'Raw engine event log (technical)' },
-  { id: 'advanced', label: 'Advanced',  description: 'IRC + services command UI' },
+// What the server is first, then you on it, the owner's tools, and the
+// technical sections (software and IRCv3 capabilities, the raw log, raw
+// commands) last.
+const GROUP_TITLE: Record<GroupId, string> = {
+  server: 'This server', you: 'You here', owner: 'Owner', technical: 'Technical',
+};
+
+const MENU: ReadonlyArray<SettingsEntry<SectionId, GroupId>> = [
+  { id: 'about',      label: 'About',      group: 'server',    keywords: 'description website network nick notifications' },
+  { id: 'appearance', label: 'Appearance', group: 'server',    keywords: 'network theme colours colors logo' },
+  { id: 'identity',   label: 'Identity',   group: 'you',       keywords: 'nick nickname nickserv account password register identify claim email drop' },
+  { id: 'bouncer',    label: 'Bouncer',    group: 'you',       keywords: 'znc bnc route upstream network' },
+  { id: 'actions',    label: 'Actions',    group: 'you',       keywords: 'reconnect disconnect connection' },
+  { id: 'edit',       label: 'Edit',       group: 'owner',     keywords: 'directory listing profile name description tags languages nsfw icon banner' },
+  { id: 'opers',      label: 'Operators',  group: 'owner',     keywords: 'oper operserv ircop grant access' },
+  { id: 'info',       label: 'Software',   group: 'technical', keywords: 'version hostname ircv3 capabilities caps' },
+  { id: 'log',        label: 'Log',        group: 'technical', keywords: 'raw engine events numerics' },
+  { id: 'advanced',   label: 'Advanced',   group: 'technical', keywords: 'commands nickserv chanserv memoserv hostserv whois modes motd' },
 ];
+
+const ICON: Record<SectionId, LucideIcon> = {
+  about: Info, appearance: Palette,
+  identity: User, bouncer: Server, actions: Plug,
+  edit: Pencil, opers: ShieldCheck,
+  info: Cpu, log: ScrollText, advanced: SquareTerminal,
+};
 
 export function ServerSettings({
   serverDisplayName, serverDescription, serverWebsite, myNick, serverInfo, serverLog, onClearServerLog, onClose, onReconnect, onDisconnect, onChangeNick,
   serverId, servicesFramework = null, onTriggerAutoIdentify, onRunCommand, onDropAccount, onIdentifyAccount, onRegisterAccount, onConfirmAccount, onResendConfirmation, supportsResend, onClaimNick, onDetectAccountState, onResumeConfirmation, signedIn, nickClaimDisabled,
   directoryEntry, onSaveProfile, onSaveServerImage, isOper = false,
   bouncerRoute, bouncerGloballyEnabled = false, onSaveBouncerRoute,
-  bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect, networkTheme,
+  bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect, networkTheme, initialSection, connectionState,
 }: ServerSettingsProps) {
-  const [section, setSection] = useState<SectionId>('about');
-  // Phones: the menu is a strip that scrolls sideways (as User settings').
-  const menu$ = useTabStrip<HTMLElement>([section]);
+  // Hide the owner-only sections (Edit + Operators) when the parent didn't
+  // pass ownership context. Filtering at render time keeps the menu
+  // uncluttered for the 99% of viewers who don't own the row.
+  const editable = !!(directoryEntry && onSaveProfile);
+  const visibleMenu = MENU.filter((m) => (editable || (m.id !== 'edit' && m.id !== 'opers')) && (networkTheme || m.id !== 'appearance'));
+  const shown = (id: string | null | undefined): SectionId | null =>
+    visibleMenu.some((m) => m.id === id) ? (id as SectionId) : null;
+  const [section, setSection] = useState<SectionId>(() => shown(initialSection) ?? 'about');
+  // Phones: the section open over the list (null: the list), and the
+  // services command group open inside Advanced (null: its list).
+  const [phoneSection, setPhoneSection] = useState<SectionId | null>(() => shown(initialSection));
+  const [advancedTab, setAdvancedTab] = useState<AdvancedTabId | null>(null);
   // Phones: full screen, so a back chevron leads the header (as on the chat
   // panes) in place of the corner ×.
   const narrow = useNarrow();
-  // Hide the owner-only tabs (Edit + Operators) when the parent didn't pass
-  // ownership context. Filtering at render time keeps the menu uncluttered
-  // for the 99% of viewers who don't own the row.
-  const editable = !!(directoryEntry && onSaveProfile);
-  const visibleMenu = MENU.filter((m) => (editable || (m.id !== 'edit' && m.id !== 'opers')) && (networkTheme || m.id !== 'appearance'));
+  // A deep link while open (the same dialog asked for another section).
+  useEffect(() => {
+    const want = shown(initialSection);
+    if (want) setSection(want);
+    setPhoneSection(want);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSection]);
+  const open = (id: SectionId): void => {
+    setSection(id);
+    setPhoneSection(id);
+    setAdvancedTab(null);
+  };
 
-  // A dialog over the chat, as User settings is (a full-screen sheet on a
-  // phone: the Modal's own phone layout). Escape and the backdrop close it.
+  const body = (id: SectionId) => (
+    <>
+      {id === 'about' && (
+        <AboutSection
+          name={serverDisplayName}
+          description={serverDescription}
+          website={serverWebsite}
+          network={serverInfo.network}
+          myNick={myNick}
+          onChangeNick={() => open('identity')}
+        />
+      )}
+      {id === 'info' && <InfoSection info={serverInfo} />}
+      {id === 'identity' && (
+        <IdentitySection
+          myNick={myNick}
+          onChangeNick={onChangeNick}
+          serverId={serverId}
+          servicesFramework={servicesFramework}
+          onTriggerAutoIdentify={onTriggerAutoIdentify}
+          onRunCommand={onRunCommand}
+          onDropAccount={onDropAccount}
+          onIdentifyAccount={onIdentifyAccount}
+          onRegisterAccount={onRegisterAccount}
+          onConfirmAccount={onConfirmAccount}
+          onResendConfirmation={onResendConfirmation}
+          supportsResend={supportsResend}
+          onClaimNick={onClaimNick}
+          onDetectAccountState={onDetectAccountState}
+          onResumeConfirmation={onResumeConfirmation}
+          signedIn={signedIn}
+          nickClaimDisabled={nickClaimDisabled}
+        />
+      )}
+      {id === 'advanced' && (
+        <AdvancedSection
+          myNick={myNick}
+          onRunCommand={onRunCommand}
+          serverLog={serverLog}
+          phone={narrow}
+          phoneTab={advancedTab}
+          onPhoneTab={setAdvancedTab}
+        />
+      )}
+      {id === 'edit' && editable && directoryEntry && onSaveProfile && (
+        <EditProfileSection entry={directoryEntry} onSave={onSaveProfile} onSaveImage={onSaveServerImage} />
+      )}
+      {id === 'opers' && editable && (
+        <OperatorsSection
+          servicesFramework={servicesFramework}
+          isOper={isOper}
+          onRunCommand={onRunCommand}
+          serverLog={serverLog}
+        />
+      )}
+      {id === 'bouncer' && (
+        <BouncerServerSection
+          route={bouncerRoute}
+          globallyEnabled={bouncerGloballyEnabled}
+          onSave={onSaveBouncerRoute}
+          upstream={bouncerUpstream}
+          networkLabel={serverInfo.network || bouncerRoute?.network || serverDisplayName}
+          onConnectUpstream={onBouncerConnect}
+          onDisconnectUpstream={onBouncerDisconnect}
+        />
+      )}
+      {id === 'appearance' && networkTheme && <NetworkThemeSection setting={networkTheme} serverName={serverDisplayName} />}
+      {id === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
+      {id === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
+    </>
+  );
+
+  // What each section is set to, in a few words, for the phone list's row.
+  const hint = (id: SectionId): string => {
+    switch (id) {
+      case 'about':
+        return serverDescription?.trim() || serverWebsite?.replace(/^https?:\/\//, '') || serverInfo.serverName || serverInfo.network || '';
+      case 'appearance':
+        if (!networkTheme) return '';
+        if (!networkTheme.globallyEnabled) return 'Network themes are off';
+        return networkTheme.enabled ? 'Network theme on' : 'Network theme off';
+      case 'identity': {
+        const status = serverId ? getServiceCredentialsStore().get(serverId)?.status : undefined;
+        return status ? `${myNick} · ${statusLabel(status)}` : myNick;
+      }
+      case 'bouncer':
+        if (!bouncerRoute?.route) return 'Off';
+        return bouncerRoute.network ? `On · ${bouncerRoute.network}` : 'On';
+      case 'actions':
+        return connectionState ? CONNECTION_LABEL[connectionState] : 'Reconnect or disconnect';
+      case 'edit':
+        return directoryEntry ? `Listed as ${directoryEntry.name}` : '';
+      case 'opers':
+        return isOper ? "You're an operator" : 'Not an operator';
+      case 'info': {
+        const caps = serverInfo.enabledCaps?.length ?? 0;
+        const parts = [serverInfo.version, caps ? `${caps} IRCv3 ${caps === 1 ? 'capability' : 'capabilities'}` : null].filter(Boolean);
+        return parts.length ? parts.join(' · ') : 'Not reported yet';
+      }
+      case 'log':
+        return serverLog.length ? `${serverLog.length} ${serverLog.length === 1 ? 'entry' : 'entries'}` : 'Empty';
+      case 'advanced':
+        return servicesFramework && servicesFramework !== 'unknown' ? `${frameworkLabel(servicesFramework)} services` : 'Services commands';
+    }
+  };
+
+  if (narrow) {
+    const current = phoneSection && visibleMenu.find((m) => m.id === phoneSection);
+    const group = current && current.id === 'advanced' && advancedTab ? ADVANCED_TABS.find((t) => t.id === advancedTab) : null;
+    return (
+      <Modal open onClose={onClose} label={`${serverDisplayName} server settings`} size="wide" class="server-settings-dialog">
+        <section class="server-settings server-settings-phone">
+          {group ? (
+            // A services command group inside Advanced: back to its list.
+            <PageHeader
+              layout="phone"
+              title={group.label}
+              sub="Advanced"
+              onBack={() => setAdvancedTab(null)}
+              backLabel="Back to Advanced"
+              backIcon={<ChevronLeft size={20} />}
+            />
+          ) : current ? (
+            <PageHeader
+              layout="phone"
+              title={current.label}
+              sub={serverDisplayName}
+              onBack={() => setPhoneSection(null)}
+              backLabel={BACK_TO_SETTINGS}
+              backIcon={<ChevronLeft size={20} />}
+            />
+          ) : (
+            <PageHeader
+              layout="phone"
+              title={serverDisplayName}
+              sub="Server settings"
+              onBack={onClose}
+              backLabel="Close settings"
+              backIcon={<ChevronLeft size={20} />}
+            />
+          )}
+          {current ? (
+            <div class="server-settings-body" role="region" aria-label={group ? group.label : current.label}>
+              {body(current.id)}
+            </div>
+          ) : (
+            <SettingsPhoneList
+              entries={visibleMenu}
+              groupTitle={(g) => GROUP_TITLE[g]}
+              icon={(id) => ICON[id]}
+              hint={hint}
+              onOpen={open}
+            />
+          )}
+        </section>
+      </Modal>
+    );
+  }
+
+  // A dialog over the chat, as User settings is. Escape and the backdrop
+  // close it.
   return (
     <Modal open onClose={onClose} label={`${serverDisplayName} server settings`} size="wide" class="server-settings-dialog">
       <section class="server-settings">
         <PageHeader
-          layout={narrow ? 'phone' : 'desktop'}
           title={serverDisplayName}
           sub="Server settings"
-          onBack={narrow ? onClose : undefined}
-          backLabel="Close settings"
-          backIcon={<ChevronLeft size={20} />}
-          actions={!narrow && (
+          actions={
             <Button variant="ghost" icon={<X size={18} />} aria-label="Close settings" title="Back to chat" onClick={onClose} />
-          )}
+          }
         />
 
         <div class="server-settings-split">
-          <nav class="server-settings-menu" aria-label="Settings sections" ref={menu$.ref} onScroll={menu$.onScroll}>
-            {visibleMenu.map((m) => (
-              <ListRow
-                key={m.id}
-                variant="nav"
-                title={m.label}
-                subtitle={m.description}
-                subtitleLines={2}
-                selected={section === m.id}
-                onClick={() => setSection(m.id)}
-                mainProps={{ role: 'tab', 'aria-selected': section === m.id }}
-              />
-            ))}
-          </nav>
-
+          <SettingsMenu
+            class="server-settings-menu"
+            entries={visibleMenu}
+            groupTitle={(g) => GROUP_TITLE[g]}
+            selected={section}
+            onSelect={setSection}
+          />
           <div class="server-settings-body" role="tabpanel">
-            {section === 'about' && (
-              <AboutSection
-                name={serverDisplayName}
-                description={serverDescription}
-                website={serverWebsite}
-                network={serverInfo.network}
-                myNick={myNick}
-                onChangeNick={() => setSection('identity')}
-              />
-            )}
-            {section === 'info' && <InfoSection info={serverInfo} />}
-            {section === 'identity' && (
-              <IdentitySection
-                myNick={myNick}
-                onChangeNick={onChangeNick}
-                serverId={serverId}
-                servicesFramework={servicesFramework}
-                onTriggerAutoIdentify={onTriggerAutoIdentify}
-                onRunCommand={onRunCommand}
-                onDropAccount={onDropAccount}
-                onIdentifyAccount={onIdentifyAccount}
-                onRegisterAccount={onRegisterAccount}
-                onConfirmAccount={onConfirmAccount}
-                onResendConfirmation={onResendConfirmation}
-                supportsResend={supportsResend}
-                onClaimNick={onClaimNick}
-                onDetectAccountState={onDetectAccountState}
-                onResumeConfirmation={onResumeConfirmation}
-                signedIn={signedIn}
-                nickClaimDisabled={nickClaimDisabled}
-              />
-            )}
-            {section === 'advanced' && (
-              <AdvancedSection
-                myNick={myNick}
-                onRunCommand={onRunCommand}
-                serverLog={serverLog}
-              />
-            )}
-            {section === 'edit' && editable && directoryEntry && onSaveProfile && (
-              <EditProfileSection entry={directoryEntry} onSave={onSaveProfile} onSaveImage={onSaveServerImage} />
-            )}
-            {section === 'opers' && editable && (
-              <OperatorsSection
-                servicesFramework={servicesFramework}
-                isOper={isOper}
-                onRunCommand={onRunCommand}
-                serverLog={serverLog}
-              />
-            )}
-            {section === 'bouncer' && (
-              <BouncerServerSection
-                route={bouncerRoute}
-                globallyEnabled={bouncerGloballyEnabled}
-                onSave={onSaveBouncerRoute}
-                upstream={bouncerUpstream}
-                networkLabel={serverInfo.network || bouncerRoute?.network || serverDisplayName}
-                onConnectUpstream={onBouncerConnect}
-                onDisconnectUpstream={onBouncerDisconnect}
-              />
-            )}
-            {section === 'appearance' && networkTheme && <NetworkThemeSection setting={networkTheme} serverName={serverDisplayName} />}
-            {section === 'actions' && <ActionsSection onReconnect={onReconnect} onDisconnect={onDisconnect} />}
-            {section === 'log' && <LogSection entries={serverLog} onClear={onClearServerLog} />}
+            {body(section)}
           </div>
         </div>
       </section>
     </Modal>
   );
+
 }
+
+const CONNECTION_LABEL: Record<EngineState, string> = {
+  idle: 'Not connected', connecting: 'Connecting…', connected: 'Connected', disconnected: 'Disconnected',
+};
 
 // What the server is (its listing's description and site), who you are on
 // it, and where its notifications are set.
@@ -1538,10 +1662,10 @@ function EditProfileSection({
             />
           </Field>
 
-          <Toggle
+          <SwitchRow
+            title="NSFW — hidden from default search"
             checked={isNsfw}
             onChange={setIsNsfw}
-            label="NSFW — hidden from default search"
           />
 
           {error && <p class="server-settings-error">{error}</p>}
@@ -1793,7 +1917,7 @@ function BouncerServerSection({
               first — this toggle has no effect until then.
             </p>
           )}
-          <Toggle checked={on} onChange={setOn} label="Route this server through the bouncer" />
+          <SwitchRow title="Route this server through the bouncer" checked={on} onChange={setOn} />
           <Field
             label="ZNC network name"
             hint="The network configured in ZNC, e.g. libera. Leave blank to use your bouncer's default network."
@@ -1807,10 +1931,10 @@ function BouncerServerSection({
               disabled={!onSave}
             />
           </Field>
-          <Toggle
+          <SwitchRow
+            title="Automatically connect the network when the bouncer is disconnected"
             checked={autoConnect}
             onChange={setAutoConnect}
-            label="Automatically connect the network when the bouncer is disconnected"
           />
           <div class="server-settings-oper-config-actions">
             {saved && <span class="user-settings-saved">Saved — reconnect to apply</span>}
@@ -1829,6 +1953,11 @@ interface AdvancedSectionProps {
   // to capture and display the server's reply inline (services NOTICEs,
   // numeric replies, etc.) without having to flip to the ~server channel.
   serverLog: ReadonlyArray<ServerLogEntry>;
+  // Phones: the command groups are a list (not tabs); a row opens its group,
+  // whose header (ServerSettings') leads back to the list.
+  phone?: boolean;
+  phoneTab?: AdvancedTabId | null;
+  onPhoneTab?: (id: AdvancedTabId | null) => void;
 }
 
 // "Advanced" — first cut: services management (NickServ identify with
@@ -1864,8 +1993,26 @@ const ADVANCED_TABS: ReadonlyArray<{ id: AdvancedTabId; label: string }> = [
   { id: 'cloak',    label: 'Cloak'    },
 ];
 
+const ADVANCED_ICON: Record<AdvancedTabId, LucideIcon> = {
+  nickserv: UserRound, account: AtSign, lookups: Search, chanserv: Hash,
+  modes: ToggleLeft, server: ServerCog, memos: Mail, cloak: VenetianMask,
+};
+
+// The commands in each group (for a phone row's hint: what's inside).
+// Functions: the indexes are declared with their subsections, below.
+const ADVANCED_INDEX: Record<AdvancedTabId, () => Array<[string, string]>> = {
+  nickserv: () => NICKSERV_COMMAND_INDEX,
+  account: () => ACCOUNT_COMMAND_INDEX,
+  lookups: () => LOOKUP_COMMAND_INDEX,
+  chanserv: () => CHANSERV_COMMAND_INDEX,
+  modes: () => USER_MODE_INDEX,
+  server: () => [...OPER_INDEX, ...SERVER_INFO_INDEX],
+  memos: () => MEMOSERV_COMMAND_INDEX,
+  cloak: () => HOSTSERV_COMMAND_INDEX,
+};
+
 function AdvancedSection({
-  myNick, onRunCommand, serverLog,
+  myNick, onRunCommand, serverLog, phone = false, phoneTab = null, onPhoneTab,
 }: AdvancedSectionProps) {
   // Search filters within the active tab. When the box has any content
   // we ALSO render every other tab's subsection below (each hides
@@ -1888,21 +2035,73 @@ function AdvancedSection({
       case 'cloak':    return <HostServSubSection {...subProps} />;
     }
   };
+  const searchBox = (
+    <div class="server-settings-advanced-search">
+      <Input
+        value={search}
+        onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
+        placeholder="Search commands — try “whois”, “ban”, “memo”…"
+        aria-label="Search commands"
+        autoComplete="off"
+        spellcheck={false}
+      />
+    </div>
+  );
+  // Search active: every group's subsection, flat. Each one self-hides if
+  // no rows match — MaybeCard collapses empty cards via the anyMatch index
+  // at the top.
+  const results = ADVANCED_TABS.map((t) => <div key={t.id}>{renderTab(t.id)}</div>);
+
+  if (phone && phoneTab) {
+    // One group, under its own header ("NickServ", back to Advanced).
+    return (
+      <div class="server-settings-advanced">
+        <div class="server-settings-advanced-body">{renderTab(phoneTab)}</div>
+      </div>
+    );
+  }
+  if (phone) {
+    // The groups as a list (as the settings list), or the search's hits.
+    const none = search && !ADVANCED_TABS.some((t) => anyMatch(search, ADVANCED_INDEX[t.id]()));
+    return (
+      <SectionFrame
+        title="Advanced"
+        description="IRC + services command UI. Replies show inline below each command. Raw slash commands still work in the chat input."
+      >
+        <div class="server-settings-advanced">
+          {searchBox}
+          {search ? (
+            <div class="server-settings-advanced-body">
+              {none ? <p class="settings-phone-empty">No commands match “{search.trim()}”.</p> : results}
+            </div>
+          ) : (
+            <nav class="server-settings-advanced-groups" aria-label="Command groups">
+              {ADVANCED_TABS.map((t) => {
+                const Icon = ADVANCED_ICON[t.id];
+                return (
+                  <SettingsPhoneRow
+                    key={t.id}
+                    leading={<Icon size={16} aria-hidden="true" />}
+                    title={t.label}
+                    subtitle={ADVANCED_INDEX[t.id]().map(([label]) => label).join(' · ')}
+                    onClick={() => onPhoneTab?.(t.id)}
+                  />
+                );
+              })}
+            </nav>
+          )}
+        </div>
+      </SectionFrame>
+    );
+  }
+
   return (
     <SectionFrame
       title="Advanced"
       description="IRC + services command UI. Replies show inline below each command. Raw slash commands still work in the chat input."
     >
       <div class="server-settings-advanced">
-        <div class="server-settings-advanced-search">
-          <Input
-            value={search}
-            onInput={(e) => setSearch((e.target as HTMLInputElement).value)}
-            placeholder="Search commands — try “whois”, “ban”, “memo”…"
-            autoComplete="off"
-            spellcheck={false}
-          />
-        </div>
+        {searchBox}
         <Tabs
           tabs={ADVANCED_TABS.map((t) => ({ id: t.id, label: t.label }))}
           active={tab}
@@ -1914,14 +2113,7 @@ function AdvancedSection({
           }}
         />
         <div class="server-settings-advanced-body">
-          {search
-            ? // Search active: render every tab's subsection flat. Each
-              // one self-hides if no rows match — MaybeCard collapses
-              // empty cards via the anyMatch index at the top.
-              ADVANCED_TABS.map((t) => (
-                <div key={t.id}>{renderTab(t.id)}</div>
-              ))
-            : renderTab(tab)}
+          {search ? results : renderTab(tab)}
         </div>
       </div>
     </SectionFrame>
@@ -3138,7 +3330,7 @@ function NetworkThemeSection({ setting, serverName }: { setting: NetworkThemeSet
     >
       <Card>
         <div class="server-settings-card-body">
-          <Toggle checked={setting.enabled} onChange={setting.onToggle} label="Use this network's theme" />
+          <SwitchRow title="Use this network's theme" checked={setting.enabled} onChange={setting.onToggle} />
           {!setting.globallyEnabled && (
             <p class="server-settings-hint" role="note">
               Network themes are off for every server (User settings → Appearance → Use network themes).

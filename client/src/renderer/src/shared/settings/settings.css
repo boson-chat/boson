@@ -1,0 +1,48 @@
+/* Settings navigation shared by User settings and Server settings
+   (SettingsNav.tsx): the desktop menu's group headings, and the phones'
+   list of sections. */
+
+/* ---------- Desktop menu ---------- */
+
+/* A group's small heading and the rule over an untitled group: siblings of
+   the menu's entries, lined up with their text. */
+.settings-menu-heading {
+  padding: var(--space-3) var(--space-3) var(--space-1) calc(var(--space-4) + 2px);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  user-select: none;
+}
+.settings-menu-heading:first-child { padding-top: 0; }
+.settings-menu-rule {
+  margin: var(--space-3) var(--space-3) var(--space-2) calc(var(--space-4) + 2px);
+  border-top: 1px solid var(--border-soft);
+}
+
+/* ---------- Phone list ---------- */
+
+/* Edge to edge, like My space's list. */
+.settings-phone-list { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-2) 0 var(--space-6); }
+.settings-phone-search { padding: var(--space-2) var(--space-4) var(--space-3); }
+/* Section headings: the channel list's (ChannelSidebar .channel-section). */
+.settings-phone-heading {
+  margin-top: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+/* Rows: My space's phone nav rows (lg, 15px), tall enough for the hint
+   under the name. */
+.settings-phone-row.bds-row-nav.bds-row-lg { font-size: 15px; }
+.settings-phone-row .bds-row-main { min-height: 56px; }
+.settings-phone-row .bds-row-trail { padding-right: var(--space-4); }
+.settings-phone-row .bds-row-sub { font-size: var(--text-xs); }
+.settings-phone-chevron { color: var(--muted); }
+.settings-phone-empty { margin: 0; padding: var(--space-3) var(--space-4); color: var(--fg-3); font-size: var(--text-sm); }

@@ -20,7 +20,7 @@ const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\&]/g, '\\$&');
 
 // A phone's list row: its name is the section's, then what it's set to.
 const phoneRow = (dialog: Locator, label: string): Locator =>
-  dialog.locator('.user-settings-phone-list nav').getByRole('button', { name: new RegExp(`^${esc(label)}(:|$)`) });
+  dialog.locator('.settings-phone-list nav').getByRole('button', { name: new RegExp(`^${esc(label)}(:|$)`) });
 
 // Desktop: the menu's entry. Phone: back to the list if in a section, then its row.
 async function openSection(dialog: Locator, phone: boolean, label: string): Promise<void> {
@@ -53,7 +53,7 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
       const back = dialog.getByRole('button', { name: 'Back to settings' });
       expect(await back.evaluate((e) => (e as HTMLElement).offsetHeight)).toBeGreaterThanOrEqual(44);
       await back.click();
-      const rows = dialog.locator('.user-settings-phone-row .bds-row-main');
+      const rows = dialog.locator('.settings-phone-row .bds-row-main');
       await expect(rows.first()).toBeVisible();
       // Layout height (the dialog may still be scaling in).
       const heights = await rows.evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetHeight));
@@ -70,9 +70,9 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
     const labels = SECTIONS.map(([l]) => l);
     if (phone) {
       // The list: grouped, each row with what it's set to.
-      const titles = dialog.locator('.user-settings-phone-list nav .bds-row-title');
+      const titles = dialog.locator('.settings-phone-list nav .bds-row-title');
       await expect(titles).toHaveText(labels);
-      await expect(dialog.locator('.user-settings-phone-heading')).toHaveText(['You', 'App', 'Connections', 'About']);
+      await expect(dialog.locator('.settings-phone-heading')).toHaveText(['You', 'App', 'Connections', 'About']);
       await expect(phoneRow(dialog, 'Bouncer')).toContainText('Off');
       await expect(phoneRow(dialog, 'About')).toContainText(/^About\s*v\d+\.\d+\.\d+/);
       await expect(phoneRow(dialog, 'Appearance')).toContainText('theme');
@@ -81,7 +81,7 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
       await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('Profile');
     } else {
       await expect(dialog.getByRole('tab')).toHaveText(labels);
-      await expect(dialog.locator('.user-settings-menu-heading')).toHaveText(['You', 'App', 'Connections']);
+      await expect(dialog.locator('.settings-menu-heading')).toHaveText(['You', 'App', 'Connections']);
     }
     for (const [tab, heading] of SECTIONS) {
       await openSection(dialog, phone, tab);
@@ -122,14 +122,14 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
     await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).not.toContainText(/MacIntel|Win32|x86_64/);
     if (phone) {
       await dialog.getByRole('button', { name: 'Back to settings' }).click();
-      await expect(dialog.locator('.user-settings-phone-list nav .bds-row-title')).toHaveText(['Appearance', 'About']);
+      await expect(dialog.locator('.settings-phone-list nav .bds-row-title')).toHaveText(['Appearance', 'About']);
       // No profile card, no search, no headings for two rows.
       await expect(dialog.locator('.user-settings-phone-profile')).toHaveCount(0);
       await expect(dialog.getByRole('searchbox')).toHaveCount(0);
-      await expect(dialog.locator('.user-settings-phone-heading')).toHaveCount(0);
+      await expect(dialog.locator('.settings-phone-heading')).toHaveCount(0);
     } else {
       await expect(dialog.getByRole('tab')).toHaveText(['Appearance', 'About']);
-      await expect(dialog.locator('.user-settings-menu-heading')).toHaveCount(0);
+      await expect(dialog.locator('.settings-menu-heading')).toHaveCount(0);
     }
   });
 
@@ -138,9 +138,38 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
     await page.goto(`/shots.html?view=services${plat}`);
     await expect(page.locator('.bds-page-head')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Close settings' })).toHaveCount(1);
-    await page.getByRole('tab', { name: /^Log/ }).click();
+    if (phone) await page.locator('.settings-phone-list nav').getByRole('button', { name: /^Log/ }).click();
+    else await page.getByRole('tab', { name: /^Log/ }).click();
     await expect(page.getByText('No entries yet.')).toBeVisible();
     expect(await roundThings(page, 'section.server-settings')).toEqual([]);
+  });
+
+  test(`server settings on ${name}: grouped like User settings; owner sections only for the owner`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    const all = ['About', 'Appearance', 'Identity', 'Bouncer', 'Actions', 'Edit', 'Operators', 'Software', 'Log', 'Advanced'];
+    const groups = ['This server', 'You here', 'Owner', 'Technical'];
+    const titles = phone ? page.locator('.settings-phone-list nav .bds-row-title') : page.getByRole('tab');
+    const headings = page.locator(phone ? '.settings-phone-heading' : '.settings-menu-heading');
+    await page.goto(`/shots.html?view=services&owner=1&nettheme=1${plat}`);
+    await expect(titles).toHaveText(all);
+    await expect(headings).toHaveText(groups);
+    // Every section opens, with its heading.
+    for (const label of all) {
+      if (phone) {
+        await page.locator('.settings-phone-list nav').getByRole('button', { name: new RegExp(`^${esc(label)}(:|$)`) }).click();
+        await expect(page.locator('.bds-page-head .bds-page-title')).toHaveText(label);
+        await expect(page.locator('.server-settings-section-title')).not.toHaveCount(0);
+        await page.getByRole('button', { name: 'Back to settings' }).click();
+      } else {
+        await page.getByRole('tab', { name: label, exact: true }).click();
+        await expect(page.getByRole('tab', { name: label, exact: true })).toHaveAttribute('aria-selected', 'true');
+        await expect(page.locator('.server-settings-section-title')).not.toHaveCount(0);
+      }
+    }
+    // Not the owner: no Edit or Operators, no Owner heading.
+    await page.goto(`/shots.html?view=services${plat}`);
+    await expect(titles).toHaveText(['About', 'Identity', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']);
+    await expect(headings).toHaveText(['This server', 'You here', 'Technical']);
   });
 }
 
@@ -153,7 +182,7 @@ test.describe('user settings on a phone: drill-down', () => {
     await page.goto('/shots.html?view=settings&platform=ios&friends=1');
     const dialog = page.getByRole('dialog');
     // Opens on the list: no section yet, no tabs strip.
-    await expect(dialog.locator('.user-settings-phone-list')).toBeVisible();
+    await expect(dialog.locator('.settings-phone-list')).toBeVisible();
     await expect(dialog.getByRole('tab')).toHaveCount(0);
     await expect(dialog.locator('.user-settings-section')).toHaveCount(0);
     await phoneRow(dialog, 'Notifications').click();
@@ -162,7 +191,7 @@ test.describe('user settings on a phone: drill-down', () => {
     // The modal's own title and close stay.
     await expect(dialog.getByRole('heading', { name: 'User settings' })).toBeVisible();
     await dialog.getByRole('button', { name: 'Back to settings' }).click();
-    await expect(dialog.locator('.user-settings-phone-list')).toBeVisible();
+    await expect(dialog.locator('.settings-phone-list')).toBeVisible();
     await expect(dialog.locator('.bds-page-head')).toHaveCount(0);
     // A change shows in the list's hint when you come back.
     await phoneRow(dialog, 'Chat & media').click();
@@ -176,9 +205,9 @@ test.describe('user settings on a phone: drill-down', () => {
     const dialog = page.getByRole('dialog');
     const search = dialog.getByRole('searchbox', { name: 'Search settings' });
     await search.fill('znc');
-    await expect(dialog.locator('.user-settings-phone-list nav .bds-row-title')).toHaveText(['Bouncer']);
+    await expect(dialog.locator('.settings-phone-list nav .bds-row-title')).toHaveText(['Bouncer']);
     await search.fill('recovery');
-    await expect(dialog.locator('.user-settings-phone-list nav .bds-row-title')).toHaveText(['Account & security']);
+    await expect(dialog.locator('.settings-phone-list nav .bds-row-title')).toHaveText(['Account & security']);
     await search.fill('zzzz');
     await expect(dialog.getByText('No settings match “zzzz”.')).toBeVisible();
   });
@@ -191,5 +220,70 @@ test.describe('user settings on a phone: drill-down', () => {
     await dialog.getByRole('button', { name: 'Back to settings' }).click();
     await expect(dialog).toBeVisible();
     await expect(phoneRow(dialog, 'About')).toBeVisible();
+  });
+});
+
+// Server settings on a phone: the same drill-down as User settings, and
+// Advanced's command groups drill down too.
+test.describe('server settings on a phone: drill-down', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+  const row = (page: Page, label: string): Locator =>
+    page.locator('.settings-phone-list nav').getByRole('button', { name: new RegExp(`^${esc(label)}(:|$)`) });
+
+  test('list → section → back, with hints, 56px rows and a 44px back', async ({ page }) => {
+    await page.goto('/shots.html?view=services&owner=1&nettheme=1&platform=ios');
+    // Opens on the list: no section, no tabs.
+    await expect(page.locator('.settings-phone-list')).toBeVisible();
+    await expect(page.getByRole('tab')).toHaveCount(0);
+    await expect(page.locator('.server-settings-section')).toHaveCount(0);
+    await expect(row(page, 'Identity')).toContainText('ada');
+    await expect(row(page, 'Bouncer')).toContainText('Off');
+    await expect(row(page, 'Actions')).toContainText('Connected');
+    await expect(row(page, 'Software')).toContainText('ngircd-27');
+    const heights = await page.locator('.settings-phone-row .bds-row-main').evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetHeight));
+    expect(heights.length).toBe(10);
+    for (const hgt of heights) expect(hgt).toBeGreaterThanOrEqual(56);
+    const side = await page.evaluate(() => ({ sw: document.scrollingElement!.scrollWidth, cw: document.scrollingElement!.clientWidth }));
+    expect(side.sw).toBeLessThanOrEqual(side.cw);
+
+    await row(page, 'Software').click();
+    await expect(page.locator('.bds-page-head .bds-page-title')).toHaveText('Software');
+    await expect(page.locator('.bds-page-head .bds-page-sub')).toHaveText('Nebula');
+    const back = page.getByRole('button', { name: 'Back to settings' });
+    expect(await back.evaluate((e) => (e as HTMLElement).offsetHeight)).toBeGreaterThanOrEqual(44);
+    // One header: the list's own close is gone while a section shows.
+    await expect(page.getByRole('button', { name: 'Close settings' })).toHaveCount(0);
+    await back.click();
+    await expect(page.locator('.settings-phone-list')).toBeVisible();
+    await expect(page.locator('.bds-page-head .bds-page-title')).toHaveText('Nebula');
+    expect(await roundThings(page, 'section.server-settings')).toEqual([]);
+  });
+
+  test('a deep link opens its section; back goes to the list', async ({ page }) => {
+    await page.goto('/shots.html?view=services&platform=ios&section=bouncer');
+    await expect(page.locator('.bds-page-head .bds-page-title')).toHaveText('Bouncer');
+    await expect(page.getByText('Route this server through the bouncer', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Back to settings' }).click();
+    await expect(row(page, 'Bouncer')).toBeVisible();
+    // An owner-only section without ownership: the list.
+    await page.goto('/shots.html?view=services&platform=ios&section=edit');
+    await expect(page.locator('.settings-phone-list')).toBeVisible();
+    await expect(row(page, 'Edit')).toHaveCount(0);
+  });
+
+  test('Advanced: command groups as a list, each opening on its own', async ({ page }) => {
+    await page.goto('/shots.html?view=services&platform=ios&section=advanced');
+    const groups = page.getByRole('navigation', { name: 'Command groups' });
+    await expect(groups.locator('.bds-row-title')).toHaveText(['NickServ', 'Account', 'Lookups', 'ChanServ', 'Modes', 'Server', 'Memos', 'Cloak']);
+    await expect(page.locator('.bds-tabs')).toHaveCount(0);
+    const heights = await groups.locator('.bds-row-main').evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetHeight));
+    for (const hgt of heights) expect(hgt).toBeGreaterThanOrEqual(56);
+    await groups.getByRole('button', { name: /^ChanServ/ }).click();
+    await expect(page.locator('.bds-page-head .bds-page-title')).toHaveText('ChanServ');
+    await expect(page.getByText('RECOVER', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Back to Advanced' }).click();
+    await expect(groups).toBeVisible();
+    await page.getByRole('button', { name: 'Back to settings' }).click();
+    await expect(page.locator('.settings-phone-list')).toBeVisible();
   });
 });
