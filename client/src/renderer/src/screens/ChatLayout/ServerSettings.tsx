@@ -18,6 +18,7 @@ import type { DropResult, IdentifyResult, RegisterResult, ConfirmResult, ResendR
 import type { ClaimResult, ResumeConfirmResult } from '../../modules/chat/chat.service';
 import { ChevronLeft, X } from 'lucide-preact';
 import { useNarrow } from '../../shared/narrow';
+import { useTabStrip } from '../../shared/tab-strip';
 import './ServerSettings.css';
 
 // Server settings screen. Renders to the right of the persistent ServerRail
@@ -212,6 +213,8 @@ export function ServerSettings({
   bouncerUpstream = null, onBouncerConnect, onBouncerDisconnect, networkTheme,
 }: ServerSettingsProps) {
   const [section, setSection] = useState<SectionId>('about');
+  // Phones: the menu is a strip that scrolls sideways (as User settings').
+  const menu$ = useTabStrip<HTMLElement>([section]);
   // Phones: full screen, so a back chevron leads the header (as on the chat
   // panes) in place of the corner ×.
   const narrow = useNarrow();
@@ -239,7 +242,7 @@ export function ServerSettings({
         />
 
         <div class="server-settings-split">
-          <nav class="server-settings-menu" aria-label="Settings sections">
+          <nav class="server-settings-menu" aria-label="Settings sections" ref={menu$.ref} onScroll={menu$.onScroll}>
             {visibleMenu.map((m) => (
               <ListRow
                 key={m.id}
