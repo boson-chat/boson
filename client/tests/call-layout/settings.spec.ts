@@ -146,7 +146,7 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
 
   test(`server settings on ${name}: grouped like User settings; owner sections only for the owner`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
-    const all = ['About', 'Appearance', 'Identity', 'Bouncer', 'Actions', 'Edit', 'Operators', 'Software', 'Log', 'Advanced'];
+    const all = ['About', 'Appearance', 'Identity', 'Notifications', 'Bouncer', 'Actions', 'Edit', 'Operators', 'Software', 'Log', 'Advanced'];
     const groups = ['This server', 'You here', 'Owner', 'Technical'];
     const titles = phone ? page.locator('.settings-phone-list nav .bds-row-title') : page.getByRole('tab');
     const headings = page.locator(phone ? '.settings-phone-heading' : '.settings-menu-heading');
@@ -168,7 +168,7 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
     }
     // Not the owner: no Edit or Operators, no Owner heading.
     await page.goto(`/shots.html?view=services${plat}`);
-    await expect(titles).toHaveText(['About', 'Identity', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']);
+    await expect(titles).toHaveText(['About', 'Identity', 'Notifications', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']);
     await expect(headings).toHaveText(['This server', 'You here', 'Technical']);
   });
 }
@@ -241,7 +241,7 @@ test.describe('server settings on a phone: drill-down', () => {
     await expect(row(page, 'Actions')).toContainText('Connected');
     await expect(row(page, 'Software')).toContainText('ngircd-27');
     const heights = await page.locator('.settings-phone-row .bds-row-main').evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetHeight));
-    expect(heights.length).toBe(10);
+    expect(heights.length).toBe(11);
     for (const hgt of heights) expect(hgt).toBeGreaterThanOrEqual(56);
     const side = await page.evaluate(() => ({ sw: document.scrollingElement!.scrollWidth, cw: document.scrollingElement!.clientWidth }));
     expect(side.sw).toBeLessThanOrEqual(side.cw);

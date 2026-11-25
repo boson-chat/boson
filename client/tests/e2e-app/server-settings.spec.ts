@@ -216,7 +216,7 @@ test('a non-owner gets no owner tabs', async ({ launchApp }) => {
   await serverCard(page, seeded.name).getByRole('button', { name: 'Connect' }).click();
   await expectConnected(page, seeded.name);
   const settings = await openServerSettings(page, seeded.name);
-  for (const tab of ['About', 'Identity', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']) {
+  for (const tab of ['About', 'Identity', 'Notifications', 'Bouncer', 'Actions', 'Software', 'Log', 'Advanced']) {
     await expect(settingsTab(settings, tab)).toBeVisible();
   }
   await expect(settingsTab(settings, 'Edit')).toHaveCount(0);
