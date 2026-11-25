@@ -171,3 +171,22 @@ describe('locateAnchor', () => {
     expect(locateAnchor(l, null, () => undefined)).toBeNull();
   });
 });
+
+describe('placeAnchored at the first row', () => {
+  // Rows above measured shorter than guessed, mid-scroll, with no rows left
+  // in the spacer (start 0): the difference becomes a gap above the first
+  // row while that gap is out of sight, else scrollTop is written.
+  const base = { target: 853, skew: 0, topPad: 0, start: 0, active: true, spacerTop: 60 };
+  it('skews while the gap is above the viewport', () => {
+    expect(placeAnchored({ ...base, scrollTop: 953 })).toEqual({ scrollTop: null, skew: 100 });
+  });
+  it('writes when the gap would show', () => {
+    expect(placeAnchored({ ...base, scrollTop: 140, target: 40 })).toEqual({ scrollTop: 40, skew: 0 });
+  });
+  it('writes without a spacer top (as before)', () => {
+    expect(placeAnchored({ ...base, scrollTop: 953, spacerTop: undefined })).toEqual({ scrollTop: 853, skew: 0 });
+  });
+  it('a taller row (negative skew) still needs rows in the spacer', () => {
+    expect(placeAnchored({ ...base, scrollTop: 953, target: 1053 })).toEqual({ scrollTop: 1053, skew: 0 });
+  });
+});
