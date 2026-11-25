@@ -1,3 +1,9 @@
+## [0.95.4](https://github.com/boson-chat/boson/compare/v0.95.3...v0.95.4) (2026-11-25)
+
+### Bug Fixes
+
+* **channels:** a channel that joins late keeps its place in the list ([#149](https://github.com/boson-chat/boson/issues/149)) ([ef857fd](https://github.com/boson-chat/boson/commit/ef857fd4207a3488f395f8c29cc75490f5d3fe74))
+
 ## [0.95.3](https://github.com/boson-chat/boson/compare/v0.95.2...v0.95.3) (2026-11-25)
 
 ### Bug Fixes
