@@ -1,3 +1,9 @@
+## [0.95.5](https://github.com/boson-chat/boson/compare/v0.95.4...v0.95.5) (2026-11-25)
+
+### Bug Fixes
+
+* **chat:** no conversations for services, servers and bots unless you write to them ([#150](https://github.com/boson-chat/boson/issues/150)) ([973a745](https://github.com/boson-chat/boson/commit/973a745a32d9e116e60c573d7cc995129d2ea99d))
+
 ## [0.95.4](https://github.com/boson-chat/boson/compare/v0.95.3...v0.95.4) (2026-11-25)
 
 ### Bug Fixes
