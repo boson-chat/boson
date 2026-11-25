@@ -1,3 +1,9 @@
+## [0.95.6](https://github.com/boson-chat/boson/compare/v0.95.5...v0.95.6) (2026-11-25)
+
+### Bug Fixes
+
+* **chat:** no member list for DMs, so no endless "Loading members…" ([#152](https://github.com/boson-chat/boson/issues/152)) ([2352c35](https://github.com/boson-chat/boson/commit/2352c359e3c7f278659331f4782b9ed3dc024380))
+
 ## [0.95.5](https://github.com/boson-chat/boson/compare/v0.95.4...v0.95.5) (2026-11-25)
 
 ### Bug Fixes
