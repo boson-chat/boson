@@ -37,12 +37,15 @@ export function ProfileSection({ mode, authedHandle, guestNick, directory, auth,
             <AccountHandleForm authedHandle={authedHandle} directory={directory} auth={auth} open={open} />
           </>
         ) : (
-          <>
-            <GuestNickForm guestNick={guestNick} />
-            <Divider />
-            <DetailRow label="Account" customValue={<Badge tone="info">Guest, no account</Badge>} />
-          </>
+          <GuestNickForm guestNick={guestNick} />
         )}
+        <Divider />
+        <DetailRow
+          label="Account"
+          customValue={mode === 'guest'
+            ? <Badge tone="info">Guest, no account</Badge>
+            : <Badge tone="verified">Boson account</Badge>}
+        />
       </div>
     </SectionFrame>
   );

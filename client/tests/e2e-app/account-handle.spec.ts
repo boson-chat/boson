@@ -1,5 +1,5 @@
 // The Boson handle: first-sign-in setup validation (POST /me) and renaming
-// it later from User settings → Identity (PATCH /me), including taken and
+// it later from User settings → Profile (PATCH /me), including taken and
 // invalid handles, with the result checked in the backend (users +
 // handle_changes, whose redirect window is 90 days).
 import type { Page } from '@playwright/test';
@@ -9,7 +9,7 @@ async function openIdentitySettings(page: Page) {
   await page.getByRole('button', { name: 'User settings' }).click();
   const dialog = page.getByRole('dialog', { name: 'User settings' });
   await expect(dialog).toBeVisible();
-  await dialog.getByRole('tab', { name: /^Identity/ }).click();
+  await dialog.getByRole('tab', { name: /^Profile/ }).click();
   return dialog;
 }
 

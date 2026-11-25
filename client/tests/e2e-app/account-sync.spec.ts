@@ -93,7 +93,9 @@ test('the bouncer profile syncs end-to-end encrypted to a second device, and edi
 
   // Clearing it removes the remote copy too.
   await dialog.getByRole('button', { name: 'Clear', exact: true }).click();
-  await expect(field(dialog, 'Host')).toHaveValue('');
+  // (Off, so its connection fields are hidden.)
+  await expect(dialog.getByRole('checkbox', { name: 'Use a bouncer', exact: true })).not.toBeChecked();
+  await expect(field(dialog, 'Host')).toHaveCount(0);
   await expect.poll(async () => (await api.get<BouncerBlob>('/me/bouncer')).bouncer, { timeout: 15_000 }).toBeNull();
 });
 
