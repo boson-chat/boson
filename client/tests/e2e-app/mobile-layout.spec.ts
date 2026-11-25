@@ -146,9 +146,14 @@ test.describe('phone layout', () => {
     const vp = page.viewportSize()!;
     await expect.poll(async () => (await dialog.boundingBox())!.width).toBeGreaterThan(vp.width - 2);
     await expect.poll(async () => (await dialog.boundingBox())!.height).toBeGreaterThan(vp.height - 2);
-    // The section menu runs across the top, above the section.
-    const menu = await dialog.locator('.user-settings-menu').boundingBox();
-    const body = await dialog.locator('.user-settings-body').boundingBox();
-    expect(menu!.y + menu!.height).toBeLessThanOrEqual(body!.y + 1);
+    // It opens on the list of sections (edge to edge); a row opens its
+    // section full screen, and the back arrow returns to the list.
+    const list = dialog.locator('.user-settings-phone-list');
+    await expect(list).toBeVisible();
+    expect((await list.boundingBox())!.width).toBeGreaterThan(vp.width - 2);
+    await list.locator('nav').getByRole('button', { name: /^Notifications/ }).click();
+    await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('Notifications');
+    await dialog.getByRole('button', { name: 'Back to settings' }).click();
+    await expect(list).toBeVisible();
   });
 });

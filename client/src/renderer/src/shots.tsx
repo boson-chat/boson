@@ -18,6 +18,7 @@ import { HttpClient } from './shared/http/http.client';
 import { DirectoryScreen } from './screens/DirectoryScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { UserSettings } from './screens/UserSettings/UserSettings';
+import { clearGuestSession, saveGuestSession } from './modules/guest/guest';
 import { NotificationsPanel, useUnreadNotes } from './screens/Notifications/NotificationsPanel';
 import { setNotificationsOpener } from './modules/ui/open-notifications';
 import { Toasts } from './screens/Notifications/Toasts';
@@ -1092,13 +1093,19 @@ function settingsView(): void {
     cameras: async () => [], screenSources: async () => [], setCamera: async () => vstate, setScreen: async () => vstate,
     setCameraQuality: async () => vstate,
   }));
+  // ?mode=guest: a guest (Profile is the nick); ?mode=signedout: the login
+  // screen's settings (Appearance and About only).
+  const mode = q.get('mode');
+  if (mode === 'guest') saveGuestSession({ nick: 'ada_guest' });
+  else clearGuestSession();
   render(
-    <AuthProvider service={makeAuth(true)}>
+    <AuthProvider service={makeAuth(mode !== 'guest' && mode !== 'signedout')}>
       <UserSettings
         open
         onClose={() => {}}
-        authedHandle="ada"
-        authedEmail="ada@example.com"
+        signedOut={mode === 'signedout'}
+        authedHandle={mode ? null : 'ada'}
+        authedEmail={mode ? null : 'ada@example.com'}
         onSignOut={() => {}}
         directory={directoryService()}
         identity={makeIdentity()}

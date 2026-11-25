@@ -61,7 +61,7 @@ test('in a modal: opens above it, keyboard picks, Escape closes only the list', 
 
 test('near the bottom of the viewport it opens upward', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 640 });
-  await page.goto('/shots.html?view=settings&section=content&images=1');
+  await page.goto('/shots.html?view=settings&section=chat&images=1');
   const keep = page.getByLabel('Image cache size');
   await keep.scrollIntoViewIfNeeded();
   // Pin it to the bottom edge of the window, as at the end of a long form.
@@ -81,7 +81,7 @@ test('near the bottom of the viewport it opens upward', async ({ page }) => {
 
 test('on a phone it is a bottom sheet with 44px options', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/shots.html?view=settings&section=content&images=1&platform=ios');
+  await page.goto('/shots.html?view=settings&section=chat&images=1&platform=ios');
   const keep = page.getByLabel('Image cache size');
   await keep.scrollIntoViewIfNeeded();
   await keep.click();

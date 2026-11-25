@@ -1,8 +1,9 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 
-// User settings and Server settings on a narrow phone (360px): the section
-// strip leaves room past its last tab, nothing pushes the body wider than
-// the screen, and Advanced's command rows stack rather than squeeze.
+// User settings and Server settings on a narrow phone (360px): Server
+// settings' section strip leaves room past its last tab, nothing pushes the
+// body wider than the screen, and Advanced's command rows stack rather than
+// squeeze. (User settings is a drill-down list on phones.)
 
 async function noSideways(page: Page, body: string): Promise<void> {
   const { body: b, doc } = await page.evaluate((sel) => {
@@ -66,16 +67,21 @@ test('server settings at 360px: no sideways scroll, strip end inset, Advanced ro
   expect(Math.abs(hint.x - search.x)).toBeLessThanOrEqual(1);
 });
 
-test('user settings at 360px: no sideways scroll, strip end inset', async ({ page }) => {
-  await page.goto('/shots.html?view=settings&section=about&platform=ios');
+test('user settings at 360px: no sideways scroll in the list or any section', async ({ page }) => {
+  // Phones drill down (a list of sections, then one full screen) rather
+  // than a strip of tabs.
+  await page.goto('/shots.html?view=settings&platform=ios&friends=1&images=1&voice=connected');
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('tab', { name: /^About/ })).toHaveAttribute('aria-selected', 'true');
-  const strip = dialog.locator('.user-settings-menu');
-  expect(await lastTabInset(strip)).toBeGreaterThanOrEqual(7); // 8px, less sub-pixel scroll rounding
-  const tabs = strip.getByRole('tab');
-  const n = await tabs.count();
+  const list = dialog.locator('.user-settings-phone-list');
+  await expect(list).toBeVisible();
+  await noSideways(page, '.user-settings-phone-list');
+  const rows = list.locator('nav').getByRole('button');
+  const n = await rows.count();
+  expect(n).toBeGreaterThan(5);
   for (let i = 0; i < n; i++) {
-    await tabs.nth(i).click();
-    await noSideways(page, '.user-settings-body');
+    await rows.nth(i).click();
+    await expect(dialog.locator('.bds-page-head')).toBeVisible();
+    await noSideways(page, '.user-settings-phone-body');
+    await dialog.getByRole('button', { name: 'Back to settings' }).click();
   }
 });

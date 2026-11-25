@@ -239,7 +239,7 @@ export function CallsView({ layout, onJoin, serverNameFor, settings }: CallsView
         )}
         {snap.available && (
           <Button variant="ghost" size={phone ? 'lg' : 'sm'} class="calls-privacy" onClick={() => openUserSettings('privacy')}>
-            Privacy &amp; calls: who can call you, Do not disturb
+            Privacy: who can call you, Do not disturb
             <span aria-hidden="true"> →</span>
           </Button>
         )}

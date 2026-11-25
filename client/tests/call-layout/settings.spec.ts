@@ -1,7 +1,9 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Locator, type Page } from '@playwright/test';
 
 // User settings and Server settings on the shared design system: no
-// circles or pills, and on phones the section strip's entries are 44px.
+// circles or pills. User settings: a grouped left menu on desktop; on phones
+// a list of the sections (44px+ rows) that drills into each one, with a back
+// arrow to the list.
 
 async function roundThings(page: Page, root: string): Promise<string[]> {
   return page.locator(root).evaluate((el) => {
@@ -14,18 +16,120 @@ async function roundThings(page: Page, root: string): Promise<string[]> {
   });
 }
 
+const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\&]/g, '\\$&');
+
+// A phone's list row: its name is the section's, then what it's set to.
+const phoneRow = (dialog: Locator, label: string): Locator =>
+  dialog.locator('.user-settings-phone-list nav').getByRole('button', { name: new RegExp(`^${esc(label)}(:|$)`) });
+
+// Desktop: the menu's entry. Phone: back to the list if in a section, then its row.
+async function openSection(dialog: Locator, phone: boolean, label: string): Promise<void> {
+  if (!phone) { await dialog.getByRole('tab', { name: label, exact: true }).click(); return; }
+  const back = dialog.getByRole('button', { name: 'Back to settings' });
+  if (await back.count()) await back.click();
+  await phoneRow(dialog, label).click();
+  await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText(label);
+}
+
+const SECTIONS = [
+  ['Profile', 'Profile'], ['Account & security', 'Account & security'], ['Privacy', 'Privacy'],
+  ['Appearance', 'Appearance'], ['Notifications', 'Notifications'], ['Chat & media', 'Chat & media'],
+  ['Voice', 'Voice'], ['Directories', 'Directories'], ['Bouncer', 'Bouncer (ZNC / BNC)'], ['About', 'About'],
+] as const;
+
 for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 844, '&platform=ios']] as const) {
+  const phone = name !== 'desktop';
+
   test(`user settings on ${name}: no circles or pills; switch rows`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await page.goto(`/shots.html?view=settings&section=notifications${plat}`);
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByRole('tab', { name: /^Notifications/ })).toHaveAttribute('aria-selected', 'true');
+    if (phone) await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('Notifications');
+    else await expect(dialog.getByRole('tab', { name: /^Notifications/ })).toHaveAttribute('aria-selected', 'true');
     await expect(dialog.locator('.bds-switch-row')).toHaveCount(8);
     expect(await roundThings(page, '.user-settings')).toEqual([]);
-    if (name !== 'desktop') {
+    if (phone) {
+      // The back arrow and the list's rows are touch targets.
+      const back = dialog.getByRole('button', { name: 'Back to settings' });
+      expect(await back.evaluate((e) => (e as HTMLElement).offsetHeight)).toBeGreaterThanOrEqual(44);
+      await back.click();
+      const rows = dialog.locator('.user-settings-phone-row .bds-row-main');
+      await expect(rows.first()).toBeVisible();
       // Layout height (the dialog may still be scaling in).
-      const heights = await dialog.getByRole('tab').evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetHeight));
-      for (const hgt of heights) expect(hgt).toBeGreaterThanOrEqual(44);
+      const heights = await rows.evaluateAll((els) => els.map((e) => (e as HTMLElement).offsetHeight));
+      for (const hgt of heights) expect(hgt).toBeGreaterThanOrEqual(56);
+      expect(await roundThings(page, '.user-settings')).toEqual([]);
+    }
+  });
+
+  test(`user settings on ${name}: every section opens, with one look`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    // ?voice=connected: the harness has voice, so the Voice entry shows.
+    await page.goto(`/shots.html?view=settings${phone ? '' : '&section=profile'}&friends=1&images=1&voice=connected${plat}`);
+    const dialog = page.getByRole('dialog');
+    const labels = SECTIONS.map(([l]) => l);
+    if (phone) {
+      // The list: grouped, each row with what it's set to.
+      const titles = dialog.locator('.user-settings-phone-list nav .bds-row-title');
+      await expect(titles).toHaveText(labels);
+      await expect(dialog.locator('.user-settings-phone-heading')).toHaveText(['You', 'App', 'Connections', 'About']);
+      await expect(phoneRow(dialog, 'Bouncer')).toContainText('Off');
+      await expect(phoneRow(dialog, 'About')).toContainText(/^About\s*v\d+\.\d+\.\d+/);
+      await expect(phoneRow(dialog, 'Appearance')).toContainText('theme');
+      // Signed in: the profile card on top opens Profile.
+      await dialog.getByRole('button', { name: /^Your profile: ada/ }).click();
+      await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('Profile');
+    } else {
+      await expect(dialog.getByRole('tab')).toHaveText(labels);
+      await expect(dialog.locator('.user-settings-menu-heading')).toHaveText(['You', 'App', 'Connections']);
+    }
+    for (const [tab, heading] of SECTIONS) {
+      await openSection(dialog, phone, tab);
+      await expect(dialog.locator('.user-settings-section-title')).toHaveText(heading);
+      // Booleans are switch rows: no bare switch with a label beside it.
+      await expect(dialog.locator('.user-settings-section .bds-toggle-label')).toHaveCount(0);
+    }
+    expect(await roundThings(page, '.user-settings')).toEqual([]);
+  });
+
+  test(`user settings on ${name}: deep links by old names, directory switches line up, bouncer fields follow the switch`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto(`/shots.html?view=settings&section=content${plat}`);
+    const dialog = page.getByRole('dialog');
+    if (phone) await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('Chat & media');
+    else await expect(dialog.getByRole('tab', { name: 'Chat & media' })).toHaveAttribute('aria-selected', 'true');
+    await page.goto(`/shots.html?view=settings&section=identity${plat}`);
+    if (phone) await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('Profile');
+    else await expect(dialog.getByRole('tab', { name: 'Profile' })).toHaveAttribute('aria-selected', 'true');
+
+    await openSection(dialog, phone, 'Directories');
+    const switches = dialog.getByRole('list', { name: 'Your directories' }).locator('.bds-toggle');
+    await expect(switches).toHaveCount(2);
+    const rights = await switches.evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().right)));
+    expect(new Set(rights).size).toBe(1);
+
+    await openSection(dialog, phone, 'Bouncer');
+    await expect(dialog.getByPlaceholder('znc.example.com')).toHaveCount(0);
+    await dialog.getByText('Use a bouncer', { exact: true }).click();
+    await expect(dialog.getByPlaceholder('znc.example.com')).toBeVisible();
+    await expect(dialog.getByRole('checkbox', { name: 'Use TLS', exact: true })).toBeChecked();
+  });
+
+  test(`user settings on ${name}: before signing in, Appearance and About only`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto(`/shots.html?view=settings&section=about&mode=signedout${plat}`);
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).not.toContainText(/MacIntel|Win32|x86_64/);
+    if (phone) {
+      await dialog.getByRole('button', { name: 'Back to settings' }).click();
+      await expect(dialog.locator('.user-settings-phone-list nav .bds-row-title')).toHaveText(['Appearance', 'About']);
+      // No profile card, no search, no headings for two rows.
+      await expect(dialog.locator('.user-settings-phone-profile')).toHaveCount(0);
+      await expect(dialog.getByRole('searchbox')).toHaveCount(0);
+      await expect(dialog.locator('.user-settings-phone-heading')).toHaveCount(0);
+    } else {
+      await expect(dialog.getByRole('tab')).toHaveText(['Appearance', 'About']);
+      await expect(dialog.locator('.user-settings-menu-heading')).toHaveCount(0);
     }
   });
 
@@ -39,3 +143,53 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
     expect(await roundThings(page, 'section.server-settings')).toEqual([]);
   });
 }
+
+// Phones: the list → a section → back, search, and a deep link that opens
+// straight into its section (and back goes to the list, not closed).
+test.describe('user settings on a phone: drill-down', () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test('list → section → back to the list', async ({ page }) => {
+    await page.goto('/shots.html?view=settings&platform=ios&friends=1');
+    const dialog = page.getByRole('dialog');
+    // Opens on the list: no section yet, no tabs strip.
+    await expect(dialog.locator('.user-settings-phone-list')).toBeVisible();
+    await expect(dialog.getByRole('tab')).toHaveCount(0);
+    await expect(dialog.locator('.user-settings-section')).toHaveCount(0);
+    await phoneRow(dialog, 'Notifications').click();
+    await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('Notifications');
+    await expect(dialog.getByText('In-app toasts', { exact: true })).toBeVisible();
+    // The modal's own title and close stay.
+    await expect(dialog.getByRole('heading', { name: 'User settings' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Back to settings' }).click();
+    await expect(dialog.locator('.user-settings-phone-list')).toBeVisible();
+    await expect(dialog.locator('.bds-page-head')).toHaveCount(0);
+    // A change shows in the list's hint when you come back.
+    await phoneRow(dialog, 'Chat & media').click();
+    await dialog.getByText('Show link previews', { exact: true }).click();
+    await dialog.getByRole('button', { name: 'Back to settings' }).click();
+    await expect(phoneRow(dialog, 'Chat & media')).toContainText('Link previews off');
+  });
+
+  test('search filters the sections by name, hint and the settings in them', async ({ page }) => {
+    await page.goto('/shots.html?view=settings&platform=ios&friends=1');
+    const dialog = page.getByRole('dialog');
+    const search = dialog.getByRole('searchbox', { name: 'Search settings' });
+    await search.fill('znc');
+    await expect(dialog.locator('.user-settings-phone-list nav .bds-row-title')).toHaveText(['Bouncer']);
+    await search.fill('recovery');
+    await expect(dialog.locator('.user-settings-phone-list nav .bds-row-title')).toHaveText(['Account & security']);
+    await search.fill('zzzz');
+    await expect(dialog.getByText('No settings match “zzzz”.')).toBeVisible();
+  });
+
+  test('a deep link opens its section; back goes to the list', async ({ page }) => {
+    await page.goto('/shots.html?view=settings&platform=ios&section=about');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.locator('.bds-page-head .bds-page-title')).toHaveText('About');
+    await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Version' })).toBeVisible();
+    await dialog.getByRole('button', { name: 'Back to settings' }).click();
+    await expect(dialog).toBeVisible();
+    await expect(phoneRow(dialog, 'About')).toBeVisible();
+  });
+});

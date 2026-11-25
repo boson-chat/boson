@@ -143,7 +143,7 @@ for (const [w, h] of PHONES) {
   test(`${w}×${h}: settings, typing in a field: the page stays put`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await fakeVisualViewport(page);
-    for (const section of ['notifications', 'content', 'profile']) {
+    for (const section of ['notifications', 'chat', 'profile']) {
       await page.goto(`/shots.html?view=settings&section=${section}&platform=ios`);
       await expect(page.getByRole('dialog').first()).toBeVisible();
       await noPageScrollEitherWay(page, KEYBOARD[w]!, `settings: ${section}`);

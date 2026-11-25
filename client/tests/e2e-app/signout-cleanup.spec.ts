@@ -116,6 +116,11 @@ test.describe('sign-out cleanup', () => {
     await page.getByRole('button', { name: 'User settings' }).click();
     const dialog = page.getByRole('dialog', { name: 'User settings' });
     await dialog.getByRole('tab', { name: /^Bouncer/ }).click();
+    // No bouncer: off, so its connection fields are hidden; switched on, they're empty.
+    const useBouncer = dialog.getByRole('checkbox', { name: 'Use a bouncer', exact: true });
+    await expect(useBouncer).not.toBeChecked();
+    await expect(field(dialog, 'Host')).toHaveCount(0);
+    await dialog.getByText('Use a bouncer', { exact: true }).click();
     await expect(field(dialog, 'Host')).toHaveValue('');
     await expect(field(dialog, 'Password')).toHaveValue('');
     await dialog.getByRole('button', { name: 'Close' }).click();

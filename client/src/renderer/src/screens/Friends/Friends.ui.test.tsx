@@ -9,7 +9,7 @@ import { FriendsView } from './FriendsView';
 import { CallOverlays } from './CallOverlays';
 import { Toasts } from '../Notifications/Toasts';
 import { setNotificationSettings, __resetNotificationSettingsCache } from '../../modules/ui/notifications.store';
-import { PrivacyCalls } from './PrivacyCalls';
+import { PrivacyCalls } from '../UserSettings/PrivacySection';
 import { PhonePage } from './FriendsNav';
 import { CallsView, MyRailTile, MySidebar } from './MySpace';
 import { getFriendsUi, openMy, setFriendsUi } from './friends-ui';
@@ -198,7 +198,7 @@ describe('CallOverlays', () => {
 
 describe('PrivacyCalls and navigation', () => {
   it('sets who can call me and Do not disturb', async () => {
-    render(<PrivacyCalls layout="desktop" />);
+    render(<PrivacyCalls />);
     fireEvent.click(screen.getByRole('radio', { name: 'Everyone' , checked: false }));
     await waitFor(() => expect(ctl.getSnapshot().privacy.calls).toBe('everyone'));
     expect(screen.getByText('Anyone who isn’t blocked can call you.')).toBeTruthy();
