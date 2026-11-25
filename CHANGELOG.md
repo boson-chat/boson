@@ -1,3 +1,9 @@
+## [0.95.2](https://github.com/boson-chat/boson/compare/v0.95.1...v0.95.2) (2026-11-25)
+
+### Bug Fixes
+
+* **my:** direct messages newest first, people only ([#148](https://github.com/boson-chat/boson/issues/148)) ([74a938f](https://github.com/boson-chat/boson/commit/74a938f1a8be9b2f5ab5c3ebfa2859cbb48e1ba2))
+
 ## [0.95.1](https://github.com/boson-chat/boson/compare/v0.95.0...v0.95.1) (2026-11-24)
 
 ### Bug Fixes
