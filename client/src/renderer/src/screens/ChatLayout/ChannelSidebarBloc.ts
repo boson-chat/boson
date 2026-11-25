@@ -37,6 +37,9 @@ export interface ChannelSidebarBlocDeps {
   // The user's saved channel order (channel keys), applied within each
   // section; absent or empty keeps the default order.
   getOrder?: () => readonly string[] | undefined;
+  // The default order (channel keys: the server's saved channels, in their
+  // saved order). Channels it doesn't name keep the order they arrived in.
+  getDefaultOrder?: () => readonly string[] | undefined;
   onJoin: (channelName: string) => void;
 }
 
@@ -67,7 +70,9 @@ export class ChannelSidebarBloc {
   // Observation -----------------------------------------------------------
 
   getState(): ChannelSidebarState {
-    const channels = this.deps.getChannels();
+    // In the default order first, so a channel that joined late (it waited
+    // for NickServ, say) sits where it always does.
+    const channels = applyChannelOrder(this.deps.getChannels(), this.deps.getDefaultOrder?.(), (c) => c.name);
     const lower = this.query.trim().toLowerCase();
     const visibleChannels = lower
       ? channels.filter((c) => c.name.toLowerCase().includes(lower))

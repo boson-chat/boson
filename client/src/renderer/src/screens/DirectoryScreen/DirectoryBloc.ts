@@ -18,7 +18,7 @@ import type { BouncerUpstreamState, EngineClient, EngineState, ServerSession } f
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
-import { SessionStore, channelKey, mergeChannelOrder, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
+import { SessionStore, applyChannelOrder, channelKey, mergeChannelOrder, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
 import {
   addLocalServer,
   loadLocalServers,
@@ -853,15 +853,28 @@ export class DirectoryBloc {
     return this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.channelOrder;
   }
 
+  // The default channel-list order for a server (channel keys): the order of
+  // its saved channels, the ones rejoined on connect. A channel that joins
+  // late (refused until NickServ identified us, a slow rejoin) still takes
+  // its usual place, not the end of the list.
+  defaultChannelOrder(serverId: string): readonly string[] | undefined {
+    const saved = this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.channels;
+    return saved && saved.length > 0 ? saved.map(channelKey) : undefined;
+  }
+
   // The user reordered one section of a server's channel list into
   // `section` (names, top to bottom). Merged into the saved order so the
   // other section, and channels still being rejoined, keep their places.
   reorderChannels(serverId: string, section: readonly string[]): void {
     const saved = this.sessionStore.load()?.servers.find((s) => s.server.id === serverId);
     if (!saved) return;
+    // Every channel the list has or will have, in the default order: the
+    // saved channels (some may still be waiting to join, e.g. until NickServ
+    // has identified us) take their usual places among the ones shown.
     const shown = this.connections.get(serverId)?.chat.getState().channels.map((c) => c.name) ?? [];
     const joined = new Set(saved.channels.map(channelKey));
-    const next = mergeChannelOrder(saved.channelOrder, [...shown, ...section], section, (k) => joined.has(k));
+    const all = applyChannelOrder([...new Set([...saved.channels, ...shown].map(channelKey))], [...joined], (k) => k);
+    const next = mergeChannelOrder(saved.channelOrder, [...all, ...section], section, (k) => joined.has(k));
     this.sessionStore.setChannelOrder(serverId, next);
     this.emit();
   }

@@ -39,6 +39,9 @@ interface ChannelSidebarProps {
   // The user's own order for this server's list (channel keys; see
   // modules/session/channel-order.ts), applied within each section.
   channelOrder?: readonly string[];
+  // The default order (channel keys: the saved channels, in order), under
+  // the user's own one.
+  defaultChannelOrder?: readonly string[];
   // A section was reordered (drag, Alt+Up/Down, Move up / down): its names,
   // top to bottom. Without it the rows don't reorder.
   onReorderChannels?: (names: string[]) => void;
@@ -93,6 +96,7 @@ export function ChannelSidebar({
   onPart,
   onOpenAllDms,
   channelOrder,
+  defaultChannelOrder,
   onReorderChannels,
   serverId,
   onResetChannelOrder,
@@ -119,6 +123,8 @@ export function ChannelSidebar({
   onJoinRef.current = onJoin;
   const orderRef = useRef(channelOrder);
   orderRef.current = channelOrder;
+  const defaultOrderRef = useRef(defaultChannelOrder);
+  defaultOrderRef.current = defaultChannelOrder;
 
   const narrow = useNarrow();
   const bloc = useMemo(
@@ -126,6 +132,7 @@ export function ChannelSidebar({
       new ChannelSidebarBloc({
         getChannels: () => channelsRef.current,
         getOrder: () => orderRef.current,
+        getDefaultOrder: () => defaultOrderRef.current,
         onJoin: (name) => onJoinRef.current(name),
       }),
     [],
@@ -137,7 +144,7 @@ export function ChannelSidebar({
   // signal that derived state should refresh.
   // The saved order is re-read from storage on each render, so compare it
   // by value.
-  const orderSig = channelOrder?.join('\n') ?? '';
+  const orderSig = `${channelOrder?.join('\n') ?? ''}\0${defaultChannelOrder?.join('\n') ?? ''}`;
   useEffect(() => {
     bloc.notifyChannelsChanged();
   }, [channels, orderSig, bloc]);

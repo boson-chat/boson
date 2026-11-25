@@ -108,6 +108,8 @@ interface Props {
   // and the handlers that save / reset it. Without onReorderChannels the
   // channel list doesn't reorder.
   channelOrder?: readonly string[];
+  // The default order under it: the saved channels, in order.
+  defaultChannelOrder?: readonly string[];
   onReorderChannels?: (names: string[]) => void;
   onResetChannelOrder?: () => void;
   // MY's direct messages (every connected server's), and opening one:
@@ -153,7 +155,7 @@ export function ChatLayout({
   chat, serverName, serverHost, bannerUrl, logoUrl, onToggleNetworkTheme, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
   connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
-  onReorderServers, channelOrder, onReorderChannels, onResetChannelOrder, myDms, onOpenDm,
+  onReorderServers, channelOrder, defaultChannelOrder, onReorderChannels, onResetChannelOrder, myDms, onOpenDm,
   serverDescription, serverChannels,
 }: Props) {
   // Two sources of truth, both consumed via subscribe():
@@ -540,6 +542,7 @@ export function ChatLayout({
           }}
           onOpenAllDms={() => setFriendsUi({ my: true, phone: null })}
           channelOrder={channelOrder}
+          defaultChannelOrder={defaultChannelOrder}
           serverId={activeServerId}
           onReorderChannels={onReorderChannels}
           onResetChannelOrder={onResetChannelOrder}
