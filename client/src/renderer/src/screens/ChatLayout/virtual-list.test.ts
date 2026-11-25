@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bottomOf, captureAnchor, DEFAULT_ROW_HEIGHT, HeightCache, Layout, placeAnchored, restoreAnchor, userAtBottom,
+  bottomOf, captureAnchor, DEFAULT_ROW_HEIGHT, HeightCache, Layout, locateAnchor, placeAnchored, restoreAnchor, userAtBottom,
 } from './virtual-list';
 
 const keys = (n: number, from = 0) => Array.from({ length: n }, (_, i) => `m${i + from}`);
@@ -146,5 +146,28 @@ describe('userAtBottom', () => {
   it('scrolling down reaches it within the slack', () => {
     expect(userAtBottom(20, false, 24)).toBe(true);
     expect(userAtBottom(30, false, 24)).toBe(false);
+  });
+});
+
+describe('locateAnchor', () => {
+  it('keeps an anchor whose row is still there', () => {
+    const l = new Layout(['a', 'b'], new HeightCache());
+    const a = { key: 'b', delta: 3, ids: ['m2'] };
+    expect(locateAnchor(l, a, () => undefined)).toBe(a);
+  });
+  it('follows the row that took in its messages (a join/part block keyed by a new first line)', () => {
+    const h = new HeightCache();
+    ['x1', 'x2', 'activity-x3', 'm9'].forEach((k) => h.set(k, 20));
+    // Older lines loaded above: activity-m5 (m5, m6) is now activity-x3 (x3, x4, m5, m6).
+    const l = new Layout(['x1', 'x2', 'activity-x3', 'm9'], h);
+    const rowOf = new Map([['x3', 'activity-x3'], ['x4', 'activity-x3'], ['m5', 'activity-x3'], ['m6', 'activity-x3']]);
+    const a = locateAnchor(l, { key: 'activity-m5', delta: 7, ids: ['m5', 'm6'] }, (id) => rowOf.get(id));
+    expect(a).toEqual({ key: 'activity-x3', delta: 7, ids: ['m5', 'm6'] });
+    expect(restoreAnchor(l, a)).toBe(47);
+  });
+  it('is null when none of its messages are left', () => {
+    const l = new Layout(['a'], new HeightCache());
+    expect(locateAnchor(l, { key: 'gone', delta: 0, ids: ['m1'] }, () => undefined)).toBeNull();
+    expect(locateAnchor(l, null, () => undefined)).toBeNull();
   });
 });

@@ -30,7 +30,9 @@ import { useLongPress } from './long-press';
 import { isNarrow } from '../../shared/narrow';
 import { buildNickContextActions, type NickActions } from './nick-actions';
 import { AT_BOTTOM_SLACK } from './scroll-resolve';
-import { bottomOf, captureAnchor, HeightCache, Layout, placeAnchored, restoreAnchor, userAtBottom, type Anchor } from './virtual-list';
+import {
+  bottomOf, captureAnchor, HeightCache, Layout, locateAnchor, placeAnchored, restoreAnchor, userAtBottom, type Anchor,
+} from './virtual-list';
 
 // Map IRC channel-status prefix to a short display label + a class name.
 // Used both for the role pill rendered next to a nick in chat (MOD/OPS/V)
@@ -635,6 +637,8 @@ const rowHeights = new HeightCache();
 const SCROLL_IDLE_MS = 150;
 // A scroll event this soon after the user's input on the list is theirs.
 const INPUT_SCROLL_MS = 400;
+// Older lines wait at most this long for the user's scroll to stop.
+const HOLD_OLDER_MAX_MS = 1500;
 
 interface ListRow {
   key: string;
@@ -671,8 +675,65 @@ export const MessageList = memo(function MessageList({
   // A metadata emit that re-renders the parent passes the same signal ref, so
   // memo() bails — the list only re-renders when its messages actually change
   // (or a non-signal prop like members/history flags does).
-  const msgs = messages.value;
+  const allMsgs = messages.value;
+  // The user's own scrolling (virtual-list.ts placeAnchored): when they last
+  // used the wheel / keys / a finger / the scrollbar on the list, and when a
+  // scroll event last followed from that (a fling or a smooth scroll keeps
+  // going after the input). A scroll event with neither is the browser's
+  // (the list's viewport re-sized and scrollTop clamped), not the user
+  // leaving the bottom.
+  const lastInput = useRef(-Infinity);
+  const pointerHeld = useRef(false);
+  const lastUserScroll = useRef(-Infinity);
+  // A finger is on the list (touch screens). While it is, the list doesn't
+  // stick itself to the bottom: a drag up from the bottom starts inside
+  // AT_BOTTOM_SLACK, and re-sticking there pulled the list back down
+  // against the finger until the drag got past the slack.
+  const touching = useRef(false);
+  const userScrolling = (): boolean =>
+    touching.current || pointerHeld.current || performance.now() - lastUserScroll.current < SCROLL_IDLE_MS;
+  const [noLayout, setNoLayout] = useState(false);
+  // Older lines that arrive while the user is scrolling (a fling up to the
+  // top, a finger still down, the wheel still going) wait until the scroll
+  // stops: keeping the reader's row in place under a page put in above takes
+  // a scrollTop write, and one mid-scroll cancels the browser's smooth
+  // scroll, stops an iOS fling or fights its bounce at the top: the list
+  // lurched. Held at most HOLD_OLDER_MAX_MS (a lost touchend).
+  const shownFirst = useRef<ChatMessage | null>(null);
+  const holdSince = useRef<number | null>(null);
+  let hold = 0;
+  const first = shownFirst.current;
+  if (!noLayout && first && allMsgs[0] !== first && allMsgs.length > 0 && userScrolling()) {
+    if (holdSince.current === null || performance.now() - holdSince.current < HOLD_OLDER_MAX_MS) {
+      const k = allMsgs.indexOf(first);
+      if (k > 0) hold = k;
+    }
+  }
+  if (hold === 0) holdSince.current = null;
+  else if (holdSince.current === null) holdSince.current = performance.now();
+  const msgs = useMemo(() => (hold > 0 ? allMsgs.slice(hold) : allMsgs), [allMsgs, hold]);
+  shownFirst.current = msgs[0] ?? null;
+  const heldBack = useRef(false);
+  heldBack.current = hold > 0;
   const rows = useMemo(() => listRows(buildRenderItems(msgs)), [msgs]);
+  // Each message's row key, and each row's messages (for the anchor: see
+  // virtual-list.ts locateAnchor).
+  const rowIndex = useMemo(() => {
+    const rowOf = new Map<string, string>();
+    const idsOf = new Map<string, string[]>();
+    for (const r of rows) {
+      const ids = rowMessageIds(r.item).map((m) => m.id);
+      idsOf.set(r.key, ids);
+      for (const id of ids) rowOf.set(id, r.key);
+    }
+    return { rowOf, idsOf };
+  }, [rows]);
+  const rowIndexRef = useRef(rowIndex);
+  rowIndexRef.current = rowIndex;
+  const anchorAt = (l: Layout, top: number): Anchor | null => {
+    const a = captureAnchor(l, top);
+    return a ? { ...a, ids: rowIndexRef.current.idsOf.get(a.key) } : null;
+  };
   // Replies find the message they answer by its msgid.
   const byMsgid = useMemo(() => {
     const m = new Map<string, ChatMessage>();
@@ -715,7 +776,6 @@ export const MessageList = memo(function MessageList({
   // The viewport: scrollTop and height, from scroll / resize (null until
   // measured; `noLayout` when there's no layout at all — jsdom).
   const [view, setView] = useState<{ top: number; height: number } | null>(null);
-  const [noLayout, setNoLayout] = useState(false);
   const [heightsVersion, setHeightsVersion] = useState(0);
   // Live "is the viewport parked at the bottom?" flag, updated from real scroll
   // events. Defaults true so the first messages in a channel stick before the
@@ -738,22 +798,6 @@ export const MessageList = memo(function MessageList({
   // The user has scrolled this conversation since it was shown: until then
   // a ribbon in view (a short conversation) doesn't pull on its own.
   const userScrolled = useRef(false);
-  // A finger is on the list (touch screens). While it is, the list doesn't
-  // stick itself to the bottom: a drag up from the bottom starts inside
-  // AT_BOTTOM_SLACK, and re-sticking there pulled the list back down
-  // against the finger until the drag got past the slack.
-  const touching = useRef(false);
-  // The user's own scrolling (virtual-list.ts placeAnchored): when they last
-  // used the wheel / keys / a finger / the scrollbar on the list, and when a
-  // scroll event last followed from that (a fling or a smooth scroll keeps
-  // going after the input). A scroll event with neither is the browser's
-  // (the list's viewport re-sized and scrollTop clamped), not the user
-  // leaving the bottom.
-  const lastInput = useRef(-Infinity);
-  const pointerHeld = useRef(false);
-  const lastUserScroll = useRef(-Infinity);
-  const userScrolling = (): boolean =>
-    touching.current || pointerHeld.current || performance.now() - lastUserScroll.current < SCROLL_IDLE_MS;
   // How much taller the top spacer is than the rows it stands for (see
   // placeAnchored): the reader's row kept in place mid-scroll without
   // writing scrollTop. Settled once the scrolling stops.
@@ -812,7 +856,7 @@ export const MessageList = memo(function MessageList({
     // yet: that's the user's place now (on the layout they scrolled).
     const resized = placedSize.current !== null && placedSize.current !== sizeOf(el);
     if (!resized && placedTop.current !== null && Math.abs(el.scrollTop - placedTop.current) > 1 && placedLayout.current) {
-      anchorRef.current = captureAnchor(placedLayout.current, Math.max(0, el.scrollTop - skewRef.current));
+      anchorRef.current = anchorAt(placedLayout.current, Math.max(0, el.scrollTop - skewRef.current));
       const movedUp = el.scrollTop < placedTop.current;
       atBottomRef.current = userAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight, movedUp, AT_BOTTOM_SLACK);
       placedTop.current = el.scrollTop;
@@ -853,7 +897,10 @@ export const MessageList = memo(function MessageList({
       el.scrollTop = Math.max(0, st);
       setByUs.current = el.scrollTop;
     }
-    const anchorTarget = toBottom ? null : restoreAnchor(now, anchorRef.current);
+    // The reader's row, re-keyed if it took in lines from above.
+    const located = toBottom ? null : locateAnchor(now, anchorRef.current, (id) => rowIndex.rowOf.get(id));
+    if (located && located !== anchorRef.current) anchorRef.current = located;
+    const anchorTarget = toBottom ? null : restoreAnchor(now, located);
     const target = toBottom ? bottomOf(el.scrollHeight, el.clientHeight) : anchorTarget;
     pendingSwitch.current = false;
     // iOS rubber-bands past the top (scrollTop < 0) and springs back by
@@ -903,7 +950,7 @@ export const MessageList = memo(function MessageList({
         want = Math.min(maxTop, Math.max(0, want));
         if (Math.abs(want - el.scrollTop) > 0.5) { el.scrollTop = want; setByUs.current = el.scrollTop; }
         jumped = true;
-        anchorRef.current = captureAnchor(now, el.scrollTop);
+        anchorRef.current = anchorAt(now, el.scrollTop);
         reportBottom(el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_SLACK);
       }
     }
@@ -911,7 +958,7 @@ export const MessageList = memo(function MessageList({
     // The anchor stays the row the user was reading (re-taken only when
     // they scroll): re-taking it here, from rows above that are still
     // estimates, would drift by the estimate's error once they're measured.
-    if (!jumped && (toBottom || !anchorRef.current || target === null)) anchorRef.current = captureAnchor(now, Math.max(0, modelTop));
+    if (!jumped && (toBottom || !anchorRef.current || target === null)) anchorRef.current = anchorAt(now, Math.max(0, modelTop));
     placedTop.current = el.scrollTop;
     placedLayout.current = now;
     placedSize.current = sizeOf(el);
@@ -966,16 +1013,17 @@ export const MessageList = memo(function MessageList({
   // request resolves (loading true→false with no error).
   const [justLoaded, setJustLoaded] = useState(false);
   const wasLoading = useRef(false);
+  const loadingShown = !!historyLoading || hold > 0;
   useEffect(() => {
     const was = wasLoading.current;
-    wasLoading.current = !!historyLoading;
-    if (was && !historyLoading && !historyError) {
+    wasLoading.current = loadingShown;
+    if (was && !loadingShown && !historyError) {
       setJustLoaded(true);
       const t = setTimeout(() => setJustLoaded(false), 1800);
       return () => clearTimeout(t);
     }
     return undefined;
-  }, [historyLoading, historyError]);
+  }, [loadingShown, historyError]);
   // Load-older, from the scroll position. Two triggers, either enough:
   //   - the ribbon above the rows comes into view (an IntersectionObserver
   //     on the scroller, LOAD_OLDER_MARGIN_PX early). It doesn't depend on
@@ -990,8 +1038,16 @@ export const MessageList = memo(function MessageList({
   // button retries).
   const live = useRef({ onLoadOlder, historySupported, historyLoading, historyExhausted, historyError });
   live.current = { onLoadOlder, historySupported, historyLoading, historyExhausted, historyError };
+  // Lines held back (see `hold`): let them settle in first, not ask for more.
+  const holding = hold > 0;
+  useEffect(() => {
+    if (!holding) return undefined;
+    const t = setTimeout(() => setHeightsVersion((n) => n + 1), HOLD_OLDER_MAX_MS + 20);
+    return () => clearTimeout(t);
+  }, [holding]);
   const maybeLoadOlder = (): void => {
     const p = live.current;
+    if (heldBack.current) return;
     if (!p.onLoadOlder || !p.historySupported || p.historyLoading || p.historyExhausted || p.historyError) return;
     if (!userScrolled.current) return;
     p.onLoadOlder();
@@ -1016,7 +1072,7 @@ export const MessageList = memo(function MessageList({
       if (!pointerHeld.current) return;
       pointerHeld.current = false;
       input();
-      if (skewRef.current !== 0) setHeightsVersion((n) => n + 1);
+      if (skewRef.current !== 0 || heldBack.current) setHeightsVersion((n) => n + 1);
     };
     const opts = { passive: true } as const;
     for (const t of ['touchmove', 'wheel'] as const) el.addEventListener(t, mark, opts);
@@ -1104,12 +1160,12 @@ export const MessageList = memo(function MessageList({
       if (settleTimer.current) clearTimeout(settleTimer.current);
       settleTimer.current = setTimeout(() => {
         settleTimer.current = null;
-        if (skewRef.current !== 0) setHeightsVersion((n) => n + 1);
+        if (skewRef.current !== 0 || heldBack.current) setHeightsVersion((n) => n + 1);
       }, SCROLL_IDLE_MS + 20);
     }
     if (!ours && (placedTop.current === null || Math.abs(el.scrollTop - placedTop.current) > 1)) {
       userScrolled.current = true;
-      if (placedLayout.current) anchorRef.current = captureAnchor(placedLayout.current, Math.max(0, el.scrollTop - skewRef.current));
+      if (placedLayout.current) anchorRef.current = anchorAt(placedLayout.current, Math.max(0, el.scrollTop - skewRef.current));
     }
     placedTop.current = el.scrollTop;
     if (!noLayout && frame.current === null) {
@@ -1141,7 +1197,7 @@ export const MessageList = memo(function MessageList({
               >
                 {historyError} — retry
               </Button>
-            ) : historyLoading ? (
+            ) : loadingShown ? (
               <>
                 <BarLoader class="chat-load-older-bar" label="Loading older messages" />
                 <span class="chat-load-older-loading">Loading older messages…</span>

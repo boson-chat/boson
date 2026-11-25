@@ -114,6 +114,25 @@ export interface Anchor {
   key: string;
   // scrollTop − the row's top.
   delta: number;
+  // The messages in that row (local ids). A row can be re-keyed under the
+  // reader: a collapsed join/part block or a run of preformatted lines is
+  // keyed by its first line, so lines loaded above that join it give it a
+  // new key. The row holding one of these is the same place.
+  ids?: readonly string[];
+}
+
+// The anchor as it stands in `layout`: itself, or re-keyed to the row that
+// now holds its messages (`rowOf`: a message id's row key), or null.
+export function locateAnchor(
+  layout: Layout, anchor: Anchor | null, rowOf: (id: string) => string | undefined,
+): Anchor | null {
+  if (!anchor) return null;
+  if (layout.indexOf(anchor.key) >= 0) return anchor;
+  for (const id of anchor.ids ?? []) {
+    const key = rowOf(id);
+    if (key !== undefined && layout.indexOf(key) >= 0) return { ...anchor, key };
+  }
+  return null;
 }
 
 // The row at the top of the viewport and how far into it.
