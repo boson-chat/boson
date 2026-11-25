@@ -4,6 +4,7 @@ import { DEFAULT_WINDOWS } from '../../modules/chat/chat.service';
 import { createOlderStore, type OlderStore } from '../../modules/history/older-store';
 import { seenNamespace, seenStoreFor } from '../../modules/seen';
 import { readMarkerStoreFor } from '../../modules/chat/read-markers';
+import { collectPrefs, onLocalPrefsChange, reconcilePrefs } from '../../modules/prefs-sync/prefs-sync';
 import { loadServicesVerdict, servicesVerdicts } from '../../modules/chat/services-verdict';
 import { registerForSignOut, signOut as signOutEverywhere } from '../../modules/signout/sign-out';
 import { PresenceService } from '../../modules/chat/presence.service';
@@ -998,20 +999,26 @@ export class DirectoryBloc {
   private attachSessionSync(): void {
     if (this.guestNick) return;
     if (this.unsubscribeSessionSync) return;
-    this.unsubscribeSessionSync = this.sessionStore.onChange((snap) => {
-      if (this.sessionSyncTimer) clearTimeout(this.sessionSyncTimer);
-      this.sessionSyncTimer = setTimeout(() => {
-        this.sessionSyncTimer = null;
-        if (this.disposed) return;
-        // Push the current snapshot — even null, so deletes propagate to
-        // the backend. The directory's PUT validates that payload is a
-        // JSON object, so empty deletes go through as `{}`.
-        const payload: unknown = snap ?? {};
-        void this.directory.putSavedSession(payload).catch(() => {
-          // Best-effort — keep working offline; we'll retry on the next change.
-        });
-      }, DirectoryBloc.SESSION_SYNC_DEBOUNCE_MS);
-    });
+    const offSession = this.sessionStore.onChange(() => this.scheduleSessionPush());
+    // The synced preferences ride in the same blob (modules/prefs-sync).
+    const offPrefs = onLocalPrefsChange(() => this.scheduleSessionPush());
+    this.unsubscribeSessionSync = () => { offSession(); offPrefs(); };
+  }
+
+  // One debounced PUT /me/session: the saved servers as they are now, and
+  // the synced preferences. Even with no servers (null), so deletes
+  // propagate: the PUT wants a JSON object, so that goes up as `{}` (plus
+  // the preferences).
+  private scheduleSessionPush(): void {
+    if (this.sessionSyncTimer) clearTimeout(this.sessionSyncTimer);
+    this.sessionSyncTimer = setTimeout(() => {
+      this.sessionSyncTimer = null;
+      if (this.disposed) return;
+      const payload: unknown = { ...(this.sessionStore.load() ?? {}), prefs: collectPrefs() };
+      void this.directory.putSavedSession(payload).catch(() => {
+        // Best-effort — keep working offline; we'll retry on the next change.
+      });
+    }, DirectoryBloc.SESSION_SYNC_DEBOUNCE_MS);
   }
 
   // Re-open the chat overlay if at least one connection is connected (e.g.
@@ -1127,6 +1134,11 @@ export class DirectoryBloc {
   }
 
   // Drop a single named connection. Other connections continue running.
+  // Mark everything on a server read (its tile's menu).
+  markServerRead(serverId: string): void {
+    this.connections.get(serverId)?.chat.markAllRead();
+  }
+
   disconnect(serverId: string): void {
     const conn = this.connections.get(serverId);
     if (!conn) return;
@@ -1924,15 +1936,20 @@ export class DirectoryBloc {
       // once this device restored or connected on its own (the remote
       // answer came late): what's running here wins, and syncs up.
       const payload = remote.value;
+      const { prefs: remotePrefs, ...remoteSession } = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
       if (payload && typeof payload === 'object' && !this.restored && this.connections.size === 0) {
         try {
-          this.sessionStore.saveSilent(payload as SavedSession);
+          this.sessionStore.saveSilent(remoteSession as unknown as SavedSession);
         } catch { /* best-effort */ }
       }
+      // Preferences: the newer of the synced copy and this device's wins
+      // (whatever this device is running; they apply live).
+      const prefsOutcome = reconcilePrefs(remotePrefs);
       // Now that the saved session is in place, start pushing local changes
       // back. Not before: a push while the remote one is still unknown
       // could overwrite it with this device's (maybe empty) state.
       this.attachSessionSync();
+      if (prefsOutcome === 'push') this.scheduleSessionPush();
     }
     if (me?.ok) {
       this.profilePending = false;

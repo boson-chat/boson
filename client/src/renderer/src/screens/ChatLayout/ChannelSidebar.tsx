@@ -34,6 +34,8 @@ interface ChannelSidebarProps {
   onSelect: (name: string) => void;
   onJoin: (name: string) => void;
   onPart: (name: string) => void;
+  // Mark a conversation read (its menu, when it has unread).
+  onMarkRead?: (name: string) => void;
   // The DM section's "All": every server's direct messages (in You).
   onOpenAllDms?: () => void;
   // The user's own order for this server's list (channel keys; see
@@ -94,6 +96,7 @@ export function ChannelSidebar({
   onSelect,
   onJoin,
   onPart,
+  onMarkRead,
   onOpenAllDms,
   channelOrder,
   defaultChannelOrder,
@@ -179,6 +182,8 @@ export function ChannelSidebar({
     if (i > 0) actions.push({ label: 'Move up', onClick: () => reorder.step(name, section, -1) });
     if (i !== -1 && i < names.length - 1) actions.push({ label: 'Move down', onClick: () => reorder.step(name, section, 1) });
     if (customOrder && onResetChannelOrder) actions.push({ label: 'Reset order', onClick: onResetChannelOrder });
+    const conv = channels.find((c) => c.name === name);
+    if (onMarkRead && conv && (conv.unread > 0 || conv.mentions > 0)) actions.push({ label: 'Mark as read', onClick: () => onMarkRead(name) });
     if (serverId) {
       const own = getOwnChannelLevel(serverId, name);
       const pick = (l: ChannelLevel | 'default') => () => setChannelLevel(serverId, name, l);

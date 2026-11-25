@@ -1047,6 +1047,30 @@ export class ChatService {
     this.emit();
   }
 
+  // Mark as read (a channel's or the server's context menu): its counters
+  // go to zero and its read marker to the newest line, which reaches the
+  // server (MARKREAD) and so the account's other clients.
+  markRead(channel: string): void {
+    if (this.clearUnread(this.channelKey(channel))) this.emit();
+  }
+
+  // Every conversation on this server.
+  markAllRead(): void {
+    let changed = false;
+    for (const key of this.channels.keys()) changed = this.clearUnread(key) || changed;
+    if (changed) this.emit();
+  }
+
+  private clearUnread(key: string): boolean {
+    const ch = this.channels.get(key);
+    if (!ch) return false;
+    this.markViewed(key);
+    if (ch.unread === 0 && ch.mentions === 0) return false;
+    ch.unread = 0;
+    ch.mentions = 0;
+    return true;
+  }
+
   // Actions -----------------------------------------------------------------
 
   // `focus: false` joins without switching to the channel (a background

@@ -49,6 +49,8 @@ interface ServerRailProps {
   // the "Leave server" item in the right-click menu. Optional: when
   // absent, the menu item is hidden.
   onLeaveServer?: (serverId: string) => void;
+  // Mark everything on the server read. Shown for a tile with unread.
+  onMarkServerRead?: (serverId: string) => void;
   // Ask a bouncer server's bouncer to connect / disconnect its upstream
   // network. Shown in the context menu only for tiles that report a
   // `bouncerUpstream` state.
@@ -80,7 +82,7 @@ export function reorderedIds(ids: readonly string[], dragged: string, target: Dr
 // multi-tile (Discord/Slack-style); otherwise it falls back to a single-tile
 // view driven by `activeServerName` for legacy callers.
 export function ServerRail({
-  servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings, onLeaveServer,
+  servers, activeServerId, activeServerName, onSelectServer, onBrowseServers, onOpenServerSettings, onLeaveServer, onMarkServerRead,
   onBouncerConnect, onBouncerDisconnect, onReorderServers, onToggleNetworkTheme, top,
 }: ServerRailProps) {
   // Right-click context menu state. Anchored to the tile, positioned at the
@@ -91,7 +93,7 @@ export function ServerRail({
   // Leave server asks first (it disconnects and forgets the server).
   const [leaving, setLeaving] = useState<string | null>(null);
   const longPress = useLongPress(isNarrow);
-  const hasActions = !!(onOpenServerSettings || onLeaveServer || onBouncerConnect || onBouncerDisconnect);
+  const hasActions = !!(onOpenServerSettings || onLeaveServer || onMarkServerRead || onBouncerConnect || onBouncerDisconnect);
   const handleContextMenu = (e: MouseEvent, serverId: string): void => {
     if (!hasActions) return;
     e.preventDefault();
@@ -290,6 +292,7 @@ export function ServerRail({
         const id = tile.serverId;
         const actions: SheetAction[] = [];
         if (onOpenServerSettings) actions.push({ label: 'Server details', onClick: () => onOpenServerSettings(id) });
+        if (onMarkServerRead && ((tile.unread ?? 0) > 0 || (tile.mentions ?? 0) > 0)) actions.push({ label: 'Mark as read', onClick: () => onMarkServerRead(id) });
         if (upstream === 'disconnected' && onBouncerConnect) actions.push({ label: 'Connect network', onClick: () => onBouncerConnect(id) });
         if ((upstream === 'connected' || upstream === 'connecting') && onBouncerDisconnect) {
           actions.push({ label: 'Disconnect network', onClick: () => onBouncerDisconnect(id) });
@@ -318,6 +321,9 @@ export function ServerRail({
           y={menu.y}
           onClose={closeMenu}
           onDetails={onOpenServerSettings ? () => { onOpenServerSettings(menu.serverId); closeMenu(); } : undefined}
+          onMarkRead={onMarkServerRead && tile && ((tile.unread ?? 0) > 0 || (tile.mentions ?? 0) > 0)
+            ? () => { onMarkServerRead(menu.serverId); closeMenu(); }
+            : undefined}
           onLeave={onLeaveServer ? () => { setLeaving(menu.serverId); closeMenu(); } : undefined}
           onBouncerConnect={upstream === 'disconnected' && onBouncerConnect
             ? () => { onBouncerConnect(menu.serverId); closeMenu(); }
@@ -372,6 +378,7 @@ interface ServerRailContextMenuProps {
   y: number;
   onClose: () => void;
   onDetails?: () => void;
+  onMarkRead?: () => void;
   onLeave?: () => void;
   onBouncerConnect?: () => void;
   onBouncerDisconnect?: () => void;
@@ -379,11 +386,12 @@ interface ServerRailContextMenuProps {
 }
 
 function ServerRailContextMenu({
-  x, y, onClose, onDetails, onLeave, onBouncerConnect, onBouncerDisconnect, networkTheme,
+  x, y, onClose, onDetails, onMarkRead, onLeave, onBouncerConnect, onBouncerDisconnect, networkTheme,
 }: ServerRailContextMenuProps) {
   return (
     <Menu x={x} y={y} onClose={onClose} class="server-rail-context-menu">
       {onDetails && <MenuItem onClick={onDetails}>Server details</MenuItem>}
+      {onMarkRead && <MenuItem onClick={onMarkRead}>Mark as read</MenuItem>}
       {onBouncerConnect && <MenuItem onClick={onBouncerConnect}>Connect network</MenuItem>}
       {onBouncerDisconnect && <MenuItem onClick={onBouncerDisconnect}>Disconnect network</MenuItem>}
       {networkTheme && (

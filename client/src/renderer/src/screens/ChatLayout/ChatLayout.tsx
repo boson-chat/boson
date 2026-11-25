@@ -98,6 +98,8 @@ interface Props {
   // "Leave server" handler — disconnects + drops the server from the saved
   // session set. Wired into the right-click menu on each server-rail tile.
   onLeaveServer?: (serverId: string) => void;
+  // Mark everything on a server read (its tile's menu).
+  onMarkServerRead?: (serverId: string) => void;
   // Bouncer upstream controls for a rail tile's server (right-click menu).
   // The active server's in-chat strip uses `chat.bouncerConnect()` directly.
   onBouncerConnect?: (serverId: string) => void;
@@ -154,7 +156,7 @@ function isMainPage(p: PhonePageId | null | undefined): boolean {
 export function ChatLayout({
   chat, serverName, serverHost, bannerUrl, logoUrl, onToggleNetworkTheme, myNick, servers, activeServerId, onSelectServer, onBrowseServers,
   engineState = 'connected', onReconnect, onCancelReconnect, reconnectActive = false,
-  connectionError, onOpenServerSettings, onLeaveServer, onBouncerConnect, onBouncerDisconnect,
+  connectionError, onOpenServerSettings, onLeaveServer, onMarkServerRead, onBouncerConnect, onBouncerDisconnect,
   onReorderServers, channelOrder, defaultChannelOrder, onReorderChannels, onResetChannelOrder, myDms, onOpenDm,
   serverDescription, serverChannels,
 }: Props) {
@@ -489,6 +491,7 @@ export function ChatLayout({
           onBrowseServers={onBrowseServers}
           onOpenServerSettings={onOpenServerSettings}
           onLeaveServer={onLeaveServer}
+          onMarkServerRead={onMarkServerRead}
           onBouncerConnect={onBouncerConnect}
           onBouncerDisconnect={onBouncerDisconnect}
           onReorderServers={onReorderServers}
@@ -530,6 +533,7 @@ export function ChatLayout({
             if (engineState === 'connected') chat.rejoin(name);
           }}
           onJoin={(name) => chat.join(name, { byUser: true })}
+          onMarkRead={(name) => chat.markRead(name)}
           onPart={(name) => {
             // Undo (the toast): back in, as you were.
             const channel = /^[#&]/.test(name);

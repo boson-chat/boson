@@ -136,3 +136,24 @@ describe('ServerRail context menu — bouncer network items', () => {
     expect(document.querySelector('.server-rail-tooltip')?.textContent).toBe('Libera (network offline)');
   });
 });
+
+describe('ServerRail: Mark as read', () => {
+  it('is offered for a server with unread, and marks it', () => {
+    const onMarkServerRead = vi.fn();
+    render(
+      <ServerRail
+        servers={[tile({ unread: 3, mentions: 1 }), tile({ serverId: 's2', name: 'quiet' })]}
+        activeServerId="s1"
+        onBrowseServers={vi.fn()}
+        onMarkServerRead={onMarkServerRead}
+      />,
+    );
+    const tiles = document.querySelectorAll<HTMLElement>('.server-item:not(.server-item-add)');
+    fireEvent.contextMenu(tiles[0]!);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Mark as read' }));
+    expect(onMarkServerRead).toHaveBeenCalledWith('s1');
+    // Nothing unread: not offered.
+    fireEvent.contextMenu(tiles[1]!);
+    expect(screen.queryByRole('menuitem', { name: 'Mark as read' })).toBeNull();
+  });
+});
