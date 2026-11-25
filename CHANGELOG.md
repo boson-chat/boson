@@ -1,3 +1,9 @@
+## [0.96.1](https://github.com/boson-chat/boson/compare/v0.96.0...v0.96.1) (2026-11-25)
+
+### Bug Fixes
+
+* **chat:** stable scrolling: image boxes reserved before load, no skipping, composer never covers the newest line ([#155](https://github.com/boson-chat/boson/issues/155)) ([3dee2b6](https://github.com/boson-chat/boson/commit/3dee2b6631242164131a7a02a6ebb6665e0e913a))
+
 ## [0.96.0](https://github.com/boson-chat/boson/compare/v0.95.7...v0.96.0) (2026-11-25)
 
 ### Features
