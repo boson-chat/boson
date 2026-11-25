@@ -3345,7 +3345,9 @@ export class ChatService {
       case 'PART': {
         if (!e.Target) return;
         const key = this.channelKey(e.Target);
-        if (e.From === this.myNick) {
+        // Our own part, from this client or another one on the same
+        // bouncer (whose nick case may differ).
+        if (this.isMe(e.From)) {
           this.removeChannel(e.Target);
           this.emitSelfMembership({ kind: 'part', channel: key });
         } else {
@@ -3369,7 +3371,7 @@ export class ChatService {
         const kicked = e.Args?.[0];
         if (!kicked) break;
         const key = this.channelKey(e.Target);
-        if (kicked === this.myNick) {
+        if (this.isMe(kicked)) {
           // We were the one kicked — drop the channel entirely.
           this.removeChannel(e.Target);
           this.emitSelfMembership({ kind: 'kick', channel: key });

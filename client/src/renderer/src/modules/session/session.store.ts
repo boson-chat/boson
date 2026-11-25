@@ -50,6 +50,13 @@ export interface SavedServerSession {
   // The user's own sidebar order (drag to reorder), as channel keys
   // (lowercased names; see channel-order.ts). Absent: the default order.
   channelOrder?: string[];
+  // Set when the server was just routed through a bouncer network (or
+  // another one): on its first attach the saved channels it doesn't have
+  // yet are joined, to carry them over. Otherwise the bouncer's own list is
+  // the truth: a saved channel it doesn't replay was left elsewhere
+  // (another client, the bouncer's web app) and is dropped here rather
+  // than joined again.
+  bouncerUnseeded?: true;
 }
 
 export interface SavedSession {
@@ -155,6 +162,11 @@ export class SessionStore {
     if (!current) return;
     const target = current.servers.find((s) => s.server.id === serverId);
     if (!target) return;
+    // Routed through another bouncer network: carry the channels over on
+    // its first attach.
+    const was = target.server.bouncer;
+    if (bouncer.route && (!was?.route || was.network !== bouncer.network)) target.bouncerUnseeded = true;
+    else if (!bouncer.route) delete target.bouncerUnseeded;
     target.server = { ...target.server, bouncer };
     this.save(current);
   }
@@ -212,7 +224,7 @@ export class SessionStore {
     if (!current) return;
     const target = current.servers.find((s) => s.server.id === serverId);
     if (!target) return;
-    if (target.channels.includes(channel)) return;
+    if (target.channels.some((c) => channelKey(c) === channelKey(channel))) return;
     target.channels = [...target.channels, channel];
     this.save(current);
   }
@@ -225,11 +237,13 @@ export class SessionStore {
     if (!current) return;
     const target = current.servers.find((s) => s.server.id === serverId);
     if (!target) return;
-    if (!target.channels.includes(channel)) return;
-    target.channels = target.channels.filter((c) => c !== channel);
+    // IRC channel names are case-insensitive: a part reports the channel's
+    // key (lowercased), the saved name may be "#Boson".
+    const key = channelKey(channel);
+    if (!target.channels.some((c) => channelKey(c) === key)) return;
+    target.channels = target.channels.filter((c) => channelKey(c) !== key);
     // A channel the user left drops out of their order too.
     if (target.channelOrder) {
-      const key = channelKey(channel);
       target.channelOrder = target.channelOrder.filter((k) => k !== key);
     }
     this.save(current);
@@ -251,6 +265,17 @@ export class SessionStore {
   }
 
   // Set the active channel for a given server.
+  // The first attach through a newly routed bouncer network carried the
+  // channels over (see SavedServerSession.bouncerUnseeded).
+  setBouncerSeeded(serverId: string): void {
+    const current = this.load();
+    if (!current) return;
+    const target = current.servers.find((s) => s.server.id === serverId);
+    if (!target?.bouncerUnseeded) return;
+    delete target.bouncerUnseeded;
+    this.save(current);
+  }
+
   setActiveChannel(serverId: string, channel: string | null): void {
     const current = this.load();
     if (!current) return;

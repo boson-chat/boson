@@ -282,6 +282,33 @@ describe('SessionStore channel order', () => {
     expect(order(store)).toEqual(['#general']);
   });
 
+  it('removes and adds saved channels case-insensitively', () => {
+    const store = new SessionStore(makeStorage());
+    store.save({ ...sampleSession, servers: [{ ...sampleSession.servers[0]!, channels: ['#Boson', '#dev'] }] });
+    store.addChannel('srv-a', '#boson');
+    store.removeChannel('srv-a', '#boson');
+    expect(store.load()!.servers[0]!.channels).toEqual(['#dev']);
+  });
+
+  it('flags a newly routed bouncer network for its first attach, until seeded', () => {
+    const store = new SessionStore(makeStorage());
+    store.save(sampleSession);
+    const row = () => store.load()!.servers.find((s) => s.server.id === 'srv-a')!;
+    expect(row().bouncerUnseeded).toBeUndefined();
+    store.setServerBouncer('srv-a', { route: true, network: 'libera' });
+    expect(row().bouncerUnseeded).toBe(true);
+    store.setBouncerSeeded('srv-a');
+    expect(row().bouncerUnseeded).toBeUndefined();
+    // the same network (e.g. auto-connect toggled): stays seeded
+    store.setServerBouncer('srv-a', { route: true, network: 'libera', autoConnect: false });
+    expect(row().bouncerUnseeded).toBeUndefined();
+    // another network: seeded again on its first attach; no route: no flag
+    store.setServerBouncer('srv-a', { route: true, network: 'oftc' });
+    expect(row().bouncerUnseeded).toBe(true);
+    store.setServerBouncer('srv-a', { route: false, network: 'oftc' });
+    expect(row().bouncerUnseeded).toBeUndefined();
+  });
+
   it('keeps the order across server refreshes (reconnects)', () => {
     const store = new SessionStore(makeStorage());
     store.save(sampleSession);

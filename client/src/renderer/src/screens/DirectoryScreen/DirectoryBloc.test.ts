@@ -2101,6 +2101,44 @@ describe('DirectoryBloc', () => {
       expect(call.bouncer).toBeUndefined();
     });
 
+    // Through a bouncer that already has its channel list, a saved channel
+    // it doesn't replay was left from another client: forgotten, not joined
+    // again (which would undo that part on every client and on the bouncer).
+    it('forgets a saved channel the bouncer no longer has instead of rejoining it', async () => {
+      const sessionStore = new SessionStore(memoryStorage());
+      setBouncerStore(await fastBouncerStore(profile));
+      sessionStore.upsertServer({ id: 'libera', name: 'Libera', hostname: 'irc.libera.chat', port: 6697, tls: true });
+      sessionStore.setServerBouncer('libera', { route: true, network: 'libera' });
+      sessionStore.setBouncerSeeded('libera'); // seeded on an earlier attach
+      sessionStore.addChannel('libera', '#general');
+      sessionStore.addChannel('libera', '#Parted');
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      try {
+        const engine = fakeEngine();
+        const server = fakeServer('libera', { hostname: 'irc.libera.chat', port: 6697, tls: true });
+        const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+        const bloc = new DirectoryBloc({
+          auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore,
+        });
+        await flushPromises(4);
+        await bloc.connect(server);
+        await flushPromises(2);
+        const session = engine.sessionFor('libera');
+        const nick = engine.connectCalls[0]!.nick;
+        session._setState('connected');
+        await flushPromises(4);
+        session._emitBouncerUpstream('connected');
+        session._emitEvent({ Kind: 'JOIN', From: nick, Target: '#general', Message: '', Raw: '' });
+        await flushPromises(2);
+        vi.advanceTimersByTime(5_000);
+        expect(session.joinCalls).toEqual([]);
+        expect(sessionStore.load()!.servers.find((s) => s.server.id === 'libera')!.channels).toEqual(['#general']);
+        bloc.dispose();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     // Server settings → Bouncer says "reconnect to apply" — so Reconnect on
     // a LIVE connection must rebuild the IRC session (it used to just
     // re-select it) and pick up the route saved since, even though the

@@ -1285,7 +1285,8 @@ export class DirectoryBloc {
   // connection to the network comes up. Re-sending JOIN for those spent ZNC's
   // flood allowance (one line every 2s) ahead of anything the user typed. So
   // wait until the bouncer is on the network and its JOINs have gone quiet,
-  // then join only what is still missing, without switching channels.
+  // then reconcile what is still missing (see joinRest), without switching
+  // channels.
   private joinMissingViaBouncer(serverId: string, conn: Connection, channels: string[]): void {
     let quiet: ReturnType<typeof setTimeout> | null = null;
     let cap: ReturnType<typeof setTimeout> | null = null;
@@ -1303,7 +1304,23 @@ export class DirectoryBloc {
       stop();
       if (!live()) return;
       const joined = new Set(conn.chat.getState().channels.filter((c) => c.joined).map((c) => c.name.toLowerCase()));
-      channels.filter((ch) => !joined.has(ch.toLowerCase())).forEach((ch) => conn.chat.join(ch, { focus: false }));
+      const missing = channels.filter((ch) => !joined.has(ch.toLowerCase()));
+      // The bouncer keeps its own channel list, and that list is the truth:
+      // a saved channel it didn't replay was left from another client (or
+      // the bouncer's web app) while this one was away. Joining it again
+      // would undo that part everywhere, so forget it here. Only the first
+      // attach through a newly routed bouncer network (a server used
+      // directly until now) joins them, to carry them over.
+      const unseeded = this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.bouncerUnseeded;
+      if (unseeded) {
+        missing.forEach((ch) => conn.chat.join(ch, { focus: false }));
+      } else {
+        for (const ch of missing) {
+          console.info(`[directory] ${ch} isn't on the bouncer any more (left elsewhere): forgetting it`);
+          this.sessionStore.removeChannel(serverId, ch);
+        }
+      }
+      this.sessionStore.setBouncerSeeded(serverId);
     };
     const check = (): void => {
       if (!live()) { stop(); return; }
