@@ -1,3 +1,9 @@
+## [0.101.3](https://github.com/boson-chat/boson/compare/v0.101.2...v0.101.3) (2026-11-26)
+
+### Bug Fixes
+
+* **client:** don't reopen the join dialog after MY / Calls ([#166](https://github.com/boson-chat/boson/issues/166)) ([5a72f71](https://github.com/boson-chat/boson/commit/5a72f7162630823687f9f9e49d2023d4ce4586f7))
+
 ## [0.101.2](https://github.com/boson-chat/boson/compare/v0.101.1...v0.101.2) (2026-11-26)
 
 ### Bug Fixes
