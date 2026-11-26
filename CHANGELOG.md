@@ -1,3 +1,9 @@
+## [0.101.2](https://github.com/boson-chat/boson/compare/v0.101.1...v0.101.2) (2026-11-26)
+
+### Bug Fixes
+
+* thread sheet on phones; image previews never widen the chat ([#165](https://github.com/boson-chat/boson/issues/165)) ([becd505](https://github.com/boson-chat/boson/commit/becd505144799240c82641efec1216c60db65b1e))
+
 ## [0.101.1](https://github.com/boson-chat/boson/compare/v0.101.0...v0.101.1) (2026-11-26)
 
 ### Bug Fixes
