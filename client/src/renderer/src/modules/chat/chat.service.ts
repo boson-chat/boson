@@ -469,6 +469,12 @@ function modeChangeText(setter: string, args: readonly string[]): string {
   return `${setter || 'server'} sets mode ${args.join(' ')}`;
 }
 
+// Two runs of lines as one conversation in time order. Stable: among equal
+// timestamps `first`'s lines stay ahead of `then`'s, each in its own order.
+function byTime(first: readonly ChatMessage[], then: readonly ChatMessage[]): ChatMessage[] {
+  return [...first, ...then].sort((a, b) => a.timestamp - b.timestamp);
+}
+
 function sameTime(a: ChatMessage, b: ChatMessage): boolean {
   return a.serverTime !== undefined && b.serverTime !== undefined
     ? a.serverTime === b.serverTime
@@ -4371,9 +4377,8 @@ export class ChatService {
         // for this channel, so they go first.
         // Within the conversation's window; the rest is held aside for
         // scroll-up.
-        ch.messages.value = this.windows
-          ? this.capMessages(key, [...prepend, ...ch.messages.peek()])
-          : [...prepend, ...ch.messages.peek()];
+        const hydrated = byTime(prepend, ch.messages.peek());
+        ch.messages.value = this.windows ? this.capMessages(key, hydrated) : hydrated;
         // Lines kept on this device from last time, newer than the marker,
         // were never read (a live unread from the last run).
         if (this.isViewing(key)) this.markViewed(key);
@@ -4780,7 +4785,10 @@ export class ChatService {
         this.revealed.set(key, (this.revealed.get(key) ?? 0) + page.length);
         const shown = ch.messages.peek();
         const fresh = this.scrubRedacted(key, page.filter((m) => !this.isDuplicateMessage(ch, m)), true);
-        ch.messages.value = [...fresh, ...shown];
+        // Merged, not just put on top: a line older than what was held may
+        // have reached the conversation while the page was on its way (an
+        // async store), and it belongs above it.
+        ch.messages.value = byTime(fresh, shown);
       }
       // Nothing came back although the index said lines were held (an
       // IndexedDB write that failed, e.g. in a WebView): forget them, so the
@@ -4846,7 +4854,9 @@ export class ChatService {
     const apply = (page: ChatMessage[]): void => {
       if (this.channels.get(key) !== ch || page.length === 0) return;
       const fresh = page.filter((m) => !this.isDuplicateMessage(ch, m));
-      ch.messages.value = [...fresh, ...ch.messages.peek()];
+      // Merged by time: the store answers later (IndexedDB), and an attach's
+      // backlog can land first with a line older than what it holds.
+      ch.messages.value = byTime(fresh, ch.messages.peek());
       this.emit();
     };
     if (Array.isArray(got)) apply(got);
@@ -5114,6 +5124,14 @@ export class ChatService {
     // the same buffer on every attach with no msgid, so msgid-only dedupe lets
     // reconnect dups pile up. isDuplicateMessage covers both.
     let fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !this.isDuplicateEvent(ch, m) && !this.older.contains(key, m));
+    // Lines older than everything in memory while older ones are held
+    // aside go with those (see belongsAbove), so scroll-up brings them back
+    // in order.
+    const above = fresh.filter((m) => this.belongsAbove(key, ch, m));
+    if (above.length > 0) {
+      this.stashOlder(key, above);
+      fresh = fresh.filter((m) => !above.includes(m));
+    }
     if (fresh.length > 0) {
       // Stable: among equal timestamps what was already shown stays first.
       let merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
@@ -5153,9 +5171,9 @@ export class ChatService {
     this.emit();
     // Persist the backlog so it survives reconnects / offline. Skipped on
     // bouncer connections (the bouncer is the archive; see persistMessages).
-    if (this.persistMessages && this.persistence && fresh.length > 0) {
+    if (this.persistMessages && this.persistence && fresh.length + above.length > 0) {
       const { history, scope } = this.persistence;
-      for (const m of fresh) {
+      for (const m of [...above, ...fresh]) {
         void history.append({ userId: scope.userId, serverId: scope.serverId, channel: key }, this.withReactions(key, m)).catch(() => {});
       }
     }
@@ -5197,6 +5215,18 @@ export class ChatService {
     // A line we just sent is never a copy (a paste can repeat a line within
     // the same millisecond).
     if (!msg.pending && this.isDuplicateMessage(ch, msg)) return;
+    const key = this.channelKey(channel);
+    // Older than everything in memory while older lines are held aside (a
+    // bouncer's replay after a reconnect, a line this device never got): it
+    // goes with those, not on top of what's shown, where scroll-up would
+    // later put the held lines above it. Off screen, so the view stays put.
+    if (!msg.pending && this.belongsAbove(key, ch, msg)) {
+      if (this.older.contains(key, msg)) return;
+      this.stashOlder(key, [msg]);
+      this.emit();
+      this.persistLine(key, msg);
+      return;
+    }
     // Immutable reassignment (the signal must see a new array reference to
     // notify). Insert by timestamp so out-of-order arrivals — chiefly ZNC/
     // bouncer buffer replay, whose messages carry old server-time tags — land
@@ -5216,7 +5246,7 @@ export class ChatService {
       next = [...arr.slice(0, i), msg, ...arr.slice(i)];
     }
     // Bounded in-memory cap, trimmed from the front (oldest) into `older`.
-    next = this.capMessages(this.channelKey(channel), next, true);
+    next = this.capMessages(key, next, true);
     ch.messages.value = next;
     // A line landing in the conversation on screen has been seen.
     if (this.isViewing(ch.name)) this.markViewed(ch.name);
@@ -5225,15 +5255,24 @@ export class ChatService {
     // so callers don't need to think about eviction. Skipped on bouncer
     // connections — the bouncer replays its own buffer, so a local copy would
     // duplicate on every reconnect.
-    if (this.persistMessages && this.persistence) {
-      const { history, scope } = this.persistence;
-      const key = this.channelKey(channel);
-      void history
-        .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, this.withReactions(key, stripPending(msg)))
-        .catch(() => {
-          // Storage hiccup — chat keeps going with in-memory state.
-        });
-    }
+    this.persistLine(key, msg);
+  }
+
+  private persistLine(key: string, msg: ChatMessage): void {
+    if (!this.persistMessages || !this.persistence) return;
+    const { history, scope } = this.persistence;
+    void history
+      .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, this.withReactions(key, stripPending(msg)))
+      .catch(() => {
+        // Storage hiccup — chat keeps going with in-memory state.
+      });
+  }
+
+  // True when msg is older than every line in memory while lines are held
+  // aside in `older`: its place is among those, above what's shown.
+  private belongsAbove(key: string, ch: InternalChannel, msg: ChatMessage): boolean {
+    const first = ch.messages.peek()[0];
+    return first !== undefined && msg.timestamp < first.timestamp && this.older.has(key);
   }
 
   // Apply a MODE change to a channel. Updates BOTH per-member status sigils
