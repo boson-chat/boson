@@ -5,7 +5,7 @@
 // CHANGELOG / SCHEMA
 // ============================================================================
 // DB name:    "boson-chat-history"
-// Version:    1
+// Version:    2
 // Object store: "messages"
 //   keyPath:    "_pk" (string)
 //     Format: `${userId}::${serverId}::${channel}::${paddedTs}::${id}`
@@ -17,6 +17,10 @@
 //     "byScope" on ['userId', 'serverId', 'channel'] — used by load() to
 //     range-scan a single channel's messages.
 //
+// v1 -> v2: drop Ergo's HistServ stand-ins for history events ("X joined
+//   the channel", "X quit (…)", …) stored in channel conversations, from
+//   before the engine asked for event-playback. See chat/histserv.ts.
+//
 // Future migrations: bump the version, add an onupgradeneeded branch that
 // runs in version order (v1 -> v2, v2 -> v3, …). Never assume the user is
 // upgrading from the latest predecessor — IDB may call the upgrade handler
@@ -25,9 +29,10 @@
 
 import type { ChatHistoryStore, ChatMessage, HistoryScope } from './chat-history.types';
 import { HISTORY_CAP } from './chat-history.types';
+import { isHistServReplay } from '../chat/histserv';
 
 const DB_NAME = 'boson-chat-history';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE = 'messages';
 
 export interface StoredRow extends ChatMessage {
@@ -42,9 +47,12 @@ export class IDBChatHistoryStore implements ChatHistoryStore {
   // and doesn't block the renderer on app startup.
   private dbPromise: Promise<IDBDatabase> | null = null;
 
+  // idb: the IndexedDB to use (tests pass a fake one); the global by default.
+  constructor(private readonly idb?: IDBFactory) {}
+
   private getDB(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
-      this.dbPromise = openDB();
+      this.dbPromise = openDB(this.idb);
     }
     return this.dbPromise;
   }
@@ -174,28 +182,43 @@ export class IDBChatHistoryStore implements ChatHistoryStore {
 
 // ---------- Helpers ----------
 
-function openDB(): Promise<IDBDatabase> {
+function openDB(factory?: IDBFactory): Promise<IDBDatabase> {
   return new Promise<IDBDatabase>((resolve, reject) => {
     // Guard for environments without IDB (some Node runners, etc.). The
     // caller of buildApp should fall back to MemoryChatHistoryStore when
     // indexedDB isn't present, but we still defend here.
-    const idb: IDBFactory | undefined = (globalThis as any).indexedDB;
+    const idb: IDBFactory | undefined = factory ?? (globalThis as any).indexedDB;
     if (!idb) {
       reject(new Error('IndexedDB is not available in this environment'));
       return;
     }
     const req = idb.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (ev) => {
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) {
         const store = db.createObjectStore(STORE, { keyPath: '_pk' });
         store.createIndex('byScope', ['userId', 'serverId', 'channel'], { unique: false });
+        return; // a new database: nothing to migrate
       }
+      if (ev.oldVersion < 2 && req.transaction) dropHistServReplays(req.transaction.objectStore(STORE));
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
     req.onblocked = () => reject(new Error('IndexedDB open blocked'));
   });
+}
+
+// v1 -> v2 (runs inside the upgrade transaction): delete stored HistServ
+// event-replay lines in channel conversations.
+function dropHistServReplays(store: IDBObjectStore): void {
+  const cursorReq = store.openCursor();
+  cursorReq.onsuccess = () => {
+    const cursor = cursorReq.result;
+    if (!cursor) return;
+    const row = cursor.value as StoredRow;
+    if (isHistServReplay(row.from ?? '', row.channel ?? '', row.text ?? '')) cursor.delete();
+    cursor.continue();
+  };
 }
 
 // Pad timestamp to 16 digits so lexical ordering matches numeric ordering. JS

@@ -33,13 +33,17 @@ type lineFilterConn struct {
 	// of life). Set before the conn is handed to girc.
 	onRead func()
 
+	// hist renames history events (inside chathistory batches) so girc's
+	// state tracking ignores them; see history_events.go.
+	hist *historyBatches
+
 	wmu       sync.Mutex
 	wbuf      []byte // a partial outbound line, held until its \n arrives
 	dropWrite func(line []byte) bool
 }
 
 func newLineFilterConn(c net.Conn) *lineFilterConn {
-	return &lineFilterConn{Conn: c, r: bufio.NewReader(c), dropWrite: newAutoQueryFilter().drop}
+	return &lineFilterConn{Conn: c, r: bufio.NewReader(c), hist: newHistoryBatches(), dropWrite: newAutoQueryFilter().drop}
 }
 
 // Write passes whole lines through, minus the ones dropWrite claims. It
@@ -121,7 +125,10 @@ func (l *lineFilterConn) Read(p []byte) (int, error) {
 			if l.onRead != nil {
 				l.onRead()
 			}
-			if girc.ParseEvent(string(line)) != nil {
+			if ev := girc.ParseEvent(string(line)); ev != nil {
+				if l.hist != nil {
+					line = l.hist.rewrite(line, ev)
+				}
 				l.pending = line
 			} else {
 				slog.Warn("irc: dropping unparseable line to keep connection alive", "bytes", len(line))
