@@ -1,7 +1,9 @@
 // Quoted replies (IRCv3 `+draft/reply`, a client-only tag ergo relays to
-// clients with message-tags), against the e2e ergo: Reply on a message sends the next line with the original's
-// msgid; an incoming reply shows a quote of its original (a click scrolls
-// to it), or says the original isn't loaded.
+// clients with message-tags), against the e2e ergo: Reply on a message sends
+// the next line with the original's msgid and, for clients that don't read
+// the tag, `nick: ` (or `nick: "quote..." `) in front of it, which Boson
+// hides; an incoming reply shows a quote of its original (a click scrolls
+// to it), or says the original isn't available.
 import { test, expect, randomChannel } from './fixtures';
 import { connectGuest, connectPeer, joinViaUi, memberRow, messages, say, waitCmd } from './helpers/chat';
 import type { IrcPeer } from './irc-peer';
@@ -43,8 +45,11 @@ test.describe('replies', () => {
     mark = peer.mark();
     await say(page, 'a1 6697, with TLS');
     await expect(bar).toHaveCount(0);
-    const sent = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'a1 6697, with TLS', mark);
+    // The question is the peer's latest line: just its nick in front.
+    const sent = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === `${peer.nick}: a1 6697, with TLS`, mark);
     expect(sent.tags['+draft/reply']).toBe(questionId);
+    // Shown without the `nick: ` its quote stands for.
+    await expect(row('a1 6697').locator('.message-row-text-body')).toHaveText('a1 6697, with TLS');
     // Our own line shows the quote too.
     await expect(row('a1 6697').locator('.message-reply-quote')).toContainText(peer.nick);
     await expect(row('a1 6697').locator('.message-reply-quote-text')).toHaveText('q1 which port does it listen on?');
@@ -59,13 +64,21 @@ test.describe('replies', () => {
     await expect(bar).toContainText(`Replying to ${nick}`);
     mark = peer.mark();
     await say(page, 'a2 and 6667 is going away');
-    const ownReply = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === 'a2 and 6667 is going away', mark);
+    const ownReply = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === `${nick}: a2 and 6667 is going away`, mark);
     expect(ownReply.tags['+draft/reply']).toBe(ownId);
+    await expect(row('a2 and 6667').locator('.message-row-text-body')).toHaveText('a2 and 6667 is going away');
     await expect(row('a2 and 6667').locator('.message-reply-quote-author')).toHaveText(nick);
-    // …and by others: their reply quotes our line.
+    // …and by others: their reply quotes our line (its own text, without
+    // the prefix).
     peer.send(`@+draft/reply=${ownId} PRIVMSG ${channel} :r0 thanks`);
     await expect(row('r0 thanks').locator('.message-reply-quote-author')).toHaveText(nick);
     await expect(row('r0 thanks').locator('.message-reply-quote-text')).toHaveText('a1 6697, with TLS');
+
+    // A classic client's reply (no tag): read back from its text, the
+    // quoted form shown as a reply with the prefix hidden.
+    peer.privmsg(channel, `${nick}: "a1..." r0b and TLS only`);
+    await expect(row('r0b and TLS only').locator('.message-reply-quote-text')).toHaveText('a1 6697, with TLS');
+    await expect(row('r0b and TLS only').locator('.message-row-text-body')).toHaveText('r0b and TLS only');
 
     // Escape cancels a reply in progress; the next line is plain.
     await row('q1 which port').hover();
@@ -91,6 +104,7 @@ test.describe('replies', () => {
     await messages(page).evaluate((el) => { el.scrollTop = el.scrollHeight; });
     await expect(row('r1 and the admin port')).toBeInViewport();
     peer.send(`@+draft/reply=not-a-real-msgid PRIVMSG ${channel} :r2 replying to something older`);
-    await expect(row('r2 replying').locator('.message-reply-quote')).toHaveText('Original message not loaded');
+    // (Asked for with CHATHISTORY AROUND first; the server hasn't it.)
+    await expect(row('r2 replying').locator('.message-reply-quote')).toHaveText('Original message not available', { timeout: 15_000 });
   });
 });
