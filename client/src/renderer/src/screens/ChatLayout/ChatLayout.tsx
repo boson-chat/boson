@@ -24,6 +24,7 @@ import { getPanelWidth, setPanelWidth, PANEL_BOUNDS } from '../../modules/ui/pan
 import type { ChannelOpActions, NickProfiles } from './nick-actions';
 import { useAvatarFor } from '../../shared/Avatar/use-avatar-for';
 import { ChatLayoutBloc, type ChatLayoutState } from './ChatLayoutBloc';
+import { messageActionsFor } from './message-actions';
 import { isNarrow, useMid, useNarrow, useNoTitleBar } from '../../shared/narrow';
 import { MobileCallScreen, MobileMiniBar } from './MobileCall';
 import { closeCall, isPrivateCall } from './call-shared';
@@ -295,6 +296,9 @@ export function ChatLayout({
   // to ChatService so both the member panel and the message-row nicks
   // share the same behaviour. `ops` is present only inside a channel and
   // carries the channel-operator actions, gated in the menu by our rank.
+  // Reactions need message-tags; Delete, the server's draft/message-redaction.
+  const reactCaps = (state.serverInfo.enabledCaps ?? []).includes('message-tags');
+  const redactCap = (state.serverInfo.enabledCaps ?? []).includes('draft/message-redaction');
   const nickActions = useMemo(() => {
     // `typeof` guard keeps hand-rolled test fakes (no op methods) working —
     // they just get the base menu (copy / DM / mention).
@@ -317,8 +321,11 @@ export function ChatLayout({
       request: (n: string) => chat.requestWhois(n),
       seen: (n: string) => chat.seen?.get(n),
     } : undefined;
-    return { onSendMessage: (nick: string) => chat.openDM(nick), ops, profiles };
-  }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere]);
+    const message = active ? messageActionsFor(chat, active.name, {
+      reactions: reactCaps, redaction: redactCap, myNick: state.myNick, myAccount, myRank: myRankHere, isChannel,
+    }) : undefined;
+    return { onSendMessage: (nick: string) => chat.openDM(nick), ops, profiles, message };
+  }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere, reactCaps, redactCap, state.myNick, myAccount]);
 
   // Resolves a nick → profile-image URL for Boson members on this server
   // (own avatar + presence matches), shared by the chat stream + member list.

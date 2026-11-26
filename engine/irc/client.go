@@ -273,6 +273,9 @@ func New(cfg Config) (*Client, error) {
 			// `event-playback` in case the draft is ratified under that name.
 			"draft/event-playback": nil,
 			"event-playback":       nil,
+			// draft/message-redaction: deleting messages (REDACT). Ergo
+			// offers it only with history.retention.allow-individual-delete.
+			"draft/message-redaction": nil,
 		},
 	})
 	if cfg.BouncerNetworks {
@@ -1259,6 +1262,17 @@ func translate(e girc.Event) Event {
 			out.Args = append([]string(nil), e.Params[1:]...)
 		}
 		out.Message = e.Last()
+	case "REDACT":
+		// IRCv3 draft/message-redaction: REDACT <target> <msgid> [:reason].
+		// Target is the channel (or, in a DM, whoever it was sent to); the
+		// msgid goes in Args, the optional reason in Message.
+		if len(e.Params) >= 2 {
+			out.Target = e.Params[0]
+			out.Args = []string{e.Params[1]}
+		}
+		if len(e.Params) >= 3 {
+			out.Message = e.Params[2]
+		}
 	case "FAIL":
 		// IRCv3 standard replies: FAIL <command> <code> [context…] :text —
 		// e.g. Ergo's FAIL * ACCOUNT_REQUIRED when a network allows no

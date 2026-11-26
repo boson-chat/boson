@@ -1,4 +1,5 @@
 import type { BouncerUpstreamState } from '../engine/engine.types';
+import type { ReactionEntry } from './reactions';
 
 export type ChatMessageKind = 'message' | 'notice' | 'join' | 'part' | 'quit' | 'kick' | 'system' | 'action';
 
@@ -20,6 +21,13 @@ export interface ChatMessage {
   // latest line, probably).
   replyToId?: string;
   replyGuess?: true;
+  // IRCv3 reactions to this message (`+draft/react`), as last known: kept
+  // with the stored copy so they come back with it. The live view reads
+  // them from ChatService's reaction log (reactionsSignal), not from here.
+  reactions?: ReactionEntry[];
+  // Deleted (IRCv3 `draft/message-redaction` REDACT): `text` is emptied and
+  // the line shows as "Message deleted". The original text is not kept.
+  redacted?: true;
   // The server-time tag as sent (epoch ms), before `timestamp`'s correction
   // for the server's clock skew. That correction is re-measured on every
   // connection, so a bouncer replaying the same line gives it a slightly

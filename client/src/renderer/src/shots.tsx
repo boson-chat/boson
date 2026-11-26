@@ -86,12 +86,18 @@ type W = typeof window & { bosonUnfurl?: unknown; bosonSpotify?: unknown };
   }),
 };
 
+// ?reactions=1: what the fake server does with our TAGMSGs and other raw
+// lines (echo-message: reactions and REDACTs come back to us).
+let tagHook: ((target: string, tags: Record<string, string>) => void) | null = null;
+let rawHook: ((line: string) => void) | null = null;
+
 // ---- Fake session: capture the listener, expose emit() ----
 function makeSession(): { emit(e: IrcEvent): void } {
   let listener: EventListener | null = null;
   return {
     serverId: 's1',
-    join: () => {}, part: () => {}, names: () => {}, tagmsg: () => {},
+    join: () => {}, part: () => {}, names: () => {},
+    tagmsg: (target: string, tags: Record<string, string>) => tagHook?.(target, tags),
     // ?chanserv=…: a scripted ChanServ answers (see chanservReplies).
     // Every line sent is kept in window.__sent (with its tags), and
     // confirmed (the engine's ACK) at once.
@@ -103,7 +109,7 @@ function makeSession(): { emit(e: IrcEvent): void } {
       if (lines) setTimeout(() => { for (const l of lines) listener?.({ Kind: 'NOTICE', From: target, Target: NICK, Message: l, Raw: '' }); }, 40);
     },
     list: () => {}, away: () => {}, nick: () => {}, nickservIdentify: () => {},
-    raw: (line: string) => { if (listener) searchHistoryAnswer(line, listener); },
+    raw: (line: string) => { rawHook?.(line); if (listener) searchHistoryAnswer(line, listener); },
     onEvent: (fn: EventListener) => { listener = fn; return () => { listener = null; }; },
     onChannelDirectory: () => () => {},
     onServicesFramework: () => () => {},
@@ -840,6 +846,50 @@ function chatView(): void {
       session.emit(pm('nova', `${old.from}: "${old.text.split(' ').slice(0, 2).join(' ')}..." still true today`, 0.6, { msgid: 'r-n1', ...tag(old.msgid) }));
       session.emit(pm('jrmu', 'that was never the plan', 0.55, { msgid: 'r-j1', ...tag('zz-gone') }));
     }
+  }
+
+  // ?reactions=1: a server with message-tags, echo-message and (unless
+  // &redact=0) draft/message-redaction; we're signed in (&guest=1: not) and
+  // founder of #dev (so may delete anyone's line there). Some lines carry reactions, one
+  // arriving before its message and one replayed by CHATHISTORY
+  // (event-playback); our own line can be deleted. &redactfail=1: the
+  // server refuses deletes (FAIL REDACT).
+  if (q0.get('reactions') === '1') {
+    const redact = q0.get('redact') !== '0';
+    const caps = ['message-tags', 'echo-message', 'batch', 'server-time', 'draft/chathistory', 'draft/event-playback', ...(redact ? ['draft/message-redaction'] : [])];
+    session.emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: caps.join(' '), Args: ['ACK'], Raw: '' });
+    // Signed in (Delete needs an account), unless &guest=1.
+    if (q0.get('guest') !== '1') {
+      session.emit({ Kind: '900', From: 'irc.nebula.example', Target: NICK, Message: `You are now logged in as ${NICK}`, Args: [`${NICK}!${NICK}@nebula`, NICK, `You are now logged in as ${NICK}`], Raw: '' });
+    }
+    let seq = 0;
+    tagHook = (target, tags) => setTimeout(() => session.emit({
+      Kind: 'TAGMSG', From: NICK, Target: target, Message: '', Raw: '',
+      Tags: { ...tags, msgid: `echo-${++seq}`, time: new Date().toISOString() },
+    }), 30);
+    rawHook = (line) => {
+      const m = /^REDACT (\S+) (\S+)/.exec(line);
+      if (!m) return;
+      setTimeout(() => session.emit(q0.get('redactfail') === '1'
+        ? { Kind: 'FAIL', From: 'irc', Target: '', Args: ['REDACT', 'REDACT_FORBIDDEN', m[1]!, m[2]!], Message: 'You are not authorized to delete this message', Raw: '' }
+        : { Kind: 'REDACT', From: NICK, Target: m[1]!, Args: [m[2]!], Message: '', Raw: '' }), 30);
+    };
+    const tag = (from: string, target: string, emoji: string, mAgo: number, extra: Record<string, string> = {}): IrcEvent => ({
+      Kind: 'TAGMSG', From: from, Target: CHAN, Message: '', Raw: '',
+      Tags: { '+draft/react': emoji, '+draft/reply': target, time: min(mAgo), msgid: `rx-${from}-${target}-${emoji}`, ...extra },
+    });
+    // Before its message has loaded.
+    session.emit(tag('pixel', 'm-own', '🎉', 0.4));
+    session.emit(pm(NICK, 'cutting the build now, shout if anything looks off', 0.5, { msgid: 'm-own' }));
+    session.emit(tag('kestrel', 'm-mention', '👍', 0.9));
+    session.emit(tag('mox', 'm-mention', '👍', 0.8));
+    session.emit(tag(NICK, 'm-mention', '👍', 0.7));
+    session.emit(tag('orbit', 'm-mention', '😂', 0.6));
+    session.emit(tag('nova', 'm-own', '❤️', 0.3));
+    // Replayed in a history batch.
+    session.emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: ['+rx1', 'chathistory', CHAN], Raw: '' });
+    session.emit({ ...tag('orbit', 'm-own', '🎉', 0.35), Tags: { ...tag('orbit', 'm-own', '🎉', 0.35).Tags, batch: 'rx1' } });
+    session.emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: ['-rx1'], Raw: '' });
   }
 
   // &scroll=N: N more lines, every third one an image from img.test (the
