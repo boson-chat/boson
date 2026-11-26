@@ -412,12 +412,16 @@ export function replyOf(tags: Record<string, string> | undefined): { replyTo?: s
   return {};
 }
 
-// A deleted message as kept: who and when, nothing of what it said.
+// A deleted message as kept: who and when, nothing of what it said. What
+// it answered stays (not shown: it keeps its place in a thread, and the
+// replies under it in theirs: threads.ts).
 function redactedCopy(m: ChatMessage): ChatMessage {
   return {
     id: m.id, kind: m.kind === 'notice' ? 'notice' : 'message', from: m.from, text: '', timestamp: m.timestamp,
     redacted: true,
     ...(m.msgid ? { msgid: m.msgid } : {}),
+    ...(m.replyTo ? { replyTo: m.replyTo } : {}),
+    ...(m.replyToId && !m.replyGuess ? { replyToId: m.replyToId } : {}),
     ...(m.serverTime !== undefined ? { serverTime: m.serverTime } : {}),
   };
 }

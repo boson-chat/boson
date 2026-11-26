@@ -259,7 +259,8 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   // A reply's text without the `nick: "quote..." ` its quote stands for.
   const body = replyBody(msg, parent);
   const renderedText = doc ? null : msg.redacted ? <DeletedText /> : renderMessageBody(body, myNick, members);
-  const quote = replyParent !== undefined && !hideQuote && <ReplyQuote parent={replyParent} guessed={!!msg.replyGuess} onJumpTo={onJumpTo} />;
+  // A deleted reply shows no quote (just "Message deleted").
+  const quote = replyParent !== undefined && !hideQuote && !msg.redacted && <ReplyQuote parent={replyParent} guessed={!!msg.replyGuess} onJumpTo={onJumpTo} />;
   const threadLine = thread && onOpenThread && <ThreadLine summary={thread} avatarFor={avatarFor} onOpen={onOpenThread} />;
 
   if (msg.kind === 'action') {
@@ -900,6 +901,8 @@ export const MessageList = memo(function MessageList({
   // Originals the rows on screen are missing, asked for after the render.
   const missingOriginals: string[] = [];
   const parentOf = (m: ChatMessage): ChatMessage | null | 'loading' | undefined => {
+    // A deleted reply keeps its link (its place in a thread), no quote.
+    if (m.redacted) return undefined;
     if (m.replyTo) {
       const p = byMsgid.get(m.replyTo);
       if (p) return p;

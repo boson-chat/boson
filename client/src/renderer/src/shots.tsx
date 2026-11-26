@@ -911,6 +911,12 @@ function chatView(): void {
     session.emit(pm('orbit', 'nova: "standup..." works for me', 0.82, { msgid: 't-6', ...r('t-s') }));
     session.emit(pm('pixel', 'nova: ok', 0.8, { msgid: 't-7' }));
     session.emit(pm('mox', `${NICK}: "rebuild the..." done, green on arm now`, 0.7, { msgid: 't-8', ...r('t-4') }));
+    // &reactions=1 too: a reaction on the root and a reply deleted by its
+    // author (both show the same in the thread panel).
+    if (q0.get('reactions') === '1') {
+      session.emit({ Kind: 'TAGMSG', From: 'kestrel', Target: CHAN, Message: '', Raw: '', Tags: { '+draft/react': '👍', '+draft/reply': 't-1', time: min(0.6), msgid: 'rx-t1' } });
+      session.emit({ Kind: 'REDACT', From: 'pixel', Target: CHAN, Args: ['t-5'], Message: '', Raw: '' });
+    }
   }
 
   // &scroll=N: N more lines, every third one an image from img.test (the

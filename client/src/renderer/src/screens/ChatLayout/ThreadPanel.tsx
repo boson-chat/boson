@@ -156,6 +156,7 @@ function ThreadPanelBody({
   // Each line's quote: what it answers. Left out right under that line.
   const missing: string[] = [];
   const parentOf = (m: ChatMessage): ChatMessage | null | 'loading' | undefined => {
+    if (m.redacted) return undefined;
     if (m.replyTo) {
       const p = index.byMsgidOf(m.replyTo);
       if (p) return p;

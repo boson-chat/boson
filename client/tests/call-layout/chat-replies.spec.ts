@@ -26,7 +26,7 @@ async function open(page: Page, query: string, width: number, height: number): P
 async function replyTo(page: Page, text: string): Promise<void> {
   const row = rowWith(page, text).locator('.message-row');
   await row.hover();
-  await row.getByRole('button', { name: 'Reply' }).click();
+  await row.getByRole('button', { name: 'Reply', exact: true }).click();
 }
 
 async function send(page: Page, text: string): Promise<void> {

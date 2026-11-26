@@ -132,6 +132,21 @@ for (const vp of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'phone'
   });
 }
 
+test('reactions and a deleted reply look the same in the panel', async ({ page }) => {
+  await open(page, 1280, 800, '&reactions=1');
+  await scrollTo(page, 'anyone know why the build fails on arm?');
+  const root = rowWith(page, 'anyone know why the build fails on arm?');
+  await expect(root.locator('.message-thread-line')).toContainText('5 replies');
+  await root.locator('.message-thread-line').click();
+  const rows = panel(page).locator('.message-row');
+  await expect(rows).toHaveCount(6);
+  // The root's reaction chip, in the panel too.
+  await expect(rows.nth(0)).toContainText('👍');
+  // pixel's deleted reply: still in the thread, as "Message deleted".
+  await expect(panel(page)).toContainText(/deleted/i);
+  await page.screenshot({ path: test.info().outputPath('reactions.png') });
+});
+
 test('dark theme: counter line and panel', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'dark' });
   await open(page, 1280, 800);
