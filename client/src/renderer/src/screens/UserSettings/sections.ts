@@ -29,7 +29,7 @@ export const MENU: ReadonlyArray<MenuEntry> = [
   { id: 'privacy',       label: 'Privacy',            group: 'you',         keywords: 'calls who can call do not disturb dnd friend requests remembered hosts whois join part' },
   { id: 'appearance',    label: 'Appearance',         group: 'app',         keywords: 'theme colours colors dark light network themes custom' },
   { id: 'notifications', label: 'Notifications',      group: 'app',         keywords: 'toasts system sound mentions direct messages friends calls incoming banner full screen' },
-  { id: 'chat',          label: 'Chat & media',       group: 'app',         keywords: 'link previews embeds images videos youtube spotify website cards load automatically image cache' },
+  { id: 'chat',          label: 'Chat & media',       group: 'app',         keywords: 'link previews embeds images videos youtube spotify website cards load automatically image cache replies guessed replies' },
   { id: 'voice',         label: 'Voice',              group: 'app',         keywords: 'microphone mic speakers input output push to talk sensitivity quality camera data saver screen share' },
   { id: 'directories',   label: 'Directories',        group: 'connections', keywords: 'server browser directory add remove' },
   { id: 'networks',      label: 'Network accounts',   group: 'connections', keywords: 'self-hosted network sign in accounts' },

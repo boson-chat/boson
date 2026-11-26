@@ -1,8 +1,8 @@
 // Preferences that follow the account across devices: notifications (the
-// switches, and the levels per server and per conversation), link previews
-// and privacy. They travel inside the synced session blob (PUT /me/session,
-// which the backend stores verbatim) under `prefs`, last write wins by
-// `updatedAt`.
+// switches, and the levels per server and per conversation), link previews,
+// privacy and how conversations read. They travel inside the synced session
+// blob (PUT /me/session, which the backend stores verbatim) under `prefs`,
+// last write wins by `updatedAt`.
 //
 // What stays on each device: audio devices and voice settings, window
 // layout, themes (custom ones can be files on one machine), caches.
@@ -16,6 +16,7 @@ import {
 } from '../ui/notifications.store';
 import { __resetEmbedSettingsCache, onEmbedSettingsChange } from '../ui/embeds.store';
 import { __resetPrivacySettingsCache, onPrivacySettingsChange } from '../ui/privacy.store';
+import { __resetChatDisplaySettingsCache, onChatDisplaySettingsChange } from '../ui/chat-display.store';
 
 export const SYNCED_PREF_KEYS = [
   'boson:notifications:v1',
@@ -23,6 +24,7 @@ export const SYNCED_PREF_KEYS = [
   'boson:notifications:servers:v1',
   'boson:embeds:v1',
   'boson:privacy:v1',
+  'boson:chat-display:v1',
 ] as const;
 
 // When this device last changed one of them (or took the synced copy).
@@ -91,8 +93,9 @@ export function applyPrefs(p: SyncedPrefs): void {
     __resetNotificationSettingsCache();
     __resetEmbedSettingsCache();
     __resetPrivacySettingsCache();
+    __resetChatDisplaySettingsCache();
     // Each store's change event: settings screens and the notifier re-read.
-    for (const name of ['boson:notifications:change', 'boson:embeds:change', 'boson:privacy:change']) {
+    for (const name of ['boson:notifications:change', 'boson:embeds:change', 'boson:privacy:change', 'boson:chat-display:change']) {
       try { (globalThis as { dispatchEvent?: (e: Event) => boolean }).dispatchEvent?.(new CustomEvent(name)); } catch { /* best-effort */ }
     }
   } finally {
@@ -126,6 +129,6 @@ export function onLocalPrefsChange(fn: () => void): () => void {
     setLocalUpdatedAt(Date.now());
     fn();
   };
-  const offs = [onNotificationSettingsChange(changed), onEmbedSettingsChange(changed), onPrivacySettingsChange(changed)];
+  const offs = [onNotificationSettingsChange(changed), onEmbedSettingsChange(changed), onPrivacySettingsChange(changed), onChatDisplaySettingsChange(changed)];
   return () => { for (const off of offs) off(); };
 }

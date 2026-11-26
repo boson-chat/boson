@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Button, Select, SwitchRow } from '@boson/shared';
 import { getEmbedSettings, setEmbedSettings, type EmbedSettings } from '../../modules/ui/embeds.store';
+import { getChatDisplaySettings, setChatDisplaySettings, type ChatDisplaySettings } from '../../modules/ui/chat-display.store';
 import { forgetDims, imagesBridge, type ImageCacheStats } from '../../shared/image-cache';
 import { formatBytes } from '../../modules/files';
 import { NestedSettings, SectionFrame, SettingRow, SettingsGroup } from './SettingsFrame';
@@ -15,7 +16,7 @@ export function ChatMediaSection() {
     <SwitchRow title={title} description={description} checked={s[key]} disabled={off} onChange={(v) => update({ [key]: v })} />
   );
   return (
-    <SectionFrame title="Chat & media" description="How links and images show in chat.">
+    <SectionFrame title="Chat & media" description="How links, images and replies show in chat.">
       <SettingsGroup title="Link previews">
         <SwitchRow
           title="Show link previews"
@@ -38,8 +39,25 @@ export function ChatMediaSection() {
           {kind('Website cards', 'websites', 'Title, summary and image of other pages.')}
         </NestedSettings>
       </SettingsGroup>
+      <Replies />
       <ImageCache />
     </SectionFrame>
+  );
+}
+
+// Replies: a line that only starts with `nick:` linked to that person's
+// latest message (synced with the account, like the rest of this page).
+function Replies() {
+  const [d, setD] = useState<ChatDisplaySettings>(() => getChatDisplaySettings());
+  return (
+    <SettingsGroup title="Replies">
+      <SwitchRow
+        title="Show guessed replies"
+        description="A message that starts with someone’s name shows a faint quote of their latest message, as the probable reply."
+        checked={d.guessedReplies}
+        onChange={(v) => { setChatDisplaySettings({ guessedReplies: v }); setD(getChatDisplaySettings()); }}
+      />
+    </SettingsGroup>
   );
 }
 

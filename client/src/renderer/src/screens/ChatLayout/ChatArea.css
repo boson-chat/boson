@@ -1311,7 +1311,7 @@
    header clears the status bar itself (0 elsewhere). */
 .app-shell.is-narrow .chat-header { padding-top: calc(var(--space-1) + env(safe-area-inset-top, 0px)); }
 
-/* ---- Replies (IRCv3 +draft/reply) ---------------------------------- */
+/* ---- Replies (IRCv3 +draft/reply, and their text form: replies.ts) -- */
 
 /* Above a reply: who it answers and one line of what they said. A click
    scrolls to the original. */
@@ -1342,6 +1342,15 @@ button.message-reply-quote:focus-visible { outline: 2px solid var(--accent); out
 .message-reply-quote-missing { cursor: default; font-style: italic; }
 /* Italic overhangs its box: keep the last letter out of the clip. */
 .message-reply-quote-missing .message-reply-quote-text { padding-right: 2px; }
+.message-reply-quote-loading { opacity: 0.7; }
+/* A guessed reply (the line only said `nick:`): the same quote, fainter,
+   with a dotted rule, so it reads as "probably". */
+.message-reply-quote-guessed { opacity: 0.62; }
+.message-reply-quote-guessed .message-reply-quote-author { font-weight: 500; }
+.message-reply-quote-guessed .message-reply-quote-text { font-style: italic; padding-right: 2px; }
+.message-reply-quote-guessed .message-reply-quote-icon { stroke-dasharray: 2 2; }
+button.message-reply-quote-guessed:hover,
+button.message-reply-quote-guessed:focus-visible { opacity: 1; }
 /* The avatar stays level with the name, under the quote line. */
 .message-row:has(> .message-row-body > .message-reply-quote) > .message-row-gutter { padding-top: 22px; }
 /* An action line (`* nick does`) is one flex row: the quote takes its own. */

@@ -12,7 +12,7 @@ import {
 import type { EngineState } from '../../modules/engine';
 import { ChatInputBloc, type ChatInputState } from './ChatInputBloc';
 import { ChatInputBar } from './ChatInputBar';
-import { MessageList, excerptOf, type ChatSearchMarks } from './message-render';
+import { MessageList, excerptOf, type ChatSearchMarks, type ReplyContextSource } from './message-render';
 import { UploadSheet, type UploadItem } from './UploadSheet';
 import { UploadProgress } from './UploadProgress';
 import { getFiles, ircTextBudget, MAX_BATCH_FILES, type FilesUsage } from '../../modules/files';
@@ -33,7 +33,8 @@ interface ChatAreaProps {
   callStrip?: ComponentChildren;
   myNick: string;
   knownChannels?: string[];
-  // `opts.replyTo`: the msgid the line answers (a quoted reply).
+  // A reply: `opts.replyToId` is the local id of the message the line
+  // answers, `opts.replyTo` its msgid when it has one.
   onSend: (message: string, opts?: SendOptions) => void;
   bannerError?: string | null;
   onDismissBanner?: () => void;
@@ -103,6 +104,9 @@ interface ChatAreaProps {
   // omitted (legacy fixtures/tests), ChatArea falls back to wrapping
   // `channel.messages` in a throwaway signal.
   messagesSignal?: Signal<ChatMessage[]> | null;
+  // Originals of replies that aren't loaded, for the open conversation
+  // (fetched on their own: ChatService.replyContext).
+  replyContext?: ReplyContextSource | null;
   // Opens the Channel Settings modal (modes / bans / topic). Present only for
   // channel targets; absent for DMs / the ~server log.
   onOpenChannelSettings?: () => void;
@@ -190,6 +194,7 @@ export function ChatArea({
   onViewport,
   avatarFor,
   messagesSignal,
+  replyContext,
   onOpenChannelSettings,
   registration,
   registerPrompt,
@@ -230,16 +235,13 @@ export function ChatArea({
   const onTypingRef = useRef(onTyping);
   onTypingRef.current = onTyping;
 
-  // Replying to a message (IRCv3 `+draft/reply`): the composer shows it,
-  // and the next line sent carries its msgid. Only where the server relays
-  // client tags (message-tags) and the message has a msgid; otherwise Reply
-  // falls back to `@nick`.
+  // Replying to a message: the composer shows it, and the next line sent
+  // answers it — with its msgid (IRCv3 `+draft/reply`) where the server
+  // relays client tags, and always with `nick: ` / `nick: "quote..." ` at
+  // its start, for clients that don't read the tag (ChatService.send).
   const [replyTarget, setReplyTarget] = useState<ChatMessage | null>(null);
   const replyRef = useRef(replyTarget);
   replyRef.current = replyTarget;
-  const canReply = !!serverInfo?.enabledCaps?.includes('message-tags');
-  const canReplyRef = useRef(canReply);
-  canReplyRef.current = canReply;
 
   // Bloc is the single source of truth for input/popup state. We re-use
   // the same instance across renders; the closures above ensure it always
@@ -255,7 +257,7 @@ export function ChatArea({
           // follow it as plain lines).
           const reply = replyRef.current;
           lines.forEach((line, i) => {
-            if (i === 0 && reply?.msgid) onSendRef.current(line, { replyTo: reply.msgid });
+            if (i === 0 && reply) onSendRef.current(line, { ...(reply.msgid ? { replyTo: reply.msgid } : {}), replyToId: reply.id });
             else onSendRef.current(line);
           });
           if (reply) setReplyTarget(null);
@@ -278,9 +280,8 @@ export function ChatArea({
     [messagesSignal, channel?.messages],
   );
 
-  // Mention (and a message's Reply, where there are no real replies) puts
-  // `@nick ` at the front of the input and focuses it, keeping whatever was
-  // already typed.
+  // Mention puts `@nick ` at the front of the input and focuses it, keeping
+  // whatever was already typed.
   const rowNickActions = useMemo<NickActions | undefined>(() => {
     if (!nickActions) return undefined;
     const mention = (nick: string): void => {
@@ -293,7 +294,6 @@ export function ChatArea({
       ...nickActions,
       onMention: mention,
       onReply: (m: ChatMessage) => {
-        if (!canReplyRef.current || !m.msgid) { mention(m.from); return; }
         setReplyTarget(m);
         const input = bloc.getState().input;
         bloc.insertAtCursor('', input.length, input.length); // focus the composer
@@ -693,6 +693,7 @@ export function ChatArea({
           jump={searchJump}
           search={searchMarks}
           toLatest={latestSeq}
+          replyContext={replyContext}
         />
 
         {searchJump && (

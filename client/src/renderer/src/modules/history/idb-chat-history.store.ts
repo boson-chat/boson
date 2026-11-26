@@ -241,6 +241,8 @@ export function rowToMessage(row: StoredRow): ChatMessage {
     timestamp: row.timestamp,
     ...(row.msgid ? { msgid: row.msgid } : {}),
     ...(row.replyTo ? { replyTo: row.replyTo } : {}),
+    ...(row.replyToId ? { replyToId: row.replyToId } : {}),
+    ...(row.replyGuess ? { replyGuess: true as const } : {}),
     ...(row.serverTime !== undefined ? { serverTime: row.serverTime } : {}),
     ...(row.user ? { user: row.user } : {}),
     ...(row.host ? { host: row.host } : {}),

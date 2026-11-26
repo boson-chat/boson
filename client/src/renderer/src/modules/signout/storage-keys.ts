@@ -64,6 +64,7 @@ export const DEVICE_KEYS: KeySet = {
     'boson:notifications:v1', // notification preferences (sounds, banners)
     'boson:privacy:v1', // remember hosts / show hosts
     'boson:embeds:v1', // link preview preferences
+    'boson:chat-display:v1', // how conversations read (guessed replies)
     'boson:voice-servers:v1', // cache of networks' public boson.json (web)
     'boson:services-verdict:v1', // which services package each network runs
   ],
@@ -72,7 +73,7 @@ export const DEVICE_KEYS: KeySet = {
 
 // Literals that look like keys but aren't storage keys (event names, hosts).
 export const NOT_KEYS: readonly string[] = [
-  'boson:embeds:change', 'boson:guest:change', 'boson:notifications:change', 'boson:privacy:change',
+  'boson:embeds:change', 'boson:chat-display:change', 'boson:guest:change', 'boson:notifications:change', 'boson:privacy:change',
   'boson:network', 'boson.chat', 'boson.json', 'boson.json:',
   'boson:', // the boson:// URL scheme
   'boson.', // the secure stores' minimum prefix
