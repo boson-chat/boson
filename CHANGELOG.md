@@ -1,3 +1,9 @@
+## [0.98.1](https://github.com/boson-chat/boson/compare/v0.98.0...v0.98.1) (2026-11-26)
+
+### Bug Fixes
+
+* **chat:** request event-playback and drop HistServ replay lines ([#161](https://github.com/boson-chat/boson/issues/161)) ([0c5171e](https://github.com/boson-chat/boson/commit/0c5171ebb4be4fb148c43171dd9fbe052e0a7cd1))
+
 ## [0.98.0](https://github.com/boson-chat/boson/compare/v0.97.2...v0.98.0) (2026-11-25)
 
 ### Features
