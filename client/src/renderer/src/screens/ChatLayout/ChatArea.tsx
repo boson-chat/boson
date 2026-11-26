@@ -154,6 +154,11 @@ interface ChatAreaProps {
   searchJump?: { id: string; seq: number; query: string } | null;
   onBackToResults?: () => void;
   onDismissSearchJump?: () => void;
+  // Threads (threads.ts): open one (ThreadPanel, beside or over the
+  // conversation) by its root's id; and a message the thread panel asked
+  // to be shown in the conversation (scrolled to and flashed).
+  onOpenThread?: (rootId: string) => void;
+  threadJump?: { id: string; seq: number } | null;
 }
 
 function isMac(): boolean {
@@ -215,6 +220,8 @@ export function ChatArea({
   searchJump = null,
   onBackToResults,
   onDismissSearchJump,
+  onOpenThread,
+  threadJump = null,
 }: ChatAreaProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // A quick reconnect (an app switch, a network hop) shows nothing; the
@@ -694,6 +701,8 @@ export function ChatArea({
           search={searchMarks}
           toLatest={latestSeq}
           replyContext={replyContext}
+          onOpenThread={onOpenThread}
+          threadJump={threadJump}
         />
 
         {searchJump && (

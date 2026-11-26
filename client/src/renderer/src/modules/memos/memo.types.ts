@@ -38,6 +38,10 @@ export interface Memo {
   // For kind === 'mention': the channel the mention happened in, so the
   // Inbox can navigate there on click. Unset for other kinds.
   channel?: string;
+  // For kind === 'mention': the message itself (local id, msgid), so
+  // opening the entry can open the thread it's in (thread-nav.ts).
+  messageId?: string;
+  msgid?: string;
   // Verbatim text of the message/notice body. Sender lives in `sender`;
   // we don't normalise the body (Atheme + Anope memo banners differ).
   text: string;

@@ -16,6 +16,9 @@ import { signal } from '@preact/signals';
 import type { ChatMessage } from '../../modules/chat';
 import { conversationSearch, historySource, revealResult } from '../../modules/search/search-session';
 import { UserPanel } from './UserPanel';
+import { ThreadPanel } from './ThreadPanel';
+import { threadIndexFor } from '../../modules/chat/threads';
+import { pendingThread, THREAD_INTENT_TTL_MS } from '../../modules/chat/thread-nav';
 import { ServerWelcome, welcomeChannels } from './ServerWelcome';
 import { ChannelSettings, type ChannelSettingsTab } from './ChannelSettings';
 import { useChannelCreation, useChannelPolicy, type ChanServState } from '../../modules/chanserv';
@@ -202,6 +205,7 @@ export function ChatLayout({
   // which survives restarts + reinstalls), live-updated while dragging.
   const [channelsW, setChannelsW] = useState(() => getPanelWidth('channels'));
   const [membersW, setMembersW] = useState(() => getPanelWidth('members'));
+  const [threadW, setThreadW] = useState(() => getPanelWidth('thread'));
 
   const isChannel = !!active && (active.name.startsWith('#') || active.name.startsWith('&'));
   // Desktop: the member list beside the conversation. Hidden by default in
@@ -381,6 +385,49 @@ export function ChatLayout({
       onOpenResult={openSearchResult}
     />
   ) : null;
+  // A thread (ThreadPanel): open in this conversation only. On a desktop
+  // the right-hand column (in place of the member list), at mid width its
+  // overlay, on a phone a full-height sheet.
+  const [thread, setThread] = useState<{ key: string; rootId: string } | null>(null);
+  const threadRoot = thread && thread.key === activeKey ? thread.rootId : null;
+  const [threadJump, setThreadJump] = useState<{ id: string; seq: number } | null>(null);
+  const openThread = (rootId: string): void => {
+    setThread({ key: activeKey, rootId });
+    setSearchOpen(false);
+    if (mid) setMidPanel(true);
+  };
+  const closeThread = (): void => {
+    setThread(null);
+    if (mid) setMidPanel(false);
+  };
+  // The mid-width overlay closed (a click beside it): the thread with it.
+  useEffect(() => { if (mid && !midPanel) setThread(null); }, [mid, midPanel]);
+  const openThreadRef = useRef(openThread);
+  openThreadRef.current = openThread;
+  // A notification of a reply (thread-nav.ts): once its conversation is the
+  // active one and the message is loaded, open the thread it's in.
+  const threadIntent = pendingThread.value;
+  useEffect(() => {
+    if (!threadIntent || !active || !activeServerId) return undefined;
+    if (threadIntent.serverId !== activeServerId || threadIntent.channel.toLowerCase() !== active.name.toLowerCase()) return undefined;
+    const sig = searchMessages;
+    const tryOpen = (): void => {
+      if (pendingThread.peek() !== threadIntent) return;
+      if (Date.now() - threadIntent.at > THREAD_INTENT_TTL_MS) { pendingThread.value = null; return; }
+      const ix = threadIndexFor(sig);
+      ix.sync(sig.peek());
+      const m = (threadIntent.messageId ? ix.get(threadIntent.messageId) : undefined)
+        ?? (threadIntent.msgid ? ix.byMsgidOf(threadIntent.msgid) : undefined);
+      if (!m) return;
+      pendingThread.value = null;
+      // Only a reply in a thread (a line that merely has replies by now
+      // just shows in the conversation).
+      const root = ix.rootOf(m.id);
+      if (root !== m.id) openThreadRef.current(root);
+    };
+    return sig.subscribe(tryOpen);
+  }, [threadIntent, active?.name, activeServerId, searchMessages]);
+
   // In a call: its stage (desktop) or call screen (phone) takes the
   // chat's place while you're on it.
   const { video, snap: videoSnap } = useVideo();
@@ -681,7 +728,46 @@ export function ChatLayout({
           searchJump={searchJump}
           onBackToResults={() => { setSearchRestoring(true); setSearchOpen(true); }}
           onDismissSearchJump={() => setSearchJump(null)}
+          onOpenThread={openThread}
+          threadJump={threadJump}
         />
+  );
+  const threadPanel = threadRoot && active ? (
+        <ThreadPanel
+          key={activeKey}
+          rootId={threadRoot}
+          messages={searchMessages}
+          channelName={active.name}
+          myNick={selfNick}
+          members={active.members}
+          knownChannels={mergeKnownChannels(state.channels, state.channelDirectory.entries)}
+          avatarFor={avatarFor}
+          nickActions={nickActions}
+          replyContext={replyContext}
+          onSend={(msg, opts) => (opts ? chat.input(msg, opts) : chat.input(msg))}
+          onTyping={(typing) => { if (state.activeChannel) chat.sendTyping(state.activeChannel, typing); }}
+          onClose={closeThread}
+          onJumpTo={(m) => {
+            setThreadJump((j) => ({ id: m.id, seq: (j?.seq ?? 0) + 1 }));
+            // A phone's sheet covers the conversation: back to it.
+            if (narrow) setThread(null);
+          }}
+          variant={narrow ? 'sheet' : 'side'}
+          width={threadW}
+          disabled={isChannel && !active.joined && engineState === 'connected'}
+        />
+  ) : null;
+  const threadHandle = (
+    <ResizeHandle
+      side="right"
+      width={threadW}
+      min={PANEL_BOUNDS.thread.min}
+      max={PANEL_BOUNDS.thread.max}
+      onChange={setThreadW}
+      onCommit={(w) => setThreadW(setPanelWidth('thread', w))}
+      onReset={() => setThreadW(setPanelWidth('thread', PANEL_BOUNDS.thread.def))}
+      ariaLabel="Resize thread"
+    />
   );
   const userPanel = (
         <UserPanel
@@ -785,6 +871,8 @@ export function ChatLayout({
             </div>
           )}
           <VoiceJoinSheet self={myNick} avatarFor={avatarFor} />
+          {/* A thread: a full-height sheet over the conversation. */}
+          {phonePage === 'chat' && !phoneCallOpen && !searchOpen ? threadPanel : null}
         </>
       ) : (
         myOpen ? (
@@ -806,7 +894,8 @@ export function ChatLayout({
                 : myView === 'calls' ? calls('desktop')
                   : chatArea}
             {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, null) : null)
-              : myView === 'chat' ? (!active || isChannel ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null) : null}
+              : myView === 'chat' ? (threadPanel && !searchOpen ? rightPanel(threadPanel, threadHandle)
+                : !active || isChannel ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null) : null}
             <ScreenPicker />
           </>
         ) : <>
@@ -827,7 +916,8 @@ export function ChatLayout({
               voice channel's text chat, if it has one. */}
           {stageOpen ? (callChat ? rightPanel(<CallPanel chat={callChat} width={membersW} />, membersHandle) : null)
             : prejoinOpen ? rightPanel(<PreJoinPeople avatarFor={avatarFor} width={membersW} />, membersHandle)
-              : (!active || isChannel ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null)}
+              : threadPanel && !searchOpen ? rightPanel(threadPanel, threadHandle)
+                : (!active || isChannel ? rightPanel(userPanel, membersHandle, membersOpen.open && !searchOpen) : null)}
           <ScreenPicker />
         </>
       )}

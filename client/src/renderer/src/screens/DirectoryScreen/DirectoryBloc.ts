@@ -39,6 +39,7 @@ import { findListing } from '../../modules/directory/listing-match';
 import { AUTOJOIN_DELAY_MS, autojoinDone, channelsToAutojoin, markAutojoinDone } from '../../modules/directory/autojoin';
 import { getNetworkAccounts, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
 import { isAccountRequired, isAccountRequiredText, isSaslFailure, resolveIrcLogin } from '../../modules/netauth/irc-login';
+import { requestThread } from '../../modules/chat/thread-nav';
 
 // A dropped connection's conversations, handed to its replacement.
 type ConversationCarry = ReturnType<ChatService['exportConversations']>;
@@ -384,7 +385,11 @@ export class DirectoryBloc {
     // the originating server + channel.
     const notifier = getNotifier();
     notifier.start();
-    notifier.setOnActivate((serverId, channel) => this.activateFromNotification(serverId, channel));
+    notifier.setOnActivate((serverId, channel, ev) => {
+      // A reply's banner: the thread it's in opens once the channel shows.
+      if (ev && channel && (ev.messageId || ev.msgid)) requestThread({ serverId, channel, messageId: ev.messageId, msgid: ev.msgid });
+      this.activateFromNotification(serverId, channel);
+    });
 
     // Bouncer profile changes (edited, turned off/on, or arriving late from
     // another device) re-route the connections that use it.

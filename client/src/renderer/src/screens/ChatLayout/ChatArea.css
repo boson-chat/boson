@@ -1359,6 +1359,49 @@ button.message-reply-quote-guessed:focus-visible { opacity: 1; }
 .message-action:has(> .message-reply-quote) { flex-wrap: wrap; }
 .message-action > .message-reply-quote { flex-basis: 100%; }
 
+/* ---- Threads (reply chains: threads.ts) ---------------------------- */
+
+/* Under a thread's root: a few repliers' faces, "N replies", when the last
+   came. Hover (or focus) brings up "View thread". One line high, always:
+   the virtual list corrects off-screen rows by its measured height. */
+.message-thread-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: min(100%, 460px);
+  min-width: 0;
+  height: 26px;
+  margin: 4px 0 2px;
+  padding: 0 var(--space-2) 0 3px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.message-thread-line:hover,
+.message-thread-line:focus-visible {
+  background: var(--surface);
+  border-color: var(--border-soft, var(--border));
+}
+.message-thread-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.message-thread-faces { display: inline-flex; flex: none; }
+.message-thread-face { border-radius: 4px; box-shadow: 0 0 0 1.5px var(--bg); }
+.message-thread-face + .message-thread-face { margin-left: -4px; }
+.message-thread-count { flex: none; font-weight: 600; color: var(--accent); }
+.message-thread-when { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.message-thread-view { display: none; flex: none; margin-left: auto; padding-left: var(--space-2); color: var(--fg-2); }
+.message-thread-line:hover .message-thread-view,
+.message-thread-line:focus-visible .message-thread-view { display: inline; }
+.message-thread-line:hover .message-thread-when { display: none; }
+/* An action line (`* nick does`): the thread line takes its own row. */
+.message-action:has(> .message-action-thread) { flex-wrap: wrap; }
+.message-action-thread { flex-basis: 100%; min-width: 0; }
+
 /* The composer while replying. */
 .chat-reply-bar {
   display: flex;

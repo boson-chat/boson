@@ -46,6 +46,13 @@ export class HeightCache {
     return true;
   }
 
+  // A measured row known to have grown (or shrunk) by `delta` since: a
+  // row off screen that gained a line. Unmeasured rows stay estimates.
+  adjust(key: string, delta: number): boolean {
+    const have = this.heights.get(key);
+    return have === undefined ? false : this.set(key, have + delta);
+  }
+
   // The height to assume for a row not measured yet.
   estimate(): number {
     return this.heights.size > 0 ? this.sum / this.heights.size : DEFAULT_ROW_HEIGHT;

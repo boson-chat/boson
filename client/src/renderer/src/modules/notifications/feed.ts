@@ -23,6 +23,9 @@ export interface Toast {
   // A message: the conversation it's in.
   serverId?: string;
   channel?: string;
+  // The message (a reply opens its thread: thread-nav.ts).
+  messageId?: string;
+  msgid?: string;
   // A friend request: who (for Accept / Ignore).
   friend?: Friend;
   // A missed call: who to call back, and how.

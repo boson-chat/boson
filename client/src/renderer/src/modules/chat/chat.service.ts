@@ -412,12 +412,16 @@ export function replyOf(tags: Record<string, string> | undefined): { replyTo?: s
   return {};
 }
 
-// A deleted message as kept: who and when, nothing of what it said.
+// A deleted message as kept: who and when, nothing of what it said. What
+// it answered stays (not shown: it keeps its place in a thread, and the
+// replies under it in theirs: threads.ts).
 function redactedCopy(m: ChatMessage): ChatMessage {
   return {
     id: m.id, kind: m.kind === 'notice' ? 'notice' : 'message', from: m.from, text: '', timestamp: m.timestamp,
     redacted: true,
     ...(m.msgid ? { msgid: m.msgid } : {}),
+    ...(m.replyTo ? { replyTo: m.replyTo } : {}),
+    ...(m.replyToId && !m.replyGuess ? { replyToId: m.replyToId } : {}),
     ...(m.serverTime !== undefined ? { serverTime: m.serverTime } : {}),
   };
 }
@@ -2134,7 +2138,7 @@ export class ChatService {
   // We don't parse the body — Atheme + Anope wrap memo events in
   // different banner formats and they evolve across versions. Storing
   // verbatim keeps the surface forward-compatible.
-  private storeInboxEntry(from: string, body: string, kind: MemoKind, channel?: string): void {
+  private storeInboxEntry(from: string, body: string, kind: MemoKind, channel?: string, line?: ChatMessage): void {
     if (!body) return;
     const serverId = this.serverScope?.serverId ?? '';
     getMemoStore().append({
@@ -2145,6 +2149,7 @@ export class ChatService {
       sender: from,
       kind,
       channel,
+      ...(line ? { messageId: line.id, ...(line.msgid ? { msgid: line.msgid } : {}) } : {}),
       text: body,
       timestamp: Date.now(),
     });
@@ -2908,7 +2913,7 @@ export class ChatService {
   // handler calls bumpUnread BEFORE appendMessage (which is what would
   // otherwise create the channel), so a DM from a brand-new sender would
   // silently no-op without this guard.
-  private bumpUnread(channel: string, from: string, text: string, notice = false, stamp?: number, replyToMe = false): void {
+  private bumpUnread(channel: string, from: string, text: string, notice = false, stamp?: number, replyToMe = false, line?: ChatMessage): void {
     if (this.isMe(from)) return;
     const key = this.channelKey(channel);
     // Service / server log channel never bumps — it's informational, and the
@@ -2944,6 +2949,7 @@ export class ChatService {
         text,
         kind: isDM ? 'dm' : isMention ? 'mention' : 'message',
         open,
+        ...(line ? { messageId: line.id, ...(line.msgid ? { msgid: line.msgid } : {}) } : {}),
       });
     }
 
@@ -3481,7 +3487,7 @@ export class ChatService {
           ...this.serverTimeOf(e),
         }, lineCh?.messages.peek() ?? []);
         const replyToMe = this.repliesToMe(lineCh, line);
-        if (!isBacklog && !quiet) this.bumpUnread(channel, e.From, text, e.Kind === 'NOTICE', e.Tags?.time ? eventTimestamp(e) : ts, replyToMe);
+        if (!isBacklog && !quiet) this.bumpUnread(channel, e.From, text, e.Kind === 'NOTICE', e.Tags?.time ? eventTimestamp(e) : ts, replyToMe, line);
         this.appendMessage(channel, line);
         // Replayed while we were away (a bouncer's buffer, ZNC playback):
         // unread when newer than how far the user had read.
@@ -3498,7 +3504,7 @@ export class ChatService {
         // from someone else that name us; the source channel is carried for
         // click-through. (Our own lines never count as a mention.)
         if (!isBacklog && !quiet && isChannel && !this.isMe(e.From) && (replyToMe || containsNickMention(text, this.myNick))) {
-          this.storeInboxEntry(e.From, text, 'mention', channel);
+          this.storeInboxEntry(e.From, text, 'mention', channel, line);
         }
         break;
       }

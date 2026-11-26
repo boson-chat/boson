@@ -35,6 +35,10 @@ export interface NotifyEvent {
   // The message is in the conversation currently open on screen: the
   // foreground server's active channel. Set by the chat service, which knows.
   open?: boolean;
+  // The message (local id, msgid): opening the notification of a reply
+  // opens the thread it's in (thread-nav.ts).
+  messageId?: string;
+  msgid?: string;
 }
 
 // Pure decision: should this event raise an OS notification right now?
@@ -87,7 +91,7 @@ export class Notifier {
   private domVisible = true;
   private native: WindowAttention | null = null;
   private started = false;
-  private onActivate?: (serverId: string, channel: string) => void;
+  private onActivate?: (serverId: string, channel: string, ev?: NotifyEvent) => void;
   private recent = new Map<string, number>();
   // System notifications still up (sign-out takes them down).
   private shown = new Set<Notification>();
@@ -143,7 +147,7 @@ export class Notifier {
     );
   }
 
-  setOnActivate(fn: (serverId: string, channel: string) => void): void {
+  setOnActivate(fn: (serverId: string, channel: string, ev?: NotifyEvent) => void): void {
     this.onActivate = fn;
   }
 
@@ -178,6 +182,8 @@ export class Notifier {
         nick: ev.from,
         serverId: ev.serverId,
         channel: ev.channel,
+        ...(ev.messageId ? { messageId: ev.messageId } : {}),
+        ...(ev.msgid ? { msgid: ev.msgid } : {}),
       });
       // The OS plays its own sound with a banner.
       if (settings.sound && !os) chime();
@@ -198,7 +204,7 @@ export class Notifier {
         silent: !settings.sound,
       });
       n.onclick = (): void => {
-        this.onActivate?.(ev.serverId, ev.channel);
+        this.onActivate?.(ev.serverId, ev.channel, ev);
         n.close();
       };
       this.track(n);
