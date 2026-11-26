@@ -43,6 +43,7 @@ export function useMessageExtras(msg: ChatMessage, myNick: string, actions: Mess
   const [confirming, setConfirming] = useState(false);
   const canReact = !!actions && !msg.pending && !msg.redacted && actions.canReact(msg);
   const canDelete = !!actions && !msg.pending && !msg.redacted && actions.canDelete(msg);
+  const mine = !!myNick && msg.from.toLowerCase() === myNick.toLowerCase();
 
   const openPickerAt = (el: Element | null): void => {
     if (!el || isNarrow()) { setPicker('dock'); return; }
@@ -93,12 +94,15 @@ export function useMessageExtras(msg: ChatMessage, myNick: string, actions: Mess
       {confirming && actions && (
         <ConfirmDialog
           open
-          title="Delete message?"
+          title={mine ? 'Delete message?' : `Delete ${msg.from}'s message?`}
           confirmLabel="Delete"
           onConfirm={() => { setConfirming(false); actions.remove(msg); }}
           onCancel={() => setConfirming(false)}
         >
-          It's deleted for everyone in the conversation. Apps that don't support deleting may still show it.
+          {mine
+            ? "It's deleted for everyone in the conversation."
+            : `You're deleting someone else's message, as a channel operator. It's deleted for everyone in the conversation.`}
+          {' '}Apps that don't support deleting may still show it.
         </ConfirmDialog>
       )}
     </>

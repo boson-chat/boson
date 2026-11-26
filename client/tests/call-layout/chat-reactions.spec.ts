@@ -58,14 +58,14 @@ test.describe('desktop', () => {
     await expect(chip(page, MENTION, '🚀')).toContainText('1');
   });
 
-  test('Delete on our own line only: confirm, then the deleted placeholder', async ({ page }) => {
+  test('Delete our own line: confirm, then the deleted placeholder', async ({ page }) => {
     await open(page, 1280, 800);
-    await row(page, MENTION).hover();
-    await expect(row(page, MENTION).getByRole('button', { name: 'Delete message' })).toHaveCount(0);
     await row(page, OWN).hover();
     await row(page, OWN).getByRole('button', { name: 'Delete message' }).click();
     const dialog = page.getByRole('dialog', { name: 'Delete message?' });
     await expect(dialog).toBeVisible();
+    await expect(dialog).not.toContainText('someone else');
+    await page.waitForTimeout(400); // the dialog has faded in
     await page.screenshot({ path: test.info().outputPath('desktop-delete-confirm.png') });
     await dialog.getByRole('button', { name: 'Delete' }).click();
     const gone = page.locator('main .message-row', { has: page.locator('.message-deleted') });
@@ -74,6 +74,32 @@ test.describe('desktop', () => {
     await expect(page.locator('main')).not.toContainText(OWN);
     await expect(gone.locator('.reaction-chip')).toHaveCount(0);
     await page.screenshot({ path: test.info().outputPath('desktop-deleted.png') });
+  });
+
+  test("as channel operator (founder): delete someone else's line, with a confirm that says so", async ({ page }) => {
+    await open(page, 1280, 800);
+    await row(page, MENTION).hover();
+    await row(page, MENTION).getByRole('button', { name: 'Delete message' }).click();
+    const dialog = page.getByRole('dialog', { name: "Delete nova's message?" });
+    await expect(dialog).toContainText("You're deleting someone else's message, as a channel operator.");
+    await page.waitForTimeout(400); // the dialog has faded in
+    await page.screenshot({ path: test.info().outputPath('desktop-op-delete-confirm.png') });
+    await dialog.getByRole('button', { name: 'Delete' }).click();
+    const gone = page.locator('main .message-row', { has: page.locator('.message-deleted') });
+    await expect(gone).toContainText('nova');
+    await expect(page.locator('main')).not.toContainText(MENTION);
+    await page.screenshot({ path: test.info().outputPath('desktop-op-deleted.png') });
+  });
+
+  test('a guest (no account) gets no Delete, even on their own line', async ({ page }) => {
+    await open(page, 1280, 800, '&guest=1');
+    await row(page, OWN).hover();
+    await expect(row(page, OWN).locator('.message-toolbar').getByRole('button', { name: 'Add reaction' })).toBeVisible();
+    await expect(row(page, OWN).getByRole('button', { name: 'Delete message' })).toHaveCount(0);
+    await page.screenshot({ path: test.info().outputPath('desktop-guest.png') });
+    await row(page, MENTION).click({ button: 'right', position: { x: 300, y: 10 } });
+    await expect(page.getByRole('menuitem', { name: 'Add reaction' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Delete message' })).toHaveCount(0);
   });
 
   test('a refused delete says so', async ({ page }) => {
@@ -141,6 +167,31 @@ test.describe('phone', () => {
     await expect(page.locator('main .message-deleted')).toHaveCount(1);
     await page.waitForTimeout(500); // the sheet has slid away
     await page.screenshot({ path: test.info().outputPath('phone-deleted.png') });
+  });
+});
+
+test.describe('phone (more)', () => {
+  test.use({ hasTouch: true, isMobile: true });
+
+  test("op: delete someone else's line from the sheet", async ({ page }) => {
+    await open(page, 390, 844, '&platform=ios');
+    await longPress(page, row(page, MENTION).locator('.message-row-text'));
+    await page.getByRole('menuitem', { name: 'Delete message' }).click();
+    const dialog = page.getByRole('dialog', { name: "Delete nova's message?" });
+    await expect(dialog).toBeVisible();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: test.info().outputPath('phone-op-delete-confirm.png') });
+    await dialog.getByRole('button', { name: 'Delete' }).click();
+    await expect(page.locator('main')).not.toContainText(MENTION);
+  });
+
+  test('guest: the sheet has no Delete', async ({ page }) => {
+    await open(page, 390, 844, '&platform=ios&guest=1');
+    await longPress(page, row(page, OWN).locator('.message-row-text'));
+    await expect(page.getByRole('menuitem', { name: 'Add reaction' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Delete message' })).toHaveCount(0);
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: test.info().outputPath('phone-guest-sheet.png') });
   });
 });
 

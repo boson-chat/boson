@@ -849,7 +849,8 @@ function chatView(): void {
   }
 
   // ?reactions=1: a server with message-tags, echo-message and (unless
-  // &redact=0) draft/message-redaction. Some lines carry reactions, one
+  // &redact=0) draft/message-redaction; we're signed in (&guest=1: not) and
+  // founder of #dev (so may delete anyone's line there). Some lines carry reactions, one
   // arriving before its message and one replayed by CHATHISTORY
   // (event-playback); our own line can be deleted. &redactfail=1: the
   // server refuses deletes (FAIL REDACT).
@@ -857,6 +858,10 @@ function chatView(): void {
     const redact = q0.get('redact') !== '0';
     const caps = ['message-tags', 'echo-message', 'batch', 'server-time', 'draft/chathistory', 'draft/event-playback', ...(redact ? ['draft/message-redaction'] : [])];
     session.emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: caps.join(' '), Args: ['ACK'], Raw: '' });
+    // Signed in (Delete needs an account), unless &guest=1.
+    if (q0.get('guest') !== '1') {
+      session.emit({ Kind: '900', From: 'irc.nebula.example', Target: NICK, Message: `You are now logged in as ${NICK}`, Args: [`${NICK}!${NICK}@nebula`, NICK, `You are now logged in as ${NICK}`], Raw: '' });
+    }
     let seq = 0;
     tagHook = (target, tags) => setTimeout(() => session.emit({
       Kind: 'TAGMSG', From: NICK, Target: target, Message: '', Raw: '',

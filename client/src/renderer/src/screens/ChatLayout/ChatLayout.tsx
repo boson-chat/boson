@@ -321,9 +321,11 @@ export function ChatLayout({
       request: (n: string) => chat.requestWhois(n),
       seen: (n: string) => chat.seen?.get(n),
     } : undefined;
-    const message = active ? messageActionsFor(chat, active.name, reactCaps, redactCap, state.myNick) : undefined;
+    const message = active ? messageActionsFor(chat, active.name, {
+      reactions: reactCaps, redaction: redactCap, myNick: state.myNick, myAccount, myRank: myRankHere, isChannel,
+    }) : undefined;
     return { onSendMessage: (nick: string) => chat.openDM(nick), ops, profiles, message };
-  }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere, reactCaps, redactCap, state.myNick]);
+  }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere, reactCaps, redactCap, state.myNick, myAccount]);
 
   // Resolves a nick → profile-image URL for Boson members on this server
   // (own avatar + presence matches), shared by the chat stream + member list.
