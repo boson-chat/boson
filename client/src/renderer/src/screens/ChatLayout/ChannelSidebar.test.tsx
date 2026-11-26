@@ -247,3 +247,17 @@ describe('ChannelSidebar leaving (in the row menu, not an ×)', () => {
     expect(onOpenAllDms).toHaveBeenCalled();
   });
 });
+
+describe('ChannelSidebar openJoinRequest', () => {
+  it('opens the channel browser once and reports it handled', () => {
+    const handled = vi.fn();
+    render(<ChannelSidebar {...baseProps} openJoinRequest onJoinRequestHandled={handled} />);
+    expect(screen.getByRole('dialog', { name: /join (or create )?a channel/i })).toBeTruthy();
+    expect(handled).toHaveBeenCalledTimes(1);
+  });
+
+  it('a list mounted without a pending request leaves the browser closed', () => {
+    render(<ChannelSidebar {...baseProps} openJoinRequest={false} />);
+    expect(screen.queryByRole('dialog', { name: /join (or create )?a channel/i })).toBeNull();
+  });
+});

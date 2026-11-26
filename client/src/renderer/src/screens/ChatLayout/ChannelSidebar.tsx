@@ -83,8 +83,12 @@ interface ChannelSidebarProps {
   // The server's directory description: under its name in place of the
   // daemon's version (which stays in the tooltip).
   serverDescription?: string;
-  // Bumped to open the channel browser (the welcome's "Browse all channels").
-  openJoinRequest?: number;
+  // Set to open the channel browser (the welcome's "Browse all channels"):
+  // a one-shot request. The list opens the browser and calls
+  // onJoinRequestHandled, which must clear it, so a list mounted later
+  // (back from MY, Friends or Calls) doesn't open it again unasked.
+  openJoinRequest?: boolean;
+  onJoinRequestHandled?: () => void;
 }
 
 export function ChannelSidebar({
@@ -115,7 +119,8 @@ export function ChannelSidebar({
   channelVoice,
   channelAction,
   serverDescription,
-  openJoinRequest = 0,
+  openJoinRequest = false,
+  onJoinRequestHandled,
 }: ChannelSidebarProps) {
   // Ref-backed view of the channels prop so the bloc always reads the latest
   // list without us rebuilding it on every render. Same pattern as ChatArea
@@ -152,7 +157,13 @@ export function ChannelSidebar({
     bloc.notifyChannelsChanged();
   }, [channels, orderSig, bloc]);
 
-  useEffect(() => { if (openJoinRequest > 0) bloc.openJoinModal(); }, [openJoinRequest, bloc]);
+  const joinHandledRef = useRef(onJoinRequestHandled);
+  joinHandledRef.current = onJoinRequestHandled;
+  useEffect(() => {
+    if (!openJoinRequest) return;
+    bloc.openJoinModal();
+    joinHandledRef.current?.();
+  }, [openJoinRequest, bloc]);
 
   const [state, setState] = useState<ChannelSidebarState>(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
