@@ -213,10 +213,12 @@ export function ChatLayout({
   // conversation); the header's members button shows / hides it.
   const membersOpen = useMembersOpen();
   // In no channel (or conversation) of this server yet: the chat area
-  // welcomes you to it instead of an empty room. Bumping joinRequest opens
-  // the sidebar's channel browser.
+  // welcomes you to it instead of an empty room. Setting joinRequest opens
+  // the sidebar's channel browser once: the sidebar clears it when it has
+  // (it used to be a counter that stayed above zero, so every remount of
+  // the sidebar — back from MY / Calls — opened the browser again).
   const hasConversations = state.channels.some((c) => !c.name.startsWith('~'));
-  const [joinRequest, setJoinRequest] = useState(0);
+  const [joinRequest, setJoinRequest] = useState(false);
 
   // Phones (and narrow windows) show one screen at a time, like the
   // desktop's columns in turn: the rail with the channel list, or a page
@@ -616,6 +618,7 @@ export function ChatLayout({
           creation={channelCreation}
           serverDescription={serverDescription}
           openJoinRequest={joinRequest}
+          onJoinRequestHandled={() => setJoinRequest(false)}
           onOpenSettings={
             onOpenServerSettings && activeServerId
               ? () => onOpenServerSettings(activeServerId)
@@ -715,7 +718,7 @@ export function ChatLayout({
               description={serverDescription}
               channels={welcomeChannels(serverChannels ?? [], state.channelDirectory.entries)}
               onJoin={(name) => chat.join(name, { byUser: true })}
-              onBrowse={() => setJoinRequest((n) => n + 1)}
+              onBrowse={() => setJoinRequest(true)}
             />
           ) : undefined}
           // One members toggle on every non-phone width: at mid width it
