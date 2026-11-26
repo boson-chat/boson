@@ -1,3 +1,9 @@
+## [0.101.0](https://github.com/boson-chat/boson/compare/v0.100.0...v0.101.0) (2026-11-26)
+
+### Features
+
+* **chat:** threads from reply chains, with a thread panel ([#164](https://github.com/boson-chat/boson/issues/164)) ([f6487c2](https://github.com/boson-chat/boson/commit/f6487c279b201999bd709a0bb5ab7eb25d68d39f))
+
 ## [0.100.0](https://github.com/boson-chat/boson/compare/v0.99.0...v0.100.0) (2026-11-26)
 
 ### Features
