@@ -1,3 +1,9 @@
+## [0.102.0](https://github.com/boson-chat/boson/compare/v0.101.3...v0.102.0) (2026-11-26)
+
+### Features
+
+* **netauth:** federated sign-in ("Continue as alice@home") ([#167](https://github.com/boson-chat/boson/issues/167)) ([05926bb](https://github.com/boson-chat/boson/commit/05926bbeeb4546a9742912813388f7070ddc1df8))
+
 ## [0.101.3](https://github.com/boson-chat/boson/compare/v0.101.2...v0.101.3) (2026-11-26)
 
 ### Bug Fixes
