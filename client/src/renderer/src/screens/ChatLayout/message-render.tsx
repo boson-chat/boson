@@ -377,7 +377,8 @@ export function ReplyQuote({ parent, guessed = false, onJumpTo }: {
       </div>
     );
   }
-  const text = parent.kind === 'action' ? `* ${parent.from} ${excerptOf(parent.text)}` : excerptOf(quoteText(parent));
+  const text = parent.redacted ? 'Message deleted'
+    : parent.kind === 'action' ? `* ${parent.from} ${excerptOf(parent.text)}` : excerptOf(quoteText(parent));
   return (
     <button
       type="button"
