@@ -223,4 +223,48 @@ describe('ChatService — event-playback history', () => {
     replay(session, 'h7', evs);
     expect(channel(chat, '#t')!.history?.exhausted).toBe(false);
   });
+
+  it('scroll-back after a page of only JOIN/QUIT/TAGMSG asks before its oldest event, and is not exhausted', () => {
+    const { chat, session } = joined();
+    // The newest page: a full one, of lines.
+    replay(session, 'p0', Array.from({ length: 50 }, (_, i) =>
+      ev({ Kind: 'PRIVMSG', From: 'bob', Target: '#t', Message: `line ${i}`, Tags: { msgid: `l${i}`, time: at(1000 + i) } })));
+    session.raws.length = 0;
+    chat.loadOlderHistory('#t');
+    expect(session.raws).toEqual([`CHATHISTORY BEFORE #t timestamp=${at(1000)} 50`]);
+    // The answer: 50 items, every one an event, none of them a row.
+    const evs: IrcEvent[] = [];
+    for (let i = 0; i < 50; i++) {
+      const Kind = ['JOIN', 'QUIT', 'TAGMSG'][i % 3]!;
+      const From = i % 3 === 0 ? 'Nyan' : `u${i}`; // our own joins make no row
+      evs.push(ev({ Kind, From, Target: '#t', Tags: { msgid: `e${i}`, time: at(500 + i), ...(Kind === 'TAGMSG' ? { '+typing': 'active' } : {}) } }));
+    }
+    const rowsBefore = channel(chat, '#t')!.messages.length;
+    session.emit(ev({ Kind: 'BATCH', Args: ['+p1', 'chathistory', '#t'] }));
+    for (const e of evs) session.emit({ ...e, Tags: { batch: 'p1', ...e.Tags } });
+    session.emit(ev({ Kind: 'BATCH', Args: ['-p1'] }));
+    const ch = channel(chat, '#t')!;
+    expect(ch.history?.exhausted).toBe(false);
+    expect(ch.messages.length - rowsBefore).toBe(17); // the 17 quits; joins are ours, TAGMSGs never rows
+    // Next page: before the oldest event (at(500)), not the same page again.
+    session.raws.length = 0;
+    chat.loadOlderHistory('#t');
+    expect(session.raws).toEqual([`CHATHISTORY BEFORE #t timestamp=${at(500)} 50`]);
+  });
+
+  it('a search page of only events reports what it received and its oldest time', async () => {
+    const { chat, session } = joined();
+    replay(session, 'p0', []); // the join's own backlog request, answered
+    const p = chat.fetchHistory('#t', 'BEFORE', { timestamp: T0 + 1_000_000 }, 3);
+    session.emit(ev({ Kind: 'BATCH', Args: ['+s1', 'chathistory', '#t'] }));
+    session.emit(ev({ Kind: 'TAGMSG', From: 'bob', Target: '#t', Tags: { batch: 's1', '+typing': 'active', time: at(30) } }));
+    session.emit(ev({ Kind: 'JOIN', From: 'Nyan', Target: '#t', Tags: { batch: 's1', time: at(20) } }));
+    session.emit(ev({ Kind: 'QUIT', From: 'bob', Message: 'x', Tags: { batch: 's1', time: at(10) } }));
+    session.emit(ev({ Kind: 'BATCH', Args: ['-s1'] }));
+    const page = await p;
+    expect(page.received).toBe(3);
+    expect(page.oldest).toBe(T0 + 10_000);
+    expect(page.map((m) => m.kind)).toEqual(['quit']);
+  });
 });
+

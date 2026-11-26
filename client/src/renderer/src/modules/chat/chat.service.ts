@@ -161,7 +161,18 @@ interface HistoryBatch {
   // Items the server sent, rows or not (TAGMSGs, our own replayed joins,
   // HistServ's stand-ins…): a full page means there may be more.
   received?: number;
+  // The oldest server time among them, rows or not: where the next
+  // CHATHISTORY BEFORE starts (a page of events may make no row at all).
+  oldest?: number;
 }
+
+/**
+ * A page fetchHistory answers with: the rows, plus how many items the
+ * server actually sent and the oldest one's server time — with
+ * event-playback a page can be all joins / quits / TAGMSGs that make few
+ * or no rows, and it's not the end of history for that.
+ */
+export type HistoryPage = ChatMessage[] & { received?: number; oldest?: number };
 
 // History events (draft/event-playback): JOIN/PART/QUIT/KICK/NICK/TOPIC/MODE
 // replayed inside a chathistory batch. They become the same rows live events
@@ -176,7 +187,7 @@ const EVENT_ROW_KINDS: ReadonlySet<ChatMessageKind> = new Set(['join', 'part', '
 interface HistoryQuery {
   seq: number;
   target: string;
-  resolve: (msgs: ChatMessage[]) => void;
+  resolve: (msgs: HistoryPage) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -457,6 +468,10 @@ export class ChatService {
   private readonly batches = new Map<string, HistoryBatch>();
   // Refs of batches nested in a history batch (aliases in `batches`).
   private readonly nestedBatches = new Set<string>();
+  // Per conversation: the oldest server time any history page reached,
+  // rows or not. Scroll-back asks for what's before the older of this and
+  // the top row, so a page of events that made no row isn't asked again.
+  private readonly historyFloor = new Map<string, number>();
   // Channels we've already auto-requested LATEST backlog for (once per open).
   private readonly historyRequested = new Set<string>();
   // Set once the server 421s a CHATHISTORY command (advertised the cap but
@@ -2407,6 +2422,7 @@ export class ChatService {
     const ch = this.channels.get(this.activeChannel);
     this.older.drop(this.activeChannel);
     this.revealed.delete(this.activeChannel);
+    this.historyFloor.delete(this.activeChannel);
     if (ch) {
       ch.messages.value = [];
       ch.history = undefined;
@@ -3387,7 +3403,12 @@ export class ChatService {
           const batch = this.batches.get(ref.slice(1));
           if (batch) {
             this.batches.delete(ref.slice(1));
-            if (batch.query) this.settleHistoryQuery(batch.query, [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp));
+            if (batch.query) {
+              const page: HistoryPage = [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp);
+              page.received = batch.received ?? batch.msgs.length;
+              if (batch.oldest !== undefined) page.oldest = batch.oldest;
+              this.settleHistoryQuery(batch.query, page);
+            }
             else this.flushHistoryBatch(batch);
           }
           const targets = this.targetBatches.get(ref.slice(1));
@@ -4128,6 +4149,7 @@ export class ChatService {
       this.historyRequested.delete(key);
       this.older.drop(key);
       this.revealed.delete(key);
+      this.historyFloor.delete(key);
       this.pendingHistoryKind.delete(key);
       this.pendingHistorySeq.delete(key);
       this.clearLoadOlderTimeout(key);
@@ -4278,12 +4300,12 @@ export class ChatService {
    * (older than `ref`) or AROUND (centred on it). Rejects without
    * CHATHISTORY, on a 421 / FAIL, a reconnect, or no answer in time.
    */
-  fetchHistory(target: string, sub: 'BEFORE' | 'AROUND', ref: HistoryRef, limit: number): Promise<ChatMessage[]> {
+  fetchHistory(target: string, sub: 'BEFORE' | 'AROUND', ref: HistoryRef, limit: number): Promise<HistoryPage> {
     if (!this.chathistorySupported()) return Promise.reject(new Error('This server does not keep history'));
     const n = Math.max(1, Math.min(Math.floor(limit), this.historyQueryLimit()));
     const refArg = 'msgid' in ref ? `msgid=${ref.msgid}` : `timestamp=${new Date(ref.timestamp).toISOString()}`;
     const lower = target.toLowerCase();
-    return new Promise<ChatMessage[]>((resolve, reject) => {
+    return new Promise<HistoryPage>((resolve, reject) => {
       const q: HistoryQuery = {
         seq: ++this.historySeq,
         target: lower,
@@ -4323,7 +4345,7 @@ export class ChatService {
     if (list.length === 0) this.historyQueries.delete(q.target);
   }
 
-  private settleHistoryQuery(q: HistoryQuery, msgs: ChatMessage[]): void {
+  private settleHistoryQuery(q: HistoryQuery, msgs: HistoryPage): void {
     clearTimeout(q.timer);
     q.resolve(msgs);
   }
@@ -4410,7 +4432,9 @@ export class ChatService {
 
     if (this.chathistorySupported()) {
       if (!first) return; // nothing to anchor before yet
-      const pivot = new Date(first.timestamp).toISOString();
+      // Server time (what CHATHISTORY pages by), and no later than the
+      // oldest item a page has brought, shown or not.
+      const pivot = new Date(Math.min(first.serverTime ?? first.timestamp, this.historyFloor.get(key) ?? Infinity)).toISOString();
       ch.history = { loading: true, exhausted: false };
       this.expectHistory(key, 'before');
       this.armLoadOlderTimeout(key);
@@ -4625,6 +4649,10 @@ export class ChatService {
       });
     }
     batch.received = (batch.received ?? 0) + 1;
+    if (e.Tags?.time) {
+      const t = eventTimestamp(e);
+      if (batch.oldest === undefined || t < batch.oldest) batch.oldest = t;
+    }
     if (e.Kind === 'TAGMSG') { this.handleHistoryTagmsg(batch, e); return; }
     if (HISTORY_EVENT_KINDS.has(e.Kind)) {
       const row = this.historyEventRow(batch.target, e);
@@ -4786,6 +4814,7 @@ export class ChatService {
       loading: false,
       exhausted: this.older.has(key) ? false : serverHistory ? Math.max(batch.msgs.length, batch.received ?? 0) < this.chathistoryLimit() : true,
     };
+    if (batch.oldest !== undefined && batch.oldest < (this.historyFloor.get(key) ?? Infinity)) this.historyFloor.set(key, batch.oldest);
     this.pendingHistoryKind.delete(key);
     this.pendingHistorySeq.delete(key);
     this.clearLoadOlderTimeout(key);

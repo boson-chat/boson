@@ -161,4 +161,26 @@ describe('HistoryPager', () => {
     await p.loadOlder(src, 10_000);
     expect(calls).toEqual([10_000, 1_000]);
   });
+
+  it('a page that is all events (joins, quits, TAGMSGs) moves the cursor and is not the end', async () => {
+    const calls: number[] = [];
+    const source: HistorySource = {
+      supported: () => true,
+      chunkLimit: () => 100,
+      fetchBefore: vi.fn(async (before: number) => {
+        calls.push(before);
+        // First page: 100 events, no lines; then one line; then nothing.
+        if (calls.length === 1) return Object.assign([] as ChatMessage[], { received: 100, oldest: before - 100_000 });
+        if (calls.length === 2) return [{ id: 'x', kind: 'message', from: 'mox', text: 'old dns', timestamp: before - 1000 }] as ChatMessage[];
+        return [];
+      }),
+    };
+    const p = new HistoryPager();
+    await p.loadOlder(source, T_END);
+    expect(calls[0]).toBe(T_END);
+    expect(calls[1]).toBe(T_END - 100_000); // continues past the events, not the same page again
+    expect(p.getState().lines.map((l) => l.id)).toEqual(['x']);
+    expect(p.getState().status).toBe('end');
+  });
 });
+

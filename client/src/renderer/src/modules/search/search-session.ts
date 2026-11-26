@@ -51,7 +51,7 @@ export function clearSearchSessions(): void {
 export interface SearchChat {
   chathistorySupported(): boolean;
   historyQueryLimit(): number;
-  fetchHistory(target: string, sub: 'BEFORE' | 'AROUND', ref: { msgid: string } | { timestamp: number }, limit: number): Promise<ChatMessage[]>;
+  fetchHistory(target: string, sub: 'BEFORE' | 'AROUND', ref: { msgid: string } | { timestamp: number }, limit: number): Promise<ChatMessage[] & { received?: number; oldest?: number }>;
   revealHistory(channel: string, msgs: readonly ChatMessage[], focus: ChatMessage): string | null;
 }
 

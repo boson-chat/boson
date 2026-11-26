@@ -24,8 +24,13 @@ export interface HistorySource {
   supported(): boolean;
   /** The most one request may ask for. */
   chunkLimit(): number;
-  /** Up to `limit` messages older than `beforeMs` (server time), oldest first. */
-  fetchBefore(beforeMs: number, limit: number): Promise<ChatMessage[]>;
+  /**
+   * Up to `limit` messages older than `beforeMs` (server time), oldest
+   * first. `received` / `oldest`, when given: how many items the server
+   * sent and the oldest one's server time — events (joins, quits, TAGMSGs)
+   * count toward the page and move the cursor without being lines.
+   */
+  fetchBefore(beforeMs: number, limit: number): Promise<ChatMessage[] & { received?: number; oldest?: number }>;
 }
 
 export interface PagerState {
@@ -84,9 +89,10 @@ export class HistoryPager {
         const page = await source.fetchBefore(cursor, want);
         // Nothing older (a short page is followed by one more request: a
         // server may cap pages below what was asked).
-        if (page.length === 0) { ended = true; break; }
-        got += page.length;
-        const oldest = Math.min(...page.map(serverTimeOf));
+        const received = Math.max(page.length, page.received ?? 0);
+        if (received === 0) { ended = true; break; }
+        got += received;
+        const oldest = Math.min(page.oldest ?? Infinity, ...page.map(serverTimeOf));
         // A server that ignored BEFORE would loop forever.
         if (oldest >= cursor) { ended = true; break; }
         cursor = oldest;
