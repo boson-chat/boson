@@ -9,6 +9,7 @@ import './styles.css';
 import './shared/modal-portal';
 import { trackVisualViewport } from './shared/visual-viewport';
 import { ChatService } from './modules/chat';
+import { MemoryOlderStore } from './modules/history/older-store';
 import type { IrcEvent, EventListener } from './modules/engine';
 import { ChatLayout } from './screens/ChatLayout';
 import { AuthProvider } from './modules/auth';
@@ -738,6 +739,9 @@ function chatView(): void {
     session as never,
     NICK,
     { history: { append: async () => {}, load: async () => [] } as never, scope: { userId: 'u', serverId: 's1', serverName: 'Nebula' } },
+    // &order=1: small memory windows over a store that answers late (like
+    // IndexedDB), so lines leave memory and come back on scroll-up.
+    q0.get('order') === '1' ? { olderStore: slowOlderStore(), windows: { active: 40, tail: 20, page: 40 } } : undefined,
   );
   chat.attach();
   if (searchMode) session.emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: 'batch server-time message-tags chathistory', Args: ['ACK'], Raw: '' });
@@ -978,6 +982,7 @@ function chatView(): void {
     chat.openDM('NickServ');
   }
   chat.setActive(CHAN);
+  if (q0.get('order') === '1') orderScenario(chat, session.emit);
   // &late=1: #members is saved first but only lets registered users in, so
   // it's refused until NickServ has identified us and joins after #ops.
   if (q0.get('late') === '1') {
@@ -1035,6 +1040,42 @@ function chatView(): void {
     setTimeout(pin, 400);
     setTimeout(pin, 1200);
   }
+}
+
+// An OlderStore whose pages arrive 300 ms late, like IndexedDB's.
+function slowOlderStore(): MemoryOlderStore {
+  const store = new MemoryOlderStore();
+  const take = store.takeNewest.bind(store);
+  (store as { takeNewest: (k: string, n: number) => unknown }).takeNewest = (k: string, n: number) =>
+    new Promise((res) => setTimeout(() => res(take(k, n)), 300));
+  return store;
+}
+
+// &order=1: the ordering bug seen through evrd. #dev's older lines
+// ("It's now automated", "cool" and the talk after them) have left memory;
+// the user steps away to #ops and back, and while the window refills from
+// the store, the reconnect's backlog lands with a line this device never
+// got, older than all of them ("test"). It belongs at the top, not under
+// lines that come back from the store. window.__late(text, minutesAgo)
+// sends another late line later (the spec, scrolled up).
+function orderScenario(chat: ChatService, emit: (e: IrcEvent) => void): void {
+  emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: 'batch server-time', Args: ['ACK'], Raw: '' });
+  chat.setForeground(true);
+  const now = Date.now(); // one clock: a replayed line has the same time
+  const at = (mAgo: number) => new Date(now - mAgo * 60_000).toISOString();
+  const say = (from: string, text: string, mAgo: number, batch?: string): void =>
+    emit({ Kind: 'PRIVMSG', From: from, Target: CHAN, Message: text, Tags: { time: at(mAgo), ...(batch ? { batch } : {}) }, Raw: '' });
+  say(NICK, "It's now automated. I have it flag accounts", 120);
+  say('jrmu', 'cool', 100);
+  for (let i = 0; i < 60; i++) say(['kestrel', 'pixel', 'orbit', 'mox'][i % 4]!, `earlier talk ${i}`, 90 - i);
+  emit({ Kind: 'JOIN', From: NICK, Target: '#ops', Message: '', Raw: '' });
+  chat.setActive('#ops');
+  chat.setActive(CHAN);
+  emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: ['+late', 'chathistory', CHAN], Raw: '' });
+  say(NICK, 'test', 130, 'late');
+  say('jrmu', 'cool', 100, 'late');
+  emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: ['-late'], Raw: '' });
+  (window as unknown as { __late?: (text: string, mAgo: number) => void }).__late = (text, mAgo) => say(NICK, text, mAgo);
 }
 
 // The app frame for &frame=1: the title bar (bell, avatar) above the layout,
