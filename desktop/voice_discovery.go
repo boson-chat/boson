@@ -68,6 +68,9 @@ type VoiceDiscovery struct {
 	IRC *NetworkIRC `json:"irc,omitempty"`
 	// Branding is the network's theme document URL (boson.json branding).
 	Branding string `json:"branding,omitempty"`
+	// Federation is the network's federated sign-in block (boson.json
+	// federation), with Domain set; nil when absent or invalid.
+	Federation *FederationInfo `json:"federation,omitempty"`
 	// Files is the network's files host (boson.json files.url); set for dev
 	// overrides only — FilesService reads live documents itself.
 	Files string `json:"-"`
@@ -305,7 +308,7 @@ func (d *voiceDiscoverer) loadNetworkOverrides(paths string) {
 			d.overrideNets = map[string]*VoiceDiscovery{}
 		}
 		irc := &NetworkIRC{Host: host, Port: doc.IRC.Port, TLS: doc.IRC.TLS}
-		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Branding: parseWellKnownBranding(body, true), Files: parseWellKnownFiles(body, true), Definitive: true}
+		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Branding: parseWellKnownBranding(body, true), Federation: parseWellKnownFederation(body, true).withDomain(voiceDomain(host)), Files: parseWellKnownFiles(body, true), Definitive: true}
 	}
 }
 
@@ -412,8 +415,8 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 		res.Definitive = true
 		return res
 	}
-	info, answered, auth, dir, branding := d.fetchWellKnownAll(ctx, domain)
-	res.Auth, res.Directory, res.Branding = auth, dir, branding
+	info, answered, auth, dir, branding, fed := d.fetchWellKnownAll(ctx, domain)
+	res.Auth, res.Directory, res.Branding, res.Federation = auth, dir, branding, fed.withDomain(domain)
 	if info != nil {
 		res.Voice, res.Definitive = info, true
 		return res
@@ -442,18 +445,19 @@ func (d *voiceDiscoverer) check(ctx context.Context, host string) *VoiceDiscover
 // fetchWellKnownAll reads the domain's boson.json: its voice, auth service,
 // directory and branding. answered: the server replied (even 404 or an
 // invalid document), as opposed to a network error.
-func (d *voiceDiscoverer) fetchWellKnownAll(ctx context.Context, domain string) (info *VoiceInfo, answered bool, auth, directory, branding string) {
+func (d *voiceDiscoverer) fetchWellKnownAll(ctx context.Context, domain string) (info *VoiceInfo, answered bool, auth, directory, branding string, fed *FederationInfo) {
 	body, answered := d.fetchWellKnownBody(ctx, domain)
 	if body == nil {
-		return nil, answered, "", "", ""
+		return nil, answered, "", "", "", nil
 	}
 	auth, directory = parseWellKnownNetwork(body, d.allowHTTP)
 	branding = parseWellKnownBranding(body, d.allowHTTP)
+	fed = parseWellKnownFederation(body, d.allowHTTP)
 	info, err := parseWellKnown(body, d.allowHTTP)
 	if err != nil {
-		return nil, true, auth, directory, branding
+		return nil, true, auth, directory, branding, fed
 	}
-	return info, true, auth, directory, branding
+	return info, true, auth, directory, branding, fed
 }
 
 // fetchWellKnownBody is the domain's boson.json document (nil unless it
@@ -517,6 +521,9 @@ func (d *voiceDiscoverer) load() {
 		}
 		if r.Branding != "" && cleanBrandingURL(r.Branding, d.allowHTTP) != r.Branding {
 			r.Branding = ""
+		}
+		if r.Federation != nil {
+			r.Federation = cleanFederation(r.Federation, d.allowHTTP)
 		}
 		d.cache[host] = r
 	}

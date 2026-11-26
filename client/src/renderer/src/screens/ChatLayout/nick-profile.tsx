@@ -290,18 +290,23 @@ export function NickProfileDetails({ nick, member, whois, seen, line }: {
 }
 
 /** Avatar, nick, last activity and channel role. */
-export function NickProfileHead({ nick, member, avatarUrl, size }: {
+export function NickProfileHead({ nick, member, avatarUrl, size, home }: {
   nick: string;
   member: ChatMember | null;
   avatarUrl?: string;
   size: number;
+  /** A federated user's home domain (shown as a small @domain). */
+  home?: string;
 }) {
   const activity = member ? memberActivity(member) : null;
   return (
     <div class="nick-profile-head">
       <Avatar nick={nick} url={avatarUrl} size={size} />
       <div class="nick-profile-who">
-        <span class="nick-profile-nick">{nick}</span>
+        <span class="nick-profile-nick">
+          {nick}
+          {home && <span class="nick-profile-home" title={`Signed in with an account from ${home}`}>@{home}</span>}
+        </span>
         {activity && <span class="nick-profile-activity">{activity}</span>}
       </div>
       {member && (
@@ -417,7 +422,7 @@ export function NickProfileCard({ nick, member, avatarUrl, anchor, side = 'below
       aria-label={nick}
       style={`width: ${CARD_WIDTH}px; top: ${anchor.bottom + 6}px; left: ${anchor.left}px;`}
     >
-      <NickProfileHead nick={nick} member={member} avatarUrl={avatarUrl} size={40} />
+      <NickProfileHead nick={nick} member={member} avatarUrl={avatarUrl} size={40} home={profiles?.home?.(nick, member?.account ?? whois?.account)} />
       <NickProfileDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />
       <div class="nick-profile-card-person"><PersonMenu nick={nick} account={member?.account ?? whois?.account} variant="menu" onDone={onClose} /></div>
       {actions.length > 0 && (

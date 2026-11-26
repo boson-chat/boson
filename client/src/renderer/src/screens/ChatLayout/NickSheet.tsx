@@ -27,7 +27,7 @@ export function NickSheet({ nick, member, avatarUrl, actions, profiles, line, on
       label={nick}
       actions={actions}
       onClose={onClose}
-      header={<NickProfileHead nick={nick} member={member} avatarUrl={avatarUrl} size={44} />}
+      header={<NickProfileHead nick={nick} member={member} avatarUrl={avatarUrl} size={44} home={profiles?.home?.(nick, member?.account ?? whois?.account)} />}
     >
       <PersonMenu nick={nick} account={member?.account ?? whois?.account} variant="sheet" onDone={onClose} />
       <NickProfileDetails nick={nick} member={member} whois={whois} seen={seen} line={line} />

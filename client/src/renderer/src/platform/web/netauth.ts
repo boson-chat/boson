@@ -4,6 +4,7 @@
 // allowlists the service for its API proxy; on the web the browser talks
 // to it directly (the service's CORS allows the app's origin).
 import { cleanBaseUrl, discoveryDomain, type NetworkDiscoverer, type NetworkIRC } from './discovery';
+import type { FederationInfo } from '../../modules/netauth/federation';
 
 export interface WebNetAuthDeps {
   discoverer: NetworkDiscoverer;
@@ -65,13 +66,17 @@ export function webNetAuthBridge(deps: WebNetAuthDeps) {
   return {
     async discover(host: string, refresh: boolean) {
       const d = await deps.discoverer.discover(host, refresh);
-      const out: { host: string; authUrl?: string; directoryUrl?: string; brandingUrl?: string; main: boolean; error?: string } = {
+      const out: { host: string; authUrl?: string; directoryUrl?: string; brandingUrl?: string; federation?: FederationInfo; main: boolean; error?: string } = {
         host: d.host, main: false, ...(d.branding ? { brandingUrl: d.branding } : {}),
       };
       if (!d.auth) return out;
       const t = trust(d.auth);
       if ('error' in t) return { ...out, error: t.error };
-      return { ...out, authUrl: t.base, main: t.main, ...(d.directory ? { directoryUrl: d.directory } : {}) };
+      return {
+        ...out, authUrl: t.base, main: t.main,
+        ...(d.directory ? { directoryUrl: d.directory } : {}),
+        ...(d.federation ? { federation: { ...d.federation, domain: d.domain || d.host } } : {}),
+      };
     },
 
     async resolve(address: string) {
@@ -85,7 +90,13 @@ export function webNetAuthBridge(deps: WebNetAuthDeps) {
         return out['irc'] ? res : { ...res, error: 'no-irc' };
       };
       const o = deps.discoverer.override(host);
-      if (o?.irc) return finish({ host, domain: host, irc: o.irc, ...(o.branding ? { brandingUrl: o.branding } : {}) }, o.auth, o.directory);
+      if (o?.irc) {
+        return finish({
+          host, domain: host, irc: o.irc,
+          ...(o.branding ? { brandingUrl: o.branding } : {}),
+          ...(o.federation ? { federation: { ...o.federation, domain: host } } : {}),
+        }, o.auth, o.directory);
+      }
       const domain = discoveryDomain(host);
       const candidates = domain ? (host !== domain ? [domain, host] : [domain]) : [];
       let answered = false;
@@ -93,7 +104,11 @@ export function webNetAuthBridge(deps: WebNetAuthDeps) {
         const d = await deps.discoverer.lookup(host, c);
         answered ||= d.answered;
         if (!d.answered || (!d.irc && !d.auth && !d.branding && !d.directory && !d.voice && !d.files)) continue;
-        const out: Record<string, unknown> = { host, domain: c, ...(d.branding ? { brandingUrl: d.branding } : {}) };
+        const out: Record<string, unknown> = {
+          host, domain: c,
+          ...(d.branding ? { brandingUrl: d.branding } : {}),
+          ...(d.federation ? { federation: { ...d.federation, domain: c } } : {}),
+        };
         if (d.irc) {
           const irc = cleanIRC(d.irc);
           if ('error' in irc) return { ...out, main: false, error: 'no-irc', detail: irc.error };

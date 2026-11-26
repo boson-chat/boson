@@ -150,11 +150,12 @@ function NetworkStep({ accounts, outcome, onChange, onGuest }: {
 
   const signedIn = (): void => {
     accounts.nameIfUnnamed(link.authUrl, name);
-    const user = auth.getState().session?.user;
+    const session = auth.getState().session;
+    const user = session?.user;
     enterWithServer({
       accounts,
       server: { address: outcome.address, name, irc, authUrl: link.authUrl },
-      nick: user?.username || user?.email || 'guest',
+      nick: session?.federated?.handle || user?.username || user?.email || 'guest',
       asGuest: false,
     });
   };
@@ -192,6 +193,7 @@ function NetworkStep({ accounts, outcome, onChange, onGuest }: {
           canSignUp={registration !== 'closed'}
           inviteOnly={registration === 'invite'}
           guestLabel={`Continue as guest on ${name}`}
+          federated={{ accounts, link }}
           onDone={(r) => {
             if (r === 'signed-in') signedIn();
             else if (r === 'guest') { accounts.nameIfUnnamed(link.authUrl, name); onGuest(name); }

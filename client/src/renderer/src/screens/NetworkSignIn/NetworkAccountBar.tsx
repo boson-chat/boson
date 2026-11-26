@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { UserRound } from 'lucide-preact';
 import { Button } from '@boson/shared';
 import { getNetworkAccounts, type NetworkAccounts, type NetworkAccountsSnapshot } from '../../modules/netauth/network-accounts';
+import type { FederatedIdentity } from '../../modules/netauth/federation';
 import './NetworkSignIn.css';
 
 // Under a server's name in the channel sidebar: which account of the
@@ -24,10 +25,18 @@ export function NetworkAccountBar({ host, serverName, onSignedIn, accounts = get
   const name = accounts.nameFor(link.authUrl, serverName);
   const session = accounts.sessionFor(link);
   if (session) {
+    const fed = session.federated;
+    const user = fed?.handle || session.user.username;
     return (
-      <div class="netauth-bar" title={`Signed in to ${name} as ${session.user.username}`}>
+      <div
+        class="netauth-bar"
+        title={fed ? `Signed in to ${name} as ${user} with your ${fed.identity} account` : `Signed in to ${name} as ${user}`}
+      >
         <UserRound size={12} aria-hidden="true" />
-        <span class="netauth-bar-text"><span class="netauth-bar-user">{session.user.username}</span> on {name}</span>
+        <span class="netauth-bar-text">
+          <span class="netauth-bar-user">{user}</span>
+          {fed && <span class="netauth-home-hint">@{fed.homeDomain}</span>} on {name}
+        </span>
       </div>
     );
   }
@@ -49,4 +58,15 @@ export function NetworkAccountBar({ host, serverName, onSignedIn, accounts = get
       </Button>
     </div>
   );
+}
+
+// The federated identity you're signed in to host's network with (null:
+// none, or a local account there).
+export function useFederatedIdentity(host: string | undefined, accounts = getNetworkAccounts()): FederatedIdentity | null {
+  const [snap, setSnap] = useState<NetworkAccountsSnapshot | null>(() => accounts?.getSnapshot() ?? null);
+  useEffect(() => (accounts ? accounts.subscribe(setSnap) : undefined), [accounts]);
+  if (!accounts || !snap || !host) return null;
+  const link = snap.links[host.trim().toLowerCase()];
+  if (!link || link.main) return null;
+  return accounts.sessionFor(link)?.federated ?? null;
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { Badge, Button, EmptyState, ListRow } from '@boson/shared';
-import { describeAuthError, type LinkedIdentities } from '../../modules/auth';
+import { describeAuthError, type LinkedIdentities, type Session } from '../../modules/auth';
 import {
   getNetworkAccounts, hostOf, type KnownAuth, type NetworkAccounts, type NetworkAccountsSnapshot,
 } from '../../modules/netauth/network-accounts';
@@ -48,17 +48,24 @@ function AccountRow({ accounts, known, snap, open }: {
   const host = known.hosts[0] ?? hostOf(known.authUrl);
   const [busy, setBusy] = useState(false);
   const [manage, setManage] = useState(false);
+  const fed = session?.federated;
+  // Accounts elsewhere that were made from this one ("Continue as …").
+  const linked = session && !fed ? accounts.linkedTo(known.authUrl) : [];
   return (
     <ListRow
       as="li"
       title={name}
-      meta={session && <Badge tone="success">Signed in</Badge>}
-      subtitle={session ? `${session.user.username}${session.user.email ? ` · ${session.user.email}` : ''}` : hostOf(known.authUrl)}
+      meta={session && (fed ? <Badge tone="accent">Linked</Badge> : <Badge tone="success">Signed in</Badge>)}
+      subtitle={session
+        ? fed ? `${fed.handle} · with ${fed.identity}` : `${session.user.username}${session.user.email ? ` · ${session.user.email}` : ''}`
+        : hostOf(known.authUrl)}
       trailing={session ? (
         <>
-          <Button variant="ghost" size="sm" onClick={() => setManage((m) => !m)} aria-expanded={manage}>
-            {manage ? 'Done' : 'Sign-ins'}
-          </Button>
+          {!fed && (
+            <Button variant="ghost" size="sm" onClick={() => setManage((m) => !m)} aria-expanded={manage}>
+              {manage ? 'Done' : 'Sign-ins'}
+            </Button>
+          )}
           <Button
             variant="ghost"
             size="sm"
@@ -90,8 +97,29 @@ function AccountRow({ accounts, known, snap, open }: {
       )}
     >
       <span class="settings-row-note">IRC: {known.hosts.join(', ')}</span>
+      {session && fed && <FederatedNote accounts={accounts} session={session} name={name} />}
+      {linked.length > 0 && (
+        <span class="settings-row-note">
+          Also signs you in to {linked.map((l) => l.name).join(', ')}. Signing out here doesn't sign you out there: {linked.length === 1 ? 'that sign-in lasts' : 'those sign-ins last'} until {linked.length === 1 ? 'it ends' : 'they end'} on {linked.length === 1 ? 'its' : 'their'} own.
+        </span>
+      )}
       {session && manage && <NetworkSignIns accounts={accounts} authUrl={known.authUrl} open={open} />}
     </ListRow>
+  );
+}
+
+// A federated account: which home account it comes from, and what signing
+// out of that one means for it.
+export function FederatedNote({ accounts, session, name }: { accounts: NetworkAccounts; session: Session; name: string }) {
+  const fed = session.federated;
+  if (!fed) return null;
+  const homeOn = accounts.homeSignedIn(session);
+  return (
+    <span class="settings-row-note" data-testid="federated-note">
+      {homeOn
+        ? <>Linked to your <strong>{fed.identity}</strong> account. Signing out of {fed.homeDomain} doesn't sign you out of {name}: this sign-in lasts until it ends on its own.</>
+        : <>Linked to <strong>{fed.identity}</strong>, which isn't signed in on this device. You stay signed in to {name} until this sign-in ends; then sign in to {fed.homeDomain} again to continue here.</>}
+    </span>
   );
 }
 

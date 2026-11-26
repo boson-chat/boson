@@ -98,4 +98,22 @@ describe('web netauth', () => {
     expect(await b.resolve('nothing.example')).toMatchObject({ error: 'no-boson-json' });
     expect(await b.resolve('!!')).toMatchObject({ error: 'invalid' });
   });
+
+  it('hands over a federation block with the domain it came from', async () => {
+    const fed = {
+      version: 1, issuer: 'https://auth.net.example', accepts: 'open',
+      assertion_endpoint: 'https://auth.net.example/v1/federation/assertions',
+      login_endpoint: 'https://auth.net.example/v1/federation/login',
+    };
+    const docs: Record<string, string> = {
+      'https://net.example/.well-known/boson.json': doc({ irc: { host: 'irc.net.example', port: 6697, tls: true }, auth: { url: 'https://auth.net.example' }, federation: fed }),
+      'https://bad.example/.well-known/boson.json': doc({ auth: { url: 'https://auth.bad.example' }, federation: { ...fed, login_endpoint: 'https://evil.example/login' } }),
+    };
+    const f = async (url: string) => (docs[url] ? new Response(docs[url]) : new Response('', { status: 404 }));
+    const discoverer = new NetworkDiscoverer({ fetch: f as unknown as typeof fetch });
+    const b = webNetAuthBridge({ discoverer, mainAuthUrl: 'https://auth.boson.test', appOrigins: [] });
+    expect((await b.discover('irc.net.example', false)).federation).toEqual({ ...fed, domain: 'net.example' });
+    expect((await b.resolve('net.example') as { federation?: unknown }).federation).toEqual({ ...fed, domain: 'net.example' });
+    expect((await b.discover('irc.bad.example', false)).federation).toBeUndefined();
+  });
 });

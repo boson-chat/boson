@@ -136,3 +136,13 @@
 }
 .nick-profile-details-summary:hover { color: var(--fg-2); }
 .nick-profile-details > .nick-profile-meta { margin-top: var(--space-2); }
+
+/* A federated user's home server: alice @boson.chat. */
+.nick-profile-home {
+  margin-left: 0.35em;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--fg-3);
+}

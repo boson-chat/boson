@@ -15,6 +15,7 @@
 import { type ApiTransport, defaultApiTransport } from '../../shared/http/transport';
 import type { SecureStorage } from '../../shared/secure-storage';
 import { friendlyPasswordError, sentence } from './wording';
+import type { FederatedIdentity } from '../netauth/federation';
 
 export interface AuthUser {
   // The auth service's user id (usr_<ULID>), the token's `sub`.
@@ -38,6 +39,9 @@ export interface Session {
   refresh_token: string;
   session_id: string;
   user: AuthUser;
+  // A federated account (signed in with an account of another Boson
+  // server, modules/netauth/federation.ts): who it was made from.
+  federated?: FederatedIdentity;
 }
 
 export interface AuthState {
@@ -182,6 +186,13 @@ interface TokenResponse {
   user: Omit<AuthUser, 'user_metadata'>;
 }
 
+// The remote's answer to a federated login (spec §3.6).
+interface FederatedTokenResponse extends TokenResponse {
+  federated?: boolean;
+  identity?: string;
+  handle?: string;
+}
+
 export interface AuthServiceOptions {
   storage?: SecureStorage;
   // Where the session is kept in storage (default STORAGE_KEY, the app's
@@ -261,6 +272,38 @@ export class AuthService {
     const r = await this.call<TokenResponse>('POST', '/v1/sso/exchange', { code, code_verifier: codeVerifier });
     this.epoch++;
     const session = this.toSession(r, {});
+    await this.save(session);
+    this.setState({ session, loading: false, error: null });
+    return session;
+  }
+
+  // Federated sign-in, home side: a short-lived identity assertion for
+  // `audience` (the remote's issuer), with this account's access token.
+  // endpoint must be on this service's origin (the token never goes
+  // elsewhere). Throws AuthError ('signed_out' without a session).
+  async federationAssertion(endpoint: string, audience: string): Promise<{ assertion: string; expires_in?: number }> {
+    return this.authed('POST', endpoint, { audience });
+  }
+
+  // Federated sign-in, remote side: trades a home server's assertion for
+  // this service's own session, stored like a password sign-in's and
+  // marked federated. endpoint: on this service's origin.
+  async federatedLogin(endpoint: string, assertion: string, from: { homeAuthUrl: string; homeDomain: string; identity: string }): Promise<Session> {
+    const r = await this.call<FederatedTokenResponse>('POST', endpoint, { assertion });
+    if (!r?.access_token || !r.refresh_token || !r.user?.id) {
+      throw new AuthError('invalid_response', 'The sign-in service sent no session.', 200);
+    }
+    this.epoch++;
+    const handle = (typeof r.handle === 'string' && r.handle) || r.user.username;
+    const session: Session = {
+      ...this.toSession(r, {}),
+      federated: {
+        identity: (typeof r.identity === 'string' && r.identity) || from.identity,
+        handle,
+        homeAuthUrl: from.homeAuthUrl,
+        homeDomain: from.homeDomain,
+      },
+    };
     await this.save(session);
     this.setState({ session, loading: false, error: null });
     return session;
@@ -441,7 +484,10 @@ export class AuthService {
         if (epoch !== this.epoch) return this.state.session;
         const r = await this.call<TokenResponse>('POST', '/v1/token/refresh', { refresh_token: current.refresh_token });
         if (epoch !== this.epoch) return this.state.session;
-        const session = this.toSession(r, current.user.user_metadata);
+        const session: Session = {
+          ...this.toSession(r, current.user.user_metadata),
+          ...(current.federated ? { federated: current.federated } : {}),
+        };
         await this.save(session);
         this.setState({ ...this.state, session });
         return session;
@@ -485,10 +531,19 @@ export class AuthService {
     let res;
     const headers: Record<string, string> = { 'Content-Type': 'application/json', Accept: 'application/json' };
     if (bearer) headers.Authorization = `Bearer ${bearer}`;
+    // An absolute URL (a boson.json endpoint) must be on this service's
+    // origin: its tokens go nowhere else.
+    let url = `${this.baseUrl}${path}`;
+    if (/^https?:\/\//i.test(path)) {
+      if (originOf(path) !== originOf(this.baseUrl)) {
+        throw new AuthError('foreign_endpoint', `${path} isn't on this sign-in service.`, 0);
+      }
+      url = path;
+    }
     try {
       res = await this.transport({
         method,
-        url: `${this.baseUrl}${path}`,
+        url,
         headers,
         body: body === undefined ? null : JSON.stringify(body),
       });
@@ -518,6 +573,7 @@ export class AuthService {
         refresh_token: session.refresh_token,
         session_id: session.session_id,
         user: session.user,
+        ...(session.federated ? { federated: session.federated } : {}),
       }));
     } catch (err) {
       console.warn('[auth] could not save the session', err);
@@ -538,6 +594,7 @@ export class AuthService {
         refresh_token: v.refresh_token,
         session_id: v.session_id ?? '',
         user: { ...v.user, user_metadata: v.user.user_metadata ?? {} },
+        ...(validFederated(v.federated) ? { federated: v.federated } : {}),
       };
     } catch (err) {
       console.warn('[auth] could not read the saved session', err);
@@ -558,6 +615,17 @@ export class AuthService {
     this.state = next;
     this.listeners.forEach((fn) => fn(next));
   }
+}
+
+function originOf(u: string): string {
+  try { return new URL(u).origin; } catch { return ''; }
+}
+
+function validFederated(f: unknown): f is FederatedIdentity {
+  if (!f || typeof f !== 'object') return false;
+  const v = f as Record<string, unknown>;
+  return typeof v['identity'] === 'string' && typeof v['handle'] === 'string'
+    && typeof v['homeAuthUrl'] === 'string' && typeof v['homeDomain'] === 'string';
 }
 
 // Runs `fn` holding a lock shared by every tab of this origin (the Web Locks

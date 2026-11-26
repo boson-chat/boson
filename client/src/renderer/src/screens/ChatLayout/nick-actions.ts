@@ -34,6 +34,9 @@ export interface NickProfiles {
   request: (nick: string) => void;
   /** What Boson remembers of the nick after they've left (local only). */
   seen?: (nick: string) => SeenRecord | undefined;
+  /** The home domain of a federated user (alice@boson.chat → boson.chat),
+   *  when known. Today only your own: IRC doesn't carry it for others. */
+  home?: (nick: string, account?: string) => string | undefined;
 }
 
 export interface NickActions {

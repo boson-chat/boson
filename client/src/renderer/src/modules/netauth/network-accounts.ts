@@ -17,6 +17,10 @@
 import { AuthService, guestAccessAllowed, type AuthConfig, type Session } from '../auth/auth.service';
 import type { SecureStorage } from '../../shared/secure-storage';
 import type { ApiTransport } from '../../shared/http/transport';
+import {
+  acceptsFederation, cleanFederation, federatedSignIn, identityOf, issuesAssertions,
+  type FederationInfo, type HomeAccount,
+} from './federation';
 
 // window.bosonNetAuth (platform/wails.ts → desktop/netauth.go).
 export interface NetAuthBridge {
@@ -27,6 +31,9 @@ export interface NetAuthBridge {
     // The network's theme document (boson.json branding), with or
     // without accounts. Absent on shells that predate it.
     brandingUrl?: string;
+    // The network's federated sign-in block (with its domain). Absent on
+    // shells that predate it, and for networks without federation.
+    federation?: unknown;
     main: boolean;
     error?: string;
   }>;
@@ -45,6 +52,7 @@ export interface ResolvedNetwork {
   authUrl?: string;
   directoryUrl?: string;
   brandingUrl?: string;
+  federation?: unknown;
   main: boolean;
   error?: string;
   detail?: string;
@@ -61,6 +69,21 @@ export interface NetworkLink {
   authUrl: string;
   main: boolean;
   directoryUrl?: string;
+  // Federated sign-in (boson.json federation), when the network has it.
+  federation?: FederationInfo;
+}
+
+// The federation block a shell handed over, re-checked (dev shells allow
+// loopback http).
+function federationOf(raw: unknown, domainFallback: string): FederationInfo | undefined {
+  const f = cleanFederation(raw, true);
+  if (!f) return undefined;
+  return { ...f, domain: f.domain || domainFallback };
+}
+
+function domainOfHost(host: string): string {
+  const labels = host.toLowerCase().split('.');
+  return labels.length > 2 ? labels.slice(1).join('.') : host.toLowerCase();
 }
 
 // A remembered network auth service (non-secret, localStorage): which hosts
@@ -246,7 +269,12 @@ export class NetworkAccounts {
         const r = await withTimeout(bridge.discover(host, refresh), this.opts.discoverTimeoutMs ?? 5000);
         this.recordBranding(host, r?.brandingUrl);
         if (r?.authUrl) {
-          link = { host, authUrl: normalizeAuthBase(r.authUrl), main: !!r.main || this.isMain(r.authUrl), ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}) };
+          const federation = federationOf(r.federation, domainOfHost(host));
+          link = {
+            host, authUrl: normalizeAuthBase(r.authUrl), main: !!r.main || this.isMain(r.authUrl),
+            ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}),
+            ...(federation ? { federation } : {}),
+          };
         }
       } catch {
         link = null;
@@ -268,11 +296,13 @@ export class NetworkAccounts {
     if (r.irc?.host) this.recordBranding(hostKey(r.irc.host), r.brandingUrl);
     if (r.authUrl && r.irc?.host && !r.error) {
       const host = hostKey(r.irc.host);
+      const federation = federationOf(r.federation, r.domain || domainOfHost(host));
       const link: NetworkLink = {
         host,
         authUrl: normalizeAuthBase(r.authUrl),
         main: !!r.main || this.isMain(r.authUrl),
         ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}),
+        ...(federation ? { federation } : {}),
       };
       await this.setLink(host, link);
     }
@@ -402,6 +432,99 @@ export class NetworkAccounts {
     const key = normalizeAuthBase(authUrl);
     const k = this.known.find((x) => normalizeAuthBase(x.authUrl) === key);
     return k?.name || fallback || hostOf(key);
+  }
+
+  // ---- federated sign-in ----
+
+  // The app's own account's federation block (its boson.json), looked up
+  // once per run.
+  private mainFed: Promise<FederationInfo | null> | null = null;
+
+  private mainFederation(): Promise<FederationInfo | null> {
+    const known = Object.values(this.links).find((l) => l?.main && l.federation)?.federation;
+    if (known) return Promise.resolve(known);
+    const bridge = this.bridge();
+    if (!bridge) return Promise.resolve(null);
+    if (!this.mainFed) {
+      const domain = mainDomainOf(this.main);
+      this.mainFed = withTimeout(bridge.discover(domain, false), this.opts.discoverTimeoutMs ?? 5000)
+        .then((r) => (r?.main || (r?.authUrl && this.isMain(r.authUrl)) ? federationOf(r.federation, domain) ?? null : null))
+        .catch(() => null);
+      // A failed lookup is tried again next time.
+      void this.mainFed.then((f) => { if (!f) this.mainFed = null; });
+    }
+    return this.mainFed;
+  }
+
+  // The accounts the user is signed in to that can vouch for them on
+  // remote (one "Continue as …" each): the boson.chat account and network
+  // accounts whose server issues assertions. Never remote's own, nor
+  // accounts that are themselves federated. [] when remote doesn't take
+  // accounts from elsewhere.
+  async homeAccounts(remote: NetworkLink): Promise<HomeAccount[]> {
+    if (!acceptsFederation(remote.federation, remote.authUrl)) return [];
+    const remoteKey = normalizeAuthBase(remote.authUrl);
+    const out: HomeAccount[] = [];
+    const add = (authUrl: string, main: boolean, fed: FederationInfo | undefined | null, session: Session | null, name: string): void => {
+      const key = normalizeAuthBase(authUrl);
+      if (key === remoteKey || !session || session.federated || !fed?.domain) return;
+      if (!issuesAssertions(fed, key)) return;
+      // Its issuer is what the remote checks the assertion against: it
+      // has to be this auth service.
+      if (fed.issuer && hostOf(fed.issuer) !== hostOf(key)) return;
+      const username = session.user.username;
+      if (!username) return;
+      const identity = identityOf(username, fed.domain);
+      if (out.some((h) => h.identity === identity)) return;
+      out.push({ authUrl: key, main, domain: fed.domain, username, identity, name, federation: fed });
+    };
+    if (!this.opts.isGuest?.()) {
+      const s = this.opts.mainAuth.getState().session;
+      if (s) add(this.main, true, await this.mainFederation(), s, 'boson.chat');
+    }
+    for (const k of this.known) {
+      const link = k.hosts.map((h) => this.links[hostKey(h)]).find((l) => l && normalizeAuthBase(l.authUrl) === normalizeAuthBase(k.authUrl));
+      if (!link) continue;
+      add(k.authUrl, false, link.federation, this.sessionFor(link), this.nameFor(k.authUrl));
+    }
+    return out;
+  }
+
+  // "Continue as alice@boson.chat" on remote: an assertion from the home
+  // account, signed in on remote's own auth service. Throws
+  // FederationError.
+  async signInFederated(remote: NetworkLink, home: HomeAccount): Promise<Session> {
+    const remoteKey = normalizeAuthBase(remote.authUrl);
+    const homeAuth = home.main ? this.opts.mainAuth : this.service(home.authUrl);
+    const remoteAuth = this.service(remoteKey);
+    await this.ensureService(remoteKey);
+    const session = await federatedSignIn({
+      home, homeAuth, remote: remote.federation!, remoteAuthUrl: remoteKey, remoteAuth,
+    });
+    this.setGuestChosen(remote.host, false);
+    return session;
+  }
+
+  // The federated accounts made from the account at authUrl (Settings says
+  // they stay signed in when it signs out).
+  linkedTo(authUrl: string): Array<{ authUrl: string; name: string; session: Session }> {
+    const key = normalizeAuthBase(authUrl);
+    return this.known.flatMap((k) => {
+      const s = this.sessions[normalizeAuthBase(k.authUrl)];
+      return s?.federated && normalizeAuthBase(s.federated.homeAuthUrl) === key
+        ? [{ authUrl: normalizeAuthBase(k.authUrl), name: this.nameFor(k.authUrl), session: s }]
+        : [];
+    });
+  }
+
+  // Whether the account a federated session came from is still signed in
+  // here.
+  homeSignedIn(session: Session): boolean {
+    const f = session.federated;
+    if (!f) return false;
+    const key = normalizeAuthBase(f.homeAuthUrl);
+    if (key === this.main) return !this.opts.isGuest?.() && !!this.opts.mainAuth.getState().session;
+    return !!(this.sessions[key] ?? null);
   }
 
   // ---- guest choice ----
@@ -556,6 +679,12 @@ export class NetworkAccounts {
     this.unsub.forEach((off) => off());
     this.unsub.clear();
   }
+}
+
+// boson.chat for https://auth.boson.chat: where the app's own boson.json is.
+export function mainDomainOf(authUrl: string): string {
+  const host = hostOf(authUrl).replace(/:\d+$/, '').toLowerCase();
+  return host.startsWith('auth.') ? host.slice(5) : host;
 }
 
 export function hostOf(u: string): string {
