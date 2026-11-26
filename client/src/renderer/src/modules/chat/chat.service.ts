@@ -4,6 +4,7 @@ import type { ChatHistoryStore } from '../history';
 import { MemoryOlderStore, lineIdentity, type OlderStore } from '../history/older-store';
 import { containsNickMention } from './mention';
 import { isHistServReplay } from './histserv';
+import { addresses, replyPrefix, resolveTextReply, REPLY_WINDOW, sameNick } from './replies';
 import { ReadMarkerStore } from './read-markers';
 import type { NotifyEvent } from '../ui/notifier';
 import {
@@ -410,6 +411,9 @@ export function replyOf(tags: Record<string, string> | undefined): { replyTo?: s
 export interface SendOptions {
   // The msgid of the message this one answers (a reply).
   replyTo?: string;
+  // Its local id (a message without a msgid can be answered too: the text
+  // form `nick: "quote..." …` says which, see replies.ts).
+  replyToId?: string;
 }
 
 // ChatService owns channel/message state for the connected IRC session.
@@ -962,6 +966,8 @@ export class ChatService {
     this.namesRetryCount.clear();
     for (const t of this.loadOlderTimers.values()) clearTimeout(t);
     this.loadOlderTimers.clear();
+    if (this.replyCtxTimer) { clearTimeout(this.replyCtxTimer); this.replyCtxTimer = null; }
+    this.replyCtxWanted.clear();
     this.failHistoryQueries(() => true, 'Disconnected');
     for (const t of this.rejoinTimers.values()) clearTimeout(t);
     this.rejoinTimers.clear();
@@ -1680,8 +1686,13 @@ export class ChatService {
     if (!message.trim() && message !== BLANK_LINE) return;
     const id = this.id();
     // A reply carries the msgid it answers, only where the server relays
-    // client tags (the composer falls back to `@nick` otherwise).
+    // client tags. Either way its text starts with who it answers (`nick: `
+    // or `nick: "quote..." `), for every client that doesn't read the tag.
     const replyTo = opts.replyTo && this.repliesSupported() ? opts.replyTo : undefined;
+    const target = this.replyTarget(channel, opts);
+    if (target && message !== BLANK_LINE && !this.isServiceTarget(channel) && !addresses(message, target.from)) {
+      message = replyPrefix(target, this.channels.get(this.channelKey(channel))?.messages.peek() ?? []) + message;
+    }
     // A password typed to a service (IDENTIFY …) is shown masked; the real
     // line is kept aside for a resend.
     const shown = this.isServiceTarget(channel) ? maskServiceSecret(channel, message) : message;
@@ -1696,6 +1707,7 @@ export class ChatService {
       timestamp: Date.now(),
       pending: true,
       ...(replyTo ? { replyTo } : {}),
+      ...(target ? { replyToId: target.id } : {}),
     });
     // Sent while a reconnect is still under way, it goes nowhere; it stays
     // pending and resendPending sends it once registered / rejoined.
@@ -1827,6 +1839,38 @@ export class ChatService {
         .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, stripPending(updated))
         .catch(() => {});
     }
+  }
+
+  // The message a send answers, from its local id or msgid.
+  private replyTarget(channel: string, opts: SendOptions): ChatMessage | undefined {
+    if (!opts.replyToId && !opts.replyTo) return undefined;
+    const msgs = this.channels.get(this.channelKey(channel))?.messages.peek() ?? [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]!;
+      if (opts.replyToId ? m.id === opts.replyToId : m.msgid === opts.replyTo) return m;
+    }
+    return undefined;
+  }
+
+  // A line from someone else without a reply tag, linked to what it answers
+  // by its text (replies.ts): `before` is the conversation before it.
+  private linkTextReply(msg: ChatMessage, before: readonly ChatMessage[]): ChatMessage {
+    if (msg.replyTo || msg.replyToId || this.isMe(msg.from)) return msg;
+    const link = resolveTextReply(msg, before);
+    if (!link) return msg;
+    return { ...msg, replyToId: link.id, ...(link.guessed ? { replyGuess: true as const } : {}) };
+  }
+
+  // Whether `m` answers one of our own lines (by tag, or by its text):
+  // that's a mention, whether or not it says our nick.
+  private repliesToMe(ch: InternalChannel | undefined, m: ChatMessage): boolean {
+    if (!ch || (!m.replyTo && !m.replyToId) || this.isMe(m.from)) return false;
+    const msgs = ch.messages.peek();
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const p = msgs[i]!;
+      if (m.replyTo ? p.msgid === m.replyTo : p.id === m.replyToId) return sameNick(p.from, this.myNick);
+    }
+    return false;
   }
 
   // Whether a reply can be sent as a real one (IRCv3 `+draft/reply`): the
@@ -2570,7 +2614,7 @@ export class ChatService {
     for (const m of ch.messages.peek()) {
       if (ChatService.stampOf(m) <= marker || !this.countsAsUnread(m)) continue;
       unread++;
-      if (isDM || containsNickMention(m.text, this.myNick)) mentions++;
+      if (isDM || containsNickMention(m.text, this.myNick) || this.repliesToMe(ch, m)) mentions++;
     }
     return { unread, mentions };
   }
@@ -2690,7 +2734,7 @@ export class ChatService {
   // handler calls bumpUnread BEFORE appendMessage (which is what would
   // otherwise create the channel), so a DM from a brand-new sender would
   // silently no-op without this guard.
-  private bumpUnread(channel: string, from: string, text: string, notice = false, stamp?: number): void {
+  private bumpUnread(channel: string, from: string, text: string, notice = false, stamp?: number, replyToMe = false): void {
     if (this.isMe(from)) return;
     const key = this.channelKey(channel);
     // Service / server log channel never bumps — it's informational, and the
@@ -2700,7 +2744,8 @@ export class ChatService {
       return;
     }
     const isDM = !key.startsWith('#') && !key.startsWith('&');
-    const isMention = isDM || containsNickMention(text, this.myNick);
+    // A reply to one of our lines is a mention too (replies.ts).
+    const isMention = isDM || replyToMe || containsNickMention(text, this.myNick);
 
     const open = this.isForeground && this.activeChannel === key;
 
@@ -3248,8 +3293,10 @@ export class ChatService {
         // Bump unread counters BEFORE appendMessage — appendMessage emits to
         // subscribers, and we want them to see the fresh counter state in
         // the same render cycle. Otherwise the badge lags by one message.
-        if (!isBacklog && !quiet) this.bumpUnread(channel, e.From, text, e.Kind === 'NOTICE', e.Tags?.time ? eventTimestamp(e) : ts);
-        this.appendMessage(channel, {
+        // A reply (by tag, or by its text: replies.ts) is linked first, so
+        // one to our own line counts as a mention.
+        const lineCh = this.channels.get(this.channelKey(channel));
+        const line = this.linkTextReply({
           id: this.id(),
           kind,
           from: e.From,
@@ -3258,7 +3305,10 @@ export class ChatService {
           msgid: e.Tags?.msgid,
           ...replyOf(e.Tags),
           ...this.serverTimeOf(e),
-        });
+        }, lineCh?.messages.peek() ?? []);
+        const replyToMe = this.repliesToMe(lineCh, line);
+        if (!isBacklog && !quiet) this.bumpUnread(channel, e.From, text, e.Kind === 'NOTICE', e.Tags?.time ? eventTimestamp(e) : ts, replyToMe);
+        this.appendMessage(channel, line);
         // Replayed while we were away (a bouncer's buffer, ZNC playback):
         // unread when newer than how far the user had read.
         if (isBacklog && !quiet) this.reconcileUnread(this.channelKey(channel));
@@ -3273,7 +3323,7 @@ export class ChatService {
         // so pings across servers collect in one place. Real channel messages
         // from someone else that name us; the source channel is carried for
         // click-through. (Our own lines never count as a mention.)
-        if (!isBacklog && !quiet && isChannel && !this.isMe(e.From) && containsNickMention(text, this.myNick)) {
+        if (!isBacklog && !quiet && isChannel && !this.isMe(e.From) && (replyToMe || containsNickMention(text, this.myNick))) {
           this.storeInboxEntry(e.From, text, 'mention', channel);
         }
         break;
@@ -4323,6 +4373,69 @@ export class ChatService {
     });
   }
 
+  // ---- Reply context ----
+  //
+  // A reply whose original isn't loaded (older than what's here, from
+  // before you joined): the original is asked for on its own, CHATHISTORY
+  // AROUND <target> msgid=<id> 1, and kept aside for the quote (not put in
+  // the conversation). Requests from one render are collected, each msgid
+  // asked for once, a few at a time.
+
+  private replyCtx = new Map<string, ChatMessage | null>();
+  private replyCtxWanted = new Map<string, { target: string; msgid: string }>();
+  private replyCtxBusy = new Set<string>();
+  private replyCtxTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped when a requested original arrives (or is known missing). */
+  readonly replyContextVersion = signal(0);
+  private static readonly REPLY_CTX_PARALLEL = 4;
+  private static readonly REPLY_CTX_DELAY_MS = 30;
+
+  private replyCtxKey(target: string, msgid: string): string {
+    return `${this.channelKey(target).toLowerCase()}\u0000${msgid}`;
+  }
+
+  /**
+   * The original of a reply in `target` that isn't loaded: the message,
+   * null when it can't be had (no server history, or the server hasn't it),
+   * undefined while it's being fetched (or not asked for yet).
+   */
+  replyContext(target: string, msgid: string): ChatMessage | null | undefined {
+    const k = this.replyCtxKey(target, msgid);
+    if (this.replyCtx.has(k)) return this.replyCtx.get(k)!;
+    return this.chathistorySupported() ? undefined : null;
+  }
+
+  /** Ask the server for these originals (once each). */
+  requestReplyContext(target: string, msgids: readonly string[]): void {
+    if (!this.chathistorySupported()) return;
+    for (const msgid of msgids) {
+      const k = this.replyCtxKey(target, msgid);
+      if (this.replyCtx.has(k) || this.replyCtxBusy.has(k) || this.replyCtxWanted.has(k)) continue;
+      this.replyCtxWanted.set(k, { target, msgid });
+    }
+    if (this.replyCtxWanted.size > 0 && !this.replyCtxTimer) {
+      this.replyCtxTimer = setTimeout(() => { this.replyCtxTimer = null; this.pumpReplyContext(); }, ChatService.REPLY_CTX_DELAY_MS);
+    }
+  }
+
+  private pumpReplyContext(): void {
+    for (const [k, { target, msgid }] of this.replyCtxWanted) {
+      if (this.replyCtxBusy.size >= ChatService.REPLY_CTX_PARALLEL) return;
+      this.replyCtxWanted.delete(k);
+      this.replyCtxBusy.add(k);
+      const done = (m: ChatMessage | null): void => {
+        this.replyCtxBusy.delete(k);
+        this.replyCtx.set(k, m);
+        this.replyContextVersion.value++;
+        this.pumpReplyContext();
+      };
+      this.fetchHistory(target, 'AROUND', { msgid }, 1).then(
+        (msgs) => done(msgs.find((m) => m.msgid === msgid) ?? null),
+        () => done(null),
+      );
+    }
+  }
+
   // The search request a chathistory batch for `target` answers, if it's
   // the oldest request still waiting for that target.
   private takeHistoryQuery(target: string): HistoryQuery | undefined {
@@ -4798,10 +4911,21 @@ export class ChatService {
     // Dedupe by msgid AND content (from+text+timestamp): a server may replay
     // the same buffer on every attach with no msgid, so msgid-only dedupe lets
     // reconnect dups pile up. isDuplicateMessage covers both.
-    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !this.isDuplicateEvent(ch, m) && !this.older.contains(key, m));
+    let fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !this.isDuplicateEvent(ch, m) && !this.older.contains(key, m));
     if (fresh.length > 0) {
       // Stable: among equal timestamps what was already shown stays first.
-      const merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
+      let merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
+      // Replies by their text, against what came before each.
+      const isFresh = new Set(fresh);
+      const linked = new Map<ChatMessage, ChatMessage>();
+      const all = merged;
+      merged = all.map((m, i) => {
+        if (!isFresh.has(m)) return m;
+        const l = this.linkTextReply(m, all.slice(Math.max(0, i - REPLY_WINDOW), i));
+        linked.set(m, l);
+        return l;
+      });
+      fresh = fresh.map((m) => linked.get(m) ?? m);
       // An attach's backlog keeps only the newest lines, like live traffic: a
       // ZNC that doesn't clear its buffers replays all of it (10k lines per
       // channel is common) on every attach. Scroll-back pages are kept whole.
@@ -4881,10 +5005,12 @@ export class ChatService {
     const arr = ch.messages.peek();
     let next: ChatMessage[];
     if (arr.length === 0 || msg.timestamp >= arr[arr.length - 1]!.timestamp) {
+      msg = this.linkTextReply(msg, arr);
       next = [...arr, msg];
     } else {
       let i = arr.length;
       while (i > 0 && arr[i - 1]!.timestamp > msg.timestamp) i--;
+      msg = this.linkTextReply(msg, arr.slice(0, i));
       next = [...arr.slice(0, i), msg, ...arr.slice(i)];
     }
     // Bounded in-memory cap, trimmed from the front (oldest) into `older`.

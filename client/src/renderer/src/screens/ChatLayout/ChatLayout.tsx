@@ -180,6 +180,14 @@ export function ChatLayout({
 
   const active = state.channels.find((c) => c.name === state.activeChannel) ?? null;
   const { bannerError, helpCommands } = layoutState;
+  // Originals of replies in the open conversation that aren't loaded
+  // (hand-rolled test fakes may not have it).
+  const replyChannel = active?.name ?? null;
+  const replyContext = useMemo(() => (replyChannel && typeof chat.replyContext === 'function' ? {
+    get: (msgid: string) => chat.replyContext(replyChannel, msgid),
+    request: (msgids: readonly string[]) => chat.requestReplyContext(replyChannel, msgids),
+    version: chat.replyContextVersion,
+  } : null), [chat, replyChannel]);
 
   // Kick (and Kick+Ban) collect an optional reason via a small modal before
   // firing. `ban` is whether to also ban (the "Kick + Ban" menu item).
@@ -633,6 +641,7 @@ export function ChatLayout({
           messagesSignal={
             active && typeof chat.messagesSignal === 'function' ? chat.messagesSignal(active.name) : null
           }
+          replyContext={replyContext}
           onOpenChannelSettings={isChannel ? () => { setChannelSettingsTab('channel'); setChannelSettingsOpen(true); } : undefined}
           registration={registrationBadge && { ...registrationBadge, atRisk: regAtRisk && myRankHere >= OP }}
           registerPrompt={regAtRisk && myRankHere >= OP && active && !regPromptDismissed.has(active.name.toLowerCase()) ? {

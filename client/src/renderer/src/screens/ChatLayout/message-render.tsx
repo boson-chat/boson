@@ -24,6 +24,8 @@ import {
 import type { SeenRecord } from '../../modules/seen/seen.store';
 import { seenMask } from '../../modules/seen/seen.store';
 import { privacySettings } from '../../modules/ui/privacy.store';
+import { getChatDisplaySettings, onChatDisplaySettingsChange } from '../../modules/ui/chat-display.store';
+import { replyBody, withoutReplyPrefix } from '../../modules/chat/replies';
 import { MessageSheet } from './MessageSheet';
 import type { SheetAction } from './BottomSheet';
 import { useLongPress } from './long-press';
@@ -65,11 +67,12 @@ interface MessageRowProps {
   avatarFor?: (nick: string) => string | undefined;
   /** msg.text is a multi-line markdown document (a paste), not one line. */
   doc?: boolean;
-  /** A reply (msg.replyTo): the message it answers, or null when that one
-   *  isn't loaded. Undefined for a message that isn't a reply. */
-  replyParent?: ChatMessage | null;
+  /** A reply (msg.replyTo / msg.replyToId): the message it answers, null
+   *  when that one can't be had, 'loading' while it's being fetched.
+   *  Undefined for a message that isn't a reply. */
+  replyParent?: ChatMessage | null | 'loading';
   /** Scroll the conversation to a message (the quote's click). */
-  onJumpTo?: (id: string) => void;
+  onJumpTo?: (target: ChatMessage) => void;
 }
 
 // Match UserPanel's hover-card open-delay so dwelling on a nick in chat
@@ -115,7 +118,8 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   const rowRef = useRef<HTMLDivElement>(null);
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number } | null>(null);
   const theirs = msg.from !== myNick;
-  // Your own line too, once the server has given it a msgid (echo-message).
+  // Anyone else's line (the reply's text says which, msgid or not); your
+  // own once the server has given it a msgid (echo-message).
   const reply = msg.pending || (!theirs && !msg.msgid) ? undefined
     : nickActions?.onReply ? () => nickActions.onReply!(msg)
       : nickActions?.onMention ? () => nickActions.onMention!(msg.from) : undefined;
@@ -221,13 +225,18 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   const time = new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   // Only flag the row as a mention when someone *else* says our nick. Our
   // own messages always contain our nick (in `from`) but never count.
-  const mentionsMe = !mine && containsNickMention(msg.text, myNick);
-  const renderedText = doc ? null : renderMessageBody(msg.text, myNick, members);
+  // A reply to one of our lines is a mention too.
+  const parent = replyParent && replyParent !== 'loading' ? replyParent : null;
+  const mentionsMe = !mine && (containsNickMention(msg.text, myNick) || (!!parent && parent.from.toLowerCase() === myNick.toLowerCase()));
+  // A reply's text without the `nick: "quote..." ` its quote stands for.
+  const body = replyBody(msg, parent);
+  const renderedText = doc ? null : renderMessageBody(body, myNick, members);
+  const quote = replyParent !== undefined && <ReplyQuote parent={replyParent} guessed={!!msg.replyGuess} onJumpTo={onJumpTo} />;
 
   if (msg.kind === 'action') {
     return (
       <div ref={rowRef} class={`message-action ${mine ? 'message-action-mine' : ''} ${mentionsMe ? 'message-action-mention' : ''} ${fresh ? 'message-fresh' : ''}`} {...longPress} onContextMenu={onRowContextMenu}>
-        {replyParent !== undefined && <ReplyQuote parent={replyParent} onJumpTo={onJumpTo} />}
+        {quote}
         <span class="message-action-star">*</span>
         <span class="message-action-name" onClick={(e) => openProfile(msg.from, e.currentTarget as Element)}>{msg.from}</span>
         <span class="message-action-text" onClick={onTextClick}>{renderedText}</span>
@@ -262,7 +271,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         )}
       </div>
       <div class="message-row-body">
-        {replyParent !== undefined && <ReplyQuote parent={replyParent} onJumpTo={onJumpTo} />}
+        {quote}
         {!grouped && (
           <div class="message-row-header">
             <span
@@ -300,7 +309,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         )}
         <div class={`message-row-text${doc ? ' message-row-doc' : ''}`} onClick={onTextClick}>
           {doc
-            ? <MarkdownDoc text={msg.text} />
+            ? <MarkdownDoc text={body} />
             : <span class="message-row-text-body">{renderedText}</span>}
           {grouped && <span class="message-row-grouped-time" aria-hidden={!msg.pending}>{msg.pending ? 'Sending…' : time}</span>}
         </div>
@@ -330,6 +339,12 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   );
 });
 
+// What a quoted message says: a reply's own text, without the
+// `nick: "quote..." ` it starts with.
+function quoteText(m: ChatMessage): string {
+  return m.replyTo || (m.replyToId && !m.replyGuess) ? withoutReplyPrefix(m.text) : m.text;
+}
+
 // One line of a message, for a quote: formatting stripped, whitespace
 // folded (the CSS ellipsizes it).
 export function excerptOf(text: string): string {
@@ -337,25 +352,30 @@ export function excerptOf(text: string): string {
 }
 
 // Above a reply: who it answers and the start of what they said; a click
-// scrolls to it. When that message isn't loaded (older than what's here, or
-// from before you joined) it says so instead.
-export function ReplyQuote({ parent, onJumpTo }: { parent: ChatMessage | null; onJumpTo?: (id: string) => void }) {
-  if (!parent) {
+// scrolls to it (loading older messages until it's there). When that
+// message can't be had (the server keeps no history, or not that far) it
+// says so instead. A guessed reply (the text only said `nick:`) is fainter.
+export function ReplyQuote({ parent, guessed = false, onJumpTo }: {
+  parent: ChatMessage | null | 'loading';
+  guessed?: boolean;
+  onJumpTo?: (target: ChatMessage) => void;
+}) {
+  if (!parent || parent === 'loading') {
     return (
-      <div class="message-reply-quote message-reply-quote-missing">
+      <div class={`message-reply-quote message-reply-quote-missing${parent ? ' message-reply-quote-loading' : ''}`}>
         <CornerUpLeft aria-hidden="true" class="message-reply-quote-icon" />
-        <span class="message-reply-quote-text">Original message not loaded</span>
+        <span class="message-reply-quote-text">{parent ? 'Loading original message…' : 'Original message not available'}</span>
       </div>
     );
   }
-  const text = parent.kind === 'action' ? `* ${parent.from} ${excerptOf(parent.text)}` : excerptOf(parent.text);
+  const text = parent.kind === 'action' ? `* ${parent.from} ${excerptOf(parent.text)}` : excerptOf(quoteText(parent));
   return (
     <button
       type="button"
-      class="message-reply-quote"
-      onClick={(e) => { e.stopPropagation(); onJumpTo?.(parent.id); }}
-      title="Show the original message"
-      aria-label={`Reply to ${parent.from}: ${text}. Show the original message`}
+      class={`message-reply-quote${guessed ? ' message-reply-quote-guessed' : ''}`}
+      onClick={(e) => { e.stopPropagation(); onJumpTo?.(parent); }}
+      title={guessed ? 'Probably a reply to this. Show the original message' : 'Show the original message'}
+      aria-label={`${guessed ? 'Probably a reply' : 'Reply'} to ${parent.from}: ${text}. Show the original message`}
     >
       <CornerUpLeft aria-hidden="true" class="message-reply-quote-icon" />
       <span class="message-reply-quote-author">{parent.from}</span>
@@ -567,6 +587,29 @@ interface MessageListProps {
   search?: ChatSearchMarks | null;
   /** Back to the bottom (the newest lines) whenever this changes. */
   toLatest?: number;
+  /** Originals of replies that aren't loaded, fetched on their own. */
+  replyContext?: ReplyContextSource | null;
+}
+
+/** Where a reply's original comes from when it isn't in the list
+ *  (ChatService.replyContext / requestReplyContext for the conversation). */
+export interface ReplyContextSource {
+  /** The original; null when it can't be had; undefined while fetching. */
+  get(msgid: string): ChatMessage | null | undefined;
+  request(msgids: readonly string[]): void;
+  /** Changes when a fetched original arrives. */
+  version: Signal<number>;
+}
+
+// How many pages of older history a reply quote's click loads, at most,
+// looking for its original.
+const SEEK_MAX_PAGES = 10;
+
+// "Show guessed replies" (Settings → Chat & media), live.
+function useGuessedReplies(): boolean {
+  const [on, setOn] = useState(() => getChatDisplaySettings().guessedReplies);
+  useEffect(() => onChatDisplaySettingsChange(() => setOn(getChatDisplaySettings().guessedReplies)), []);
+  return on;
 }
 
 export interface ChatSearchMarks {
@@ -652,7 +695,7 @@ interface ListRow {
   grouped: boolean;
 }
 
-function listRows(items: readonly RenderItem[]): ListRow[] {
+function listRows(items: readonly RenderItem[], guessedReplies = true): ListRow[] {
   const rows: ListRow[] = [];
   // Track the previous *rendered chat message* for the grouping decision.
   // Reset across a collapsed activity block so a message that follows a
@@ -665,7 +708,7 @@ function listRows(items: readonly RenderItem[]): ListRow[] {
       rows.push({ key: item.id, item, grouped: false });
       continue;
     }
-    const grouped = shouldGroup(prevMsg, item.msg);
+    const grouped = shouldGroup(prevMsg, item.msg, guessedReplies);
     prevMsg = item.msg;
     rows.push({ key: item.msg.id, item, grouped });
   }
@@ -675,7 +718,7 @@ function listRows(items: readonly RenderItem[]): ListRow[] {
 export const MessageList = memo(function MessageList({
   messages, members, myNick, scrollRef, nickActions, channelName, avatarFor,
   onLoadOlder, onViewport, historySupported, historyLoading, historyExhausted, historyError, beginningNote,
-  jump, search, toLatest = 0,
+  jump, search, toLatest = 0, replyContext,
 }: MessageListProps) {
   // Reading `.value` subscribes THIS component to the channel's message signal.
   // A metadata emit that re-renders the parent passes the same signal ref, so
@@ -721,7 +764,8 @@ export const MessageList = memo(function MessageList({
   shownFirst.current = msgs[0] ?? null;
   const heldBack = useRef(false);
   heldBack.current = hold > 0;
-  const rows = useMemo(() => listRows(buildRenderItems(msgs)), [msgs]);
+  const guessedReplies = useGuessedReplies();
+  const rows = useMemo(() => listRows(buildRenderItems(msgs), guessedReplies), [msgs, guessedReplies]);
   // Each message's row key, and each row's messages (for the anchor: see
   // virtual-list.ts locateAnchor).
   const rowIndex = useMemo(() => {
@@ -740,12 +784,38 @@ export const MessageList = memo(function MessageList({
     const a = captureAnchor(l, top);
     return a ? { ...a, ids: rowIndexRef.current.idsOf.get(a.key) } : null;
   };
-  // Replies find the message they answer by its msgid.
-  const byMsgid = useMemo(() => {
-    const m = new Map<string, ChatMessage>();
-    for (const x of msgs) if (x.msgid) m.set(x.msgid, x);
-    return m;
+  // Replies find the message they answer by its msgid (a tag), or by its
+  // local id (a reply by its text: replies.ts).
+  const { byMsgid, byId } = useMemo(() => {
+    const byMsgid = new Map<string, ChatMessage>();
+    const byId = new Map<string, ChatMessage>();
+    for (const x of msgs) {
+      if (x.msgid) byMsgid.set(x.msgid, x);
+      byId.set(x.id, x);
+    }
+    return { byMsgid, byId };
   }, [msgs]);
+  // Reading the version re-renders the list when a fetched original lands.
+  void replyContext?.version.value;
+  // Originals the rows on screen are missing, asked for after the render.
+  const missingOriginals: string[] = [];
+  const parentOf = (m: ChatMessage): ChatMessage | null | 'loading' | undefined => {
+    if (m.replyTo) {
+      const p = byMsgid.get(m.replyTo);
+      if (p) return p;
+      const c = replyContext ? replyContext.get(m.replyTo) : null;
+      if (c === undefined) missingOriginals.push(m.replyTo);
+      return c === undefined ? 'loading' : c;
+    }
+    if (m.replyToId) {
+      if (m.replyGuess && !guessedReplies) return undefined;
+      return byId.get(m.replyToId);
+    }
+    return undefined;
+  };
+  useEffect(() => {
+    if (replyContext && missingOriginals.length > 0) replyContext.request(missingOriginals);
+  });
   // The row index holding a message (by local id).
   const rowIndexOf = (id: string): number => rows.findIndex((r) => rowMessageIds(r.item).some((m) => m.id === id));
   // A jump to a row: placed once it's laid out (see the layout effect), then
@@ -760,8 +830,31 @@ export const MessageList = memo(function MessageList({
   };
   const requestJumpRef = useRef(requestJump);
   requestJumpRef.current = requestJump;
+  // A reply quote's click: to the original, loading older pages until it's
+  // there (at most SEEK_MAX_PAGES).
+  const seek = useRef<{ msgid: string; pages: number } | null>(null);
+  const [seekTick, setSeekTick] = useState(0);
+  const jumpToMessage = (t: ChatMessage): void => {
+    const hit = byId.get(t.id) ?? (t.msgid ? byMsgid.get(t.msgid) : undefined);
+    if (hit) { seek.current = null; requestJump(hit.id); return; }
+    if (!t.msgid || !onLoadOlder || !historySupported || historyExhausted) return;
+    seek.current = { msgid: t.msgid, pages: 0 };
+    setSeekTick((n) => n + 1);
+  };
+  const jumpToMessageRef = useRef(jumpToMessage);
+  jumpToMessageRef.current = jumpToMessage;
+  useEffect(() => {
+    const sk = seek.current;
+    if (!sk) return;
+    const hit = byMsgid.get(sk.msgid);
+    if (hit) { seek.current = null; requestJumpRef.current(hit.id); return; }
+    if (historyLoading) return;
+    if (historyExhausted || (sk.pages > 0 && historyError) || sk.pages >= SEEK_MAX_PAGES) { seek.current = null; return; }
+    sk.pages++;
+    onLoadOlder?.();
+  }, [byMsgid, historyLoading, historyExhausted, historyError, seekTick]);
   // Stable for the memoised rows (a reply quote's click).
-  const onJumpTo = useMemo(() => (id: string) => requestJumpRef.current(id), []);
+  const onJumpTo = useMemo(() => (t: ChatMessage) => jumpToMessageRef.current(t), []);
   useEffect(() => { if (jump) requestJumpRef.current(jump.id); }, [jump?.seq]);
   // Jump to latest: stick to the bottom again (the next layout pass puts it there).
   useEffect(() => {
@@ -1249,7 +1342,7 @@ export const MessageList = memo(function MessageList({
           const ids = search && search.matchIds.size > 0 ? rowMessageIds(item) : null;
           const match = !!ids && ids.some((m) => search!.matchIds.has(m.id));
           const current = match && !!search!.currentId && ids!.some((m) => m.id === search!.currentId);
-          const replyTo = (item.type === 'msg' || item.type === 'doc') ? item.msg.replyTo : undefined;
+          const replyParent = (item.type === 'msg' || item.type === 'doc') ? parentOf(item.msg) : undefined;
           const vclass = [
             match ? 'vrow-search-match' : '',
             current ? 'vrow-search-current' : '',
@@ -1269,7 +1362,7 @@ export const MessageList = memo(function MessageList({
                     fresh={fresh}
                     avatarFor={avatarFor}
                     doc={item.type === 'doc'}
-                    replyParent={replyTo ? byMsgid.get(replyTo) ?? null : undefined}
+                    replyParent={replyParent}
                     onJumpTo={onJumpTo}
                   />
                 )}
@@ -1529,11 +1622,11 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 // Two adjacent messages group when they're from the same author, of the same
 // chat-message kind (so an action doesn't visually fuse with regular text),
 // and posted within the GROUP_WINDOW.
-export function shouldGroup(prev: ChatMessage | null, curr: ChatMessage): boolean {
+export function shouldGroup(prev: ChatMessage | null, curr: ChatMessage, guessedReplies = true): boolean {
   if (!prev) return false;
   if (curr.kind !== 'message' && curr.kind !== 'notice') return false;
   // A reply leads with its quote, under its author's name.
-  if (curr.replyTo) return false;
+  if (curr.replyTo || (curr.replyToId && (guessedReplies || !curr.replyGuess))) return false;
   if (prev.kind !== curr.kind) return false;
   if (prev.from !== curr.from) return false;
   if (curr.timestamp - prev.timestamp > GROUP_WINDOW_MS) return false;
@@ -1555,6 +1648,9 @@ export function containsNickMention(text: string, nick: string): boolean {
 // Returns mixed text + <span> children, with each occurrence of myNick wrapped
 // in <span class="mention-self">. Word-boundary aware so "al" inside "almost"
 // doesn't get marked.
+// Punctuation right after a mention (`ada:`), which the pill sits flush to.
+const MENTION_FLUSH_RE = /^[:,.;!?)\]'’"]/;
+
 export function renderWithMentions(text: string, myNick: string): preact.ComponentChildren {
   if (!myNick) return text;
   const re = new RegExp(
@@ -1566,8 +1662,9 @@ export function renderWithMentions(text: string, myNick: string): preact.Compone
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<span class="mention-self">{m[0]}</span>);
     last = m.index + m[0].length;
+    const flush = MENTION_FLUSH_RE.test(text.slice(last));
+    out.push(<span class={flush ? 'mention-self mention-flush' : 'mention-self'}>{m[0]}</span>);
   }
   if (last < text.length) out.push(text.slice(last));
   return out.length === 1 && typeof out[0] === 'string' ? out[0] : out;
@@ -1776,8 +1873,10 @@ export function renderRichText(
         }
         // Our own nick is a member too — keep the self-mention highlight on it.
         const self = !!myNick && candidate === myNick.toLowerCase();
+        // `ada:` / `ada,`: the pill sits flush against the punctuation.
+        const flush = self && MENTION_FLUSH_RE.test(text.slice(m.index + tokenText.length));
         out.push(
-          <span key={key++} class={self ? 'chat-token-mention mention-self' : 'chat-token-mention'} data-nick={memberSet.get(candidate)}>
+          <span key={key++} class={self ? `chat-token-mention mention-self${flush ? ' mention-flush' : ''}` : 'chat-token-mention'} data-nick={memberSet.get(candidate)}>
             {tokenText}
           </span>,
         );

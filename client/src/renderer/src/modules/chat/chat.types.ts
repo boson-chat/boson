@@ -14,6 +14,12 @@ export interface ChatMessage {
   // IRCv3 reply (`+draft/reply`): the msgid of the message this one
   // answers. Rendered as a quote of it above the text.
   replyTo?: string;
+  // A reply found by its text (`nick: "quote..." …`, see replies.ts), or
+  // one of ours on a server without message-tags: the local id of the
+  // message it answers. `replyGuess` when the text only said `nick:` (their
+  // latest line, probably).
+  replyToId?: string;
+  replyGuess?: true;
   // The server-time tag as sent (epoch ms), before `timestamp`'s correction
   // for the server's clock skew. That correction is re-measured on every
   // connection, so a bouncer replaying the same line gives it a slightly

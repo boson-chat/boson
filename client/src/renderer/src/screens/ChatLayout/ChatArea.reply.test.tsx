@@ -3,8 +3,10 @@ import { act, render, screen, fireEvent } from '@testing-library/preact';
 import { ChatArea } from './ChatArea';
 import type { ChatChannel, ChatMessage } from '../../modules/chat';
 
-// A message's Reply (long-press menu on a phone) puts `@nick ` at the front
-// of the composer, keeping what was already typed, and focuses it.
+// A message's Reply (long-press menu on a phone) opens the "Replying to"
+// bar over the composer, on every server: the line sent answers it (with
+// the IRCv3 tag where the server has message-tags, and always with the
+// `nick: ` text form, added by ChatService.send).
 
 const msg = (over: Partial<ChatMessage> = {}): ChatMessage => ({
   id: 'm1', kind: 'message', from: 'bob', text: 'anyone around?', timestamp: Date.now(), ...over,
@@ -34,7 +36,7 @@ function replyTo(text: string): void {
 
 const box = (): HTMLTextAreaElement => document.querySelector('.chat-textarea') as HTMLTextAreaElement;
 
-function renderChat(messages: ChatMessage[], opts: { caps?: string[]; onSend?: (message: string, opts?: { replyTo?: string }) => void } = {}) {
+function renderChat(messages: ChatMessage[], opts: { caps?: string[]; onSend?: (message: string, opts?: { replyTo?: string; replyToId?: string }) => void } = {}) {
   render(
     <ChatArea
       channel={chan(messages)}
@@ -59,25 +61,20 @@ afterEach(() => {
 });
 
 describe('ChatArea — Reply', () => {
-  it('puts @nick at the front of the composer and focuses it', () => {
-    renderChat([msg()]);
-    replyTo('anyone around?');
-    expect(box().value).toBe('@bob ');
-    expect(document.activeElement).toBe(box());
-  });
-
-  it('keeps what was already typed', () => {
+  it('opens the reply bar and focuses the composer, keeping what was typed', () => {
     renderChat([msg()]);
     fireEvent.input(box(), { target: { value: 'yes, here' } });
     replyTo('anyone around?');
-    expect(box().value).toBe('@bob yes, here');
+    expect(document.querySelector('.chat-reply-bar')?.textContent).toContain('Replying to bob');
+    expect(box().value).toBe('yes, here');
+    expect(document.activeElement).toBe(box());
   });
 
-  it('does not tag the same nick twice', () => {
+  it('a second Reply switches the target', () => {
     renderChat([msg(), msg({ id: 'm2', text: 'hello?' })]);
     replyTo('anyone around?');
     replyTo('hello?');
-    expect(box().value).toBe('@bob ');
+    expect(document.querySelector('.chat-reply-bar-excerpt')?.textContent).toBe('hello?');
   });
 });
 
@@ -99,7 +96,7 @@ describe('ChatArea — quoted replies', () => {
     expect(document.activeElement).toBe(box());
     fireEvent.input(box(), { target: { value: 'yes!' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(onSend).toHaveBeenCalledWith('yes!', { replyTo: 'abc' });
+    expect(onSend).toHaveBeenCalledWith('yes!', { replyTo: 'abc', replyToId: 'm1' });
     expect(document.querySelector('.chat-reply-bar')).toBeNull();
   });
 
@@ -109,7 +106,7 @@ describe('ChatArea — quoted replies', () => {
     replyTo('anyone around?');
     fireEvent.input(box(), { target: { value: 'one\ntwo' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    expect(onSend.mock.calls).toEqual([['one', { replyTo: 'abc' }], ['two']]);
+    expect(onSend.mock.calls).toEqual([['one', { replyTo: 'abc', replyToId: 'm1' }], ['two']]);
   });
 
   it('Escape in the composer cancels the reply', () => {
@@ -130,18 +127,15 @@ describe('ChatArea — quoted replies', () => {
     expect(onSend).toHaveBeenCalledWith('plain');
   });
 
-  it('falls back to @nick without message-tags', () => {
-    renderChat([tagged()], { caps: ['server-time'] });
+  it('without message-tags (ngircd) it is still a reply, by its local id', () => {
+    const onSend = vi.fn();
+    renderChat([msg()], { caps: ['server-time'], onSend });
     replyTo('anyone around?');
-    expect(document.querySelector('.chat-reply-bar')).toBeNull();
-    expect(box().value).toBe('@bob ');
-  });
-
-  it('falls back to @nick when the message has no msgid', () => {
-    renderChat([msg()], { caps: ['message-tags'] });
-    replyTo('anyone around?');
-    expect(document.querySelector('.chat-reply-bar')).toBeNull();
-    expect(box().value).toBe('@bob ');
+    expect(document.querySelector('.chat-reply-bar')?.textContent).toContain('Replying to bob');
+    expect(box().value).toBe('');
+    fireEvent.input(box(), { target: { value: 'yep' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    expect(onSend).toHaveBeenCalledWith('yep', { replyToId: 'm1' });
   });
 
   it('your own line can be replied to once it has a msgid (echo-message), not before', () => {
@@ -176,10 +170,38 @@ describe('ChatArea — reply quotes', () => {
     expect(quote.querySelector('.message-reply-quote-text')!.textContent).toBe('the **original** question with a second line');
   });
 
-  it('says so when the original isn\'t loaded', () => {
+  it('says so when the original isn\'t loaded (and there is no history to ask)', () => {
     renderChat([msg({ id: 'm2', from: 'carol', text: 'answer', replyTo: 'gone' })]);
     const quote = document.querySelector('.message-reply-quote')!;
     expect(quote.tagName).toBe('DIV');
-    expect(quote.textContent).toBe('Original message not loaded');
+    expect(quote.textContent).toBe('Original message not available');
+  });
+
+  it('hides the `nick: "quote..." ` the quote stands for', () => {
+    renderChat([
+      msg({ msgid: 'p1', text: 'anyone know why the build fails on arm?' }),
+      msg({ id: 'm2', text: 'anyone around?', timestamp: Date.now() + 1 }),
+      msg({ id: 'm3', from: 'carol', text: 'bob: "anyone know..." it\'s libssl-dev', msgid: 'r1', replyTo: 'p1', timestamp: Date.now() + 2 }),
+    ]);
+    const row = document.querySelector('.message-reply-quote')!.closest('.message-row')!;
+    expect(row.querySelector('.message-row-text-body')!.textContent).toBe("it's libssl-dev");
+  });
+
+  it('a guessed reply keeps its text and has a fainter quote', () => {
+    renderChat([
+      msg({ text: 'is the relay up?' }),
+      msg({ id: 'm2', from: 'carol', text: 'bob: yes', replyToId: 'm1', replyGuess: true, timestamp: Date.now() + 1 }),
+    ]);
+    const quote = document.querySelector('.message-reply-quote')!;
+    expect(quote.classList.contains('message-reply-quote-guessed')).toBe(true);
+    expect(quote.closest('.message-row')!.querySelector('.message-row-text-body')!.textContent).toBe('bob: yes');
+  });
+
+  it('a reply to one of your lines is highlighted as a mention', () => {
+    renderChat([
+      msg({ from: 'alice', text: 'deploy done', msgid: 'mine' }),
+      msg({ id: 'm2', from: 'carol', text: 'great', replyTo: 'mine', timestamp: Date.now() + 1 }),
+    ]);
+    expect(screen.getByText('great').closest('.message-row')!.classList.contains('message-row-mention')).toBe(true);
   });
 });

@@ -93,7 +93,12 @@ function makeSession(): { emit(e: IrcEvent): void } {
     serverId: 's1',
     join: () => {}, part: () => {}, names: () => {}, tagmsg: () => {},
     // ?chanserv=…: a scripted ChanServ answers (see chanservReplies).
-    privmsg: (target: string, body: string) => {
+    // Every line sent is kept in window.__sent (with its tags), and
+    // confirmed (the engine's ACK) at once.
+    privmsg: (target: string, body: string, ack?: number, tags?: Record<string, string>) => {
+      const w = window as unknown as { __sent?: Array<{ target: string; body: string; tags?: Record<string, string> }> };
+      (w.__sent ??= []).push({ target, body, ...(tags ? { tags } : {}) });
+      if (ack) setTimeout(() => listener?.({ Kind: 'ACK', From: '', Target: '', Message: String(ack), Raw: '' }), 0);
       const lines = chanservReplies(target, body);
       if (lines) setTimeout(() => { for (const l of lines) listener?.({ Kind: 'NOTICE', From: target, Target: NICK, Message: l, Raw: '' }); }, 40);
     },
@@ -382,6 +387,7 @@ function installLiveVideo(): void {
 // patterns: a drawn head-and-shoulders figure per camera (no real faces)
 // and a code editor for a screen share.
 const q0 = new URLSearchParams(location.search);
+const repliesMode = q0.get('replies');
 const look = q0.get('look') === '1';
 const portrait = q0.get('portrait') === '1';
 const LOOKS: Record<number, { wall: [string, string]; shirt: string; skin: string; hair: string; long?: boolean }> = {
@@ -728,6 +734,7 @@ function chatView(): void {
   );
   chat.attach();
   if (searchMode) session.emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: 'batch server-time message-tags chathistory', Args: ['ACK'], Raw: '' });
+  else if (repliesMode === 'tags') session.emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: 'server-time message-tags', Args: ['ACK'], Raw: '' });
   if (chanservMode) {
     const version = chanservMode === 'anope' || chanservMode === 'unreadable' ? 'UnrealIRCd-6.1.8' : chanservMode === 'atheme' ? 'solanum-1.0' : 'ergo-2.19.1';
     session.emit({ Kind: '004', From: 'irc.nebula.example', Target: NICK, Message: '', Args: ['irc.nebula.example', version], Raw: '' });
@@ -812,6 +819,28 @@ function chatView(): void {
   session.emit(pm('pixel', 'nice work. music while we ship? → https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', 6));
   session.emit(pm('orbit', 'and a quick walkthrough of the release: https://www.youtube.com/watch?v=dQw4w9WgXcQ', 3));
   session.emit(pm('nova', `${NICK}: are you around? wanted your eyes on the \`#ops\` topic before we cut the build`, 1, { msgid: 'm-mention' }));
+
+  // ?replies=tags|plain: replies, as Boson sends them (the IRCv3 tag where
+  // the server has message-tags, `nick: "quote..." ` always) and as classic
+  // clients write them (`nick: ` alone). `tags` with &search=1: replies to
+  // lines older than what's loaded (fetched on their own; a click loads
+  // back to them), and one whose original the server doesn't have.
+  if (repliesMode) {
+    const tags = repliesMode === 'tags';
+    const tag = (id: string): Record<string, string> => (tags ? { '+draft/reply': id } : {});
+    session.emit(pm('mox', 'anyone know why the build fails on arm?', 0.95, { msgid: 'r-b1' }));
+    session.emit(pm('mox', 'also is the standup at 3 or 4?', 0.9, { msgid: 'r-b2' }));
+    session.emit(pm(NICK, 'the relay build is green on staging', 0.85, { msgid: 'r-own' }));
+    session.emit(pm('mox', 'anyone around?', 0.8, { msgid: 'r-b3' }));
+    session.emit(pm('kestrel', 'mox: "anyone know..." it\'s libssl-dev, the arm image lacks it', 0.75, { msgid: 'r-k1', ...tag('r-b1') }));
+    session.emit(pm('pixel', 'mox: here', 0.7, { msgid: 'r-p1' }));
+    session.emit(pm('orbit', tags ? 'nice, shipping it tonight' : `${NICK}: nice, shipping it tonight`, 0.65, { msgid: 'r-o1', ...tag('r-own') }));
+    if (tags && searchMode) {
+      const old = searchHistory[searchHistory.length - 80]!;
+      session.emit(pm('nova', `${old.from}: "${old.text.split(' ').slice(0, 2).join(' ')}..." still true today`, 0.6, { msgid: 'r-n1', ...tag(old.msgid) }));
+      session.emit(pm('jrmu', 'that was never the plan', 0.55, { msgid: 'r-j1', ...tag('zz-gone') }));
+    }
+  }
 
   // &scroll=N: N more lines, every third one an image from img.test (the
   // scroll-stability spec serves those, late), the last one an image too.
