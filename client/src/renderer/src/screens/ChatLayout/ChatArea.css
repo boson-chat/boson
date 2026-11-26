@@ -367,6 +367,8 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
 }
+/* Followed by punctuation (`ada:`): no gap before it. */
+.mention-self.mention-flush { padding-right: 1px; margin-right: 0; }
 
 /* Markdown formatting inside messages. */
 .md-bold   { font-weight: 700; color: var(--fg); }

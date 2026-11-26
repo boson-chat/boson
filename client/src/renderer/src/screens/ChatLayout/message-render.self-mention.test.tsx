@@ -27,4 +27,16 @@ describe('MessageRow self mention', () => {
     expect(container.querySelector('.chat-token-mention')?.textContent).toBe('bob');
     expect(container.querySelector('.mention-self')).toBeNull();
   });
+
+  it('sits flush against punctuation after it, not before a word', () => {
+    const members = [{ nick: 'alice', prefix: '' as const }, { nick: 'me', prefix: '' as const }];
+    const flushOf = (text: string, list = members) => render(<MessageRow msg={msg(text)} myNick="me" members={list} />)
+      .container.querySelector('.mention-self')!.classList.contains('mention-flush');
+    expect(flushOf('me: nice')).toBe(true);
+    expect(flushOf('thanks me, really')).toBe(true);
+    expect(flushOf('me nice')).toBe(false);
+    // Not in the member list (the plain-text pass).
+    expect(flushOf('me: nice', [{ nick: 'alice', prefix: '' }])).toBe(true);
+    expect(flushOf('ask me later', [{ nick: 'alice', prefix: '' }])).toBe(false);
+  });
 });

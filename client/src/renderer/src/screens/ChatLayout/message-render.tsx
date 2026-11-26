@@ -1648,6 +1648,9 @@ export function containsNickMention(text: string, nick: string): boolean {
 // Returns mixed text + <span> children, with each occurrence of myNick wrapped
 // in <span class="mention-self">. Word-boundary aware so "al" inside "almost"
 // doesn't get marked.
+// Punctuation right after a mention (`ada:`), which the pill sits flush to.
+const MENTION_FLUSH_RE = /^[:,.;!?)\]'’"]/;
+
 export function renderWithMentions(text: string, myNick: string): preact.ComponentChildren {
   if (!myNick) return text;
   const re = new RegExp(
@@ -1659,8 +1662,9 @@ export function renderWithMentions(text: string, myNick: string): preact.Compone
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(<span class="mention-self">{m[0]}</span>);
     last = m.index + m[0].length;
+    const flush = MENTION_FLUSH_RE.test(text.slice(last));
+    out.push(<span class={flush ? 'mention-self mention-flush' : 'mention-self'}>{m[0]}</span>);
   }
   if (last < text.length) out.push(text.slice(last));
   return out.length === 1 && typeof out[0] === 'string' ? out[0] : out;
@@ -1869,8 +1873,10 @@ export function renderRichText(
         }
         // Our own nick is a member too — keep the self-mention highlight on it.
         const self = !!myNick && candidate === myNick.toLowerCase();
+        // `ada:` / `ada,`: the pill sits flush against the punctuation.
+        const flush = self && MENTION_FLUSH_RE.test(text.slice(m.index + tokenText.length));
         out.push(
-          <span key={key++} class={self ? 'chat-token-mention mention-self' : 'chat-token-mention'} data-nick={memberSet.get(candidate)}>
+          <span key={key++} class={self ? `chat-token-mention mention-self${flush ? ' mention-flush' : ''}` : 'chat-token-mention'} data-nick={memberSet.get(candidate)}>
             {tokenText}
           </span>,
         );
