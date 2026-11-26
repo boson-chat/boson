@@ -47,6 +47,25 @@ function png(w: number, h: number): Buffer {
 const row = (page: Page, text: string) => messages(page).locator('.message-row')
   .filter({ has: page.locator('.message-row-text-body', { hasText: text }) });
 const sheet = (page: Page) => page.locator('.thread-panel-sheet');
+// The sheet covers the screen: on it, and on top. (It once sat just below
+// the screen, laid out but out of sight: "View thread" seemed dead.)
+async function sheetCovers(page: Page): Promise<void> {
+  const vp = page.viewportSize()!;
+  // Under the title bar where there is one (a narrow desktop window).
+  const top = await page.evaluate(() => document.querySelector('.title-bar')?.getBoundingClientRect().bottom ?? 0);
+  // (After its slide-in.)
+  await expect.poll(async () => Math.abs((await sheet(page).boundingBox())!.y - top)).toBeLessThan(1);
+  const box = (await sheet(page).boundingBox())!;
+  expect(box.y + box.height).toBeGreaterThan(vp.height - 2);
+  expect(box.y + box.height).toBeLessThan(vp.height + 2);
+  expect(box.width).toBeGreaterThan(vp.width - 2);
+  // Nothing over it: its back button is what a tap there hits.
+  await expect.poll(() => page.evaluate(() => {
+    const b = document.querySelector('.thread-panel-back')!.getBoundingClientRect();
+    return !!document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('.thread-panel-back');
+  })).toBe(true);
+  await expect.poll(() => page.evaluate(() => !!document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.thread-panel-sheet'))).toBe(true);
+}
 
 async function openChannel(page: Page, ch: string): Promise<void> {
   const back = page.getByRole('button', { name: 'Back to channels' });
@@ -104,8 +123,7 @@ test.describe('phone: threads and wide previews', () => {
     await expect(sheet(page)).toBeVisible();
     await expect(sheet(page).locator('.message-row').first()).toContainText('pt1 sounds good');
     await expect(sheet(page).locator('.message-row').nth(1)).toContainText('pt2 see you at 4');
-    const vp = page.viewportSize()!;
-    expect((await sheet(page).boundingBox())!.height).toBeGreaterThan(vp.height - 2);
+    await sheetCovers(page);
     await sheet(page).getByRole('button', { name: 'Close thread' }).tap();
     await expect(sheet(page)).toHaveCount(0);
 
@@ -119,6 +137,7 @@ test.describe('phone: threads and wide previews', () => {
     await page.getByRole('menuitem', { name: 'View thread' }).tap();
     await expect(sheet(page)).toBeVisible();
     await expect(sheet(page).locator('.message-row').first()).toContainText('pt1 sounds good');
+    await sheetCovers(page);
   });
 
   test('a very wide image stays in the column; the list never scrolls sideways', async ({ launchApp }) => {

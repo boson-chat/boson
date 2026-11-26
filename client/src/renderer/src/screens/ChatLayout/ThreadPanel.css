@@ -64,18 +64,30 @@
 .thread-panel .chat-input-bar { padding: var(--space-2) var(--space-3) var(--space-3); }
 
 /* ---- Phones: a full-height sheet over the conversation -------------- */
+/* The layer carries .app-shell.is-narrow too, whose `position: relative`
+   (ChatLayout.css, loaded after this file) once won: the sheet sat below
+   the screen, so "View thread" seemed to do nothing on a phone. */
+.app-shell.is-narrow.thread-sheet-layer,
 .app-shell.thread-sheet-layer {
   position: fixed;
   inset: 0;
+  top: var(--sheet-top, 0px);
   height: auto;
   z-index: 60;
   display: flex;
   background: var(--bg);
   animation: thread-sheet-in 180ms var(--ease-out, ease-out);
 }
+/* Touch screens: the visible area, above the on-screen keyboard
+   (styles.css, shared/visual-viewport.ts). */
+html.vv-tracked .app-shell.thread-sheet-layer {
+  top: calc(var(--app-top, 0px) + var(--sheet-top, 0px));
+  bottom: auto;
+  height: calc(var(--app-height, 100%) - var(--sheet-top, 0px));
+}
 .thread-panel-sheet {
   width: 100%;
-  height: var(--app-height, 100dvh);
+  height: auto;
   border-left: none;
   background: var(--bg);
 }
