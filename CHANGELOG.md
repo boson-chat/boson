@@ -1,3 +1,9 @@
+## [0.99.0](https://github.com/boson-chat/boson/compare/v0.98.1...v0.99.0) (2026-11-26)
+
+### Features
+
+* **chat:** replies classic clients can read, text replies read back, replies as mentions, reply context ([#162](https://github.com/boson-chat/boson/issues/162)) ([e2fd68a](https://github.com/boson-chat/boson/commit/e2fd68aeb694c0b887819f8d1591edaec6ba3fe8))
+
 ## [0.98.1](https://github.com/boson-chat/boson/compare/v0.98.0...v0.98.1) (2026-11-26)
 
 ### Bug Fixes
