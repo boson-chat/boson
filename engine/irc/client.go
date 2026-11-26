@@ -265,6 +265,14 @@ func New(cfg Config) (*Client, error) {
 			// each conversation (MARKREAD) and tells every client of the
 			// account, so unread state follows them across devices.
 			"draft/read-marker": nil,
+			// event-playback: chathistory replays JOIN/PART/QUIT/KICK/NICK/
+			// TOPIC/MODE/TAGMSG as the real commands. Without it Ergo turns
+			// them into PRIVMSGs from HistServ ("X joined the channel"),
+			// which doubled the renderer's own join/quit rows. The reader
+			// keeps replayed events out of girc's state (history_events.go).
+			// `event-playback` in case the draft is ratified under that name.
+			"draft/event-playback": nil,
+			"event-playback":       nil,
 		},
 	})
 	if cfg.BouncerNetworks {
@@ -385,6 +393,19 @@ func (c *Client) OnEvent(fn EventHandler) {
 	c.girc.Handlers.Add(girc.ALL_EVENTS, func(_ *girc.Client, e girc.Event) {
 		if e.Command == girc.CAP && isSojuCapLS(e) {
 			c.sojuProto.Store(true)
+		}
+		// A history event (event-playback, inside a chathistory batch): the
+		// reader renamed it so girc's state tracking let it be. Give it its
+		// real command back and forward it, with none of the live handling
+		// below (a replayed self-JOIN must not send WHO/MODE).
+		if cmd, ok := historyEventCommand(e.Command); ok {
+			e.Command = cmd
+			if c.onEvent != nil {
+				if evt := translate(e); evt.Kind != "" {
+					c.dispatch.push(func() { c.onEvent(evt) })
+				}
+			}
+			return
 		}
 		forwarded := false
 		forward := func() {

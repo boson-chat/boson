@@ -838,6 +838,32 @@ function chatView(): void {
     lines.forEach((l, j) => session.emit(pm(who, l, at - j / 60, { msgid: `tb-${b}-${j}` })));
   }
 
+  // &evplay=1: an Ergo with event-playback. Joins and quits seen live, then
+  // the channel's history replaying them (and older ones) as real events,
+  // plus HistServ's stand-ins a server without event-playback sends: one
+  // set of rows, no HistServ, no duplicates.
+  if (q0.get('evplay') === '1') {
+    session.emit({ Kind: 'CAP', From: 'irc', Target: NICK, Message: 'batch server-time message-tags chathistory draft/event-playback', Args: ['ACK'], Raw: '' });
+    const now = new Date().toISOString();
+    session.emit({ Kind: 'JOIN', From: 'juno', Target: CHAN, Message: '', User: 'juno', Host: 'nebula/juno', Tags: { msgid: 'ev-live-j', time: now }, Raw: '' });
+    session.emit({ Kind: 'QUIT', From: 'orbit', Target: '', Message: 'Quit: shutting down', Raw: '' });
+    const ev = (Kind: string, From: string, mAgo: number, msgid: string, extra: Partial<IrcEvent> = {}): IrcEvent =>
+      ({ Kind, From, Target: CHAN, Message: '', Tags: { batch: 'evh', msgid, time: mAgo === 0 ? now : min(mAgo) }, Raw: '', ...extra });
+    session.emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: ['+evh', 'chathistory', CHAN], Raw: '' });
+    for (const e of [
+      ev('JOIN', 'mox', 2.6, 'ev-1'),
+      ev('JOIN', 'pixel', 2.5, 'ev-2'),
+      ev('QUIT', 'quasar', 2.4, 'ev-3', { Target: '', Message: 'Quit: shutting down' }),
+      ev('PRIVMSG', 'HistServ', 2.35, '_ev-4', { Message: 'TheLion-windows [account: TheLion-windows] joined the channel' }),
+      ev('PRIVMSG', 'HistServ', 2.3, '_ev-5', { Message: 'quasar quit (Quit: shutting down)' }),
+      ev('TAGMSG', 'pixel', 2.2, 'ev-6', { Tags: { batch: 'evh', '+typing': 'active', time: min(2.2) } }),
+      ev('NICK', 'mox', 2.1, 'ev-7', { Target: '', Message: 'mox_' }),
+      ev('JOIN', 'juno', 0, 'ev-live-j'),
+      ev('QUIT', 'orbit', 0, 'ev-q-orbit', { Target: '', Message: 'Quit: shutting down' }),
+    ]) session.emit(e);
+    session.emit({ Kind: 'BATCH', From: 'irc', Target: '', Message: '', Args: ['-evh'], Raw: '' });
+  }
+
   // Friends: a couple of direct messages (MY lists them).
   if (friendsMode) {
     session.emit({ Kind: 'PRIVMSG', From: 'mox', Target: NICK, Message: 'pairing on the relay later?', Tags: { time: min(20) }, Raw: '' });

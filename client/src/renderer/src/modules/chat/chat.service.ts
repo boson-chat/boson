@@ -3,6 +3,7 @@ import type { IrcEvent, ServerSession } from '../engine';
 import type { ChatHistoryStore } from '../history';
 import { MemoryOlderStore, lineIdentity, type OlderStore } from '../history/older-store';
 import { containsNickMention } from './mention';
+import { isHistServReplay } from './histserv';
 import { ReadMarkerStore } from './read-markers';
 import type { NotifyEvent } from '../ui/notifier';
 import {
@@ -157,12 +158,36 @@ interface HistoryBatch {
   kind: 'latest' | 'before' | 'query';
   msgs: ChatMessage[];
   query?: HistoryQuery;
+  // Items the server sent, rows or not (TAGMSGs, our own replayed joins,
+  // HistServ's stand-ins…): a full page means there may be more.
+  received?: number;
+  // The oldest server time among them, rows or not: where the next
+  // CHATHISTORY BEFORE starts (a page of events may make no row at all).
+  oldest?: number;
 }
+
+/**
+ * A page fetchHistory answers with: the rows, plus how many items the
+ * server actually sent and the oldest one's server time — with
+ * event-playback a page can be all joins / quits / TAGMSGs that make few
+ * or no rows, and it's not the end of history for that.
+ */
+export type HistoryPage = ChatMessage[] & { received?: number; oldest?: number };
+
+// History events (draft/event-playback): JOIN/PART/QUIT/KICK/NICK/TOPIC/MODE
+// replayed inside a chathistory batch. They become the same rows live events
+// make, at their server time, and never touch live state (members, topic,
+// our nick or membership): the engine keeps them out of girc's state too.
+const HISTORY_EVENT_KINDS = new Set(['JOIN', 'PART', 'QUIT', 'KICK', 'NICK', 'TOPIC', 'MODE']);
+// A history event row and a row Boson made live for the same event, when
+// they can't be matched by msgid: same kind, sender and text, this close.
+const EVENT_DEDUPE_WINDOW_MS = 5_000;
+const EVENT_ROW_KINDS: ReadonlySet<ChatMessageKind> = new Set(['join', 'part', 'quit', 'kick', 'system']);
 
 interface HistoryQuery {
   seq: number;
   target: string;
-  resolve: (msgs: ChatMessage[]) => void;
+  resolve: (msgs: HistoryPage) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -406,6 +431,15 @@ type InternalChannel = Omit<ChatChannel, 'messages'> & { messages: Signal<ChatMe
 // Whether two copies of a line were sent at the same moment: by the server's
 // own stamp when both have one (skew corrections differ between connections),
 // else by our timestamp.
+// The activity line for a topic change / channel mode change, live or replayed.
+function topicChangeText(setter: string, topic: string): string {
+  return topic ? `${setter} changed the topic to: ${topic}` : `${setter} cleared the topic`;
+}
+
+function modeChangeText(setter: string, args: readonly string[]): string {
+  return `${setter || 'server'} sets mode ${args.join(' ')}`;
+}
+
 function sameTime(a: ChatMessage, b: ChatMessage): boolean {
   return a.serverTime !== undefined && b.serverTime !== undefined
     ? a.serverTime === b.serverTime
@@ -432,6 +466,12 @@ export class ChatService {
   // ---- Chathistory (IRCv3 backlog/scrollback) -------------------------
   // Active BATCH refs → buffered history messages, keyed by the batch ref.
   private readonly batches = new Map<string, HistoryBatch>();
+  // Refs of batches nested in a history batch (aliases in `batches`).
+  private readonly nestedBatches = new Set<string>();
+  // Per conversation: the oldest server time any history page reached,
+  // rows or not. Scroll-back asks for what's before the older of this and
+  // the top row, so a page of events that made no row isn't asked again.
+  private readonly historyFloor = new Map<string, number>();
   // Channels we've already auto-requested LATEST backlog for (once per open).
   private readonly historyRequested = new Set<string>();
   // Set once the server 421s a CHATHISTORY command (advertised the cap but
@@ -2382,6 +2422,7 @@ export class ChatService {
     const ch = this.channels.get(this.activeChannel);
     this.older.drop(this.activeChannel);
     this.revealed.delete(this.activeChannel);
+    this.historyFloor.delete(this.activeChannel);
     if (ch) {
       ch.messages.value = [];
       ch.history = undefined;
@@ -2863,6 +2904,12 @@ export class ChatService {
   // The sender's identity for an activity line (join/part/quit/kick): the
   // prefix, topped up by what the member list knew. Empty while
   // remembering hosts is off.
+  // A live event's msgid and server time, kept on the row it makes so the
+  // same event replayed from history (event-playback) is recognised.
+  private eventIdentity(e: IrcEvent): Pick<ChatMessage, 'msgid' | 'serverTime'> {
+    return { ...(e.Tags?.msgid ? { msgid: e.Tags.msgid } : {}), ...this.serverTimeOf(e) };
+  }
+
   private lineIdentity(e: IrcEvent, member?: ChatMember, extra?: { account?: string; realname?: string }): Pick<ChatMessage, 'user' | 'host' | 'account' | 'realname'> {
     if (!this.seen.recording) return {};
     const user = e.User || member?.user;
@@ -3046,7 +3093,15 @@ export class ChatService {
     if (!batchRef) this.noteServerClock(e);
     if (batchRef) {
       const batch = this.batches.get(batchRef);
-      if (batch) { this.bufferHistoryMessage(batch, e); return; }
+      if (batch) {
+        // A batch nested in a history batch is part of it (the engine treats
+        // its events as history too): its lines go to the same buffer.
+        const ref = e.Kind === 'BATCH' ? (e.Args?.[0] ?? '') : '';
+        if (ref.startsWith('+')) { this.batches.set(ref.slice(1), batch); this.nestedBatches.add(ref.slice(1)); }
+        else if (ref.startsWith('-')) { this.batches.delete(ref.slice(1)); this.nestedBatches.delete(ref.slice(1)); }
+        else this.bufferHistoryMessage(batch, e);
+        return;
+      }
       const targets = this.targetBatches.get(batchRef);
       if (targets) {
         // CHATHISTORY TARGETS <target> <timestamp>
@@ -3287,6 +3342,7 @@ export class ChatService {
             from: e.From,
             text: `${e.From} joined`,
             timestamp: Date.now(),
+            ...this.eventIdentity(e),
             ...this.lineIdentity(e, undefined, { realname: e.Message || undefined }),
           });
         }
@@ -3343,10 +3399,16 @@ export class ChatService {
             this.targetBatches.set(ref.slice(1), []);
           }
         } else if (ref.startsWith('-')) {
+          if (this.nestedBatches.delete(ref.slice(1))) { this.batches.delete(ref.slice(1)); break; }
           const batch = this.batches.get(ref.slice(1));
           if (batch) {
             this.batches.delete(ref.slice(1));
-            if (batch.query) this.settleHistoryQuery(batch.query, [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp));
+            if (batch.query) {
+              const page: HistoryPage = [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp);
+              page.received = batch.received ?? batch.msgs.length;
+              if (batch.oldest !== undefined) page.oldest = batch.oldest;
+              this.settleHistoryQuery(batch.query, page);
+            }
             else this.flushHistoryBatch(batch);
           }
           const targets = this.targetBatches.get(ref.slice(1));
@@ -3434,6 +3496,7 @@ export class ChatService {
             from: e.From,
             text: `${e.From} left`,
             timestamp: Date.now(),
+            ...this.eventIdentity(e),
             ...this.lineIdentity(e, member),
           });
         }
@@ -3465,6 +3528,7 @@ export class ChatService {
             from: e.From,
             text: `${e.From} kicked ${kicked}${e.Message ? ` (${e.Message})` : ''}`,
             timestamp: Date.now(),
+            ...this.eventIdentity(e),
           });
         }
         break;
@@ -3479,8 +3543,9 @@ export class ChatService {
           id: this.id(),
           kind: 'system',
           from: '',
-          text: `${e.From || 'server'} sets mode ${args.join(' ')}`,
+          text: modeChangeText(e.From, args),
           timestamp: Date.now(),
+          ...this.eventIdentity(e),
         });
         break;
       }
@@ -3553,6 +3618,7 @@ export class ChatService {
             from: e.From,
             text: `${e.From} quit${e.Message ? ` (${e.Message})` : ''}`,
             timestamp: Date.now(),
+            ...this.eventIdentity(e),
             ...this.lineIdentity(e, member),
           };
           c.messages.value = [...c.messages.peek(), quitMsg];
@@ -3639,12 +3705,10 @@ export class ChatService {
           ch.topicSetAt = Date.now();
           // Surface the change inline so users see who edited it without
           // having to look up to the header. Empty string = topic cleared.
-          const note = e.Message
-            ? `${e.From} changed the topic to: ${e.Message}`
-            : `${e.From} cleared the topic`;
+          const note = topicChangeText(e.From, e.Message ?? '');
           ch.messages.value = [
             ...ch.messages.peek(),
-            { id: crypto.randomUUID(), kind: 'system', from: '', text: note, timestamp: Date.now() },
+            { id: crypto.randomUUID(), kind: 'system', from: '', text: note, timestamp: Date.now(), ...this.eventIdentity(e) },
           ];
         }
         this.emit();
@@ -4085,6 +4149,7 @@ export class ChatService {
       this.historyRequested.delete(key);
       this.older.drop(key);
       this.revealed.delete(key);
+      this.historyFloor.delete(key);
       this.pendingHistoryKind.delete(key);
       this.pendingHistorySeq.delete(key);
       this.clearLoadOlderTimeout(key);
@@ -4156,6 +4221,7 @@ export class ChatService {
   private requestAttachBacklog(): void {
     this.historyRequested.clear();
     this.batches.clear();
+    this.nestedBatches.clear();
     this.failHistoryQueries(() => true, 'Reconnected before the server answered');
     this.targetBatches.clear();
     this.playedAll = false;
@@ -4234,12 +4300,12 @@ export class ChatService {
    * (older than `ref`) or AROUND (centred on it). Rejects without
    * CHATHISTORY, on a 421 / FAIL, a reconnect, or no answer in time.
    */
-  fetchHistory(target: string, sub: 'BEFORE' | 'AROUND', ref: HistoryRef, limit: number): Promise<ChatMessage[]> {
+  fetchHistory(target: string, sub: 'BEFORE' | 'AROUND', ref: HistoryRef, limit: number): Promise<HistoryPage> {
     if (!this.chathistorySupported()) return Promise.reject(new Error('This server does not keep history'));
     const n = Math.max(1, Math.min(Math.floor(limit), this.historyQueryLimit()));
     const refArg = 'msgid' in ref ? `msgid=${ref.msgid}` : `timestamp=${new Date(ref.timestamp).toISOString()}`;
     const lower = target.toLowerCase();
-    return new Promise<ChatMessage[]>((resolve, reject) => {
+    return new Promise<HistoryPage>((resolve, reject) => {
       const q: HistoryQuery = {
         seq: ++this.historySeq,
         target: lower,
@@ -4279,7 +4345,7 @@ export class ChatService {
     if (list.length === 0) this.historyQueries.delete(q.target);
   }
 
-  private settleHistoryQuery(q: HistoryQuery, msgs: ChatMessage[]): void {
+  private settleHistoryQuery(q: HistoryQuery, msgs: HistoryPage): void {
     clearTimeout(q.timer);
     q.resolve(msgs);
   }
@@ -4366,7 +4432,9 @@ export class ChatService {
 
     if (this.chathistorySupported()) {
       if (!first) return; // nothing to anchor before yet
-      const pivot = new Date(first.timestamp).toISOString();
+      // Server time (what CHATHISTORY pages by), and no later than the
+      // oldest item a page has brought, shown or not.
+      const pivot = new Date(Math.min(first.serverTime ?? first.timestamp, this.historyFloor.get(key) ?? Infinity)).toISOString();
       ch.history = { loading: true, exhausted: false };
       this.expectHistory(key, 'before');
       this.armLoadOlderTimeout(key);
@@ -4580,7 +4648,21 @@ export class ChatService {
         channel: /^[#&]/.test(batch.target) ? batch.target : undefined, at: this.timestampOf(e),
       });
     }
+    batch.received = (batch.received ?? 0) + 1;
+    if (e.Tags?.time) {
+      const t = eventTimestamp(e);
+      if (batch.oldest === undefined || t < batch.oldest) batch.oldest = t;
+    }
+    if (e.Kind === 'TAGMSG') { this.handleHistoryTagmsg(batch, e); return; }
+    if (HISTORY_EVENT_KINDS.has(e.Kind)) {
+      const row = this.historyEventRow(batch.target, e);
+      if (row) batch.msgs.push(row);
+      return;
+    }
     if (e.Kind !== 'PRIVMSG' && e.Kind !== 'NOTICE') return;
+    // A server without event-playback (or before we asked for it): Ergo's
+    // HistServ stand-ins for joins/quits/…, which our own rows already show.
+    if (isHistServReplay(e.From, batch.target, e.Message ?? '')) return;
     let text = e.Message ?? '';
     let kind: ChatMessageKind = e.Kind === 'NOTICE' ? 'notice' : 'message';
     // CTCP other than ACTION (VERSION scans and our replies, PING …) is
@@ -4601,6 +4683,73 @@ export class ChatService {
       ...replyOf(e.Tags),
       ...this.serverTimeOf(e),
     });
+  }
+
+  // A TAGMSG replayed in a history batch (event-playback). Typing
+  // notifications are moot by now and show nothing; the batch's target and
+  // e's tags (msgid, time, client tags) are all here for tags that do mean
+  // something later (reactions hook in here).
+  private handleHistoryTagmsg(_batch: HistoryBatch, _e: IrcEvent): void {
+    // Nothing to render: a TAGMSG is never a row.
+  }
+
+  // The row a history event (event-playback) makes in `target`'s backlog —
+  // the same one the live event makes, at its server time — or null when the
+  // live event shows none either (a nick change, our own join/part/quit).
+  // Only builds a row: members, topic, nick and membership are live state
+  // and stay as they are.
+  private historyEventRow(target: string, e: IrcEvent): ChatMessage | null {
+    if (!/^[#&]/.test(target) || !e.From) return null;
+    const base = {
+      id: this.id(),
+      from: e.From,
+      timestamp: this.timestampOf(e),
+      ...(e.Tags?.msgid ? { msgid: e.Tags.msgid } : {}),
+      ...this.serverTimeOf(e),
+    };
+    switch (e.Kind) {
+      case 'JOIN':
+        if (this.isMe(e.From)) return null;
+        return { ...base, kind: 'join', text: `${e.From} joined`, ...this.lineIdentity(e, undefined, { realname: e.Message || undefined }) };
+      case 'PART':
+        if (this.isMe(e.From)) return null;
+        return { ...base, kind: 'part', text: `${e.From} left`, ...this.lineIdentity(e) };
+      case 'QUIT':
+        if (this.isMe(e.From)) return null;
+        return { ...base, kind: 'quit', text: `${e.From} quit${e.Message ? ` (${e.Message})` : ''}`, ...this.lineIdentity(e) };
+      case 'KICK': {
+        const kicked = e.Args?.[0];
+        if (!kicked) return null;
+        return { ...base, kind: 'kick', text: `${e.From} kicked ${kicked}${e.Message ? ` (${e.Message})` : ''}`, ...this.lineIdentity(e) };
+      }
+      case 'TOPIC':
+        return { ...base, kind: 'system', from: '', text: topicChangeText(e.From, e.Message ?? '') };
+      case 'MODE': {
+        const args = e.Args ?? [];
+        if (args.length === 0) return null;
+        return { ...base, kind: 'system', from: '', text: modeChangeText(e.From, args) };
+      }
+      default:
+        return null; // NICK: live renames show no row either
+    }
+  }
+
+  // True when a history event row is already shown: the same msgid, or —
+  // against a row Boson made live, which may carry no msgid and is stamped
+  // with our clock — the same kind, sender and text a few seconds apart.
+  private isDuplicateEvent(ch: InternalChannel, msg: ChatMessage): boolean {
+    if (!EVENT_ROW_KINDS.has(msg.kind)) return false;
+    const arr = ch.messages.peek();
+    for (let i = arr.length - 1; i >= 0; i--) {
+      const m = arr[i]!;
+      if (m.kind !== msg.kind) continue;
+      if (msg.msgid && m.msgid) {
+        if (m.msgid === msg.msgid) return true;
+        continue;
+      }
+      if (m.from === msg.from && m.text === msg.text && Math.abs(m.timestamp - msg.timestamp) <= EVENT_DEDUPE_WINDOW_MS) return true;
+    }
+    return false;
   }
 
   // Record how far the server's clock is from ours, from a live event.
@@ -4649,7 +4798,7 @@ export class ChatService {
     // Dedupe by msgid AND content (from+text+timestamp): a server may replay
     // the same buffer on every attach with no msgid, so msgid-only dedupe lets
     // reconnect dups pile up. isDuplicateMessage covers both.
-    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !this.older.contains(key, m));
+    const fresh = sorted.filter((m) => !this.isDuplicateMessage(ch, m) && !this.isDuplicateEvent(ch, m) && !this.older.contains(key, m));
     if (fresh.length > 0) {
       // Stable: among equal timestamps what was already shown stays first.
       const merged = [...ch.messages.peek(), ...fresh].sort((a, b) => a.timestamp - b.timestamp);
@@ -4663,8 +4812,9 @@ export class ChatService {
     const serverHistory = this.chathistorySupported() || this.playbackSupported();
     ch.history = {
       loading: false,
-      exhausted: this.older.has(key) ? false : serverHistory ? batch.msgs.length < this.chathistoryLimit() : true,
+      exhausted: this.older.has(key) ? false : serverHistory ? Math.max(batch.msgs.length, batch.received ?? 0) < this.chathistoryLimit() : true,
     };
+    if (batch.oldest !== undefined && batch.oldest < (this.historyFloor.get(key) ?? Infinity)) this.historyFloor.set(key, batch.oldest);
     this.pendingHistoryKind.delete(key);
     this.pendingHistorySeq.delete(key);
     this.clearLoadOlderTimeout(key);
