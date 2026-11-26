@@ -29,7 +29,9 @@ interface ChatInputBarProps {
   onFiles?: (files: File[]) => void;
   // Replying to a message: a "Replying to nick" bar over the composer with
   // a way to cancel (its ×, or Escape in the composer).
-  replying?: { nick: string; text: string } | null;
+  // `cancelLabel`: what the × says (the thread panel's goes back to
+  // answering the thread's latest line). No onCancelReply: no ×.
+  replying?: { nick: string; text: string; cancelLabel?: string } | null;
   onCancelReply?: () => void;
 }
 
@@ -145,16 +147,18 @@ export function ChatInputBar({
           <CornerUpLeft aria-hidden="true" class="chat-reply-bar-icon" />
           <span class="chat-reply-bar-label">Replying to <strong>{replying.nick}</strong></span>
           <span class="chat-reply-bar-excerpt">{replying.text}</span>
-          <Button
-            variant="ghost"
-            size={phone ? 'lg' : 'sm'}
-            class="chat-reply-bar-cancel"
-            title="Cancel reply (Esc)"
-            aria-label="Cancel reply"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={onCancelReply}
-            icon={<X aria-hidden="true" />}
-          />
+          {onCancelReply && (
+            <Button
+              variant="ghost"
+              size={phone ? 'lg' : 'sm'}
+              class="chat-reply-bar-cancel"
+              title={replying.cancelLabel ?? 'Cancel reply (Esc)'}
+              aria-label={replying.cancelLabel ?? 'Cancel reply'}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={onCancelReply}
+              icon={<X aria-hidden="true" />}
+            />
+          )}
         </div>
       )}
       <div class="chat-input-wrap">

@@ -4,11 +4,13 @@
 
 const STORAGE_KEY = 'boson:panel-sizes:v1';
 
-export type PanelKey = 'channels' | 'members';
+export type PanelKey = 'channels' | 'members' | 'thread';
 
 export const PANEL_BOUNDS: Record<PanelKey, { min: number; max: number; def: number }> = {
   channels: { min: 180, max: 480, def: 240 },
   members: { min: 160, max: 420, def: 240 },
+  // The thread panel (ThreadPanel): a conversation of its own, so wider.
+  thread: { min: 300, max: 640, def: 380 },
 };
 
 function clamp(v: number, min: number, max: number): number {

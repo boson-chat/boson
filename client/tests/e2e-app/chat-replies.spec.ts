@@ -99,6 +99,25 @@ test.describe('replies', () => {
     await expect(row('q1 which port')).toBeInViewport();
     await expect(page.locator('.vrow-flash')).toContainText('q1 which port');
 
+    // Threads: the replies to q1, and to those replies, make one thread
+    // (a1, a2, r0, r0b, r1); its line under q1 opens it beside the chat.
+    const threadLine = row('q1 which port').locator('.message-thread-line');
+    await expect(threadLine).toContainText('5 replies');
+    await threadLine.click();
+    const panel = page.locator('.thread-panel');
+    await expect(panel.locator('.message-row')).toHaveCount(6);
+    await expect(panel.locator('.chat-reply-bar')).toContainText(`Replying to ${peer.nick}`);
+    // Sent from the panel: an ordinary reply on the wire (tag + text).
+    mark = peer.mark();
+    await panel.locator('textarea.chat-textarea').fill('t1 from the thread');
+    await panel.locator('textarea.chat-textarea').press('Enter');
+    const inThread = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1]!.startsWith(`${peer.nick}: `) && l.params[1]!.endsWith('t1 from the thread'), mark);
+    expect(inThread.tags['+draft/reply']).toBeTruthy();
+    await expect(panel.locator('.message-row')).toHaveCount(7);
+    await expect(threadLine).toContainText('6 replies');
+    await panel.getByRole('button', { name: 'Close thread' }).click();
+    await expect(panel).toHaveCount(0);
+
     // A reply to a message that isn't loaded says so (back at the bottom:
     // the list only renders the rows on screen).
     await messages(page).evaluate((el) => { el.scrollTop = el.scrollHeight; });

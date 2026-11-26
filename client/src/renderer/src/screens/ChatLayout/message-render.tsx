@@ -5,7 +5,7 @@ import { createPortal, memo } from 'preact/compat';
 import type { Signal } from '@preact/signals';
 import type { ChatMember, ChatMessage, MemberPrefix } from '../../modules/chat';
 import { BarLoader, Button, Menu, MenuItem } from '@boson/shared';
-import { Copy, CornerUpLeft, UserRound } from 'lucide-preact';
+import { Copy, CornerUpLeft, Locate, MessagesSquare, UserRound } from 'lucide-preact';
 import { Avatar } from '../../shared/Avatar/Avatar';
 import { tokenizeMarkdown, isPreformattedLine, stripIrcFormatting, type MdToken } from './markdown';
 import { parseTables, type ParsedTable } from './table';
@@ -26,6 +26,7 @@ import { seenMask } from '../../modules/seen/seen.store';
 import { privacySettings } from '../../modules/ui/privacy.store';
 import { getChatDisplaySettings, onChatDisplaySettingsChange } from '../../modules/ui/chat-display.store';
 import { replyBody, withoutReplyPrefix } from '../../modules/chat/replies';
+import { setThreadToggleHook, threadIndexFor, type ThreadIndex, type ThreadSummary } from '../../modules/chat/threads';
 import { MessageSheet } from './MessageSheet';
 import { DeletedText, useMessageExtras } from './reactions';
 import type { SheetAction } from './BottomSheet';
@@ -74,6 +75,15 @@ interface MessageRowProps {
   replyParent?: ChatMessage | null | 'loading';
   /** Scroll the conversation to a message (the quote's click). */
   onJumpTo?: (target: ChatMessage) => void;
+  /** Leave the quote out (the thread panel, right under what it answers). */
+  hideQuote?: boolean;
+  /** A thread's root: its replies' summary line, under the message. */
+  thread?: ThreadSummary;
+  /** The thread the message is in (as root or reply), for "View thread". */
+  threadRoot?: string;
+  onOpenThread?: (rootId: string) => void;
+  /** The thread panel's rows: "Show in conversation" (the main timeline). */
+  onShowInConversation?: (m: ChatMessage) => void;
 }
 
 // Match UserPanel's hover-card open-delay so dwelling on a nick in chat
@@ -82,7 +92,7 @@ const HOVER_OPEN_DELAY_MS = 150;
 
 // Memoised: the windowed list re-renders as it scrolls; rows whose props
 // didn't change don't.
-export const MessageRow = memo(function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false, replyParent, onJumpTo }: MessageRowProps) {
+export const MessageRow = memo(function MessageRow({ msg, myNick, members, grouped = false, nickActions, fresh = false, avatarFor, doc = false, replyParent, onJumpTo, hideQuote = false, thread, threadRoot, onOpenThread, onShowInConversation }: MessageRowProps) {
   const [menu, setMenu] = useState<{ nick: string; x: number; y: number } | null>(null);
   const [hover, setHover] = useState<{ nick: string; top: number; left: number } | null>(null);
   // A click on a nick (the author, or one mentioned in the text) opens their
@@ -131,9 +141,12 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
     const el = !isNarrow() && rowRef.current?.querySelector('.message-row-name, .message-action-name, .message-avatar-btn');
     if (el) openProfile(msg.from, el); else setProfile({ nick: msg.from });
   };
+  const viewThread = threadRoot && onOpenThread ? () => onOpenThread(threadRoot) : undefined;
   const messageActions = (at?: { x: number; y: number }): SheetAction[] => {
     const out: SheetAction[] = [];
     if (reply) out.push({ label: 'Reply', onClick: reply });
+    if (viewThread) out.push({ label: 'View thread', onClick: viewThread });
+    if (onShowInConversation) out.push({ label: 'Show in conversation', onClick: () => onShowInConversation(msg) });
     out.push(...extras.menuActions(at).filter((a) => !a.danger));
     if (!msg.redacted) out.push({ label: 'Copy text', onClick: copyText });
     if (theirs && nickActions?.onSendMessage) {
@@ -162,6 +175,14 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
           title="Reply" aria-label="Reply" icon={<CornerUpLeft aria-hidden="true" />} />
       )}
       {extras.toolbarButtons}
+      {viewThread && (
+        <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={viewThread}
+          title="View thread" aria-label="View thread" icon={<MessagesSquare aria-hidden="true" />} />
+      )}
+      {onShowInConversation && (
+        <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={() => onShowInConversation(msg)}
+          title="Show in conversation" aria-label="Show in conversation" icon={<Locate aria-hidden="true" />} />
+      )}
       <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={copyText}
         title="Copy text" aria-label="Copy text" icon={<Copy aria-hidden="true" />} />
       <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={viewProfile}
@@ -238,7 +259,8 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   // A reply's text without the `nick: "quote..." ` its quote stands for.
   const body = replyBody(msg, parent);
   const renderedText = doc ? null : msg.redacted ? <DeletedText /> : renderMessageBody(body, myNick, members);
-  const quote = replyParent !== undefined && <ReplyQuote parent={replyParent} guessed={!!msg.replyGuess} onJumpTo={onJumpTo} />;
+  const quote = replyParent !== undefined && !hideQuote && <ReplyQuote parent={replyParent} guessed={!!msg.replyGuess} onJumpTo={onJumpTo} />;
+  const threadLine = thread && onOpenThread && <ThreadLine summary={thread} avatarFor={avatarFor} onOpen={onOpenThread} />;
 
   if (msg.kind === 'action') {
     return (
@@ -249,6 +271,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         <span class="message-action-text" onClick={onTextClick}>{renderedText}</span>
         <span class="message-row-time">{time}</span>
         {extras.chips}
+        {threadLine && <div class="message-action-thread">{threadLine}</div>}
         {sheets}
       </div>
     );
@@ -323,6 +346,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         </div>
         {!doc && <MessageEmbeds text={msg.text} />}
         {extras.chips}
+        {threadLine}
       </div>
       {menu && (
         <NickContextMenu
@@ -390,6 +414,54 @@ export function ReplyQuote({ parent, guessed = false, onJumpTo }: {
       <CornerUpLeft aria-hidden="true" class="message-reply-quote-icon" />
       <span class="message-reply-quote-author">{parent.from}</span>
       <span class="message-reply-quote-text">{text}</span>
+    </button>
+  );
+}
+
+// "just now", "5m ago", "3h ago", "yesterday", "4d ago", else the date.
+export function ago(at: number, now: number): string {
+  const s = Math.max(0, (now - at) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86_400) return `${Math.floor(s / 3600)}h ago`;
+  if (s < 2 * 86_400) return 'yesterday';
+  if (s < 7 * 86_400) return `${Math.floor(s / 86_400)}d ago`;
+  return new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+// The clock for "last reply 5m ago", ticking once a minute while shown.
+function useMinuteClock(): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
+// Under a thread's root: who replied, how many, and when last. A click
+// opens the thread (ThreadPanel).
+export function ThreadLine({ summary, avatarFor, onOpen }: {
+  summary: ThreadSummary;
+  avatarFor?: (nick: string) => string | undefined;
+  onOpen: (rootId: string) => void;
+}) {
+  const now = useMinuteClock();
+  const n = summary.count;
+  const when = ago(summary.lastAt, now);
+  return (
+    <button
+      type="button"
+      class="message-thread-line"
+      onClick={(e) => { e.stopPropagation(); onOpen(summary.rootId); }}
+      aria-label={`${n} ${n === 1 ? 'reply' : 'replies'}, last reply ${when}. View thread`}
+    >
+      <span class="message-thread-faces" aria-hidden="true">
+        {summary.nicks.map((nick) => <Avatar key={nick} nick={nick} url={avatarFor?.(nick)} size={18} class="message-thread-face" />)}
+      </span>
+      <span class="message-thread-count">{n} {n === 1 ? 'reply' : 'replies'}</span>
+      <span class="message-thread-when">last reply {when}</span>
+      <span class="message-thread-view" aria-hidden="true">View thread</span>
     </button>
   );
 }
@@ -599,6 +671,12 @@ interface MessageListProps {
   toLatest?: number;
   /** Originals of replies that aren't loaded, fetched on their own. */
   replyContext?: ReplyContextSource | null;
+  /** Open a thread (ThreadPanel) by its root's id. Without it, no thread
+   *  lines or "View thread". */
+  onOpenThread?: (rootId: string) => void;
+  /** Scroll to a message (and flash it) whenever `seq` changes: the thread
+   *  panel's jump to a message. */
+  threadJump?: { id: string; seq: number } | null;
 }
 
 /** Where a reply's original comes from when it isn't in the list
@@ -616,7 +694,7 @@ export interface ReplyContextSource {
 const SEEK_MAX_PAGES = 10;
 
 // "Show guessed replies" (Settings → Chat & media), live.
-function useGuessedReplies(): boolean {
+export function useGuessedReplies(): boolean {
   const [on, setOn] = useState(() => getChatDisplaySettings().guessedReplies);
   useEffect(() => onChatDisplaySettingsChange(() => setOn(getChatDisplaySettings().guessedReplies)), []);
   return on;
@@ -685,6 +763,13 @@ const INITIAL_ROWS = 40;
 // the viewport's top (an IntersectionObserver over the scroller).
 export const LOAD_OLDER_MARGIN_PX = 120;
 const rowHeights = new HeightCache();
+// The height a thread line adds to its row (measured once one is shown).
+// A row off screen that gains or loses one is corrected by it, so the
+// layout above the reader doesn't shift once it's measured again.
+let threadLineHeight = 0;
+setThreadToggleHook((rootId, has) => {
+  if (threadLineHeight > 0) rowHeights.adjust(rootId, has ? threadLineHeight : -threadLineHeight);
+});
 // The user's scroll has stopped this long after its last event: the top
 // spacer's skew is settled then.
 const SCROLL_IDLE_MS = 150;
@@ -728,13 +813,18 @@ function listRows(items: readonly RenderItem[], guessedReplies = true): ListRow[
 export const MessageList = memo(function MessageList({
   messages, members, myNick, scrollRef, nickActions, channelName, avatarFor,
   onLoadOlder, onViewport, historySupported, historyLoading, historyExhausted, historyError, beginningNote,
-  jump, search, toLatest = 0, replyContext,
+  jump, search, toLatest = 0, replyContext, onOpenThread, threadJump,
 }: MessageListProps) {
   // Reading `.value` subscribes THIS component to the channel's message signal.
   // A metadata emit that re-renders the parent passes the same signal ref, so
   // memo() bails — the list only re-renders when its messages actually change
   // (or a non-signal prop like members/history flags does).
   const allMsgs = messages.value;
+  // Threads (threads.ts): kept with the conversation, brought up to date
+  // with each new list (before the rows are laid out: a thread line that
+  // comes or goes changes its row's height).
+  const threads: ThreadIndex = threadIndexFor(messages);
+  threads.sync(allMsgs);
   // The user's own scrolling (virtual-list.ts placeAnchored): when they last
   // used the wheel / keys / a finger / the scrollbar on the list, and when a
   // scroll event last followed from that (a fling or a smooth scroll keeps
@@ -866,6 +956,7 @@ export const MessageList = memo(function MessageList({
   // Stable for the memoised rows (a reply quote's click).
   const onJumpTo = useMemo(() => (t: ChatMessage) => jumpToMessageRef.current(t), []);
   useEffect(() => { if (jump) requestJumpRef.current(jump.id); }, [jump?.seq]);
+  useEffect(() => { if (threadJump) requestJumpRef.current(threadJump.id); }, [threadJump?.seq]);
   // Jump to latest: stick to the bottom again (the next layout pass puts it there).
   useEffect(() => {
     if (!toLatest) return;
@@ -996,6 +1087,13 @@ export const MessageList = memo(function MessageList({
     }
     for (const gone of Array.from(observed.current)) {
       if (!present.has(gone)) { ro?.unobserve(gone); observed.current.delete(gone); }
+    }
+    if (threadLineHeight === 0) {
+      const line = el.querySelector<HTMLElement>('.message-thread-line');
+      if (line) {
+        const cs = getComputedStyle(line);
+        threadLineHeight = line.getBoundingClientRect().height + (parseFloat(cs.marginTop) || 0) + (parseFloat(cs.marginBottom) || 0);
+      }
     }
     if (changed) { setHeightsVersion((n) => n + 1); return; }
     // What's above the rows (the load-older ribbon) may have changed size
@@ -1352,7 +1450,8 @@ export const MessageList = memo(function MessageList({
           const ids = search && search.matchIds.size > 0 ? rowMessageIds(item) : null;
           const match = !!ids && ids.some((m) => search!.matchIds.has(m.id));
           const current = match && !!search!.currentId && ids!.some((m) => m.id === search!.currentId);
-          const replyParent = (item.type === 'msg' || item.type === 'doc') ? parentOf(item.msg) : undefined;
+          const isMsg = item.type === 'msg' || item.type === 'doc';
+          const replyParent = isMsg ? parentOf(item.msg) : undefined;
           const vclass = [
             match ? 'vrow-search-match' : '',
             current ? 'vrow-search-current' : '',
@@ -1374,6 +1473,9 @@ export const MessageList = memo(function MessageList({
                     doc={item.type === 'doc'}
                     replyParent={replyParent}
                     onJumpTo={onJumpTo}
+                    thread={onOpenThread && isMsg ? threads.summary(item.msg.id) : undefined}
+                    threadRoot={onOpenThread && isMsg ? threads.threadOf(item.msg.id) : undefined}
+                    onOpenThread={onOpenThread}
                   />
                 )}
             </VRow>

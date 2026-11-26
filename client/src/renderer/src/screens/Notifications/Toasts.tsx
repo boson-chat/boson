@@ -61,7 +61,7 @@ export function openToast(t: Toast): void {
       // Its inbox entry (a mention or DM) is seen now.
       const m = getMemoStore().list().find((x) => !x.read && x.serverId === t.serverId && x.sender === t.nick && (t.kind === 'dm' ? x.kind === 'dm' : x.channel?.toLowerCase() === t.channel?.toLowerCase()));
       if (m) getMemoStore().markRead(m.id);
-      openConversation(t.serverId ?? '', t.channel ?? null);
+      openConversation(t.serverId ?? '', t.channel ?? null, t.messageId || t.msgid ? { messageId: t.messageId, msgid: t.msgid } : undefined);
       return;
     }
     case 'friend': case 'accepted': openFriends(); return;

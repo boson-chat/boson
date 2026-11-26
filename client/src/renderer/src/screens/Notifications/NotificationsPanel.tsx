@@ -138,7 +138,8 @@ export function NotificationsPanel({ layout, onClose, onOpenSettings }: Props) {
     if (n.memo) {
       memoStore.markRead(n.memo.id);
       const m = n.memo;
-      openConversation(m.serverId, m.kind === 'dm' ? m.sender : m.kind === 'mention' ? (m.channel ?? null) : null);
+      openConversation(m.serverId, m.kind === 'dm' ? m.sender : m.kind === 'mention' ? (m.channel ?? null) : null,
+        m.kind === 'mention' && (m.messageId || m.msgid) ? { messageId: m.messageId, msgid: m.msgid } : undefined);
     } else if (n.feed) {
       feed.markRead(n.feed.id);
       if (n.feed.kind === 'friend') openFriends();
