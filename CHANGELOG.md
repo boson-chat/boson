@@ -1,3 +1,9 @@
+## [0.100.0](https://github.com/boson-chat/boson/compare/v0.99.0...v0.100.0) (2026-11-26)
+
+### Features
+
+* **chat:** emoji reactions and deleting your own messages ([#160](https://github.com/boson-chat/boson/issues/160)) ([a144928](https://github.com/boson-chat/boson/commit/a144928595ef9d053d0c82dd5ebecb534b46e73a))
+
 ## [0.99.0](https://github.com/boson-chat/boson/compare/v0.98.1...v0.99.0) (2026-11-26)
 
 ### Features
