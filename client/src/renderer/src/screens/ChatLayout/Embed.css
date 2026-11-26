@@ -3,10 +3,15 @@
   flex-direction: column;
   gap: var(--space-2);
   margin-top: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
 }
+/* Never wider than the message column (a phone's is ~300px): a preview
+   scales down inside it instead of widening the row. */
 .embed {
   position: relative;
-  max-width: 420px;
+  max-width: min(420px, 100%);
+  min-width: 0;
 }
 /* Dismiss (a ghost Button) over the embed's corner, shown on hover. */
 .embed-dismiss {
@@ -17,7 +22,15 @@
   opacity: 0;
   transition: opacity var(--motion-fast) var(--ease-standard);
 }
-.embed:hover .embed-dismiss, .embed-dismiss:focus-visible { opacity: 1; }
+.embed-dismiss:focus-visible { opacity: 1; }
+/* Revealed on hover where a pointer hovers; always shown on touch screens
+   (iOS drops the click of a tap that reveals content on :hover). */
+@media (hover: hover) {
+  .embed:hover .embed-dismiss { opacity: 1; }
+}
+@media (hover: none) {
+  .embed-dismiss { opacity: 1; }
+}
 
 /* Click-to-load chip (inert until clicked — no network/remote content). */
 .embed-chip { max-width: 100%; }
@@ -36,6 +49,9 @@
 /* Image thumbnail button (opens the lightbox). */
 .embed-media-btn {
   display: block;
+  /* A button sizes to its content: cap it, so the frame inside (a fixed
+     px width) scales to the column rather than pushing it wider. */
+  max-width: 100%;
   padding: 0;
   border: none;
   background: none;
@@ -153,8 +169,10 @@
 }
 .embed-spotify-trackbtn:disabled { cursor: default; }
 .embed-spotify-trackbtn .t-icon { display: none; color: var(--fg); }
-.embed-spotify-track:hover .embed-spotify-trackbtn:not(:disabled) .t-index { display: none; }
-.embed-spotify-track:hover .embed-spotify-trackbtn:not(:disabled) .t-icon { display: inline; }
+@media (hover: hover) {
+  .embed-spotify-track:hover .embed-spotify-trackbtn:not(:disabled) .t-index { display: none; }
+  .embed-spotify-track:hover .embed-spotify-trackbtn:not(:disabled) .t-icon { display: inline; }
+}
 .embed-spotify-track.is-playing .t-index { display: none; }
 .embed-spotify-track.is-playing .t-icon { display: inline; color: #1ed760; }
 .embed-spotify-track.is-playing .t-title { color: #1ed760; }

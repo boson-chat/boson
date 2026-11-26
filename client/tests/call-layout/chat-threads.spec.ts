@@ -168,3 +168,37 @@ test('light theme (Daylight): counter line and panel', async ({ page }) => {
   await expect(panel(page)).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('light.png') });
 });
+
+// A phone (touch, no hover): a tap on the counter line opens the thread.
+// iOS drops the click of a tap whose :hover shows or hides content (it
+// takes the tap as "hover first"), which is how the line once did nothing
+// on an iPhone: nothing in it may change on hover where hover is none.
+test.describe('threads on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 760 } });
+
+  test('a tap on the counter line opens the sheet; hover changes nothing in it', async ({ page }) => {
+    await open(page, 390, 760);
+    expect(await page.evaluate(() => matchMedia('(hover: none)').matches)).toBe(true);
+    await scrollTo(page, 'standup moved to 4pm today');
+    const line = rowWith(page, 'standup moved to 4pm today').locator('.message-thread-line');
+    // A real button, "View thread" shown from the start.
+    await expect(line).toHaveJSProperty('tagName', 'BUTTON');
+    await expect(line).toHaveAttribute('type', 'button');
+    await expect(line.locator('.message-thread-view')).toBeVisible();
+    const shown = () => line.evaluate((el) => Array.from(el.querySelectorAll('*'))
+      .map((c) => { const s = getComputedStyle(c); return `${s.display}/${s.visibility}/${s.opacity}`; }).join(','));
+    const before = await shown();
+    await line.hover();
+    expect(await shown()).toBe(before);
+    await page.screenshot({ path: test.info().outputPath('touch-counter.png') });
+
+    await line.tap();
+    await expect(panel(page)).toBeVisible();
+    await expect(panel(page).locator('.message-row').first()).toContainText('standup moved to 4pm today');
+    const box = (await panel(page).boundingBox())!;
+    expect(box.height).toBeGreaterThan(758);
+    await page.screenshot({ path: test.info().outputPath('touch-sheet.png') });
+    await panel(page).getByRole('button', { name: 'Close thread' }).tap();
+    await expect(panel(page)).toHaveCount(0);
+  });
+});

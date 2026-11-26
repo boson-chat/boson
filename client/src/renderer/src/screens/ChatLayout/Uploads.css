@@ -227,9 +227,10 @@
 }
 
 /* ---- files-host links, inline ---- */
-.files-embed { max-width: 420px; }
+.files-embed { max-width: min(420px, 100%); min-width: 0; }
 .files-image-btn {
   display: block;
+  max-width: 100%;
   padding: 0;
   border: none;
   background: none;

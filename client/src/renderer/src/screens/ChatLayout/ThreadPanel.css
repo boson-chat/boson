@@ -41,6 +41,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   /* As the conversation's .messages-inner: rows reach into it. */
   padding: var(--space-2) var(--space-4) var(--space-3);
