@@ -450,7 +450,7 @@ func TestNew_NegotiatesChathistoryCaps(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	caps := c.girc.Config.SupportedCaps
-	for _, want := range []string{"batch", "chathistory", "draft/chathistory", "server-time", "znc.in/playback", "message-tags", "echo-message", "draft/read-marker"} {
+	for _, want := range []string{"batch", "chathistory", "draft/chathistory", "server-time", "znc.in/playback", "message-tags", "echo-message", "draft/read-marker", "draft/message-redaction"} {
 		if _, ok := caps[want]; !ok {
 			t.Errorf("SupportedCaps missing %q", want)
 		}
@@ -532,6 +532,24 @@ func TestTranslate_ForwardsFail(t *testing.T) {
 	assert.Equal(t, "FAIL", got.Kind)
 	assert.Equal(t, []string{"*", "ACCOUNT_REQUIRED"}, got.Args)
 	assert.Equal(t, "You must log in with SASL to join this server", got.Message)
+}
+
+func TestTranslate_Redact(t *testing.T) {
+	got := translate(girc.Event{
+		Command: "REDACT",
+		Source:  &girc.Source{Name: "alice", Ident: "a", Host: "h"},
+		Params:  []string{"#general", "msg123", "oops"},
+	})
+	assert.Equal(t, "REDACT", got.Kind)
+	assert.Equal(t, "alice", got.From)
+	assert.Equal(t, "#general", got.Target)
+	assert.Equal(t, []string{"msg123"}, got.Args)
+	assert.Equal(t, "oops", got.Message)
+
+	bare := translate(girc.Event{Command: "REDACT", Params: []string{"bob", "msg9"}})
+	assert.Equal(t, "bob", bare.Target)
+	assert.Equal(t, []string{"msg9"}, bare.Args)
+	assert.Equal(t, "", bare.Message)
 }
 
 func TestTranslate_MarkreadForwardsTargetAndTimestamp(t *testing.T) {

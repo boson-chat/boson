@@ -5,6 +5,10 @@ import { MemoryOlderStore, lineIdentity, type OlderStore } from '../history/olde
 import { containsNickMention } from './mention';
 import { isHistServReplay } from './histserv';
 import { addresses, replyPrefix, resolveTextReply, REPLY_WINDOW, sameNick } from './replies';
+import {
+  REACT_TAG, UNREACT_TAG, applyReaction, mergeReactions, reactionOf, redactReaction,
+  type ReactionEvent, type ReactionLog,
+} from './reactions';
 import { ReadMarkerStore } from './read-markers';
 import type { NotifyEvent } from '../ui/notifier';
 import {
@@ -408,6 +412,27 @@ export function replyOf(tags: Record<string, string> | undefined): { replyTo?: s
   return {};
 }
 
+// A deleted message as kept: who and when, nothing of what it said.
+function redactedCopy(m: ChatMessage): ChatMessage {
+  return {
+    id: m.id, kind: m.kind === 'notice' ? 'notice' : 'message', from: m.from, text: '', timestamp: m.timestamp,
+    redacted: true,
+    ...(m.msgid ? { msgid: m.msgid } : {}),
+    ...(m.serverTime !== undefined ? { serverTime: m.serverTime } : {}),
+  };
+}
+
+// FAIL REDACT <code> …: what to tell the user.
+function redactFailText(code: string, message: string | undefined): string {
+  switch (code) {
+    case 'REDACT_FORBIDDEN': return "You can't delete that message.";
+    case 'UNKNOWN_MSGID': return "That message can't be deleted any more: the server no longer has it.";
+    case 'INVALID_TARGET': return "Couldn't delete the message: no such conversation.";
+    case 'REDACT_WINDOW_EXPIRED': return 'That message is too old to delete.';
+    default: return message ? `Couldn't delete the message: ${message}` : "Couldn't delete the message.";
+  }
+}
+
 export interface SendOptions {
   // The msgid of the message this one answers (a reply).
   replyTo?: string;
@@ -468,6 +493,16 @@ export class ChatService {
   private clockSamples: Array<{ at: number; off: number }> = [];
   private clockOffset = 0;
   // ---- Chathistory (IRCv3 backlog/scrollback) -------------------------
+  // IRCv3 reactions per conversation (key → target msgid → entries); see
+  // reactions.ts. Kept apart from the channels: a reaction can arrive
+  // before its message, or for a conversation not open yet.
+  private readonly reactionLogs = new Map<string, Signal<ReactionLog>>();
+  // Messages deleted (REDACT) per conversation, by msgid: scrubbed again if
+  // a copy comes back (the older-lines store, a bouncer's replay).
+  private readonly redactedIds = new Map<string, Set<string>>();
+  // A hydrated line's id as stored (hydration gives each a fresh one), so
+  // an update to it (reactions, deletion) replaces the stored row.
+  private readonly storedIds = new Map<string, string>();
   // Active BATCH refs → buffered history messages, keyed by the batch ref.
   private readonly batches = new Map<string, HistoryBatch>();
   // Refs of batches nested in a history batch (aliases in `batches`).
@@ -1877,6 +1912,145 @@ export class ChatService {
   // server negotiated `message-tags`, so it relays client-only tags.
   repliesSupported(): boolean {
     return (this.serverInfo.enabledCaps ?? []).includes('message-tags');
+  }
+
+  // ---- reactions (IRCv3 +draft/react) ----
+
+  // Reactions need client-only tags relayed (message-tags); a message can
+  // only be reacted to once it has a msgid.
+  reactionsSupported(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('message-tags');
+  }
+
+  // The conversation's reactions, by target msgid. A signal: a component
+  // reading `.value` re-renders as reactions come and go.
+  reactionsSignal(channel: string): Signal<ReactionLog> {
+    const key = this.channelKey(channel);
+    let s = this.reactionLogs.get(key);
+    if (!s) { s = signal<ReactionLog>(new Map()); this.reactionLogs.set(key, s); }
+    return s;
+  }
+
+  // React to a message (`on`), or take our reaction back: a TAGMSG with
+  // `+draft/react` (or `+draft/unreact`) and `+draft/reply=<msgid>`. No text
+  // fallback: clients without reactions just don't see them. Shown at once;
+  // the echo (echo-message) only confirms it.
+  react(channel: string, msg: ChatMessage, emoji: string, on = true): void {
+    if (!this.reactionsSupported() || !msg.msgid || !emoji || msg.redacted) return;
+    this.session.tagmsg(channel, { [on ? REACT_TAG : UNREACT_TAG]: emoji, [REPLY_TAG]: msg.msgid });
+    this.applyReactionEvent(this.channelKey(channel), { target: msg.msgid, nick: this.myNick, emoji, on, at: Date.now() });
+  }
+
+  // A TAGMSG's reaction, applied to `conv`'s log. False when it carries none.
+  private takeReaction(conv: string, e: IrcEvent): boolean {
+    const tags = e.Tags;
+    const target = replyOf(tags).replyTo;
+    const r = reactionOf(tags, target);
+    if (!r || !target || !e.From) return false;
+    this.applyReactionEvent(this.channelKey(conv), {
+      target, nick: e.From, emoji: r.emoji, on: r.on, at: this.timestampOf(e), id: tags?.msgid,
+    });
+    return true;
+  }
+
+  private applyReactionEvent(key: string, ev: ReactionEvent): void {
+    if (this.redactedIds.get(key)?.has(ev.target)) return;
+    const log = this.reactionsSignal(key);
+    const next = applyReaction(log.peek().get(ev.target), ev);
+    if (!next) return;
+    this.setReactions(key, ev.target, next);
+  }
+
+  private mergeStoredReactions(key: string, msgid: string, stored: ChatMessage['reactions'] & object): void {
+    const log = this.reactionsSignal(key);
+    const next = mergeReactions(log.peek().get(msgid), stored);
+    if (next) this.setReactions(key, msgid, next, false);
+  }
+
+  // Replace one message's entries; mirror them to its stored copy.
+  private setReactions(key: string, msgid: string, entries: ChatMessage['reactions'] & object, persist = true): void {
+    const log = this.reactionsSignal(key);
+    const map = new Map(log.peek());
+    if (entries.length) map.set(msgid, entries); else map.delete(msgid);
+    log.value = map;
+    if (persist) {
+      const m = this.channels.get(key)?.messages.peek().find((x) => x.msgid === msgid);
+      if (m && !m.pending) this.persistUpdate(key, m);
+    }
+  }
+
+  // A message with its current reactions, for the store.
+  private withReactions(key: string, m: ChatMessage): ChatMessage {
+    const entries = m.msgid ? this.reactionLogs.get(key)?.peek().get(m.msgid) : undefined;
+    return entries?.length ? { ...m, reactions: [...entries] } : m;
+  }
+
+  // Write a changed in-memory line over its stored row (same id + time).
+  private persistUpdate(key: string, m: ChatMessage): void {
+    if (!this.persistMessages || !this.persistence) return;
+    const { history, scope } = this.persistence;
+    const stored = { ...this.withReactions(key, stripPending(m)), id: this.storedIds.get(m.id) ?? m.id };
+    void history.append({ userId: scope.userId, serverId: scope.serverId, channel: key }, stored).catch(() => {});
+  }
+
+  // ---- deleting messages (IRCv3 draft/message-redaction) ----
+
+  // The server lets us delete messages (it may still refuse one: FAIL REDACT).
+  redactionSupported(): boolean {
+    return (this.serverInfo.enabledCaps ?? []).includes('draft/message-redaction');
+  }
+
+  // Ask the server to delete a message. It goes from the view when the
+  // server's REDACT comes back (to everyone in the conversation, us too).
+  redact(channel: string, msg: ChatMessage, reason?: string): void {
+    if (!this.redactionSupported() || !msg.msgid || msg.redacted) return;
+    const why = reason?.replace(/[\r\n]+/g, ' ').trim();
+    this.session.raw(`REDACT ${channel} ${msg.msgid}${why ? ` :${why}` : ''}`);
+  }
+
+  // A REDACT: the message becomes a "deleted" placeholder, in memory and in
+  // the store, its text gone; or, for a reaction's own TAGMSG, that
+  // reaction is taken back.
+  private applyRedaction(conv: string, msgid: string): void {
+    const key = this.channelKey(conv);
+    let set = this.redactedIds.get(key);
+    if (!set) { set = new Set(); this.redactedIds.set(key, set); }
+    set.add(msgid);
+    const log = this.reactionLogs.get(key);
+    if (log) {
+      const map = new Map(log.peek());
+      let changed = map.delete(msgid);
+      for (const [target, entries] of map) {
+        const next = redactReaction(entries, msgid);
+        if (next) { map.set(target, next); changed = true; }
+      }
+      if (changed) log.value = map;
+    }
+    const ch = this.channels.get(key);
+    if (!ch) return;
+    let hit: ChatMessage | null = null;
+    const next = ch.messages.peek().map((m) => {
+      if (m.msgid !== msgid || m.redacted) return m;
+      hit = redactedCopy(m);
+      return hit;
+    });
+    if (!hit) return;
+    ch.messages.value = next;
+    this.emit();
+    this.persistUpdate(key, hit);
+  }
+
+  // Lines coming (back) into view with deleted ones scrubbed; `persist`
+  // writes the scrubbed copies over stored ones that still had the text.
+  private scrubRedacted(key: string, msgs: ChatMessage[], persist = false): ChatMessage[] {
+    const set = this.redactedIds.get(key);
+    if (!set || set.size === 0) return msgs;
+    return msgs.map((m) => {
+      if (!m.msgid || m.redacted || !set.has(m.msgid)) return m;
+      const r = redactedCopy(m);
+      if (persist) this.persistUpdate(key, r);
+      return r;
+    });
   }
 
   // Delivery tracking. A message written to a connection that has silently
@@ -3511,6 +3685,18 @@ export class ChatService {
           const args = new Set((e.Args ?? []).map((a) => a.toLowerCase()));
           this.failHistoryQueries((q) => args.has(q.target), e.Message || 'The server refused the history request');
         }
+        // A deletion refused (FAIL REDACT <code> <target> <msgid> :<why>).
+        if ((e.Args?.[0] ?? '').toUpperCase() === 'REDACT') {
+          this.emitFeedback({ kind: 'error', text: redactFailText(e.Args?.[1] ?? '', e.Message) });
+        }
+        break;
+      }
+      case 'REDACT': {
+        // IRCv3 draft/message-redaction: REDACT <target> <msgid> [:reason],
+        // from the author or someone allowed to (a channel op, an oper).
+        const msgid = e.Args?.[0];
+        if (!e.Target || !msgid) break;
+        this.applyRedaction(this.isMe(e.Target) ? e.From : e.Target, msgid);
         break;
       }
       case '421': {
@@ -4041,8 +4227,12 @@ export class ChatService {
         break;
       }
       case 'TAGMSG': {
-        // IRCv3 client-tag carrier. Today we only care about `+typing`.
-        // Channel or DM target lives in e.Target; nick that's typing is e.From.
+        // IRCv3 client-tag carrier: reactions (ours echoed back too) and
+        // `+typing`. Channel or DM target lives in e.Target; nick is e.From.
+        if (e.Target && e.From) {
+          const conv = this.isMe(e.Target) ? e.From : e.Target;
+          if (this.takeReaction(conv, e)) break;
+        }
         // We ignore our own echoes (servers with `echo-message` send them back).
         if (!e.Target || !e.From || e.From === this.myNick) break;
         const tags = e.Tags ?? {};
@@ -4164,9 +4354,18 @@ export class ChatService {
         // id): on a server that replays its buffer (a bouncer), the same line
         // arrives live with a fresh id AND sits in persistence — id-only dedupe
         // would stack a duplicate on every reconnect.
-        const prepend = persisted
+        // Reactions kept with the stored lines go back into the log.
+        for (const m of persisted) {
+          if (m.msgid && m.reactions?.length) this.mergeStoredReactions(key, m.msgid, m.reactions);
+        }
+        const prepend = this.scrubRedacted(key, persisted
           .filter((m) => !this.isDuplicateMessage(ch, m))
-          .map((m, i) => ({ ...m, id: `${this.idSalt}-h${i}` }));
+          .map((m, i) => {
+            const id = `${this.idSalt}-h${i}`;
+            this.storedIds.set(id, m.id);
+            const { reactions: _r, ...rest } = m;
+            return { ...rest, id };
+          }));
         if (prepend.length === 0) return;
         // Persisted messages predate anything that arrived during this session
         // for this channel, so they go first.
@@ -4580,7 +4779,7 @@ export class ChatService {
       if (page.length > 0) {
         this.revealed.set(key, (this.revealed.get(key) ?? 0) + page.length);
         const shown = ch.messages.peek();
-        const fresh = page.filter((m) => !this.isDuplicateMessage(ch, m));
+        const fresh = this.scrubRedacted(key, page.filter((m) => !this.isDuplicateMessage(ch, m)), true);
         ch.messages.value = [...fresh, ...shown];
       }
       // Nothing came back although the index said lines were held (an
@@ -4802,8 +5001,11 @@ export class ChatService {
   // notifications are moot by now and show nothing; the batch's target and
   // e's tags (msgid, time, client tags) are all here for tags that do mean
   // something later (reactions hook in here).
-  private handleHistoryTagmsg(_batch: HistoryBatch, _e: IrcEvent): void {
-    // Nothing to render: a TAGMSG is never a row.
+  // A TAGMSG replayed in a history batch (event-playback): never a row; a
+  // reaction goes into the log, as a live one does (newest statement wins,
+  // so a replay of what we already have changes nothing).
+  private handleHistoryTagmsg(batch: HistoryBatch, e: IrcEvent): void {
+    this.takeReaction(batch.target, e);
   }
 
   // The row a history event (event-playback) makes in `target`'s backlog —
@@ -4907,7 +5109,7 @@ export class ChatService {
     }
     const ch = this.ensureChannel(batch.target);
     const key = this.channelKey(batch.target);
-    const sorted = [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp);
+    const sorted = this.scrubRedacted(key, [...batch.msgs].sort((a, b) => a.timestamp - b.timestamp));
     // Dedupe by msgid AND content (from+text+timestamp): a server may replay
     // the same buffer on every attach with no msgid, so msgid-only dedupe lets
     // reconnect dups pile up. isDuplicateMessage covers both.
@@ -4954,7 +5156,7 @@ export class ChatService {
     if (this.persistMessages && this.persistence && fresh.length > 0) {
       const { history, scope } = this.persistence;
       for (const m of fresh) {
-        void history.append({ userId: scope.userId, serverId: scope.serverId, channel: key }, m).catch(() => {});
+        void history.append({ userId: scope.userId, serverId: scope.serverId, channel: key }, this.withReactions(key, m)).catch(() => {});
       }
     }
   }
@@ -5027,7 +5229,7 @@ export class ChatService {
       const { history, scope } = this.persistence;
       const key = this.channelKey(channel);
       void history
-        .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, stripPending(msg))
+        .append({ userId: scope.userId, serverId: scope.serverId, channel: key }, this.withReactions(key, stripPending(msg)))
         .catch(() => {
           // Storage hiccup — chat keeps going with in-memory state.
         });

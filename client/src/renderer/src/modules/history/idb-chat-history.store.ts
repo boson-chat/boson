@@ -243,6 +243,8 @@ export function rowToMessage(row: StoredRow): ChatMessage {
     ...(row.replyTo ? { replyTo: row.replyTo } : {}),
     ...(row.replyToId ? { replyToId: row.replyToId } : {}),
     ...(row.replyGuess ? { replyGuess: true as const } : {}),
+    ...(row.reactions?.length ? { reactions: row.reactions } : {}),
+    ...(row.redacted ? { redacted: true as const } : {}),
     ...(row.serverTime !== undefined ? { serverTime: row.serverTime } : {}),
     ...(row.user ? { user: row.user } : {}),
     ...(row.host ? { host: row.host } : {}),

@@ -8,6 +8,7 @@ import {
 } from '../../modules/chat';
 import type { NickContextAction } from './NickContextMenu';
 import type { SeenRecord } from '../../modules/seen/seen.store';
+import type { MessageActions } from './reactions';
 
 // Channel-operator surface for the menu. Present only inside a channel; the
 // callbacks are bound to the active channel by the host (ChatLayout). kick /
@@ -49,6 +50,8 @@ export interface NickActions {
   ops?: ChannelOpActions;
   /** WHOIS lookups for the profile a click on a nick opens. */
   profiles?: NickProfiles;
+  /** Reactions and Delete on messages, where the server supports them. */
+  message?: MessageActions;
 }
 
 const OWNER_RANK = 5;

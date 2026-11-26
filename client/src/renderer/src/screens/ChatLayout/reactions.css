@@ -1,0 +1,136 @@
+/* Reactions under a message, the picker, who reacted (reactions.tsx). */
+
+.reaction-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--fg-2);
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+.reaction-chip:disabled { cursor: default; }
+.reaction-chip-emoji { font-size: 14px; line-height: 1; }
+.reaction-chip-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+@media (hover: hover) {
+  .reaction-chip:not(:disabled):hover { border-color: var(--border); background: var(--surface-hover); }
+}
+.reaction-chip-mine {
+  border-color: color-mix(in oklab, var(--accent), transparent 40%);
+  background: var(--accent-dim);
+  color: var(--fg);
+}
+@media (hover: hover) {
+  .reaction-chip-mine:not(:disabled):hover { border-color: var(--accent); background: var(--accent-dim); }
+}
+.reaction-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* The trailing "add" chip: only while the row is hovered (desktop), always
+   on touch screens. */
+.reaction-chip-add { padding: 0 6px; color: var(--fg-3); }
+.reaction-chip-add svg { width: 14px; height: 14px; }
+@media (hover: hover) {
+  .reaction-chip-add { opacity: 0; }
+  .message-row:hover .reaction-chip-add,
+  .message-action:hover .reaction-chip-add,
+  .reaction-chip-add:focus-visible { opacity: 1; }
+}
+
+.reaction-who {
+  position: fixed;
+  z-index: 1000;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-menu);
+  color: var(--fg);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+
+.reaction-picker {
+  position: fixed;
+  z-index: 1000;
+  width: 272px;
+  padding: var(--space-2);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-menu);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* Phones: docked above the bottom edge, full width less the gutters. */
+.reaction-picker-dock {
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: auto;
+}
+.reaction-picker-quick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+}
+.reaction-picker-quick-item,
+.reaction-picker-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--fg-2);
+}
+.reaction-picker-more svg { width: 20px; height: 20px; }
+.reaction-picker-more.is-open { background: var(--surface-hover); color: var(--fg); }
+@media (hover: hover) {
+  .reaction-picker-quick-item:hover,
+  .reaction-picker-more:hover { background: var(--surface-hover); }
+}
+.reaction-picker-quick-item:focus-visible,
+.reaction-picker-more:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.reaction-picker-all { display: flex; flex-direction: column; gap: var(--space-2); }
+.reaction-picker-dock .emoji-picker-grid { grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
+
+/* A deleted message: in place of its text. */
+.message-deleted {
+  color: var(--fg-3);
+  font-style: italic;
+}
+
+.message-toolbar-btn-danger:hover { color: var(--danger, #e5484d); }
+
+/* Phones: finger-sized targets. */
+.app-shell.is-narrow .reaction-chip { height: 32px; padding: 0 10px; }
+.reaction-picker-dock .reaction-picker-quick-item,
+.reaction-picker-dock .reaction-picker-more { width: 44px; height: 44px; }

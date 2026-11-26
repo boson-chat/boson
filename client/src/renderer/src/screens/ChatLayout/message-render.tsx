@@ -27,6 +27,7 @@ import { privacySettings } from '../../modules/ui/privacy.store';
 import { getChatDisplaySettings, onChatDisplaySettingsChange } from '../../modules/ui/chat-display.store';
 import { replyBody, withoutReplyPrefix } from '../../modules/chat/replies';
 import { MessageSheet } from './MessageSheet';
+import { DeletedText, useMessageExtras } from './reactions';
 import type { SheetAction } from './BottomSheet';
 import { useLongPress } from './long-press';
 import { isNarrow } from '../../shared/narrow';
@@ -118,9 +119,11 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   const rowRef = useRef<HTMLDivElement>(null);
   const [msgMenu, setMsgMenu] = useState<{ x: number; y: number } | null>(null);
   const theirs = msg.from !== myNick;
+  // Reactions and Delete (reactions.tsx).
+  const extras = useMessageExtras(msg, myNick, nickActions?.message);
   // Anyone else's line (the reply's text says which, msgid or not); your
   // own once the server has given it a msgid (echo-message).
-  const reply = msg.pending || (!theirs && !msg.msgid) ? undefined
+  const reply = msg.pending || msg.redacted || (!theirs && !msg.msgid) ? undefined
     : nickActions?.onReply ? () => nickActions.onReply!(msg)
       : nickActions?.onMention ? () => nickActions.onMention!(msg.from) : undefined;
   const copyText = (): void => { void navigator.clipboard?.writeText(stripIrcFormatting(msg.text)); };
@@ -128,14 +131,16 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
     const el = !isNarrow() && rowRef.current?.querySelector('.message-row-name, .message-action-name, .message-avatar-btn');
     if (el) openProfile(msg.from, el); else setProfile({ nick: msg.from });
   };
-  const messageActions = (): SheetAction[] => {
+  const messageActions = (at?: { x: number; y: number }): SheetAction[] => {
     const out: SheetAction[] = [];
     if (reply) out.push({ label: 'Reply', onClick: reply });
-    out.push({ label: 'Copy text', onClick: copyText });
+    out.push(...extras.menuActions(at).filter((a) => !a.danger));
+    if (!msg.redacted) out.push({ label: 'Copy text', onClick: copyText });
     if (theirs && nickActions?.onSendMessage) {
       out.push({ label: `Message ${msg.from}`, onClick: () => nickActions.onSendMessage!(msg.from) });
     }
     out.push({ label: 'View profile', onClick: viewProfile });
+    out.push(...extras.menuActions(at).filter((a) => a.danger));
     return out;
   };
   // Right-click anywhere on the message (but a nick, a link or selected
@@ -156,6 +161,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={reply}
           title="Reply" aria-label="Reply" icon={<CornerUpLeft aria-hidden="true" />} />
       )}
+      {extras.toolbarButtons}
       <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={copyText}
         title="Copy text" aria-label="Copy text" icon={<Copy aria-hidden="true" />} />
       <Button variant="ghost" size="sm" class="message-toolbar-btn" onClick={viewProfile}
@@ -172,8 +178,8 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
           onClose={() => setMsgMenu(null)}
           class="message-context-menu"
         >
-          {messageActions().map((a) => (
-            <MenuItem key={a.label} onClick={() => { setMsgMenu(null); a.onClick(); }}>{a.label}</MenuItem>
+          {messageActions(msgMenu).map((a) => (
+            <MenuItem key={a.label} danger={a.danger} onClick={() => { setMsgMenu(null); a.onClick(); }}>{a.label}</MenuItem>
           ))}
         </Menu>,
         document.body,
@@ -186,6 +192,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
           onClose={() => setMsgSheet(false)}
         />
       )}
+      {extras.overlays}
       {profile && !profile.anchor && (
         <NickSheet
           nick={profile.nick}
@@ -230,7 +237,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
   const mentionsMe = !mine && (containsNickMention(msg.text, myNick) || (!!parent && parent.from.toLowerCase() === myNick.toLowerCase()));
   // A reply's text without the `nick: "quote..." ` its quote stands for.
   const body = replyBody(msg, parent);
-  const renderedText = doc ? null : renderMessageBody(body, myNick, members);
+  const renderedText = doc ? null : msg.redacted ? <DeletedText /> : renderMessageBody(body, myNick, members);
   const quote = replyParent !== undefined && <ReplyQuote parent={replyParent} guessed={!!msg.replyGuess} onJumpTo={onJumpTo} />;
 
   if (msg.kind === 'action') {
@@ -241,6 +248,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
         <span class="message-action-name" onClick={(e) => openProfile(msg.from, e.currentTarget as Element)}>{msg.from}</span>
         <span class="message-action-text" onClick={onTextClick}>{renderedText}</span>
         <span class="message-row-time">{time}</span>
+        {extras.chips}
         {sheets}
       </div>
     );
@@ -260,7 +268,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
 
   return (
     <div ref={rowRef} class={classes} {...longPress} onContextMenu={onRowContextMenu}>
-      {!msg.pending && toolbar}
+      {!msg.pending && !msg.redacted && toolbar}
       {/* Avatar gutter — the initial tile leads the first message of a group;
           grouped follow-ups keep the gutter empty so text stays aligned. */}
       <div class="message-row-gutter">
@@ -314,6 +322,7 @@ export const MessageRow = memo(function MessageRow({ msg, myNick, members, group
           {grouped && <span class="message-row-grouped-time" aria-hidden={!msg.pending}>{msg.pending ? 'Sending…' : time}</span>}
         </div>
         {!doc && <MessageEmbeds text={msg.text} />}
+        {extras.chips}
       </div>
       {menu && (
         <NickContextMenu
@@ -1470,7 +1479,7 @@ export function buildRenderItems(
     }
     // A blank line outside a document (BLANK_LINE from a paste that isn't
     // markdown) has nothing to show.
-    if (PREFORMAT_KINDS.has(m.kind) && !m.text.trim()) continue;
+    if (PREFORMAT_KINDS.has(m.kind) && !m.text.trim() && !m.redacted) continue;
     if (ACTIVITY_KINDS.has(m.kind)) {
       flushPre();
       activityRun.push(m);
