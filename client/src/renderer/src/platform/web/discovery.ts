@@ -7,6 +7,8 @@
 // domain from BOSON_NETWORK_JSON (tests/e2e-app/web-app.ts hands them over
 // as window.bosonWebE2EEnv.networkJson).
 
+import { cleanFederation, type FederationInfo } from '../../modules/netauth/federation';
+
 export interface NetworkIRC { host: string; port: number; tls: boolean }
 
 export interface NetworkVoice {
@@ -27,6 +29,8 @@ export interface NetworkDiscovery {
   directory?: string;
   branding?: string;
   files?: string;
+  // Federated sign-in (boson.json federation), validated; no domain yet.
+  federation?: FederationInfo;
   voice?: NetworkVoice;
   // Why voice was refused (a document with an invalid voice section).
   voiceError?: string;
@@ -106,6 +110,8 @@ export function parseBosonJson(text: string, allowLoopbackHttp: boolean): Omit<N
   const b = doc['branding'];
   const branding = cleanDocUrl(typeof b === 'string' ? b : (b && typeof b === 'object' ? (b as { url?: unknown }).url : undefined), allowLoopbackHttp);
   if (branding) out.branding = branding;
+  const fed = cleanFederation(doc['federation'], allowLoopbackHttp);
+  if (fed) out.federation = fed;
   const voice = obj('voice');
   if (voice) {
     const url = cleanBaseUrl(voice['url'], allowLoopbackHttp);

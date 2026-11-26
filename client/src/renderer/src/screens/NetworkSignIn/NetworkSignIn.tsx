@@ -6,8 +6,10 @@ import {
 } from '../../modules/auth';
 import { LeaveGuestConfirm } from '../../components/LeaveGuestConfirm';
 import {
-  getNetworkAccounts, hostOf, type NetworkAccounts, type NetworkAccountsSnapshot, type SignInPrompt,
+  getNetworkAccounts, hostOf, type NetworkAccounts, type NetworkAccountsSnapshot, type NetworkLink, type SignInPrompt,
 } from '../../modules/netauth/network-accounts';
+import type { HomeAccount } from '../../modules/netauth/federation';
+import { FederatedSignIn } from './FederatedSignIn';
 import { getNetworkThemes, useNetworkBranding } from '../../modules/ui/theme';
 import { NetworkBrandHero } from './NetworkBrand';
 import '../LoginScreen/LoginScreen.css';
@@ -106,6 +108,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
         guestOk={guestOk}
         canSignUp={canSignUp}
         inviteOnly={registration === 'invite'}
+        federated={{ accounts, link }}
         onDone={onDone}
       />
     </Modal>
@@ -134,7 +137,7 @@ const REASON_TEXT: Record<SignInPrompt['reason'], (name: string) => string | nul
 
 // The sign-in / sign-up / SSO form for a network's own auth service. Also
 // the login screen's "Use another server" step (LoginScreen/OtherServer).
-export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason, guestOk, canSignUp, inviteOnly, onDone, guestLabel = 'Continue as guest' }: {
+export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason, guestOk, canSignUp, inviteOnly, onDone, guestLabel = 'Continue as guest', federated }: {
   auth: AuthService;
   authHost: string;
   name: string;
@@ -146,6 +149,9 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
   inviteOnly: boolean;
   onDone: (r: 'signed-in' | 'guest' | 'cancel') => void;
   guestLabel?: string;
+  // "Continue as alice@boson.chat" above the form, when the network takes
+  // accounts from other Boson servers (homes: given choices, for shots).
+  federated?: { accounts: NetworkAccounts; link: NetworkLink; homes?: HomeAccount[] };
 }) {
   const [view, setView] = useState<View>('form');
   const [mode, setMode] = useState<Mode>('login');
@@ -304,6 +310,17 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
       <Realm host={authHost} />
       {reasonText && <p class="netauth-required" role="status">{reasonText}</p>}
       {cfgError && <div class="login-error" role="alert">Couldn't reach {name}'s sign-in service: {cfgError}</div>}
+
+      {federated && (
+        <FederatedSignIn
+          accounts={federated.accounts}
+          link={federated.link}
+          name={name}
+          {...(federated.homes ? { homes: federated.homes } : {})}
+          onSignedIn={done}
+          {...(canSignUp ? { onCreateAccount: () => { setMode('signup'); setError(null); } } : {})}
+        />
+      )}
 
       {canSignUp && (
         <Tabs

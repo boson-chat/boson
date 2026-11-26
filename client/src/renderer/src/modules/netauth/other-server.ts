@@ -13,6 +13,7 @@ import { requestAddServer, requestJoin } from '../deep-link/deep-link';
 import { emitGuestChange, saveGuestSession } from '../guest/guest';
 import { sanitizeIrcNick } from '../identity/nick';
 import type { NetworkAccounts, NetworkLink, ResolvedNetwork } from './network-accounts';
+import { cleanFederation } from './federation';
 
 export interface IrcTarget {
   host: string;
@@ -85,12 +86,18 @@ export function outcomeOf(address: string, r: ResolvedNetwork): ResolveOutcome {
   const irc = r.irc?.host ? { host: r.irc.host, port: r.irc.port || 6697, tls: !!r.irc.tls } : null;
   if (!r.error && r.authUrl && irc) {
     if (r.main) return { kind: 'main', address };
+    const f = cleanFederation(r.federation, true);
+    const federation = f ? { ...f, domain: f.domain || r.domain || address } : null;
     return {
       kind: 'ok',
       address,
       domain: r.domain || address,
       irc,
-      link: { host: irc.host.toLowerCase(), authUrl: r.authUrl, main: false, ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}) },
+      link: {
+        host: irc.host.toLowerCase(), authUrl: r.authUrl, main: false,
+        ...(r.directoryUrl ? { directoryUrl: r.directoryUrl } : {}),
+        ...(federation ? { federation } : {}),
+      },
     };
   }
   switch (r.error) {

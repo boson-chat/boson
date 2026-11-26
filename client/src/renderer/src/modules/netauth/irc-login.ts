@@ -57,7 +57,9 @@ export async function resolveIrcLogin(
   }
   const token = await accounts.ircToken(link).catch(() => null);
   if (!token) return { link };
-  const nick = link.main ? undefined : sanitizeIrcNick(session.user.username) || undefined;
+  // A federated account's nick defaults to the handle the network gave it
+  // (alice, or alice-bosonchat when alice was taken).
+  const nick = link.main ? undefined : sanitizeIrcNick(session.federated?.handle || session.user.username) || undefined;
   return { link, token, ...(nick ? { nick } : {}) };
 }
 

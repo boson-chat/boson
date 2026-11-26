@@ -1,4 +1,4 @@
-import { NetworkAccountBar } from '../NetworkSignIn/NetworkAccountBar';
+import { NetworkAccountBar, useFederatedIdentity } from '../NetworkSignIn/NetworkAccountBar';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import type { ChatService, ChatState } from '../../modules/chat';
@@ -305,6 +305,9 @@ export function ChatLayout({
   // Reactions need message-tags; Delete, the server's draft/message-redaction.
   const reactCaps = (state.serverInfo.enabledCaps ?? []).includes('message-tags');
   const redactCap = (state.serverInfo.enabledCaps ?? []).includes('draft/message-redaction');
+  // Signed in here with an account of another Boson server: your own
+  // profile card says where it's from.
+  const myHome = useFederatedIdentity(serverHost)?.homeDomain;
   const nickActions = useMemo(() => {
     // `typeof` guard keeps hand-rolled test fakes (no op methods) working —
     // they just get the base menu (copy / DM / mention).
@@ -326,12 +329,13 @@ export function ChatLayout({
       info: (n: string) => chat.whois.value.get(n.toLowerCase()),
       request: (n: string) => chat.requestWhois(n),
       seen: (n: string) => chat.seen?.get(n),
+      home: (n: string) => (myHome && state.myNick && n.toLowerCase() === state.myNick.toLowerCase() ? myHome : undefined),
     } : undefined;
     const message = active ? messageActionsFor(chat, active.name, {
       reactions: reactCaps, redaction: redactCap, myNick: state.myNick, myAccount, myRank: myRankHere, isChannel,
     }) : undefined;
     return { onSendMessage: (nick: string) => chat.openDM(nick), ops, profiles, message };
-  }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere, reactCaps, redactCap, state.myNick, myAccount]);
+  }, [chat, active, isChannel, supportsOwnerAdmin, myRankHere, reactCaps, redactCap, state.myNick, myAccount, myHome]);
 
   // Resolves a nick → profile-image URL for Boson members on this server
   // (own avatar + presence matches), shared by the chat stream + member list.

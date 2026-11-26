@@ -32,6 +32,10 @@ import { useNarrow } from './shared/narrow';
 import type { Memo } from './modules/memos';
 import type preact from 'preact';
 import { ServerSettings } from './screens/ChatLayout/ServerSettings';
+import { AuthService } from './modules/auth/auth.service';
+import { InMemorySecureStorage } from './shared/secure-storage';
+import { NetworkAccounts } from './modules/netauth/network-accounts';
+import { NetworkSignInHost } from './screens/NetworkSignIn/NetworkSignIn';
 import { getThemeStore, NetworkThemes, setNetworkThemes, getNetworkThemes } from './modules/ui/theme';
 import { FilesController, setFiles } from './modules/files/files.service';
 import type { FilesBridge } from './modules/files/files-bridge';
@@ -1373,6 +1377,57 @@ function servicesView(): void {
   );
 }
 
+// "Sign in to <network>" on a network that takes accounts from other Boson
+// servers: "Continue as …" for the boson.chat account and a second home
+// account above the network's own sign-in. ?fail=<code>: the remote
+// refuses with that code (spec §3) after a tap; ?homes=1: only boson.chat.
+async function netSignInView(): Promise<void> {
+  const q = new URLSearchParams(location.search);
+  const fail = q.get('fail');
+  const fed = (domain: string, accepts = 'directory') => ({
+    version: 1, issuer: `https://auth.${domain}`, accepts, domain,
+    assertion_endpoint: `https://auth.${domain}/v1/federation/assertions`,
+    login_endpoint: `https://auth.${domain}/v1/federation/login`,
+  });
+  const json = (status: number, v: unknown) => ({ status, ok: status < 300, statusText: String(status), text: JSON.stringify(v) });
+  const transport = async (req: { url: string; body?: unknown }) => {
+    const u = new URL(req.url);
+    const user = (username: string, extra = {}) => json(200, {
+      access_token: 'h.e30.s', expires_in: 900, refresh_token: `rt-${u.host}`, session_id: 's',
+      user: { id: `u-${u.host}`, username, email: null, email_verified: true, role: 'user' }, ...extra,
+    });
+    if (u.pathname === '/v1/config') return json(200, { registration: 'open', sso_providers: [], site_name: 'Hexbay', guest_access: true });
+    if (u.pathname === '/v1/login') return user(u.host.includes('fediverse') ? 'ada_l' : 'ada');
+    if (u.pathname === '/v1/federation/assertions') return json(200, { assertion: 'jwt', expires_in: 300 });
+    if (u.pathname === '/v1/federation/login') {
+      if (fail) return json(403, { error: fail, message: 'refused' });
+      return new Promise(() => {});
+    }
+    return json(404, {});
+  };
+  const storage = new InMemorySecureStorage();
+  const mainAuth = new AuthService('https://auth.boson.chat', { storage, transport: transport as never });
+  const accounts = new NetworkAccounts({
+    mainAuthUrl: 'https://auth.boson.chat', mainAuth, storage, transport: transport as never,
+    local: null,
+    bridge: {
+      discover: async (host: string) => {
+        if (host === 'boson.chat') return { host, main: true, authUrl: 'https://auth.boson.chat', federation: fed('boson.chat') };
+        if (host === 'irc.fediverse.party') return { host, main: false, authUrl: 'https://auth.fediverse.party', federation: fed('fediverse.party', 'open') };
+        return { host, main: false, authUrl: 'https://auth.hexbay.net', federation: fed('hexbay.net') };
+      },
+    },
+  });
+  await mainAuth.signIn('ada', 'pw');
+  if (q.get('homes') !== '1') {
+    await accounts.discover('irc.fediverse.party');
+    await accounts.service('https://auth.fediverse.party').signIn('ada_l', 'pw');
+  }
+  const link = (await accounts.discover('irc.hexbay.net'))!;
+  void accounts.promptSignIn({ link, serverName: 'Hexbay', reason: 'connect', allowGuest: true });
+  render(<NetworkSignInHost accounts={accounts} />, app());
+}
+
 const view = new URLSearchParams(location.search).get('view') ?? 'chat';
 if (view === 'chat') chatView();
 else if (view === 'directory') directoryView();
@@ -1381,4 +1436,5 @@ else if (view === 'auth') authView();
 else if (view === 'settings') settingsView();
 else if (view === 'services') servicesView();
 else if (view === 'inbox') inboxView();
+else if (view === 'netsignin') void netSignInView();
 else app().textContent = `unknown view: ${view}`;
