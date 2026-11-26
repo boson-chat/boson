@@ -182,6 +182,8 @@
 .chat-messages {
   flex: 1;
   overflow-y: auto;
+  /* Never sideways: a row that's too wide is clipped, not scrolled to. */
+  overflow-x: hidden;
   min-height: 0;
   /* The list keeps the reader's place itself (message-render.tsx). */
   overflow-anchor: none;
@@ -196,6 +198,7 @@
 .messages-inner {
   display: flex;
   flex-direction: column;
+  min-width: 0;
   padding: var(--space-6);
 }
 
@@ -1382,8 +1385,18 @@ button.message-reply-quote-guessed:focus-visible { opacity: 1; }
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
-.message-thread-line:hover,
+/* Hover only where there is a pointer that hovers: iOS treats a tap on
+   something whose :hover shows or hides content as "hover first" and
+   drops the click, so on a phone the line never opened its thread. */
+@media (hover: hover) {
+  .message-thread-line:hover {
+    background: var(--surface);
+    border-color: var(--border-soft, var(--border));
+  }
+}
 .message-thread-line:focus-visible {
   background: var(--surface);
   border-color: var(--border-soft, var(--border));
@@ -1395,9 +1408,15 @@ button.message-reply-quote-guessed:focus-visible { opacity: 1; }
 .message-thread-count { flex: none; font-weight: 600; color: var(--accent); }
 .message-thread-when { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .message-thread-view { display: none; flex: none; margin-left: auto; padding-left: var(--space-2); color: var(--fg-2); }
-.message-thread-line:hover .message-thread-view,
 .message-thread-line:focus-visible .message-thread-view { display: inline; }
-.message-thread-line:hover .message-thread-when { display: none; }
+@media (hover: hover) {
+  .message-thread-line:hover .message-thread-view { display: inline; }
+  .message-thread-line:hover .message-thread-when { display: none; }
+}
+/* Touch screens: "View thread" always shows (nothing changes on a tap). */
+@media (hover: none) {
+  .message-thread-view { display: inline; }
+}
 /* An action line (`* nick does`): the thread line takes its own row. */
 .message-action:has(> .message-action-thread) { flex-wrap: wrap; }
 .message-action-thread { flex-basis: 100%; min-width: 0; }

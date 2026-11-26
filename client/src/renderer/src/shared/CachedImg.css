@@ -5,7 +5,8 @@
 .img-frame {
   position: relative;
   display: block;
-  max-width: 100%;
+  /* Its 1px border sits outside the width (content-box). */
+  max-width: calc(100% - 2px);
   overflow: hidden;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);

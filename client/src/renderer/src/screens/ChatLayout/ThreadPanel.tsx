@@ -52,7 +52,14 @@ export interface ThreadPanelProps {
 
 export function ThreadPanel(props: ThreadPanelProps) {
   const body = <ThreadPanelBody {...props} />;
-  return props.variant === 'sheet' ? createPortal(<div class="app-shell is-narrow thread-sheet-layer">{body}</div>, document.body) : body;
+  if (props.variant !== 'sheet') return body;
+  // Under a narrow desktop window's title bar (above the sheet, with the
+  // window's controls); a phone has none.
+  const top = Math.max(0, document.querySelector('.title-bar')?.getBoundingClientRect().bottom ?? 0);
+  return createPortal(
+    <div class="app-shell is-narrow thread-sheet-layer" style={top ? `--sheet-top:${Math.round(top)}px` : undefined}>{body}</div>,
+    document.body,
+  );
 }
 
 function ThreadPanelBody({

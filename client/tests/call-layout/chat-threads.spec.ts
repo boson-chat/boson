@@ -9,6 +9,25 @@ const list = (page: Page) => page.locator('main .chat-messages');
 const rowWith = (page: Page, text: string) =>
   list(page).locator('.vrow').filter({ has: page.locator('.message-row-text-body', { hasText: text }) });
 const panel = (page: Page) => page.locator('.thread-panel');
+// On a phone: the sheet covers the screen (on it, and on top of it). It
+// once sat just below the screen, laid out but out of sight.
+async function sheetCovers(page: Page): Promise<void> {
+  const vp = page.viewportSize()!;
+  // Under the title bar where there is one (a narrow desktop window).
+  const top = await page.evaluate(() => document.querySelector('.title-bar')?.getBoundingClientRect().bottom ?? 0);
+  // (After its slide-in.)
+  await expect.poll(async () => Math.abs((await panel(page).boundingBox())!.y - top)).toBeLessThan(1);
+  const box = (await panel(page).boundingBox())!;
+  expect(box.y + box.height).toBeGreaterThan(vp.height - 2);
+  expect(box.y + box.height).toBeLessThan(vp.height + 2);
+  expect(box.width).toBeGreaterThan(vp.width - 2);
+  // Nothing over it: its back button is what a tap there hits.
+  await expect.poll(() => page.evaluate(() => {
+    const b = document.querySelector('.thread-panel-back')!.getBoundingClientRect();
+    return !!document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2)?.closest('.thread-panel-back');
+  })).toBe(true);
+  await expect.poll(() => page.evaluate(() => !!document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.thread-panel'))).toBe(true);
+}
 const sent = (page: Page) => page.evaluate(() => (window as unknown as { __sent?: Array<{ body: string; tags?: Record<string, string> }> }).__sent ?? []);
 
 async function open(page: Page, width: number, height: number, query = ''): Promise<void> {
@@ -69,10 +88,8 @@ for (const vp of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'phone'
         expect(box.x).toBeGreaterThanOrEqual(main.x + main.width - 1);
         expect(main.width).toBeGreaterThan(400);
       } else {
-        // A full-height sheet.
-        const box = (await panel(page).boundingBox())!;
-        expect(box.height).toBeGreaterThan(vp.height - 2);
-        expect(box.width).toBeGreaterThan(vp.width - 2);
+        // A full-height sheet, on screen.
+        await sheetCovers(page);
       }
       await page.screenshot({ path: test.info().outputPath('panel.png') });
 
@@ -128,6 +145,7 @@ for (const vp of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'phone'
         await page.getByRole('menuitem', { name: 'View thread' }).click();
       }
       await expect(panel(page).locator('.message-row').first()).toContainText('anyone know why the build fails on arm?');
+      if (vp.name === 'phone') await sheetCovers(page);
     });
   });
 }
@@ -167,4 +185,38 @@ test('light theme (Daylight): counter line and panel', async ({ page }) => {
   await line.click();
   await expect(panel(page)).toBeVisible();
   await page.screenshot({ path: test.info().outputPath('light.png') });
+});
+
+// A phone (touch, no hover): a tap on the counter line opens the thread.
+// iOS drops the click of a tap whose :hover shows or hides content (it
+// takes the tap as "hover first"), which is how the line once did nothing
+// on an iPhone: nothing in it may change on hover where hover is none.
+test.describe('threads on a touch screen', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 760 } });
+
+  test('a tap on the counter line opens the sheet; hover changes nothing in it', async ({ page }) => {
+    await open(page, 390, 760);
+    expect(await page.evaluate(() => matchMedia('(hover: none)').matches)).toBe(true);
+    await scrollTo(page, 'standup moved to 4pm today');
+    const line = rowWith(page, 'standup moved to 4pm today').locator('.message-thread-line');
+    // A real button, "View thread" shown from the start.
+    await expect(line).toHaveJSProperty('tagName', 'BUTTON');
+    await expect(line).toHaveAttribute('type', 'button');
+    await expect(line.locator('.message-thread-view')).toBeVisible();
+    const shown = () => line.evaluate((el) => Array.from(el.querySelectorAll('*'))
+      .map((c) => { const s = getComputedStyle(c); return `${s.display}/${s.visibility}/${s.opacity}`; }).join(','));
+    const before = await shown();
+    await line.hover();
+    expect(await shown()).toBe(before);
+    await page.screenshot({ path: test.info().outputPath('touch-counter.png') });
+
+    await line.tap();
+    await expect(panel(page)).toBeVisible();
+    await expect(panel(page).locator('.message-row').first()).toContainText('standup moved to 4pm today');
+    await sheetCovers(page);
+    await page.waitForTimeout(300); // its slide-in
+    await page.screenshot({ path: test.info().outputPath('touch-sheet.png') });
+    await panel(page).getByRole('button', { name: 'Close thread' }).tap();
+    await expect(panel(page)).toHaveCount(0);
+  });
 });
