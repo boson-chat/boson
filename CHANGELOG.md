@@ -1,3 +1,9 @@
+## [0.101.1](https://github.com/boson-chat/boson/compare/v0.101.0...v0.101.1) (2026-11-26)
+
+### Bug Fixes
+
+* **chat:** late lines older than what's in memory stay in time order ([#163](https://github.com/boson-chat/boson/issues/163)) ([6a072ac](https://github.com/boson-chat/boson/commit/6a072acb1da18b65d0c36e52fe3a7d8c25b6fa86))
+
 ## [0.101.0](https://github.com/boson-chat/boson/compare/v0.100.0...v0.101.0) (2026-11-26)
 
 ### Features
