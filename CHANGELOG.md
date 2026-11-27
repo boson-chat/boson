@@ -1,3 +1,9 @@
+## [0.104.2](https://github.com/boson-chat/boson/compare/v0.104.1...v0.104.2) (2026-11-27)
+
+### Bug Fixes
+
+* **netauth:** signed in to the home network is signed in, not a guest ([#173](https://github.com/boson-chat/boson/issues/173)) ([ac9ef19](https://github.com/boson-chat/boson/commit/ac9ef19d77824e0a3c2cc08c8947cc98450f867c))
+
 ## [0.104.1](https://github.com/boson-chat/boson/compare/v0.104.0...v0.104.1) (2026-11-27)
 
 ### Bug Fixes
