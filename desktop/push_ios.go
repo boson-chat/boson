@@ -15,7 +15,6 @@ import "C"
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,21 +90,33 @@ func (p iosPush) Token(ctx context.Context) (string, string, error) {
 
 const appAttestKeyAccount = "app-attest-key"
 
-// Attest: development builds go through the relay's dev allowlist (no
-// proof; App Attest's development environment would need its own
-// entitlement). Release builds prove themselves with App Attest: the first
-// mailbox on this install attests a new key, later ones assert with it.
-func (p iosPush) Attest(ctx context.Context, challenge string) (pushAttestation, error) {
-	if p.sandbox() {
-		return pushAttestation{Kind: "dev"}, nil
+// Attest: App Attest over clientDataHash (the relay's README,
+// "Attestation"). The first mailbox on this install attests a new key
+// (key_id + attestation_object; the relay registers it), later ones send
+// an assertion with it. Development builds (apns-sandbox) that can't attest
+// (the simulator; a relay that refuses development keys) send nothing: the
+// relay's dev allowlist lets them in by device token.
+func (p iosPush) Attest(ctx context.Context, clientDataHash []byte) (pushAttestation, error) {
+	if len(clientDataHash) != 32 {
+		return pushAttestation{}, pushErr("failed", "bad client data hash")
 	}
 	if C.bpAttestSupported() != 1 {
+		if p.sandbox() {
+			return pushAttestation{}, nil
+		}
 		return pushAttestation{}, pushErr("unsupported", "this device can’t use App Attest")
 	}
-	hash := sha256.Sum256([]byte(challenge))
+	att, err := p.appAttest(clientDataHash)
+	if err != nil && p.sandbox() {
+		return pushAttestation{}, nil
+	}
+	return att, err
+}
+
+func (p iosPush) appAttest(hash []byte) (pushAttestation, error) {
 	keyID, _ := p.get(appAttestKeyAccount)
-	attest := false
 	for attempt := 0; attempt < 2; attempt++ {
+		fresh := false
 		if keyID == "" {
 			var cerr *C.char
 			k := C.bpAttestGenerateKey(&cerr)
@@ -116,13 +127,13 @@ func (p iosPush) Attest(ctx context.Context, challenge string) (pushAttestation,
 			}
 			keyID = C.GoString(k)
 			C.free(unsafe.Pointer(k))
-			attest = true
+			fresh = true
 		}
 		ck := C.CString(keyID)
 		var invalid C.int
 		var cerr *C.char
 		a := 0
-		if attest {
+		if fresh {
 			a = 1
 		}
 		res := C.bpAttest(ck, (*C.uchar)(unsafe.Pointer(&hash[0])), C.int(a), &invalid, &cerr)
@@ -130,13 +141,14 @@ func (p iosPush) Attest(ctx context.Context, challenge string) (pushAttestation,
 		if res != nil {
 			data := C.GoString(res)
 			C.free(unsafe.Pointer(res))
-			if attest {
-				// Kept for later mailboxes' assertions (the relay registers
-				// the key with this attestation).
+			if fresh {
+				// Kept for later mailboxes' assertions. If the relay never
+				// registers it, it answers attest_key_unknown and
+				// ResetAttestKey starts over.
 				_ = p.set(appAttestKeyAccount, keyID)
-				return pushAttestation{Kind: "app-attest", KeyID: keyID, Data: data}, nil
+				return pushAttestation{KeyID: keyID, AttestationObject: data}, nil
 			}
-			return pushAttestation{Kind: "app-assert", KeyID: keyID, Data: data}, nil
+			return pushAttestation{KeyID: keyID, Attestation: data}, nil
 		}
 		msg := C.GoString(cerr)
 		C.free(unsafe.Pointer(cerr))
@@ -149,6 +161,10 @@ func (p iosPush) Attest(ctx context.Context, challenge string) (pushAttestation,
 	}
 	return pushAttestation{}, pushErr("failed", "App Attest has no usable key")
 }
+
+// ResetAttestKey: the relay doesn't know the key; the next mailbox attests
+// a new one.
+func (p iosPush) ResetAttestKey() { _ = p.del(appAttestKeyAccount) }
 
 func (iosPush) get(account string) (string, error) {
 	ca := C.CString(account)

@@ -92,31 +92,39 @@ in from a secret.
    Firebase app. If Play App Signing is used, also register Play's app
    signing key. The relay checks `appIntegrity.certificateSha256Digest`
    against the same fingerprints.
-5. **Development builds** (`DEV=1`) send the attestation type `dev` with no
-   token. The relay must run its dev allowlist mode to accept them.
+5. **Development builds** (`DEV=1`) that can't get a Play Integrity token
+   send none. The relay lets such a request in only when its dev allowlist
+   (`PUSHRELAY_DEV_ALLOWLIST_FILE`) has the device's FCM token and
+   `PUSHRELAY_DEV_ALLOWLIST_PLATFORMS` includes `fcm` (its default is
+   `apns-sandbox` only).
 
-## The relay contract (what this client expects)
+## The relay contract
 
-- `GET /v1/challenge` returns `{"challenge": "<string>"}`.
-- `POST /v1/mailboxes` takes the body from docs/push.md §2.1:
-  `{"platform": "fcm", "token", "app": "chat.boson.app", "attestation",
-  "vapid", "install"}`, plus `"attestationType": "play-integrity" | "dev"`
-  and `"challenge"`. It returns `{"endpoint", "secret"}` (optionally `"id"`;
-  otherwise the endpoint's last path segment is used).
-- `PATCH /v1/mailboxes/<id>` takes `{"token"}` and `DELETE /v1/mailboxes/<id>`
-  removes the mailbox. Both use `Authorization: Bearer <secret>`.
-- **The Play Integrity nonce** is the challenge itself when it is already
-  URL-safe base64 of 16–500 characters. Otherwise it is the challenge's UTF-8
-  bytes in URL-safe base64 without padding (`FcmBackend.nonceFor`). The
-  relay compares `requestDetails.nonce` the same way.
-- **The FCM message** is a data-only message with high priority. Its data
-  holds:
-  - `payload`: the whole aes128gcm request body as Ergo POSTed it, in
-    base64 (standard or URL-safe, padded or not). `p` and `body` are also
-    accepted.
-  - `mailbox`: the mailbox id, so the app knows which key to use. `m` and
-    `id` are also accepted. If the mailbox id is missing, every stored key
-    is tried.
+The source of truth is [boson-chat/pushrelay](https://github.com/boson-chat/pushrelay) (its
+README and `http/handlers`). This client uses it as follows (`desktop/push.go`):
+
+- `GET /v1/challenge` returns `{"challenge", "expires_at", "expires_in"}`. A challenge is
+  single use.
+- `POST /v1/mailboxes` sends `{"platform": "fcm", "token", "app": "chat.boson.app",
+  "vapid", "install", "challenge", "attestation": "<Play Integrity token>"}` and gets back
+  `201 {"id", "endpoint", "secret"}`. The client checks that the endpoint is on the relay's
+  host.
+- **Client data binding.** The attestation covers the UTF-8 string
+  `boson-push-v1\n<challenge>\n<platform>\n<token>\n<vapid>\n<install>`, with the values
+  exactly as sent. The Integrity token is requested with
+  `nonce = base64url(SHA-256(clientData))`, without padding (`FcmBackend.attest`). The relay
+  accepts that as `requestDetails.nonce` (or `requestHash`).
+- `PATCH /v1/mailboxes/<id>` sends `{"token"}` when FCM rotated the token. The client also
+  sends an empty body at most once a day on connect, so the relay doesn't expire the
+  mailbox after 60 days unused. `DELETE /v1/mailboxes/<id>` removes the mailbox. Both send
+  `Authorization: Bearer <secret>`. A `404`/`410` on PATCH makes the client create a new
+  mailbox.
+- Errors are read from `{"error": "<code>", "message"}`, and the message is shown in
+  Settings.
+- **The FCM message** is data-only. Its data is `{"v": "1", "mailbox": "<id>",
+  "payload": "<the aes128gcm body, standard base64>"}`. The service picks the key by
+  `mailbox`, and tries every stored key when the id is missing or unknown. It also accepts
+  `p`/`body` and `m`/`id`.
 
   FCM data is limited to 4 KB in total, so keep the key names short if the
   body comes close to that.

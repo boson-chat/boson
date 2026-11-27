@@ -74,7 +74,9 @@ if let keys = ergoKeys {
     let rec = PushStore.Record(serverId: "s1", serverName: "Boson HQ", mailbox: "mb1", keys: keys)
     let stranger = PushStore.Record(serverId: "s2", serverName: "Other", mailbox: "mb2",
                                     keys: try! PushKeys(privateRaw: Data(repeating: 9, count: 32), auth: Data(repeating: 2, count: 16)))
-    let info: [AnyHashable: Any] = ["aps": [:], "mailbox": "mb1", "payload": ergoBody.base64EncodedString()]
+    // As the relay sends it (pushrelay delivery/apns.go).
+    let info: [AnyHashable: Any] = ["aps": ["alert": ["body": "New message"], "mutable-content": 1],
+                                    "boson": ["v": 1, "mailbox": "mb1", "payload": ergoBody.base64EncodedString()]]
     if case let .show(t, sid, conv) = PushReceiver.decide(info, records: [stranger, rec], prefs: nil) {
         eq(t, PushText(title: "thelion in #team", subtitle: "Boson HQ", body: "bob: ship it", tag: "s1:#team"), "decide text")
         eq(sid, "s1", "decide server"); eq(conv, "#team", "decide conversation")
@@ -84,7 +86,7 @@ if let keys = ergoKeys {
     if case .show = PushReceiver.decide(["p": urlSafe], records: [stranger, rec], prefs: nil) {} else { failures += 1; print("FAIL decide by trial") }
     // Muted: dropped. Unknown keys: a known mailbox falls back, a stranger's is dropped.
     if case .drop = PushReceiver.decide(info, records: [rec], prefs: ["levels": ["s1\u{0}#team": "nothing"]]) {} else { failures += 1; print("FAIL muted") }
-    if case .fallback = PushReceiver.decide(info, records: [PushStore.Record(serverId: "s1", serverName: "", mailbox: "mb1", keys: stranger.keys)], prefs: nil) {} else { failures += 1; print("FAIL fallback") }
+    if case .fallback(serverId: "s1") = PushReceiver.decide(info, records: [PushStore.Record(serverId: "s1", serverName: "", mailbox: "mb1", keys: stranger.keys)], prefs: nil) {} else { failures += 1; print("FAIL fallback") }
     if case .drop = PushReceiver.decide(info, records: [stranger], prefs: nil) {} else { failures += 1; print("FAIL stranger") }
 }
 

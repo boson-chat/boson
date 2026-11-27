@@ -15,7 +15,7 @@ Client side of [the push design](https://github.com/boson-chat/stack/blob/main/d
 - **`desktop/push_ios.go` / `push_ios.m`** hold the iOS parts:
   - The APNs token comes from `registerForRemoteNotifications`. The callbacks are added to Wails' app delegate from `main.m`.
   - The relay platform is `apns-sandbox`, or `apns` when the provisioning profile's `aps-environment` is `production`. `package-ios.sh` passes this in as `-X main.apnsEnvironment`.
-  - App Attest: the first mailbox on an install sends an attestation, and later mailboxes send assertions. Development builds send `attestationType: "dev"` and rely on the relay's dev allowlist.
+  - App Attest over the client data hash (see below): the first mailbox on an install generates a key and sends `key_id` + `attestation_object`; later mailboxes send `key_id` + `attestation` (an assertion). If the relay answers `attest_key_unknown` (its database was reset), the key is dropped and a new one attested, once. Development builds (`apns-sandbox`) that can't attest (the simulator, or a relay without `PUSHRELAY_APP_ATTEST_ENV=development`) send nothing and rely on the relay's dev allowlist having the device token.
   - Each server's record (keys, mailbox id and secret) is a keychain item with service `chat.boson.push`. Its access group is the App Group `group.chat.boson.app`, so the extension can read it.
   - The notification settings are written to `push-prefs.json` in the App Group container.
 - **`desktop/build/ios/push/`** is the Notification Service Extension (`BosonPush.appex`, bundle id `chat.boson.app.push`, Swift and CryptoKit):
@@ -26,28 +26,29 @@ Client side of [the push design](https://github.com/boson-chat/stack/blob/main/d
   - If a push can't be decrypted but its mailbox is known, it keeps the relay's generic "New message". Anything else is replaced with empty content. Fully dropping a push would need Apple's `com.apple.developer.usernotifications.filtering` entitlement, which requires Apple's approval.
 - A tap goes through `notify_ios.m`, which reads `userInfo["boson"]`, then `bosonPushTapped`, then the `push:open` event or `ConsumeOpen` (for a cold start). The renderer opens that server and conversation once it's connected. While the app is in the foreground, push banners are suppressed because the app is connected and notifies by itself.
 
-## What the relay must send (APNs)
+## The relay contract
 
-```json
-{
-  "aps": { "alert": { "title": "New message" }, "mutable-content": 1 },
-  "mailbox": "<mailbox id>",
-  "payload": "<the Web Push body as received, base64>"
-}
-```
-
-The extension also accepts `m` or `id` for the mailbox and `p` or `body` for the payload, in standard or URL-safe base64. Without a mailbox id, it tries every stored key; the AES-GCM tag rejects a wrong key.
-
-## Relay API this client speaks
+The source of truth is [boson-chat/pushrelay](https://github.com/boson-chat/pushrelay) (its README and `http/handlers`). This client uses it as follows (`desktop/push.go`):
 
 | Call | Request | Answer |
 | --- | --- | --- |
-| `GET /v1/challenge` | | `{"challenge": "<string>"}` (single use) |
-| `POST /v1/mailboxes` | §2.1 body, plus `challenge`, `attestationType` (`app-attest`, `app-assert`, `play-integrity` or `dev`) and `keyId` (App Attest). `attestation` is base64. iOS signs `SHA-256(challenge)` as the clientDataHash. | `200/201 {"endpoint": "https://<relay>/v1/push/<id>", "secret": "…", "id"?: "…"}`. The endpoint must be on the relay's host. |
-| `PATCH /v1/mailboxes/<id>` | `Authorization: Bearer <secret>`, `{"token": "…"}` | `2xx`. `404/410` makes the client create a new mailbox. |
-| `DELETE /v1/mailboxes/<id>` | `Authorization: Bearer <secret>` | `2xx` (`404/410` are fine) |
+| `GET /v1/challenge` | | `{"challenge", "expires_at", "expires_in"}` (single use) |
+| `POST /v1/mailboxes` | `{"platform": "apns" \| "apns-sandbox", "token", "app": "chat.boson.app", "vapid", "install", "challenge", "key_id", "attestation_object"` (new key) or `"attestation"` (assertion)`}` | `201 {"id", "endpoint", "secret"}`. The endpoint must be on the relay's host. |
+| `PATCH /v1/mailboxes/<id>` | `Authorization: Bearer <secret>`, `{"token"}` when APNs gave a new token, or `{}` at most daily on connect to renew (the relay expires mailboxes unused for 60 days) | `204`. `404`/`410` makes the client create a new mailbox. |
+| `DELETE /v1/mailboxes/<id>` | `Authorization: Bearer <secret>` | `204` (`404`/`410` are fine) |
 
-Errors are read from `{"error"|"message": "…"}` and shown in Settings.
+**Client data binding:** `clientData = "boson-push-v1\n<challenge>\n<platform>\n<token>\n<vapid>\n<install>"` (values exactly as sent). `SHA-256(clientData)` is App Attest's `clientDataHash`, for both `attestKey` and `generateAssertion`.
+
+Errors are read from `{"error": "<code>", "message"}`; the message is shown in Settings.
+
+**What arrives (APNs):**
+
+```json
+{"aps": {"alert": {"body": "New message"}, "mutable-content": 1, "sound": "default"},
+ "boson": {"v": 1, "mailbox": "<mailbox id>", "payload": "<the aes128gcm body, standard base64>"}}
+```
+
+The extension picks the key by `boson.mailbox`. When the id is missing or unknown it tries every stored key, and the AES-GCM tag rejects a wrong one. Top-level `mailbox`/`payload` and the short names `m`/`id`, `p`/`body` are read too. If the push can't be decrypted but its mailbox is known, the relay's "New message" is kept and a tap opens that server.
 
 ## What has to be set up in the Apple developer account
 

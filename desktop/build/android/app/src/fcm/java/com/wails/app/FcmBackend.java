@@ -27,18 +27,19 @@ public final class FcmBackend implements PushBackend {
     }
 
     /**
-     * The relay's challenge is the Integrity nonce: as it is when it's
-     * already URL-safe base64 of 16–500 characters, else its UTF-8 bytes in
-     * URL-safe base64 without padding (docs/push-android.md).
+     * The Integrity nonce: what push_android.go passes, base64url (no
+     * padding) of SHA-256 of the relay's client data, which binds the
+     * challenge to this mailbox (the relay checks it as the token's nonce).
+     * Anything else is encoded the same way.
      */
-    static String nonceFor(String challenge) {
-        if (NONCE.matcher(challenge).matches()) return challenge;
-        return Base64.encodeToString(challenge.getBytes(StandardCharsets.UTF_8), Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
+    static String nonceFor(String binding) {
+        if (NONCE.matcher(binding).matches()) return binding;
+        return Base64.encodeToString(binding.getBytes(StandardCharsets.UTF_8), Base64.URL_SAFE | Base64.NO_PADDING | Base64.NO_WRAP);
     }
 
     @Override
-    public String attest(Context c, String challenge) throws Exception {
-        IntegrityTokenRequest.Builder req = IntegrityTokenRequest.builder().setNonce(nonceFor(challenge));
+    public String attest(Context c, String binding) throws Exception {
+        IntegrityTokenRequest.Builder req = IntegrityTokenRequest.builder().setNonce(nonceFor(binding));
         if (BuildConfig.BOSON_CLOUD_PROJECT != 0L) req.setCloudProjectNumber(BuildConfig.BOSON_CLOUD_PROJECT);
         IntegrityTokenResponse r = Tasks.await(
                 IntegrityManagerFactory.create(c.getApplicationContext()).requestIntegrityToken(req.build()), 30, TimeUnit.SECONDS);

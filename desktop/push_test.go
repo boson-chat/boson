@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,9 +19,11 @@ type fakePushPlatform struct {
 	recs     map[string]*pushRecord
 	token    string
 	platform string
-	attests  []string
+	attests  [][]byte
 	prefs    []byte
 	tokenErr error
+	resets   int
+	hasKey   bool
 }
 
 func (f *fakePushPlatform) Name() string      { return "ios" }
@@ -27,10 +31,18 @@ func (f *fakePushPlatform) Supported() string { return "" }
 func (f *fakePushPlatform) Token(context.Context) (string, string, error) {
 	return f.platform, f.token, f.tokenErr
 }
-func (f *fakePushPlatform) Attest(_ context.Context, challenge string) (pushAttestation, error) {
-	f.attests = append(f.attests, challenge)
-	return pushAttestation{Kind: "dev", Data: "proof-of-" + challenge}, nil
+
+// Like iOS: a new key's attestation object first, assertions after.
+func (f *fakePushPlatform) Attest(_ context.Context, hash []byte) (pushAttestation, error) {
+	f.attests = append(f.attests, hash)
+	h := base64.StdEncoding.EncodeToString(hash)
+	if !f.hasKey {
+		f.hasKey = true
+		return pushAttestation{KeyID: "key", AttestationObject: "obj:" + h}, nil
+	}
+	return pushAttestation{KeyID: "key", Attestation: "assert:" + h}, nil
 }
+func (f *fakePushPlatform) ResetAttestKey() { f.resets++; f.hasKey = false }
 func (f *fakePushPlatform) Load(id string) (*pushRecord, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -56,26 +68,31 @@ func (f *fakePushPlatform) Delete(id string) error {
 }
 func (f *fakePushPlatform) WritePrefs(p []byte) error { f.prefs = p; return nil }
 
-// A relay per docs/push.md §2.1/§2.3.
+// A relay per boson-chat/pushrelay's README: challenges, attestation bound
+// to the client data, mailboxes with secrets.
 type fakeRelay struct {
-	srv       *httptest.Server
-	mu        sync.Mutex
-	created   []mailboxRequest
-	patched   []string
-	deleted   []string
-	mailboxes map[string]string // id → secret
-	n         int
+	srv        *httptest.Server
+	mu         sync.Mutex
+	created    []mailboxRequest
+	patched    []string
+	deleted    []string
+	mailboxes  map[string]string // id → secret
+	challenges map[string]bool
+	keys       map[string]bool // registered App Attest keys
+	n          int
 }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
-	r := &fakeRelay{mailboxes: map[string]string{}}
+	r := &fakeRelay{mailboxes: map[string]string{}, challenges: map[string]bool{}, keys: map[string]bool{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/challenge", func(w http.ResponseWriter, _ *http.Request) {
 		r.mu.Lock()
 		r.n++
 		n := r.n
 		r.mu.Unlock()
-		json.NewEncoder(w).Encode(map[string]string{"challenge": "c" + string(rune('0'+n))})
+		c := "c" + string(rune('0'+n))
+		r.challenges[c] = true
+		json.NewEncoder(w).Encode(map[string]any{"challenge": c, "expires_at": "2026-11-27T14:05:53Z", "expires_in": 300})
 	})
 	mux.HandleFunc("POST /v1/mailboxes", func(w http.ResponseWriter, req *http.Request) {
 		var m mailboxRequest
@@ -84,12 +101,37 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 			return
 		}
 		r.mu.Lock()
+		defer r.mu.Unlock()
+		fail := func(status int, code string) {
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(map[string]string{"error": code, "message": code, "code": code})
+		}
+		if !r.challenges[m.Challenge] {
+			fail(http.StatusUnauthorized, "challenge_invalid")
+			return
+		}
+		delete(r.challenges, m.Challenge)
+		sum := sha256.Sum256(pushClientData(m.Challenge, m.Platform, m.Token, m.VAPID, m.Install))
+		h := base64.StdEncoding.EncodeToString(sum[:])
+		switch {
+		case m.AttestationObject != "":
+			if m.AttestationObject != "obj:"+h {
+				fail(http.StatusUnauthorized, "attestation_failed")
+				return
+			}
+			r.keys[m.KeyID] = true
+		case !r.keys[m.KeyID]:
+			fail(http.StatusUnauthorized, "attest_key_unknown")
+			return
+		case m.Attestation != "assert:"+h:
+			fail(http.StatusUnauthorized, "attestation_failed")
+			return
+		}
 		r.created = append(r.created, m)
 		id := "mb" + string(rune('0'+len(r.created)))
 		r.mailboxes[id] = "secret-" + id
-		r.mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"endpoint": r.srv.URL + "/v1/push/" + id, "secret": "secret-" + id})
+		json.NewEncoder(w).Encode(map[string]string{"id": id, "endpoint": r.srv.URL + "/v1/push/" + id, "secret": "secret-" + id})
 	})
 	auth := func(w http.ResponseWriter, req *http.Request) (string, bool) {
 		id := req.PathValue("id")
@@ -111,10 +153,16 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		if !ok {
 			return
 		}
-		var b struct{ Token string }
+		var b struct {
+			Token *string `json:"token"`
+		}
 		json.NewDecoder(req.Body).Decode(&b)
 		r.mu.Lock()
-		r.patched = append(r.patched, id+"="+b.Token)
+		if b.Token == nil {
+			r.patched = append(r.patched, id+" renewed")
+		} else {
+			r.patched = append(r.patched, id+"="+*b.Token)
+		}
 		r.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -158,9 +206,18 @@ func TestPushSubscribeCreatesMailboxAndKeys(t *testing.T) {
 		t.Fatalf("created %d mailboxes", len(relay.created))
 	}
 	m := relay.created[0]
+	want := sha256.Sum256([]byte("boson-push-v1\nc1\napns-sandbox\ntok1\nBVAPID\nexample.org"))
 	if m.Platform != "apns-sandbox" || m.Token != "tok1" || m.App != "chat.boson.app" || m.VAPID != "BVAPID" ||
-		m.Install != "example.org" || m.Challenge != "c1" || m.Attestation != "proof-of-c1" || m.AttestationType != "dev" {
+		m.Install != "example.org" || m.Challenge != "c1" || m.KeyID != "key" || m.Attestation != "" ||
+		m.AttestationObject != "obj:"+base64.StdEncoding.EncodeToString(want[:]) {
 		t.Fatalf("mailbox request %+v", m)
+	}
+	// A second server's mailbox asserts with the registered key.
+	if _, err := s.Subscribe("s2", "Example", "irc.example.org", "BVAPID"); err != nil {
+		t.Fatal(err)
+	}
+	if m2 := relay.created[1]; m2.AttestationObject != "" || !strings.HasPrefix(m2.Attestation, "assert:") {
+		t.Fatalf("second request %+v", m2)
 	}
 	rec := plat.recs["s1"]
 	if rec.Mailbox != "mb1" || rec.Secret != "secret-mb1" || rec.ServerName != "Example" {
@@ -195,6 +252,31 @@ func TestPushSubscribeReusesAndRefreshesToken(t *testing.T) {
 	}
 	if strings.Join(relay.patched, ",") != "mb1=tok2" || plat.recs["s1"].Token != "tok2" || len(relay.created) != 1 {
 		t.Fatalf("patched %v, created %d", relay.patched, len(relay.created))
+	}
+	// A day later: renewed (an empty PATCH), so the relay keeps it.
+	s.now = func() time.Time { return time.Now().Add(25 * time.Hour) }
+	if _, err := s.Subscribe("s1", "Renamed", "irc.example.org", "BVAPID"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(relay.patched, ",") != "mb1=tok2,mb1 renewed" {
+		t.Fatalf("patched %v", relay.patched)
+	}
+}
+
+func TestPushReattestsAKeyTheRelayForgot(t *testing.T) {
+	relay := newFakeRelay(t)
+	s, plat := newTestPush(t, relay.srv.URL)
+	if _, err := s.Subscribe("s1", "Example", "irc.example.org", "BVAPID"); err != nil {
+		t.Fatal(err)
+	}
+	relay.mu.Lock()
+	relay.keys = map[string]bool{} // the relay's database was reset
+	relay.mu.Unlock()
+	if _, err := s.Subscribe("s2", "Example", "irc.example.org", "BVAPID"); err != nil {
+		t.Fatal(err)
+	}
+	if plat.resets != 1 || len(relay.created) != 2 || relay.created[1].AttestationObject == "" {
+		t.Fatalf("resets %d, created %+v", plat.resets, relay.created)
 	}
 }
 
@@ -291,12 +373,12 @@ func TestPushRelayRefusalAndForeignEndpoint(t *testing.T) {
 			w.Write([]byte(`{"challenge":"x"}`))
 			return
 		}
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"error":"attestation failed"}`))
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte(`{"error":"attestation_failed","message":"attestation did not verify","code":"attestation_failed"}`))
 	}))
 	defer refusing.Close()
 	s2, _ := newTestPush(t, refusing.URL)
-	if _, err := s2.Subscribe("s1", "X", "irc.example.org", "BVAPID"); err == nil || err.Error() != "relay: the push relay refused: attestation failed" {
+	if _, err := s2.Subscribe("s1", "X", "irc.example.org", "BVAPID"); err == nil || err.Error() != "relay: the push relay refused: attestation did not verify" {
 		t.Fatalf("refused: %v", err)
 	}
 }

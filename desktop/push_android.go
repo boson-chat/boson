@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -83,16 +84,18 @@ func (androidPush) Token(ctx context.Context) (string, string, error) {
 	return "fcm", tok, nil
 }
 
-func (a androidPush) Attest(ctx context.Context, challenge string) (pushAttestation, error) {
-	// Development builds: the relay's dev allowlist, no Play verdict.
-	if a.dev {
-		return pushAttestation{Kind: "dev"}, nil
-	}
-	tok, err := pushJavaString("attest", challenge)
+// Attest: a Play Integrity token whose nonce is base64url(clientDataHash)
+// (the relay's README, "Attestation"). Development builds that can't get
+// one send none: the relay's dev allowlist (by device token) lets them in.
+func (a androidPush) Attest(ctx context.Context, clientDataHash []byte) (pushAttestation, error) {
+	tok, err := pushJavaString("attest", base64.RawURLEncoding.EncodeToString(clientDataHash))
 	if err != nil {
+		if a.dev {
+			return pushAttestation{}, nil
+		}
 		return pushAttestation{}, err
 	}
-	return pushAttestation{Kind: "play-integrity", Data: tok}, nil
+	return pushAttestation{Attestation: tok}, nil
 }
 
 func (androidPush) Load(serverID string) (*pushRecord, error) {

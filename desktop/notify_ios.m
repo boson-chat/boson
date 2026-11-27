@@ -35,7 +35,7 @@ didReceiveNotificationResponse:(UNNotificationResponse *)response
          withCompletionHandler:(void (^)(void))completionHandler {
     if ([response.actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier]) {
         NSDictionary *push = response.notification.request.content.userInfo[@"boson"];
-        if ([push isKindOfClass:[NSDictionary class]]) {
+        if ([push isKindOfClass:[NSDictionary class]] && [push[@"server"] isKindOfClass:[NSString class]] && [push[@"server"] length] > 0) {
             // A push notification (build/ios/push/): its conversation.
             NSString *server = [push[@"server"] isKindOfClass:[NSString class]] ? push[@"server"] : @"";
             NSString *conv = [push[@"conversation"] isKindOfClass:[NSString class]] ? push[@"conversation"] : @"";

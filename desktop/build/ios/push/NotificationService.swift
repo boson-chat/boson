@@ -57,9 +57,14 @@ enum PushStore {
 }
 
 enum PushReceiver {
-    // What the relay puts next to "aps" (accepting the short names too).
+    // What the relay puts next to "aps": {"boson": {"v": 1, "mailbox": id,
+    // "payload": base64}} (boson-chat/pushrelay, "What the app receives").
+    // Top-level fields are read too.
     static func field(_ info: [AnyHashable: Any], _ names: [String]) -> String? {
-        for n in names { if let v = info[n] as? String, !v.isEmpty { return v } }
+        let boson = info["boson"] as? [AnyHashable: Any] ?? [:]
+        for d in [boson, info] {
+            for n in names { if let v = d[n] as? String, !v.isEmpty { return v } }
+        }
         return nil
     }
 
@@ -74,8 +79,9 @@ enum PushReceiver {
         // Decrypts but isn't to be shown (a ping, muted, …), or nothing of
         // ours: nothing.
         case drop
-        // Ours (a known mailbox) but undecryptable: the generic text.
-        case fallback
+        // Ours (a known mailbox) but undecryptable: the generic text, and a
+        // tap opens that server.
+        case fallback(serverId: String)
     }
 
     static func decide(_ info: [AnyHashable: Any], records: [PushStore.Record], prefs: [String: Any]?) -> Outcome {
@@ -99,7 +105,8 @@ enum PushReceiver {
                 return .drop
             }
         }
-        return records.contains(where: { $0.mailbox == mailbox && mailbox != nil }) ? .fallback : .drop
+        if let r = records.first(where: { $0.mailbox == mailbox && mailbox != nil }) { return .fallback(serverId: r.serverId) }
+        return .drop
     }
 }
 
@@ -130,8 +137,10 @@ final class NotificationService: UNNotificationServiceExtension {
                 center.removeDeliveredNotifications(withIdentifiers: ids)
                 self.finish(UNNotificationContent())
             }
-        case .fallback:
-            finish(request.content)
+        case let .fallback(serverId):
+            let c = (request.content.mutableCopy() as? UNMutableNotificationContent) ?? UNMutableNotificationContent()
+            c.userInfo = ["boson": ["server": serverId, "conversation": ""]]
+            finish(c)
         case .drop:
             // Without Apple's notification-filtering entitlement an
             // extension can't drop a push; empty content shows nothing.

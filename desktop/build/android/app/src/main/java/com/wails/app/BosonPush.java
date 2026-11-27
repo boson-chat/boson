@@ -25,7 +25,8 @@ import java.util.Map;
  *
  *   supported            "" or why not
  *   token                the FCM token
- *   attest <challenge>   a Play Integrity token
+ *   attest <binding>     a Play Integrity token, nonce = <binding>
+ *                        (base64url SHA-256 of the relay's client data)
  *   load <serverId>      the server's record JSON ("" none)
  *   save <record JSON>   (keyed by its serverId)
  *   delete <serverId>

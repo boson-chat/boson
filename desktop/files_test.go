@@ -468,14 +468,3 @@ func TestFilesUploadIdleLapses(t *testing.T) {
 		t.Fatalf("chunk after lapse: %d", status)
 	}
 }
-
-func waitFor(t *testing.T, ok func() bool) {
-	t.Helper()
-	for i := 0; i < 200; i++ {
-		if ok() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("timed out")
-}

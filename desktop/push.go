@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -59,6 +60,7 @@ const (
 	pushDocTTL      = 10 * time.Minute
 	pushOpenEvent   = "push:open"
 	pushRelayMaxDoc = 64 << 10
+	pushRenewEvery  = 24 * time.Hour
 )
 
 // The platform's part.
@@ -72,8 +74,9 @@ type pushPlatform interface {
 	// push service (and asks for notification permission) when needed.
 	Token(ctx context.Context) (platform, token string, err error)
 	// Proof for the relay that this is the official app on a real device,
-	// over the relay's challenge.
-	Attest(ctx context.Context, challenge string) (pushAttestation, error)
+	// over clientDataHash (pushClientData: the relay's challenge bound to
+	// this mailbox's platform, token, VAPID key and install).
+	Attest(ctx context.Context, clientDataHash []byte) (pushAttestation, error)
 	// Per-server records, where the receiver reads them (the keychain
 	// shared with the extension / the app's encrypted preferences).
 	Load(serverID string) (*pushRecord, error)
@@ -83,18 +86,30 @@ type pushPlatform interface {
 	WritePrefs(prefs []byte) error
 }
 
-// What the relay is shown with a new mailbox (POST /v1/mailboxes).
+// What the relay is shown with a new mailbox (POST /v1/mailboxes; the
+// relay's README, "Attestation"):
 //
-//	Kind "app-attest"     iOS, the first mailbox on this install: Data is
-//	                      the App Attest attestation object for KeyID.
-//	     "app-assert"     iOS afterwards: an assertion with KeyID.
-//	     "play-integrity" Android: Data is the Play Integrity token.
-//	     "dev"            development builds (apns-sandbox, the relay's dev
-//	                      allowlist): no proof.
+//	iOS, App Attest: KeyID, plus AttestationObject the first time the key
+//	    is used (the relay registers it), else Attestation = an assertion.
+//	Android: Attestation = the Play Integrity token.
+//	Development builds without either: nothing; the relay lets them in when
+//	    its dev allowlist has the device token.
 type pushAttestation struct {
-	Kind  string
-	KeyID string
-	Data  string
+	Attestation       string
+	KeyID             string
+	AttestationObject string
+}
+
+// A platform that can forget its App Attest key, for when the relay doesn't
+// know it (attest_key_unknown: its database was reset): attested again.
+type pushAttestKeyResetter interface {
+	ResetAttestKey()
+}
+
+// pushClientData is what the attestation covers (the relay's
+// attest.Request.ClientData), values exactly as sent.
+func pushClientData(challenge, platform, token, vapid, install string) []byte {
+	return []byte("boson-push-v1\n" + challenge + "\n" + platform + "\n" + token + "\n" + vapid + "\n" + install)
 }
 
 // One server's push state on this device. Private and Auth are secret.
@@ -110,6 +125,9 @@ type pushRecord struct {
 	Mailbox    string `json:"mailbox"`
 	Endpoint   string `json:"endpoint"`
 	Secret     string `json:"secret"`
+	// When the relay last heard of the mailbox (created, PATCHed): it
+	// deletes ones unused for 60 days, so it's renewed daily on connect.
+	Renewed time.Time `json:"renewed,omitempty"`
 	// base64url (no padding): the P-256 private scalar (32 bytes), public
 	// point (65 bytes, uncompressed) and auth secret (16 bytes).
 	Private string `json:"private"`
@@ -273,14 +291,23 @@ func (s *PushService) Subscribe(serverID, serverName, host, vapid string) (*Push
 	}
 	rec, _ := s.plat.Load(serverID)
 	if rec != nil && rec.Relay == relay && rec.VAPID == vapid && rec.Platform == platform && rec.Endpoint != "" {
-		if rec.Token != token {
-			switch err := s.patchMailbox(ctx, rec, token); {
+		if rec.Token != token || s.now().Sub(rec.Renewed) > pushRenewEvery {
+			// A rotated token, or a daily renewal (an empty PATCH).
+			newToken := ""
+			if rec.Token != token {
+				newToken = token
+			}
+			switch err := s.patchMailbox(ctx, rec, newToken); {
 			case err == nil:
 				rec.Token = token
+				rec.Renewed = s.now()
 			case errors.Is(err, errMailboxGone):
 				rec = nil
-			default:
+			case rec.Token != token:
 				return nil, err
+			default:
+				// A failed renewal isn't fatal: the mailbox still works.
+				log.Printf("push: renewing the mailbox for %s: %v", serverID, err)
 			}
 		}
 		if rec != nil {
@@ -303,31 +330,13 @@ func (s *PushService) Subscribe(serverID, serverName, host, vapid string) (*Push
 	if _, err := rand.Read(auth); err != nil {
 		return nil, pushErr("failed", err.Error())
 	}
-	challenge, err := s.challenge(ctx, relay)
-	if err != nil {
-		return nil, err
-	}
-	att, err := s.plat.Attest(ctx, challenge)
-	if err != nil {
-		return nil, err
-	}
-	mb, err := s.createMailbox(ctx, relay, mailboxRequest{
-		Platform:        platform,
-		Token:           token,
-		App:             pushAppID,
-		Attestation:     att.Data,
-		AttestationType: att.Kind,
-		KeyID:           att.KeyID,
-		Challenge:       challenge,
-		VAPID:           vapid,
-		Install:         install,
-	})
+	mb, err := s.newMailbox(ctx, relay, platform, token, vapid, install)
 	if err != nil {
 		return nil, err
 	}
 	rec = &pushRecord{
 		V: 1, ServerID: serverID, ServerName: serverName, Relay: relay, Install: install, VAPID: vapid,
-		Platform: platform, Token: token, Mailbox: mb.ID, Endpoint: mb.Endpoint, Secret: mb.Secret,
+		Platform: platform, Token: token, Mailbox: mb.ID, Endpoint: mb.Endpoint, Secret: mb.Secret, Renewed: s.now(),
 		Private: b64.EncodeToString(priv.Bytes()), Public: b64.EncodeToString(priv.PublicKey().Bytes()), Auth: b64.EncodeToString(auth),
 	}
 	if err := s.plat.Save(rec); err != nil {
@@ -422,15 +431,15 @@ func (q *pushOpenQueue) take() *PushOpen {
 var errMailboxGone = errors.New("push: the relay has no such mailbox")
 
 type mailboxRequest struct {
-	Platform        string `json:"platform"`
-	Token           string `json:"token"`
-	App             string `json:"app"`
-	Attestation     string `json:"attestation"`
-	AttestationType string `json:"attestationType"`
-	KeyID           string `json:"keyId,omitempty"`
-	Challenge       string `json:"challenge"`
-	VAPID           string `json:"vapid"`
-	Install         string `json:"install"`
+	Platform          string `json:"platform"`
+	Token             string `json:"token"`
+	App               string `json:"app"`
+	VAPID             string `json:"vapid"`
+	Install           string `json:"install"`
+	Challenge         string `json:"challenge,omitempty"`
+	Attestation       string `json:"attestation,omitempty"`
+	KeyID             string `json:"key_id,omitempty"`
+	AttestationObject string `json:"attestation_object,omitempty"`
 }
 
 type mailboxResponse struct {
@@ -472,6 +481,42 @@ func (s *PushService) do(ctx context.Context, method, u, secret string, body any
 	return resp, b, err
 }
 
+// newMailbox: a challenge, the attestation over it, POST /v1/mailboxes. A
+// relay that doesn't know our App Attest key gets it attested again (once).
+func (s *PushService) newMailbox(ctx context.Context, relay, platform, token, vapid, install string) (*mailboxResponse, error) {
+	for attempt := 0; ; attempt++ {
+		challenge, err := s.challenge(ctx, relay)
+		if err != nil {
+			return nil, err
+		}
+		hash := sha256.Sum256(pushClientData(challenge, platform, token, vapid, install))
+		att, err := s.plat.Attest(ctx, hash[:])
+		if err != nil {
+			return nil, err
+		}
+		mb, err := s.createMailbox(ctx, relay, mailboxRequest{
+			Platform: platform, Token: token, App: pushAppID, VAPID: vapid, Install: install,
+			Challenge: challenge, Attestation: att.Attestation, KeyID: att.KeyID, AttestationObject: att.AttestationObject,
+		})
+		var re *relayError
+		if attempt == 0 && errors.As(err, &re) && re.code == "attest_key_unknown" {
+			if r, ok := s.plat.(pushAttestKeyResetter); ok {
+				r.ResetAttestKey()
+				continue
+			}
+		}
+		return mb, err
+	}
+}
+
+// relayError: the relay's {"error": "<code>", "message": "…"}, shown as
+// "relay: the push relay refused: <message>".
+type relayError struct {
+	code, msg string
+}
+
+func (e *relayError) Error() string { return "relay: the push relay refused: " + e.msg }
+
 func relayErr(resp *http.Response, body []byte) error {
 	var e struct {
 		Error   string `json:"error"`
@@ -485,11 +530,11 @@ func relayErr(resp *http.Response, body []byte) error {
 	if msg == "" {
 		msg = resp.Status
 	}
-	return pushErr("relay", "the push relay refused: "+msg)
+	return &relayError{code: e.Error, msg: msg}
 }
 
-// challenge: GET /v1/challenge → {"challenge": "…"}, single use, for the
-// attestation.
+// challenge: GET /v1/challenge → {"challenge", "expires_at", "expires_in"},
+// single use, for the attestation.
 func (s *PushService) challenge(ctx context.Context, relay string) (string, error) {
 	resp, body, err := s.do(ctx, http.MethodGet, s.relayURL(relay, "/v1/challenge"), "", nil)
 	if err != nil {
@@ -532,9 +577,14 @@ func (s *PushService) createMailbox(ctx context.Context, relay string, req mailb
 	return &mb, nil
 }
 
-// patchMailbox: a new device token (tokens rotate).
+// patchMailbox: a new device token (tokens rotate), or with token "" just
+// a renewal.
 func (s *PushService) patchMailbox(ctx context.Context, rec *pushRecord, token string) error {
-	resp, body, err := s.do(ctx, http.MethodPatch, s.relayURL(rec.Relay, "/v1/mailboxes/"+url.PathEscape(rec.Mailbox)), rec.Secret, map[string]string{"token": token})
+	body := map[string]string{}
+	if token != "" {
+		body["token"] = token
+	}
+	resp, rbody, err := s.do(ctx, http.MethodPatch, s.relayURL(rec.Relay, "/v1/mailboxes/"+url.PathEscape(rec.Mailbox)), rec.Secret, body)
 	if err != nil {
 		return pushErr("relay", "the push relay can’t be reached")
 	}
@@ -542,7 +592,7 @@ func (s *PushService) patchMailbox(ctx context.Context, rec *pushRecord, token s
 	case resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusGone:
 		return errMailboxGone
 	case resp.StatusCode >= 300:
-		return relayErr(resp, body)
+		return relayErr(resp, rbody)
 	}
 	return nil
 }
