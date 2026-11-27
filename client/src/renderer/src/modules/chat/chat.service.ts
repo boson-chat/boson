@@ -723,9 +723,16 @@ export class ChatService {
       // Where the detected services package is remembered per server, so
       // the next connect skips the detection probe (see services-verdict.ts).
       servicesVerdicts?: { save(serverId: string, framework: string): void };
-      // Where the nick the user picks on this server (/nick, Change nick)
-      // is remembered, so the next connect asks for it (server-nick.ts).
-      nickChoice?: { save(nick: string): void };
+      // Where this device's nick for the server is remembered, so the next
+      // connect asks for it (server-nick.ts): the one the user picks (/nick,
+      // Change nick) once the server takes it, and the one a bouncer keeps
+      // the shared connection on. `pending` follows a change the user asked
+      // for that the server hasn't answered yet (null: answered), so a
+      // reconnect in between can still make it (deps.pendingNick).
+      nickChoice?: { save(nick: string): void; pending?(nick: string | null): void };
+      // A nick change the user asked for on the previous connection that
+      // the server never answered: still theirs to make on this one.
+      pendingNick?: string;
     },
   ) {
     this.session = trackServiceSends(session, (target) => this.noteServiceAsk(target, 'auto'));
@@ -750,6 +757,7 @@ export class ChatService {
     this.wantedNick = myNick;
     this.requestedNick = myNick;
     this.nickChoice = deps?.nickChoice ?? null;
+    this.userNickAsk = deps?.pendingNick?.trim() || null;
   }
 
   // ----- Getting our nick back -----
@@ -758,9 +766,17 @@ export class ChatService {
   // server registers us under a fallback instead (nick_, because our previous
   // connection still holds the nick, typically for a minute after a reload),
   // we keep asking for it back on a backoff, say so once, and say when it
-  // worked. Not on bouncer connections (the bouncer owns the nick), nor when
-  // the server welcomed us under another nick without refusing ours (an
-  // invisible bridge on the nick the user picked: adoptServerNick).
+  // worked. Not when the server owns the nick (serverOwnsNick: a bouncer or
+  // bridge whose one connection every device of the user's shares), nor when
+  // the server welcomed us under another nick without refusing ours.
+  //
+  // On a connection whose nick the server owns the app never sends NICK on
+  // its own: not to get a nick back, not when the nick's holder leaves, not
+  // after a refusal (the engine's nick_ fallback is for registration only),
+  // not to follow a new Boson handle. It takes the nick the server has and
+  // remembers it as this device's nick for the server. Only the user's own
+  // /nick or Change nick sends NICK (and such a change still unanswered when
+  // the connection dropped, deps.pendingNick).
   private wantedNick: string;
   // The nick this connection registered with, whether the server refused
   // it while registering (in use, erroneous, held: the engine fell back to
@@ -768,7 +784,10 @@ export class ChatService {
   private readonly requestedNick: string;
   private regNickRefused = false;
   private userNickAsk: string | null = null;
-  private readonly nickChoice: { save(nick: string): void } | null;
+  private readonly nickChoice: { save(nick: string): void; pending?(nick: string | null): void } | null;
+  // Latched once the connection shows the server keeps the nick for us (see
+  // serverOwnsNick).
+  private nickOwnedSeen = false;
   private reclaimTimer: ReturnType<typeof setTimeout> | null = null;
   private reclaimAttempt = 0;
   private reclaimNoted = false;
@@ -777,6 +796,39 @@ export class ChatService {
     if (this.reclaimTimer) { clearTimeout(this.reclaimTimer); this.reclaimTimer = null; }
     this.reclaimAttempt = 0;
     this.reclaimNoted = false;
+  }
+
+  // Whether the server owns our nick: a bouncer (routed through one, or
+  // ZNC / soju.im/bouncer-networks seen on the wire), or a server that
+  // showed it keeps a connection of its own for us: it welcomed us under
+  // another nick than the one we registered with though it refused none
+  // (evrd's managed bridge, on the nick device A picked), or it renamed our
+  // registration nick to the one it welcomed us under (the bouncer's
+  // "you're <nick>" line).
+  private serverOwnsNick(): boolean {
+    return this.bouncerConn || this.nickOwnedSeen || !!this.serverInfo.bouncer;
+  }
+
+  /** Whether NICK is the user's alone to send here (see serverOwnsNick). */
+  nickOwnedByServer(): boolean {
+    return this.serverOwnsNick();
+  }
+
+  // The nick the server has is this device's nick for it now.
+  private takeServerNick(): void {
+    if (!this.myNick) return;
+    this.wantedNick = this.myNick;
+    if (this.savedServerNick === this.myNick) return;
+    this.savedServerNick = this.myNick;
+    this.nickChoice?.save(this.myNick);
+  }
+  private savedServerNick: string | null = null;
+
+  // The user's nick change is answered (taken or refused): nothing pending.
+  private settleUserNickAsk(): void {
+    if (this.userNickAsk === null) return;
+    this.userNickAsk = null;
+    this.nickChoice?.pending?.(null);
   }
 
   private hasWantedNick(): boolean {
@@ -788,11 +840,32 @@ export class ChatService {
   // its connection, already on the nick the user picked; a server enforcing
   // nick = account). Take it as the nick to keep, rather than fight it back
   // to the one we asked for. A collision fallback (nick_ after 433) isn't.
+  // On a connection whose nick the server owns, that nick is this device's
+  // nick from now on (saved), unless the user's own change from before a
+  // reconnect is still unanswered: that one is made now.
   private adoptServerNick(): void {
     const refused = this.regNickRefused;
     this.regNickRefused = false;
-    if (refused || !this.myNick || this.myNick.toLowerCase() === this.requestedNick.toLowerCase()) return;
-    this.wantedNick = this.myNick;
+    if (!this.myNick) return;
+    const same = (a: string | null, b: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+    if (!refused && !same(this.myNick, this.requestedNick)) this.nickOwnedSeen = true;
+    const ask = this.userNickAsk;
+    if (ask && same(this.myNick, ask)) {
+      // registered with the change the user asked for, and it was taken
+      this.userNickAsk = null;
+      this.wantedNick = this.myNick;
+      this.nickChoice?.save(this.myNick);
+      return;
+    }
+    if (ask && refused && same(this.requestedNick, ask)) this.settleUserNickAsk();
+    if (!this.serverOwnsNick()) return;
+    if (this.userNickAsk) {
+      this.wantedNick = this.userNickAsk;
+      this.session.nick(this.userNickAsk);
+      return;
+    }
+    if (refused) { this.wantedNick = this.myNick; return; }
+    this.takeServerNick();
   }
 
   // A nick numeric (432 erroneous, 433 in use, 436 collision, 437 held): while
@@ -801,21 +874,45 @@ export class ChatService {
   private noteNickRefused(e: IrcEvent): void {
     if (!this.welcomed) { this.regNickRefused = true; return; }
     const nick = (e.Args?.[1] ?? e.Target ?? '').toLowerCase();
-    if (this.userNickAsk && (!nick || nick === this.userNickAsk.toLowerCase())) this.userNickAsk = null;
+    if (this.userNickAsk && (!nick || nick === this.userNickAsk.toLowerCase())) this.settleUserNickAsk();
+    // Where the server owns the nick, the refused one isn't to be had later
+    // either: the connection stays on the nick it has.
+    if (this.serverOwnsNick() && this.myNick) this.wantedNick = this.myNick;
   }
 
   // Our nick changed: the answer to the user's /nick is remembered as their
   // pick for this server.
-  private noteOwnNickChange(newNick: string): void {
-    if (!this.userNickAsk || newNick.toLowerCase() !== this.userNickAsk.toLowerCase()) return;
-    this.userNickAsk = null;
-    this.nickChoice?.save(newNick);
+  // A rename nobody here asked for: where the server owns the nick, it's
+  // the nick now (another device of the user's renamed the shared
+  // connection, or the bouncer did) and is remembered; elsewhere it's not
+  // fought when we had the nick we wanted, and not remembered (services'
+  // Guest…).
+  private noteOwnNickChange(newNick: string, hadWanted: boolean): void {
+    if (this.userNickAsk && newNick.toLowerCase() === this.userNickAsk.toLowerCase()) {
+      this.userNickAsk = null;
+      this.wantedNick = newNick;
+      this.nickChoice?.save(newNick);
+      return;
+    }
+    if (this.userNickAsk) return; // still waiting for the user's change
+    if (this.serverOwnsNick()) this.takeServerNick();
+    else if (hadWanted && this.welcomed) this.wantedNick = newNick;
+  }
+
+  // `:<the nick we registered with> NICK <our nick>` once welcomed under
+  // that nick: a bouncer telling the client which nick its connection is
+  // on (evrd, soju, ZNC). The server owns the nick.
+  private isRegistrationNickEcho(from: string, newNick: string): boolean {
+    if (!this.welcomed || !from || !this.requestedNick) return false;
+    return from.toLowerCase() === this.requestedNick.toLowerCase()
+      && newNick.toLowerCase() === this.myNick.toLowerCase()
+      && from.toLowerCase() !== this.myNick.toLowerCase();
   }
 
   // After registration: start getting the nick back when we didn't get it.
   private startNickReclaim(): void {
     this.stopNickReclaim();
-    if (this.bouncerConn || this.hasWantedNick()) return;
+    if (this.serverOwnsNick() || this.hasWantedNick()) return;
     this.scheduleNickReclaim();
   }
 
@@ -829,7 +926,7 @@ export class ChatService {
   }
 
   private tryReclaimNick(): void {
-    if (this.bouncerConn || this.hasWantedNick()) return;
+    if (this.serverOwnsNick() || this.hasWantedNick()) return;
     if (!this.reclaimNoted) {
       this.reclaimNoted = true;
       this.noteHere(`“${this.wantedNick}” is still in use, most likely by your previous session, so you're “${this.myNick}” for now. Boson will switch you back as soon as it's free.`);
@@ -840,7 +937,7 @@ export class ChatService {
 
   // The holder of our nick left or renamed: ask right away.
   private nickFreed(nick: string): void {
-    if (this.bouncerConn || this.hasWantedNick() || !this.welcomed) return;
+    if (this.serverOwnsNick() || this.hasWantedNick() || !this.welcomed) return;
     if (nick.toLowerCase() !== this.wantedNick.toLowerCase()) return;
     this.session.nick(this.wantedNick);
   }
@@ -2621,6 +2718,7 @@ export class ChatService {
     // server (noteOwnNickChange), so a reconnect asks for it again.
     this.wantedNick = next;
     this.userNickAsk = remember ? next : null;
+    this.nickChoice?.pending?.(this.userNickAsk);
     this.stopNickReclaim();
     this.session.nick(next);
   }
@@ -3417,6 +3515,9 @@ export class ChatService {
     // Latch ZNC detection (vendor caps / control bots) for the "via bouncer"
     // server-info badge.
     this.noteZncIfApplicable(e);
+    if (e.Kind === 'CAP' && /(^|\s)soju\.im\/bouncer-networks(\s|=|$)/.test(`${e.Message ?? ''} ${(e.Args ?? []).join(' ')}`)) {
+      this.nickOwnedSeen = true;
+    }
     if (WHOIS_REPLIES.has(e.Kind)) this.noteWhoisReply(e);
     if (NICK_REFUSALS.has(e.Kind)) this.noteNickRefused(e);
     switch (e.Kind) {
@@ -3946,10 +4047,15 @@ export class ChatService {
           c.members = c.members.map((m) => (m.nick === e.From ? { ...m, nick: newNick } : m));
         });
         if (e.From === this.myNick) {
+          const hadWanted = this.hasWantedNick();
           this.myNick = newNick;
-          this.noteOwnNickChange(newNick);
+          this.noteOwnNickChange(newNick, hadWanted);
           if (this.reclaimNoted && this.hasWantedNick()) this.noteHere(`You're “${newNick}” again.`);
           if (this.hasWantedNick()) this.stopNickReclaim();
+        } else if (this.isRegistrationNickEcho(e.From, newNick)) {
+          this.nickOwnedSeen = true;
+          this.stopNickReclaim();
+          if (!this.userNickAsk) this.takeServerNick();
         } else {
           this.nickFreed(e.From);
         }
