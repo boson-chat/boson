@@ -1,3 +1,9 @@
+## [0.105.2](https://github.com/boson-chat/boson/compare/v0.105.1...v0.105.2) (2026-11-27)
+
+### Bug Fixes
+
+* **sso:** an SSO sign-in goes straight in; the identity key is asked for when needed ([#181](https://github.com/boson-chat/boson/issues/181)) ([f915069](https://github.com/boson-chat/boson/commit/f915069d06bcacf423ca97bce63a9864a4765d96))
+
 ## [0.105.1](https://github.com/boson-chat/boson/compare/v0.105.0...v0.105.1) (2026-11-27)
 
 ### Bug Fixes
