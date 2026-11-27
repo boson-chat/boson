@@ -34,7 +34,11 @@ import type preact from 'preact';
 import { ServerSettings } from './screens/ChatLayout/ServerSettings';
 import { AuthService } from './modules/auth/auth.service';
 import { InMemorySecureStorage } from './shared/secure-storage';
-import { NetworkAccounts } from './modules/netauth/network-accounts';
+import { NetworkAccounts, setNetworkAccounts } from './modules/netauth/network-accounts';
+import { App } from './app';
+import { AccountDirectory } from './modules/directory/account-directory';
+import { HomeAccountData, setHomeAuthSource } from './modules/netauth/home-account';
+import { requestIdentityKey } from './modules/identity/key-request';
 import { NetworkSignInHost } from './screens/NetworkSignIn/NetworkSignIn';
 import { getThemeStore, NetworkThemes, setNetworkThemes, getNetworkThemes } from './modules/ui/theme';
 import { setHomeNetwork } from './modules/netauth/home-network';
@@ -1529,6 +1533,69 @@ async function signInView(): Promise<void> {
   );
 }
 
+// The whole app on a self-hosted web client (IRCForever), boson.chat signed
+// in here: "Continue as ada@boson.chat" goes straight into the app (no
+// identity key step); the profile comes from boson.chat. window.__askKey(reason)
+// stands in for something that needs the key later (saving a NickServ
+// password that syncs).
+async function fedFlowView(): Promise<void> {
+  const q = new URLSearchParams(location.search);
+  const remoteAuth = 'https://auth.boson.ircforever.org';
+  setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRCForever', selfHosted: true, irc: { host: 'irc.boson.ircforever.org', port: 6697, tls: true } });
+  const json = (status: number, v: unknown) => ({ status, ok: status < 300, statusText: String(status), text: JSON.stringify(v) });
+  const homeBlob = await new IdentityService((pw, salt) => {
+    const out = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) out[i] = (pw.charCodeAt(i % Math.max(pw.length, 1)) + salt[i]!) & 0xff;
+    return out;
+  }, new InMemorySecureStorage()).initializeForNewUser('correct horse battery');
+  const tokens = (host: string, username: string, extra = {}) => json(200, {
+    access_token: `h.e30.${host}`, expires_in: 900, refresh_token: `rt-${host}`, session_id: 's',
+    user: { id: `u-${host}`, username, email: null, email_verified: true, role: 'user' }, ...extra,
+  });
+  const transport = async (req: { method: string; url: string }) => {
+    const u = new URL(req.url);
+    if (u.host === 'api.boson.chat') {
+      if (u.pathname === '/me') return q.get('nokey') === '1' ? json(404, { status: 'needs_setup' }) : json(200, { ...USER, handle: 'ada', encrypted_user_secret: homeBlob });
+      if (u.pathname === '/me/session') return json(200, { payload: null });
+      return json(200, {});
+    }
+    if (u.host === 'api.boson.ircforever.org') {
+      if (u.pathname === '/servers') return json(200, { servers: SERVERS, count: SERVERS.length });
+      if (u.pathname === '/servers/me') return json(200, { servers: [], count: 0 });
+      return json(404, {});
+    }
+    if (u.pathname === '/v1/config') return json(200, u.host === 'auth.boson.chat' ? { registration: 'open', sso_providers: [], site_name: 'boson.chat' } : { registration: 'closed', sso_providers: [], network_name: 'IRCForever', guest_access: true });
+    if (u.pathname === '/v1/login') return tokens(u.host, 'ada');
+    if (u.pathname === '/v1/federation/assertions') return json(200, { assertion: 'jwt', expires_in: 300 });
+    if (u.pathname === '/v1/federation/login') return tokens(u.host, 'ada-bosonchat', { federated: true, identity: 'ada@boson.chat', handle: 'ada-bosonchat' });
+    return json(404, {});
+  };
+  const fed = (domain: string) => ({
+    version: 1, issuer: `https://auth.${domain}`, accepts: 'directory', domain,
+    assertion_endpoint: `https://auth.${domain}/v1/federation/assertions`,
+    login_endpoint: `https://auth.${domain}/v1/federation/login`,
+  });
+  const storage = new InMemorySecureStorage();
+  const auth = new AuthService(remoteAuth, { storage, transport: transport as never });
+  const accounts = new NetworkAccounts({
+    mainAuthUrl: remoteAuth, mainAuth: auth, storage, transport: transport as never, local: null,
+    bridge: {
+      discover: async (host: string) => (host.endsWith('ircforever.org')
+        ? { host, main: true, authUrl: remoteAuth, federation: fed('boson.ircforever.org') }
+        : { host, main: false, authUrl: 'https://auth.boson.chat', federation: fed('boson.chat') }),
+    },
+  });
+  setNetworkAccounts(accounts);
+  setHomeAuthSource(accounts);
+  await auth.init();
+  await accounts.discover('irc.boson.chat');
+  await accounts.service('https://auth.boson.chat').signIn('ada', 'pw');
+  const directory = new AccountDirectory(new HttpClient('https://api.boson.ircforever.org', { getToken: () => auth.getToken() }, transport as never), auth, new HomeAccountData(auth, { transport: transport as never }));
+  const identity = makeIdentity();
+  (window as { __askKey?: (r: string) => Promise<boolean> }).__askKey = (r) => requestIdentityKey(identity, r as never);
+  render(<App auth={auth} directory={directory} engine={null} identity={identity} history={{} as never} homeData={directory.homeData} />, app());
+}
+
 const view = new URLSearchParams(location.search).get('view') ?? 'chat';
 if (view === 'chat') chatView();
 else if (view === 'directory') directoryView();
@@ -1539,4 +1606,5 @@ else if (view === 'services') servicesView();
 else if (view === 'inbox') inboxView();
 else if (view === 'netsignin') void netSignInView();
 else if (view === 'signin') void signInView();
+else if (view === 'fedflow') void fedFlowView();
 else app().textContent = `unknown view: ${view}`;

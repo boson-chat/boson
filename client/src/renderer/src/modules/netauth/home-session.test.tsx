@@ -94,8 +94,8 @@ describe('home network session → the app account', () => {
     expect(loadGuestSession()).toBeNull();
     expect(changed).toHaveBeenCalled();
     expect(s.mainAuth.getState().session?.federated).toMatchObject({ identity: 'alice@boson.chat', homeDomain: 'boson.chat' });
-    // The login screen goes straight to the identity key.
-    expect(takeResumeIdentity()).toBe(true);
+    // A federated session goes straight into the app: no identity key step.
+    expect(takeResumeIdentity()).toBe(false);
     // One keeper: the network-side copy is gone (no double refresh), and the
     // home network now reads the main session.
     const home = s.accounts.linkFor('irc.boson.ircforever.org')!;
@@ -138,7 +138,7 @@ describe('home network session → the app account', () => {
     stop();
   });
 
-  it('the login screen goes straight to the identity key for a federated session', async () => {
+  it('a federated session never gets the login screen\'s identity key step', async () => {
     const s = setup();
     await guestWithFederatedHome(s);
     await promoteHomeSession(s.accounts);
@@ -152,8 +152,20 @@ describe('home network session → the app account', () => {
         />
       </AuthProvider>,
     );
-    expect(await screen.findByText('Unlock your identity key.')).toBeTruthy();
-    expect(screen.getByText(/Signed in as/).textContent).toMatch(/alice-bosonchat/);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('Unlock your identity key.')).toBeNull();
+    expect(getMe).not.toHaveBeenCalled();
+  });
+
+  it('one of the network\'s own accounts, signed in beside guest mode, still goes to the key', async () => {
+    const s = setup();
+    await s.mainAuth.init();
+    saveGuestSession({ nick: 'alice' });
+    await s.accounts.discover('irc.boson.ircforever.org');
+    await s.accounts.service(HOME_AUTH).signIn('alice', 'pw');
+    expect(await promoteHomeSession(s.accounts)).toBe(true);
+    expect(s.mainAuth.getState().session?.federated).toBeUndefined();
+    expect(takeResumeIdentity()).toBe(true);
   });
 
   it('signing out ends the federated session at the home network', async () => {

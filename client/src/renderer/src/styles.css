@@ -146,3 +146,20 @@ input, textarea { font: inherit; color: inherit; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+
+/* The identity key, asked for when a federated session needs it
+   (components/IdentityKeyPrompt.tsx). */
+.identity-key-prompt { display: flex; flex-direction: column; gap: var(--space-4); }
+.identity-key-prompt form { display: flex; flex-direction: column; gap: var(--space-4); }
+.identity-key-prompt-body { margin: 0; color: var(--fg-2); font-size: var(--text-sm); line-height: var(--leading-body); }
+.identity-key-prompt-body strong { color: var(--fg); font-family: var(--font-mono); font-weight: 500; }
+.identity-key-prompt-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--danger-fg);
+  padding: var(--space-3) var(--space-4);
+  background: color-mix(in oklab, var(--danger), transparent 92%);
+  border: 1px solid color-mix(in oklab, var(--danger), transparent 80%);
+  border-radius: var(--radius-md);
+}
+.identity-key-prompt-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }

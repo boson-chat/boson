@@ -1,0 +1,177 @@
+import { useEffect, useState } from 'preact/hooks';
+import { Button, Field, Input, Modal } from '@boson/shared';
+import type { IdentityService } from '../modules/identity';
+import type { HomeAccountData, HomeAccountHandle } from '../modules/netauth/home-account';
+import {
+  KEY_REASONS, currentKeyRequest, onKeyRequest, rememberHomeKeyId, settleKeyRequest, type KeyRequest,
+} from '../modules/identity/key-request';
+import { PASSWORD_MIN } from '../modules/auth/signup-rules';
+import { RecoveryCodeReveal } from './RecoveryCodeReveal';
+
+
+// The identity key, asked for when a federated session first needs it
+// (modules/identity/key-request.ts): unlock the home account's key with its
+// passphrase, or set one up at the home account when it has none. Mounted
+// once, in the app shell.
+type Step =
+  | { kind: 'loading' }
+  | { kind: 'no-home'; homeDomain: string }
+  | { kind: 'unlock'; home: HomeAccountHandle; blob: string }
+  | { kind: 'create'; home: HomeAccountHandle; exists: boolean }
+  | { kind: 'reveal'; code: string };
+
+export function IdentityKeyPrompt({ identity, homeData }: { identity: IdentityService; homeData: HomeAccountData }) {
+  const [req, setReq] = useState<KeyRequest | null>(currentKeyRequest());
+  useEffect(() => onKeyRequest(setReq), []);
+  const [step, setStep] = useState<Step>({ kind: 'loading' });
+  const [pass, setPass] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!req) return;
+    setPass(''); setConfirm(''); setError(null); setBusy(false);
+    setStep({ kind: 'loading' });
+    let live = true;
+    void (async () => {
+      const home = await homeData.home().catch(() => null);
+      if (!live) return;
+      if (!home) {
+        setStep({ kind: 'no-home', homeDomain: homeData.federated()?.homeDomain ?? '' });
+        return;
+      }
+      try {
+        const me = await home.directory.getMe();
+        if (!live) return;
+        setStep(me?.encrypted_user_secret
+          ? { kind: 'unlock', home, blob: me.encrypted_user_secret }
+          : { kind: 'create', home, exists: !!me });
+      } catch {
+        if (live) setStep({ kind: 'no-home', homeDomain: home.homeDomain });
+      }
+    })();
+    return () => { live = false; };
+  }, [req, homeData]);
+
+  if (!req) return null;
+  const why = KEY_REASONS[req.reason];
+  const close = (): void => settleKeyRequest(identity.isUnlocked());
+  const identityName = homeData.federated()?.identity ?? '';
+
+  const submit = async (e: Event): Promise<void> => {
+    e.preventDefault();
+    if (busy) return;
+    setError(null);
+    if (step.kind === 'unlock') {
+      setBusy(true);
+      try {
+        await identity.unlock(pass, step.blob);
+      } catch {
+        setError("That passphrase didn't unlock your key. Use the one for your account there.");
+        setBusy(false);
+        return;
+      }
+      rememberHomeKeyId(step.home.userId);
+      await identity.persist(step.home.userId);
+      setBusy(false);
+      settleKeyRequest(true);
+      return;
+    }
+    if (step.kind === 'create') {
+      if (pass.length < PASSWORD_MIN) { setError(`Use at least ${PASSWORD_MIN} characters.`); return; }
+      if (pass !== confirm) { setError("Passphrases don't match."); return; }
+      setBusy(true);
+      try {
+        const encrypted = await identity.initializeForNewUser(pass);
+        const recovery = identity.getPendingRecovery();
+        if (step.exists) {
+          await step.home.directory.updateSecretWraps({ passwordBlob: encrypted, ...(recovery ? { recoveryBlob: recovery.recoveryBlob } : {}) });
+        } else {
+          const handle = step.home.auth.getState().session?.user.username || identityName.split('@')[0] || '';
+          await step.home.directory.setupMe(handle, encrypted, recovery?.recoveryBlob);
+        }
+        identity.clearPendingEncrypted();
+        rememberHomeKeyId(step.home.userId);
+        await identity.persist(step.home.userId);
+        setBusy(false);
+        if (recovery?.recoveryCode) setStep({ kind: 'reveal', code: recovery.recoveryCode });
+        else settleKeyRequest(true);
+      } catch {
+        // Not saved at the home: no key nobody else has.
+        identity.lock();
+        setBusy(false);
+        setError(`Couldn't save the key to ${step.home.homeDomain}. Try again.`);
+      }
+    }
+  };
+
+  const title = step.kind === 'create' ? 'Set up your identity key'
+    : step.kind === 'reveal' ? 'Save your recovery code'
+    : step.kind === 'loading' ? 'Your identity key'
+    : 'Unlock your identity key';
+  return (
+    <Modal open onClose={close} title={title} size="compact" class="identity-key-prompt-modal">
+      <div class="identity-key-prompt">
+        {step.kind === 'loading' && <p class="identity-key-prompt-body">Checking your account…</p>}
+        {step.kind === 'no-home' && (
+          <>
+            <p class="identity-key-prompt-body">
+              Boson needs your identity key {why}. It belongs to {identityName || 'your account'}, so
+              sign in to {step.homeDomain || 'your home server'} in this browser first, then try again.
+            </p>
+            <div class="identity-key-prompt-actions">
+              <Button variant="primary" onClick={close}>OK</Button>
+            </div>
+          </>
+        )}
+        {step.kind === 'reveal' && (
+          <RecoveryCodeReveal
+            code={step.code}
+            intro="If you forget the passphrase, this code is the only way back into your key. Keep it somewhere safe."
+            onContinue={() => settleKeyRequest(true)}
+          />
+        )}
+        {(step.kind === 'unlock' || step.kind === 'create') && (
+          <form onSubmit={(e) => { void submit(e); }}>
+            <p class="identity-key-prompt-body">
+              Boson needs your identity key {why}. You're signed in here with{' '}
+              <strong>{identityName}</strong>; the key is kept with that account at {step.home.homeDomain}.
+              {step.kind === 'unlock'
+                ? ' Enter its password (or the identity passphrase you set there) once on this device.'
+                : " It doesn't have one yet: pick a passphrase to protect it. You enter it once on each new device."}
+            </p>
+            <Field label={step.kind === 'unlock' ? 'Password or passphrase' : 'Passphrase'}>
+              <Input
+                type="password"
+                value={pass}
+                onInput={(e) => setPass((e.target as HTMLInputElement).value)}
+                autoFocus
+                required
+                autoComplete={step.kind === 'unlock' ? 'current-password' : 'new-password'}
+              />
+            </Field>
+            {step.kind === 'create' && (
+              <Field label="Confirm passphrase">
+                <Input
+                  type="password"
+                  value={confirm}
+                  onInput={(e) => setConfirm((e.target as HTMLInputElement).value)}
+                  required
+                  autoComplete="new-password"
+                />
+              </Field>
+            )}
+            {error && <div class="identity-key-prompt-error" role="alert">{error}</div>}
+            <div class="identity-key-prompt-actions">
+              <Button type="button" variant="ghost" onClick={close} disabled={busy}>Not now</Button>
+              <Button type="submit" variant="primary" disabled={busy || !pass}>
+                {step.kind === 'unlock' ? 'Unlock' : 'Set up key'}
+              </Button>
+            </div>
+          </form>
+        )}
+      </div>
+    </Modal>
+  );
+}

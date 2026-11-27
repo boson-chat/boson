@@ -44,12 +44,12 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   } = state;
   const { session, signedOutReason } = useAuthState();
   useEffect(() => { void bloc.loadProviders(); }, [bloc]);
-  // Signed in already, identity key locked: a federated session (no
-  // password to type) or a home network session that just became the
-  // app's own goes straight to the key.
+  // Signed in already, identity key locked: one of this server's own
+  // accounts that just became the app's own (home-session.ts) goes
+  // straight to the key. A federated session never shows this screen.
   useEffect(() => {
     const resume = takeResumeIdentity();
-    if (session && (resume || session.federated)) void bloc.resumeSignedIn();
+    if (session && resume) void bloc.resumeSignedIn();
     // Once, on mount.
   }, [bloc]);
   useEffect(() => () => bloc.cancelSignInWith(), [bloc]);

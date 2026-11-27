@@ -21,7 +21,7 @@ import type { SecureStorage } from '../../shared/secure-storage';
 import type { ApiTransport } from '../../shared/http/transport';
 import {
   acceptsFederation, cleanFederation, federatedSignIn, identityOf, issuesAssertions,
-  type FederationInfo, type HomeAccount,
+  type FederatedIdentity, type FederationInfo, type HomeAccount,
 } from './federation';
 import { getHomeNetwork } from './home-network';
 
@@ -561,6 +561,23 @@ export class NetworkAccounts {
         ? [{ authUrl: normalizeAuthBase(k.authUrl), name: this.nameFor(k.authUrl), session: s }]
         : [];
     });
+  }
+
+  // The app's own account's session (null when signed out).
+  mainSession(): Session | null {
+    return this.opts.mainAuth.getState().session;
+  }
+
+  // The auth service of the account a federated session came from, once
+  // its saved session is restored; null when it isn't signed in here (or
+  // it's this app's own account). The home's token reads the home
+  // account's data (modules/netauth/home-account.ts).
+  async homeAuthFor(f: FederatedIdentity): Promise<AuthService | null> {
+    const key = normalizeAuthBase(f.homeAuthUrl);
+    if (key === this.main) return null;
+    await this.ensureService(key);
+    const svc = this.service(key);
+    return svc.getState().session ? svc : null;
   }
 
   // Whether the account a federated session came from is still signed in

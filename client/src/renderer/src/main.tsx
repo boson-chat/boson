@@ -12,6 +12,7 @@ import { FriendsController, HttpFriendsApi, setFriendsController } from './modul
 import { openCall } from './screens/ChatLayout/call-shared';
 import { keepHomeSessionSignedIn } from './modules/netauth/home-session';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
+import { setHomeAuthSource } from './modules/netauth/home-account';
 import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
 import { getHomeNetwork, nameFromAuthConfig, updateHomeNetwork } from './modules/netauth/home-network';
@@ -111,6 +112,10 @@ void (async () => {
     ? new NetworkAccounts({ mainAuthUrl: authUrl, mainAuth: props.auth, storage: windowSecureStorage, isGuest: () => loadGuestSession() !== null })
     : null;
   setNetworkAccounts(netAccounts);
+  // A federated session's home account (alice@boson.chat's session, kept
+  // here by the "Continue as …" flow) is where its data comes from
+  // (modules/netauth/home-account.ts).
+  setHomeAuthSource(netAccounts);
   // Network themes: found through each network's boson.json / auth config
   // (desktop: the shell's discovery) or its directory listing, applied over
   // the user's theme for the active server.

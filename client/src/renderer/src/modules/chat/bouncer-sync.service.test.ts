@@ -105,3 +105,25 @@ describe('BouncerSyncService', () => {
     expect(backend.puts.length).toBe(0); // nothing pushed
   });
 });
+
+describe('BouncerSyncService — a profile saved while the key is locked', () => {
+  it('asks when the profile changes after the store loaded (not for the load), then pushes on unlock', async () => {
+    const identity = new IdentityService(fastArgon, new InMemorySecureStorage());
+    const store = await makeStore();
+    const backend = new FakeBackend();
+    const svc = new BouncerSyncService(identity, backend, store, new InMemorySecureStorage(), 0);
+    let asked = 0;
+    svc.onLockedChange(() => { asked++; });
+    svc.start();
+    await tick();
+    expect(asked).toBe(0);
+    store.set(profile);
+    store.set(profile);
+    expect(asked).toBe(1);
+    expect(backend.puts).toEqual([]);
+    await identity.initializeForNewUser('home pw');
+    await tick();
+    expect(backend.puts.length).toBe(1);
+    svc.dispose();
+  });
+});

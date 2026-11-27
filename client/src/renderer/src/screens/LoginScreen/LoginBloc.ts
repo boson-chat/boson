@@ -202,27 +202,30 @@ export class LoginBloc {
   // "Continue as alice@boson.chat" on a self-hosted web client: `signIn`
   // signs the app's own account in with the home account (federated, on
   // this app's auth service: NetworkAccounts.signInFederated while not a
-  // guest), then the identity key as after any external sign-in. A refused
-  // sign-in throws (FederatedSignIn says why).
+  // guest), and that's all: the app opens. This server's IRC login uses its
+  // own token, so no identity key is asked for; it's the home account's,
+  // unlocked when something needs it (modules/identity/key-request.ts). A
+  // refused sign-in throws (FederatedSignIn says why).
   async continueFederated(signIn: () => Promise<{ user: { id: string } }>): Promise<void> {
     if (this.state.busy) return;
     this.setState({ ...this.state, error: null, notice: null, unrecoverable: null, recoverable: null, busy: true });
-    let userId: string;
     try {
-      userId = (await signIn()).user.id;
+      await signIn();
     } catch (err) {
       this.setState({ ...this.state, busy: false });
       throw err;
     }
-    await this.afterExternalSignIn(userId);
+    this.setState({ ...this.state, busy: false });
   }
 
-  // Already signed in (a federated session after a reload, or a home
-  // network session that just became the app's own) but the identity key
-  // is locked: straight to the key, no sign-in form.
+  // Already signed in (one of this server's own accounts, signed in beside
+  // guest mode, that just became the app's own) but the identity key is
+  // locked: straight to the key, no sign-in form. Never for a federated
+  // session: it doesn't need the key to get in.
   async resumeSignedIn(): Promise<void> {
-    const userId = this.auth.getState().session?.user.id;
-    if (!userId || this.state.busy || this.state.identityPrompt) return;
+    const session = this.auth.getState().session;
+    const userId = session?.user.id;
+    if (!userId || session?.federated || this.state.busy || this.state.identityPrompt) return;
     this.setState({ ...this.state, busy: true });
     await this.afterExternalSignIn(userId);
   }

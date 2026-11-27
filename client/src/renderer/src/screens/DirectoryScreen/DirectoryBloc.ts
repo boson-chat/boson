@@ -387,7 +387,7 @@ export class DirectoryBloc {
     // restore can't actually proceed. Guest sessions also restore their
     // saved server set; identity isn't required for IRC connections.
     if (deps.engine && this.sessionStore.load()?.servers.some((s) => !s.server.parked)) {
-      if (this.guestNick || this.identity.isUnlocked()) this.restoring = true;
+      if (this.guestNick || this.keyNotNeeded() || this.identity.isUnlocked()) this.restoring = true;
     }
 
     // Desktop notifications: track window focus + route banner clicks back to
@@ -2092,6 +2092,12 @@ export class DirectoryBloc {
     void this.runSearch(this.listToken);
   }
 
+  // A federated session (alice@boson.chat on this server) connects without
+  // the identity key (modules/identity/key-request.ts).
+  private keyNotNeeded(): boolean {
+    return !!this.auth.getState().session?.federated;
+  }
+
   private maybeRestoreSession(): void {
     if (this.restored) return;
     if (!this.engine || !this.me?.handle) {
@@ -2104,8 +2110,9 @@ export class DirectoryBloc {
       return;
     }
     // Identity is only required for account mode (SASL key derivation, etc.).
-    // Guests connect anonymously, so we still proceed when locked.
-    if (!this.guestNick && !this.identity.isUnlocked()) return;
+    // Guests connect anonymously, and a federated session logs in with its
+    // server's token, so both proceed when locked.
+    if (!this.guestNick && !this.keyNotNeeded() && !this.identity.isUnlocked()) return;
     const stored = this.sessionStore.load();
     const saved = stored && { ...stored, servers: stored.servers.filter((s) => !s.server.parked) };
     if (!saved || saved.servers.length === 0) {

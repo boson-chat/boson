@@ -3,7 +3,11 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { AuthProvider, AuthService, useAuthState } from './modules/auth';
 import { configureSignOut, isSigningOut, onSignOutChange, signOut } from './modules/signout/sign-out';
 import { registerAppSignOut } from './modules/signout/participants';
-import { DirectoryService } from './modules/directory';
+import type { DirectoryService } from './modules/directory';
+import { AccountDirectory } from './modules/directory/account-directory';
+import type { HomeAccountData } from './modules/netauth/home-account';
+import { homeKeyId, requestIdentityKey, restoreHomeKey } from './modules/identity/key-request';
+import { IdentityKeyPrompt } from './components/IdentityKeyPrompt';
 import { NetworkDirectories } from './modules/directory/networks';
 import { configureDirectorySources, syncDirectoriesToShell } from './modules/directory/sources';
 import { EngineClient, type WebSocketCtor } from './modules/engine';
@@ -40,17 +44,20 @@ interface AppProps {
   history: ChatHistoryStore;
   // The network directories (directory.boson.chat + any the user added).
   networks?: NetworkDirectories;
+  // A federated session's home account (modules/netauth/home-account.ts):
+  // its data, and its identity key when something needs it.
+  homeData?: HomeAccountData;
 }
 
-export function App({ auth, directory, engine, identity, history, networks }: AppProps) {
+export function App({ auth, directory, engine, identity, history, networks, homeData }: AppProps) {
   return (
     <AuthProvider service={auth}>
-      <AppShell auth={auth} directory={directory} engine={engine} identity={identity} history={history} networks={networks} />
+      <AppShell auth={auth} directory={directory} engine={engine} identity={identity} history={history} networks={networks} homeData={homeData} />
     </AuthProvider>
   );
 }
 
-function AppShell({ auth, directory, engine, identity, history, networks }: AppProps) {
+function AppShell({ auth, directory, engine, identity, history, networks, homeData }: AppProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
   // Elsewhere in the app can open settings at a section (the voice bar).
@@ -138,7 +145,7 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
         </div>
       )}
       <div class="app-frame-body">
-        <Router directory={directory} engine={engine} identity={identity} history={history} networks={networks} />
+        <Router directory={directory} engine={engine} identity={identity} history={history} networks={networks} homeData={homeData} />
       </div>
       <UserSettings
         open={settingsOpen}
@@ -158,6 +165,8 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
       <CallOverlays />
       {/* "Sign in to <network>" (self-hosted networks' own accounts). */}
       <NetworkSignInHost />
+      {/* A federated session's identity key, when something needs it. */}
+      {homeData && session?.federated && !guest && <IdentityKeyPrompt identity={identity} homeData={homeData} />}
       {/* In-app notifications, and the bell's list. */}
       <Toasts />
       {notesOpen && (
@@ -177,12 +186,13 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
 // same trick the marketing site uses (see boson-chat/website's src/app.tsx).
 type RouteKey = 'loading' | 'restoring' | 'signing-out' | 'auth-error' | 'guest' | 'login' | 'app';
 
-function Router({ directory, engine, identity, history, networks }: {
+function Router({ directory, engine, identity, history, networks, homeData }: {
   directory: DirectoryService;
   engine: EngineClient | null;
   identity: IdentityService;
   history: ChatHistoryStore;
   networks?: NetworkDirectories;
+  homeData?: HomeAccountData;
 }) {
   const { session, loading, error } = useAuthState();
   const identityUnlocked = useIdentityUnlocked(identity);
@@ -192,8 +202,14 @@ function Router({ directory, engine, identity, history, networks }: {
   // restore path before showing the login form. `null` means "haven't tried
   // yet"; we render a loading shim during the single IPC round-trip. After
   // restore the `useIdentityUnlocked` hook flips the route automatically.
-  const userId = session?.user?.id ?? null;
+  // A federated session (signed in with alice@boson.chat) needs no key to
+  // use this server: the app opens, and the home account's key is unlocked
+  // from this device's keychain when it's kept here, else asked for when
+  // something needs it (modules/identity/key-request.ts).
+  const federated = !!session?.federated;
+  const userId = federated ? null : session?.user?.id ?? null;
   const restored = useIdentityRestore(identity, userId);
+  useHomeKeyRestore(identity, federated ? homeData : undefined, session?.user?.id ?? null);
   // The route rendered last time. When the login screen is already up, the
   // session it's waiting for (sign-in, or the email-confirmation deep link)
   // must not swap it for the restore shim: that unmounts LoginScreen and its
@@ -227,7 +243,7 @@ function Router({ directory, engine, identity, history, networks }: {
     // fall through to LoginScreen — the user needs to type their password.
     key = 'restoring';
     content = <div class="loading"><AtomLoader size={40} label="Restoring session" /><span>Restoring session…</span></div>;
-  } else if (!session || !identityUnlocked) {
+  } else if (!session || (!identityUnlocked && !federated)) {
     key = 'login';
     content = <LoginScreen directory={directory} identity={identity} />;
   } else {
@@ -267,6 +283,15 @@ function useIdentityUnlocked(identity: IdentityService): boolean {
 }
 
 type RestoreStatus = 'idle' | 'pending' | 'done';
+
+// A federated session's identity key from this device's keychain, when the
+// home account's is kept here; never a prompt, never in the way.
+function useHomeKeyRestore(identity: IdentityService, homeData: HomeAccountData | undefined, sessionUserId: string | null): void {
+  useEffect(() => {
+    if (!homeData || !sessionUserId || identity.isUnlocked()) return;
+    void restoreHomeKey(identity, homeData);
+  }, [identity, homeData, sessionUserId]);
+}
 
 // Attempt a one-shot keychain restore each time we see a new authenticated
 // userId. `done` means "either restored or confirmed-no-blob" — in both cases
@@ -311,7 +336,10 @@ export function buildApp(opts: BuildAppOptions): AppProps {
     getToken: () => auth.getToken(),
     tokenRejected: (t) => auth.tokenRejected(t),
   });
-  const directory = new DirectoryService(http);
+  // Account data (profile, identity key, synced settings and passwords)
+  // comes from the home account when the session is federated.
+  const directory = new AccountDirectory(http, auth);
+  const homeData = directory.homeData;
   const sources = configureDirectorySources({
     defaultUrl: opts.directoryUrl,
     authUrl: opts.authUrl,
@@ -353,10 +381,19 @@ export function buildApp(opts: BuildAppOptions): AppProps {
   const bouncerSync = new BouncerSyncService(identity, directory);
   bouncerSync.start();
 
+  // A federated session signs in without the identity key; saving a
+  // password or bouncer profile that syncs is when it's asked for.
+  const askForKey = (reason: 'nickserv' | 'bouncer'): void => {
+    if (!auth.getState().session?.federated || isSigningOut()) return;
+    void requestIdentityKey(identity, reason);
+  };
+  nickservSync.onLockedChange(() => askForKey('nickserv'));
+  bouncerSync.onLockedChange(() => askForKey('bouncer'));
+
   // Sign-out, from any of its buttons: one path (modules/signout) through
   // every module's clearForSignOut().
   configureSignOut({ auth, identity });
-  registerAppSignOut({ engine, identity, history, secure: windowSecureStorage, syncs: [nickservSync, bouncerSync] });
+  registerAppSignOut({ engine, identity, history, secure: windowSecureStorage, syncs: [nickservSync, bouncerSync], homeKeyId });
 
-  return { auth, directory, engine, identity, history, networks };
+  return { auth, directory, engine, identity, history, networks, homeData };
 }
