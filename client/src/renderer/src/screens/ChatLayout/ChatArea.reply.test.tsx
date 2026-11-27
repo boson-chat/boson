@@ -187,14 +187,21 @@ describe('ChatArea — reply quotes', () => {
     expect(row.querySelector('.message-row-text-body')!.textContent).toBe("it's libssl-dev");
   });
 
-  it('a guessed reply keeps its text and has a fainter quote', () => {
+  it('a guess stored by an older version shows no quote: just the line', () => {
     renderChat([
       msg({ text: 'is the relay up?' }),
       msg({ id: 'm2', from: 'carol', text: 'bob: yes', replyToId: 'm1', replyGuess: true, timestamp: Date.now() + 1 }),
     ]);
-    const quote = document.querySelector('.message-reply-quote')!;
-    expect(quote.classList.contains('message-reply-quote-guessed')).toBe(true);
-    expect(quote.closest('.message-row')!.querySelector('.message-row-text-body')!.textContent).toBe('bob: yes');
+    expect(document.querySelector('.message-reply-quote')).toBeNull();
+    expect(screen.getByText('bob: yes')).toBeTruthy();
+  });
+
+  it('a plain mention line gets no reply quote', () => {
+    renderChat([
+      msg({ from: 'TheLion', text: 'sup' }),
+      msg({ id: 'm2', from: 'thelion_evrd', text: 'TheLion: hi', timestamp: Date.now() + 1 }),
+    ]);
+    expect(document.querySelector('.message-reply-quote')).toBeNull();
   });
 
   it('a reply to one of your lines is highlighted as a mention', () => {

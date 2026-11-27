@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { applyPrefs, collectPrefs, localPrefsUpdatedAt, onLocalPrefsChange, reconcilePrefs } from './prefs-sync';
 import { __resetNotificationSettingsCache, getChannelLevel, getNotificationSettings, setChannelLevel, setNotificationSettings } from '../ui/notifications.store';
-import { __resetChatDisplaySettingsCache, getChatDisplaySettings, setChatDisplaySettings } from '../ui/chat-display.store';
+import { __resetChatDisplaySettingsCache, getChatDisplaySettings } from '../ui/chat-display.store';
 
 beforeEach(() => { localStorage.clear(); __resetNotificationSettingsCache(); __resetChatDisplaySettingsCache(); });
 afterEach(() => { localStorage.clear(); __resetNotificationSettingsCache(); __resetChatDisplaySettingsCache(); });
@@ -30,18 +30,12 @@ describe('prefs-sync', () => {
     off();
   });
 
-  it('"Show guessed replies" syncs too (on by default)', () => {
-    expect(getChatDisplaySettings().guessedReplies).toBe(true);
-    let calls = 0;
-    const off = onLocalPrefsChange(() => { calls++; });
-    setChatDisplaySettings({ guessedReplies: false });
-    expect(calls).toBe(1);
-    expect(JSON.parse(collectPrefs().values['boson:chat-display:v1']!)).toEqual({ guessedReplies: false });
-    applyPrefs({ updatedAt: 9, values: {} });
-    expect(getChatDisplaySettings().guessedReplies).toBe(true);
-    applyPrefs({ updatedAt: 10, values: { 'boson:chat-display:v1': '{"guessedReplies":false}' } });
+  it('guessed replies are retired: off, whatever a synced copy says', () => {
     expect(getChatDisplaySettings().guessedReplies).toBe(false);
-    off();
+    applyPrefs({ updatedAt: 9, values: { 'boson:chat-display:v1': '{"guessedReplies":true}' } });
+    expect(getChatDisplaySettings().guessedReplies).toBe(false);
+    applyPrefs({ updatedAt: 10, values: {} });
+    expect(getChatDisplaySettings().guessedReplies).toBe(false);
   });
 
   it('reconcile: the newer side wins; a first sync starts from this device', () => {

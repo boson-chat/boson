@@ -3,7 +3,6 @@
 // Every reply Boson sends starts with a plain-text form of who it answers,
 // so a client that knows nothing of IRCv3 replies still sees it:
 //
-//   bob: yep                               (bob's latest line)
 //   bob: "anyone know..." it's libssl-dev  (an older line of bob's)
 //   bob: "...libssl..." that one           (no short prefix tells it apart)
 //
@@ -12,10 +11,11 @@
 // without case or punctuation), at most QUOTE_MAX characters; failing that,
 // a word of it that none of the others has.
 //
-// On receive the same forms are read back: a line from someone else
-// without a reply tag that starts with `nick: "words..."` answers nick's
-// newest earlier line starting with those words; one that only starts with
-// `nick:` probably answers nick's latest line (a guess, shown lighter).
+// On receive the quoted form is read back: a line from someone else without
+// a reply tag that starts with `nick: "words..."` answers nick's newest
+// earlier line starting with those words. A line that only starts with
+// `nick:` is not treated as a reply (people address each other that way
+// all the time; guessing made replies out of plain mentions).
 
 import type { ChatMessage } from './chat.types';
 
@@ -103,8 +103,6 @@ function saidBy(m: ChatMessage, nick: string): boolean {
 export function replyPrefix(target: ChatMessage, messages: readonly ChatMessage[]): string {
   const nick = target.from;
   const theirs = messages.slice(-REPLY_WINDOW).filter((m) => saidBy(m, nick));
-  const latest = theirs[theirs.length - 1];
-  if (latest && latest.id === target.id) return `${nick}: `;
   const mine = wordsOf(quotableText(target.text));
   if (mine.norm.length === 0) return `${nick}: `;
   const others = theirs.filter((m) => m.id !== target.id).map((m) => wordsOf(quotableText(m.text)).norm);
@@ -178,13 +176,12 @@ export interface ReplyLink {
 export function resolveTextReply(msg: ChatMessage, before: readonly ChatMessage[]): ReplyLink | null {
   if (msg.replyTo || msg.kind !== 'message') return null;
   const p = parseTextReply(msg.text);
-  if (!p || sameNick(p.nick, msg.from)) return null;
+  if (!p || !p.quote || sameNick(p.nick, msg.from)) return null;
   const start = Math.max(0, before.length - REPLY_WINDOW);
   let latest: ChatMessage | null = null;
   for (let i = before.length - 1; i >= start; i--) {
     const m = before[i]!;
     if (!saidBy(m, p.nick)) continue;
-    if (!p.quote) return { id: m.id, guessed: true };
     latest ??= m;
     const words = wordsOf(quotableText(m.text)).norm;
     const hit = p.quote.inner ? containsWords(words, p.quote.words) : startsWithWords(words, p.quote.words, true);

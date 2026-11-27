@@ -15,10 +15,10 @@ describe('replyPrefix (the text form a reply is sent with)', () => {
   const c = m('bob', 'anyone around?');
   const convo = [a, m('carol', 'hi'), b, c, m('carol', 'morning')];
 
-  it('the examples: older lines get the shortest unique quote, the latest none', () => {
+  it('the examples: every line gets the shortest unique quote, the latest too', () => {
     expect(replyPrefix(a, convo)).toBe('bob: "anyone know..." ');
     expect(replyPrefix(b, convo)).toBe('bob: "also..." ');
-    expect(replyPrefix(c, convo)).toBe('bob: ');
+    expect(replyPrefix(c, convo)).toBe('bob: "anyone around..." ');
   });
 
   it('compares without case or punctuation', () => {
@@ -82,9 +82,9 @@ describe('replyPrefix (the text form a reply is sent with)', () => {
     expect(replyPrefix(x, [old, ...filler.slice(0, 5), x, ...filler, m('bob', 'later')])).toBe('bob: "deploy..." ');
   });
 
-  it('joins and system lines do not count as their latest', () => {
+  it('joins and system lines are not their lines: a single line is quoted by its first word', () => {
     const x = m('bob', 'brb');
-    expect(replyPrefix(x, [x, m('bob', 'bob has quit', { kind: 'quit' })])).toBe('bob: ');
+    expect(replyPrefix(x, [x, m('bob', 'bob has quit', { kind: 'quit' })])).toBe('bob: "brb..." ');
   });
 
   it('a target not in the list is quoted', () => {
@@ -139,10 +139,13 @@ describe('resolveTextReply (receive)', () => {
     expect(resolveTextReply(m('carol', 'bob: "https://example.com/a/v..." ok'), [a])).toEqual({ id: a.id, guessed: false });
   });
 
-  it('just `nick:` is a guess: their latest line', () => {
+  it('just `nick:` is not a reply: people address each other that way', () => {
     const a = m('bob', 'one');
     const b = m('bob', 'two');
-    expect(resolveTextReply(m('carol', 'Bob: yes'), [a, b, m('dave', 'x')])).toEqual({ id: b.id, guessed: true });
+    expect(resolveTextReply(m('carol', 'Bob: yes'), [a, b, m('dave', 'x')])).toBeNull();
+    const l = m('TheLion', 'sup');
+    expect(resolveTextReply(m('carol', 'TheLion: hi'), [l])).toBeNull();
+    expect(resolveTextReply(m('carol', 'TheLion:'), [l])).toBeNull();
   });
 
   it('nothing when the nick never spoke, the quote matches nothing, or it\'s tagged', () => {
