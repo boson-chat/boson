@@ -77,7 +77,7 @@ export const DEVICE_KEYS: KeySet = {
 // Literals that look like keys but aren't storage keys (event names, hosts).
 export const NOT_KEYS: readonly string[] = [
   'boson:embeds:change', 'boson:chat-display:change', 'boson:guest:change', 'boson:notifications:change', 'boson:privacy:change',
-  'boson:network', 'boson.chat', 'boson.json', 'boson.json:', 'boson:push-open',
+  'boson:network', 'boson.chat', 'boson.ircforever.org', 'boson.json', 'boson.json:', 'boson:push-open',
   'boson:', // the boson:// URL scheme
   'boson.', // the secure stores' minimum prefix
 ];
