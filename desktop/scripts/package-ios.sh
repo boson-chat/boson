@@ -151,7 +151,17 @@ if [[ "$PLATFORM" == "device" ]]; then
   else
     echo "note: the provisioning profile lacks the App Group group.chat.boson.app: the push extension can't read keys" >&2
   fi
+  # The profile lists the App Attest environments it allows (newer profiles
+  # give an array, e.g. development and production); the app claims one,
+  # as a string: the one matching the APNs environment when allowed.
   attest="$(pe com.apple.developer.devicecheck.appattest-environment)"
+  if [[ "$attest" == Array* ]]; then
+    if [[ "$attest" == *"$APNS_ENV"* ]]; then
+      attest="$APNS_ENV"
+    else
+      attest="$(pe com.apple.developer.devicecheck.appattest-environment:0)"
+    fi
+  fi
   [[ -n "$attest" ]] && push_ents+=(-c "Add :com.apple.developer.devicecheck.appattest-environment string $attest")
 fi
 
