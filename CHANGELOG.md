@@ -1,3 +1,9 @@
+## [0.103.0](https://github.com/boson-chat/boson/compare/v0.102.2...v0.103.0) (2026-11-27)
+
+### Features
+
+* **push:** browser push notifications per server (web client) ([#170](https://github.com/boson-chat/boson/issues/170)) ([93cc689](https://github.com/boson-chat/boson/commit/93cc6892c6b0eafd41a59bf9bb6845089c7b723d))
+
 ## [0.102.2](https://github.com/boson-chat/boson/compare/v0.102.1...v0.102.2) (2026-11-27)
 
 ### Bug Fixes
