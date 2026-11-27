@@ -1,3 +1,9 @@
+## [0.107.0](https://github.com/boson-chat/boson/compare/v0.106.0...v0.107.0) (2026-11-27)
+
+### Features
+
+* **telemetry:** anonymous daily app ping with a Privacy switch ([#182](https://github.com/boson-chat/boson/issues/182)) ([5a7953d](https://github.com/boson-chat/boson/commit/5a7953d58e7a7bde91c36256129b0393322f98fb))
+
 ## [0.106.0](https://github.com/boson-chat/boson/compare/v0.105.2...v0.106.0) (2026-11-27)
 
 ### Features
