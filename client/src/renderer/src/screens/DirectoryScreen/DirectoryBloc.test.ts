@@ -1080,6 +1080,61 @@ describe('DirectoryBloc', () => {
     localStorage.removeItem('boson:server-nick:v1');
   });
 
+  it('device B, fresh on a shared bouncer connection device A renamed, sends no NICK and saves the bouncer nick', async () => {
+    localStorage.removeItem('boson:server-nick:v1');
+    const engine = fakeEngine();
+    const server = fakeServer('s1');
+    const directory = fakeDirectory({ user: fakeUser(), servers: [server] });
+    const bloc = new DirectoryBloc({ auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore: new SessionStore(memoryStorage()) });
+    await flushPromises(4);
+    await bloc.connect(server);
+    const s1 = engine.sessionFor('s1');
+    s1._setState('connected');
+    const handle = bloc.getState().me!.handle;
+    // Nothing saved on this device: it registers with its default...
+    const first = engine.connectCalls[0]!.nick;
+    // ...and the bridge attaches it to the connection device A renamed.
+    s1._emitEvent({ Kind: '001', From: 'srv', Target: 'TheLion', Message: 'Welcome', Raw: '' });
+    s1._emitEvent({ Kind: 'NICK', From: first, Target: '', Message: 'TheLion', Raw: '' });
+    // A new Boson handle doesn't rename the shared connection either.
+    bloc.setHandle(`${handle}2`);
+    expect(s1.nickCalls).toEqual([]);
+    expect(bloc.getState().connections[0]!.chat.getState().myNick).toBe('TheLion');
+    // Saved as this device's nick: the next connect registers with it.
+    bloc.disconnect('s1');
+    await bloc.connect(server);
+    expect(engine.connectCalls.at(-1)!.nick).toBe('TheLion');
+    bloc.dispose();
+    localStorage.removeItem('boson:server-nick:v1');
+  });
+
+  it("a /nick the link dropped before answering is made on the next connection, and the bouncer's nick otherwise wins", async () => {
+    localStorage.removeItem('boson:server-nick:v1');
+    const engine = fakeEngine();
+    const server = fakeServer('s1');
+    const directory = fakeDirectory({ user: fakeUser(), servers: [server] });
+    const bloc = new DirectoryBloc({ auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore: new SessionStore(memoryStorage()) });
+    await flushPromises(4);
+    await bloc.connect(server);
+    const s1 = engine.sessionFor('s1');
+    s1._setState('connected');
+    s1._emitEvent({ Kind: '001', From: 'srv', Target: 'TheLion', Message: 'Welcome', Raw: '' });
+    bloc.getState().connections[0]!.chat.changeNick('Lion');
+    expect(s1.nickCalls).toEqual(['Lion']);
+    // no answer: the link drops
+    bloc.disconnect('s1');
+    await bloc.connect(server);
+    expect(engine.connectCalls.at(-1)!.nick).toBe('Lion');
+    const s2 = engine.sessionFor('s1');
+    s2._setState('connected');
+    s2._emitEvent({ Kind: '001', From: 'srv', Target: 'TheLion', Message: 'Welcome', Raw: '' });
+    expect(s2.nickCalls.at(-1)).toBe('Lion');
+    s2._emitEvent({ Kind: 'NICK', From: 'TheLion', Target: '', Message: 'Lion', Raw: '' });
+    expect(localStorage.getItem('boson:server-nick:v1')).toContain('Lion');
+    bloc.dispose();
+    localStorage.removeItem('boson:server-nick:v1');
+  });
+
   it('per-server engine state changes are reflected in the connection without ejecting the user to the directory', async () => {
     const engine = fakeEngine();
     const server = fakeServer('s1');

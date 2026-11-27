@@ -1615,8 +1615,8 @@ describe('ChatService — the nick the server (a bouncer) has, and the one the u
     expect(chat.getState().myNick).toBe('TheLion');
     vi.advanceTimersByTime(600_000);
     expect(engine.nickCalls).toEqual([]);
-    // the server's choice isn't remembered as the user's
-    expect(saved).toEqual([]);
+    // the bouncer's nick is this device's nick for the server now
+    expect(saved).toEqual(['TheLion']);
   });
 
   it('remembers the nick the user changes to once the server takes it', () => {
@@ -1665,5 +1665,124 @@ describe('ChatService — the nick the server (a bouncer) has, and the one the u
     engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'a-b_', Message: 'Welcome' }));
     vi.advanceTimersByTime(5_000);
     expect(engine.nickCalls).toEqual(['a-b']);
+  });
+});
+
+// One Boson account on two phones, both attached to the same evrd bridge
+// account: one upstream IRC connection, one nick. Device A changed it; device
+// B, signing in for the first time, has no nick saved for the server.
+describe('ChatService — a second device on a shared bouncer connection never renames it', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  type Choice = { saved: string[]; pending: Array<string | null> };
+  function device(nick: string, deps: { bouncer?: boolean; pendingNick?: string } = {}): { chat: ChatService; engine: FakeServerSession } & Choice {
+    const engine = fakeSession();
+    const saved: string[] = [];
+    const pending: Array<string | null> = [];
+    const chat = new ChatService(engine as unknown as ServerSession, nick, undefined, {
+      ...deps,
+      nickChoice: { save: (n) => saved.push(n), pending: (n) => pending.push(n) },
+    });
+    chat.attach();
+    return { chat, engine, saved, pending };
+  }
+
+  // What evrd's managed bridge sends a client attaching to a running
+  // connection: 001 under the connection's nick, then its registration
+  // nick renamed to it.
+  function bridgeWelcome(engine: FakeServerSession, registeredAs: string, nick: string): void {
+    engine.emit(makeEvent({ Kind: '001', From: 'irc.ircforever.org', Target: nick, Message: 'Welcome to the IRCForever IRC Network' }));
+    engine.emit(makeEvent({ Kind: '004', From: 'irc.ircforever.org', Target: nick, Args: ['irc.ircforever.org', 'irc.ircforever.org'] }));
+    engine.emit(makeEvent({ Kind: '422', From: 'irc.ircforever.org', Target: nick, Message: 'MOTD File is missing' }));
+    engine.emit(makeEvent({ Kind: 'NICK', From: registeredAs, Message: nick }));
+  }
+
+  it('device A sets the nick, device B connects fresh: no NICK, the bridge nick is adopted and saved', () => {
+    // Device A: /nick TheLion on the shared connection.
+    const a = device('TheLion-windows');
+    bridgeWelcome(a.engine, 'TheLion-windows', 'TheLion-windows');
+    a.chat.input('/nick TheLion');
+    expect(a.engine.nickCalls).toEqual(['TheLion']);
+    a.engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion-windows', Message: 'TheLion' }));
+    expect(a.saved).toEqual(['TheLion']);
+
+    // Device B: nothing saved, so it registers with its handle default.
+    const b = device('TheLion-windows');
+    bridgeWelcome(b.engine, 'TheLion-windows', 'TheLion');
+    // The other device's old nick going by (a QUIT, a NICK) is not ours to take.
+    b.engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion-windows', Message: 'TheLion' }));
+    b.engine.emit(makeEvent({ Kind: 'QUIT', From: 'TheLion-windows', Message: 'Quit' }));
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(b.engine.nickCalls).toEqual([]);
+    expect(b.chat.getState().myNick).toBe('TheLion');
+    expect(b.saved).toEqual(['TheLion']);
+    expect(b.chat.nickOwnedByServer()).toBe(true);
+  });
+
+  it('a bridge that welcomes under the registration nick, then renames to the shared one, is not fought', () => {
+    // (the connection's nick arrives after the welcome: the upstream was
+    // still registering when the client attached)
+    const b = device('TheLion-windows');
+    b.engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'TheLion-windows', Message: 'Welcome' }));
+    b.engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion-windows', Message: 'TheLion' }));
+    b.engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion-windows', Message: 'TheLion' }));
+    b.engine.emit(makeEvent({ Kind: 'QUIT', From: 'TheLion-windows', Message: 'Quit' }));
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(b.engine.nickCalls).toEqual([]);
+    expect(b.chat.getState().myNick).toBe('TheLion');
+  });
+
+  it("the saved nick doesn't override the bouncer's on a later connect: the bouncer wins and the copy is updated", () => {
+    const b = device('TheLion', { bouncer: true });
+    bridgeWelcome(b.engine, 'TheLion', 'Lion');
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(b.engine.nickCalls).toEqual([]);
+    expect(b.saved).toEqual(['Lion']);
+  });
+
+  it('another device renaming the shared connection is followed and saved', () => {
+    const b = device('TheLion', { bouncer: true });
+    bridgeWelcome(b.engine, 'TheLion', 'TheLion');
+    b.engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion', Message: 'Lion' }));
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(b.engine.nickCalls).toEqual([]);
+    expect(b.saved).toEqual(['TheLion', 'Lion']);
+  });
+
+  it("a refused /nick doesn't leave the engine or the app asking again", () => {
+    const b = device('TheLion', { bouncer: true });
+    bridgeWelcome(b.engine, 'TheLion', 'TheLion');
+    b.chat.changeNick('Taken');
+    expect(b.pending).toEqual(['Taken']);
+    b.engine.emit(makeEvent({ Kind: '433', From: 'srv', Target: 'TheLion', Args: ['TheLion', 'Taken'], Message: 'Nickname is already in use' }));
+    expect(b.pending).toEqual(['Taken', null]);
+    b.engine.emit(makeEvent({ Kind: 'QUIT', From: 'Taken', Message: 'Quit' }));
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(b.engine.nickCalls).toEqual(['Taken']);
+  });
+
+  it("the user's change still unanswered when the link dropped is made on the next connection", () => {
+    const b = device('Lion', { bouncer: true, pendingNick: 'Lion' });
+    bridgeWelcome(b.engine, 'Lion', 'TheLion');
+    expect(b.engine.nickCalls).toEqual(['Lion']);
+    expect(b.saved).toEqual([]);
+    b.engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion', Message: 'Lion' }));
+    expect(b.saved).toEqual(['Lion']);
+    vi.advanceTimersByTime(30 * 60_000);
+    expect(b.engine.nickCalls).toEqual(['Lion']);
+  });
+
+  it('a soju.im/bouncer-networks bouncer owns the nick', () => {
+    const b = device('me');
+    b.engine.emit(makeEvent({ Kind: 'CAP', From: 'soju', Message: 'soju.im/bouncer-networks soju.im/bouncer-networks-notify' }));
+    expect(b.chat.nickOwnedByServer()).toBe(true);
+  });
+
+  it('a direct server that welcomes us under the nick we asked for is not a bouncer', () => {
+    const b = device('me');
+    b.engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'me', Message: 'Welcome' }));
+    expect(b.chat.nickOwnedByServer()).toBe(false);
+    expect(b.saved).toEqual([]);
   });
 });

@@ -127,6 +127,10 @@ type Client struct {
 	// aborted: Abort dropped the connection; Connect must not QUIT on the
 	// way out (see Abort).
 	aborted atomic.Bool
+	// registered: this connection has been welcomed (RPL_WELCOME). From then
+	// on a nick refusal (433/436/437) answers a NICK the user sent, and the
+	// engine never renames on its own (see nickCollide).
+	registered atomic.Bool
 	// keepalive pings a quiet connection and drops a dead one (keepalive.go).
 	keepalive *keepalive
 	// lifeCtx is the connection's lifetime context, set at the top of
@@ -300,6 +304,7 @@ func New(cfg Config) (*Client, error) {
 		}
 		gc.Handlers.Add(girc.CAP, func(_ *girc.Client, e girc.Event) { mech.onCapLS(e) })
 	}
+	gc.Config.HandleNickCollide = c.nickCollide
 	c.sendq = newSendQueue(c.pacing)
 	c.sendq.unpaced = c.bouncerLocal
 	c.installCTCPReplies()
@@ -311,6 +316,19 @@ func New(cfg Config) (*Client, error) {
 	c.bouncer.rearm = c.rearmUpstreamSession
 	c.installKeepalive()
 	return c, nil
+}
+
+// nickCollide is girc's answer to a refused nick (433 in use, 436
+// collision, 437 held). While registering, the server needs some nick to
+// go on: try nick_ (girc's default). Once registered, the refusal is the
+// answer to a NICK the user sent, and the connection keeps the nick it
+// has: renaming to <current>_ on our own would rename the user — and, on
+// a bouncer or bridge, the connection every one of their devices shares.
+func (c *Client) nickCollide(oldNick string) string {
+	if c.registered.Load() {
+		return ""
+	}
+	return oldNick + "_"
 }
 
 // OnServices installs the services-framework verdict callback. Fires
@@ -449,6 +467,7 @@ func (c *Client) OnEvent(fn EventHandler) {
 		case girc.RPL_LISTEND:
 			c.flushListEntries()
 		case girc.RPL_WELCOME:
+			c.registered.Store(true)
 			// A bouncer's synthetic 001 (upstream down) must not trigger the
 			// welcome work — ZNC would drop it all. The bouncer state re-arms
 			// the latches when a real upstream 001 arrives.
@@ -713,6 +732,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	c.mu.Lock()
 	c.lifeCtx = ctx
 	c.mu.Unlock()
+	c.registered.Store(false)
 
 	// Dial + TLS ourselves and hand girc a ready conn via MockConnect, with a
 	// blank-line filter spliced in above TLS (see conn.go). girc still runs the

@@ -298,6 +298,11 @@ export class DirectoryBloc {
   // insertion order so the ServerRail renders tiles in the order the user
   // added them.
   private readonly connections = new Map<string, Connection>();
+  // A nick change the user asked for that the server hasn't answered yet,
+  // per user + server (serverNickKey): a reconnect before the answer makes
+  // it on the next connection (ChatService deps.pendingNick). In memory:
+  // "right after", not across restarts.
+  private readonly pendingNicks = new Map<string, string>();
   private activeServerId: string | null = null;
   private serverBrowserOpen = false;
   private nickClaimEnabled: boolean | null = null;
@@ -843,6 +848,9 @@ export class DirectoryBloc {
       if (conn.engineState !== 'connected') continue;
       const cur = conn.chat.selfIdentity().nick;
       if (!cur || cur === to) continue;
+      // A bouncer's (or bridge's) connection is shared by every device of
+      // the user's: only their own /nick renames it.
+      if (conn.chat.nickOwnedByServer()) continue;
       if (cur.replace(/_+$/, '').toLowerCase() !== from.replace(/_+$/, '')) continue;
       conn.chat.changeNick(to, { remember: false });
     }
@@ -2250,10 +2258,18 @@ export class DirectoryBloc {
         if (login.nick) ircNick = login.nick;
       }
     }
-    // The nick the user picked on this server (/nick, Change nick) wins over
-    // the handle-derived default, so it outlives reconnects and restarts.
-    const nickKey = serverNickKey(server.id, userId);
-    const picked = loadServerNick(nickKey);
+    // This device's nick for the server wins over the handle-derived
+    // default, so it outlives reconnects and restarts: the one the user
+    // picked (/nick, Change nick), or the one a bouncer keeps the shared
+    // connection on (a bouncer ignores the nick a client registers with and
+    // welcomes it under its own, which ChatService then saves here). A
+    // change the user asked for that the last connection never got an
+    // answer to comes first. Through the user's own bouncer the nick is the
+    // bouncer connection's, not the one to register with directly (the
+    // bouncer holds it): kept apart.
+    const nickKey = serverNickKey(viaBouncer ? `${server.id}@bouncer` : server.id, userId);
+    const pendingNick = this.pendingNicks.get(nickKey);
+    const picked = pendingNick ?? loadServerNick(nickKey);
     if (picked) ircNick = picked;
     // Re-check after the awaits above: a concurrent connectWith for this
     // server (restore + a click) may have registered it meanwhile, and a
@@ -2334,7 +2350,11 @@ export class DirectoryBloc {
       readMarkers: readMarkerStoreFor(seenNamespace(server.id, userId)),
       // The services package, remembered so the next connect needn't probe.
       servicesVerdicts,
-      nickChoice: { save: (nick) => saveServerNick(nickKey, nick) },
+      nickChoice: {
+        save: (nick) => { this.pendingNicks.delete(nickKey); saveServerNick(nickKey, nick); },
+        pending: (nick) => { if (nick) this.pendingNicks.set(nickKey, nick); else this.pendingNicks.delete(nickKey); },
+      },
+      ...(pendingNick ? { pendingNick } : {}),
     });
     if (opts.carry) chat.seedConversations(opts.carry);
     else {
