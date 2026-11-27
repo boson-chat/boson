@@ -1,3 +1,9 @@
+## [0.104.5](https://github.com/boson-chat/boson/compare/v0.104.4...v0.104.5) (2026-11-27)
+
+### Bug Fixes
+
+* **client:** a second device never renames a shared bouncer connection ([#176](https://github.com/boson-chat/boson/issues/176)) ([c9c7c55](https://github.com/boson-chat/boson/commit/c9c7c55d7701da99e16e44ae8844ef8eda153fae))
+
 ## [0.104.4](https://github.com/boson-chat/boson/compare/v0.104.3...v0.104.4) (2026-11-27)
 
 ### Bug Fixes
