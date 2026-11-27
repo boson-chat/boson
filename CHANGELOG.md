@@ -1,3 +1,9 @@
+## [0.104.6](https://github.com/boson-chat/boson/compare/v0.104.5...v0.104.6) (2026-11-27)
+
+### Bug Fixes
+
+* **netauth:** a federated sign-in goes straight in; its data comes from the home account ([#177](https://github.com/boson-chat/boson/issues/177)) ([8f44633](https://github.com/boson-chat/boson/commit/8f44633d0154ce183f6c26cab1b308217c95965d)), closes [#173](https://github.com/boson-chat/boson/issues/173)
+
 ## [0.104.5](https://github.com/boson-chat/boson/compare/v0.104.4...v0.104.5) (2026-11-27)
 
 ### Bug Fixes
