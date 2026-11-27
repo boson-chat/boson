@@ -1,3 +1,9 @@
+## [0.104.4](https://github.com/boson-chat/boson/compare/v0.104.3...v0.104.4) (2026-11-27)
+
+### Bug Fixes
+
+* **chat:** no guessed replies; Boson's text replies always quote ([#175](https://github.com/boson-chat/boson/issues/175)) ([c0b77f7](https://github.com/boson-chat/boson/commit/c0b77f7e44688aca5c66d06ad6c308b772b98fa2))
+
 ## [0.104.3](https://github.com/boson-chat/boson/compare/v0.104.2...v0.104.3) (2026-11-27)
 
 ### Bug Fixes
