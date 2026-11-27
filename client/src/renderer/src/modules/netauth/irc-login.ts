@@ -37,12 +37,15 @@ export async function resolveIrcLogin(
   const link = await accounts.discover(host).catch(() => null);
   if (!link) return { link: null };
   if (opts.guest) return { link };
+  // A self-hosted web client's own network in guest mode is signed in to
+  // like any other (network-accounts.ts mainAsNetwork).
+  const main = link.main && !accounts.mainAsNetwork();
   let session = accounts.sessionFor(link);
   if (!session) {
     const guestOk = await accounts.guestAllowed(link);
     // The app's own networks don't ask app-wide guests again (they chose
     // that at launch) unless the network takes no guests.
-    const ask = opts.interactive && (link.main ? !guestOk : (!guestOk || !accounts.guestChosen(host)));
+    const ask = opts.interactive && (main ? !guestOk : (!guestOk || !accounts.guestChosen(host)));
     if (!ask) return { link };
     const outcome = await accounts.promptSignIn({
       link,
@@ -59,7 +62,7 @@ export async function resolveIrcLogin(
   if (!token) return { link };
   // A federated account's nick defaults to the handle the network gave it
   // (alice, or alice-bosonchat when alice was taken).
-  const nick = link.main ? undefined : sanitizeIrcNick(session.federated?.handle || session.user.username) || undefined;
+  const nick = main ? undefined : sanitizeIrcNick(session.federated?.handle || session.user.username) || undefined;
   return { link, token, ...(nick ? { nick } : {}) };
 }
 

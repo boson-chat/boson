@@ -229,6 +229,29 @@ describe('WebVoiceService', () => {
     s.dispose();
   });
 
+  it("says another network's voice server may not take this web app, and keeps the plain message for its own", async () => {
+    const doc = (domain: string) => ({ version: 1, auth: { url: `https://auth.${domain}` }, voice: { addr: `voice.${domain}:7700`, url: `https://voice.${domain}` } });
+    const fetchFn = vi.fn(async (url: string) => {
+      if (url === 'https://boson.chat/.well-known/boson.json') return json(200, doc('boson.chat'));
+      if (url === 'https://boson.ircforever.org/.well-known/boson.json') return json(200, doc('boson.ircforever.org'));
+      throw new TypeError('Failed to fetch'); // CORS refused / offline
+    });
+    const discoverer = new VoiceDiscoverer({ dev: false, storage: null, fetch: fetchFn as unknown as typeof fetch });
+    // A self-hosted network's web client: its own auth is boson.ircforever.org's.
+    const s = new WebVoiceService({
+      authBase: 'https://auth.boson.ircforever.org', dev: false, discoverer, engine: () => fakeEngine(), dial: vi.fn(), audioError: '', fetch: fetchFn as unknown as typeof fetch,
+    });
+    await s.discover('irc.boson.chat', false);
+    await s.discover('irc.boson.ircforever.org', false);
+    const theirs = await s.rooms('irc.boson.chat', 't');
+    expect(theirs.errorKind).toBe('unreachable');
+    expect(theirs.error).toMatch(/^Couldn't reach voice\.boson\.chat\. That network's voice server may not take calls from this web app/);
+    const ours = await s.rooms('irc.boson.ircforever.org', 't');
+    expect(ours).toMatchObject({ errorKind: 'unreachable', error: "Couldn't reach the voice server." });
+    expect(fetchFn).toHaveBeenCalledWith('https://voice.boson.ircforever.org/v1/rooms', expect.anything());
+    s.dispose();
+  });
+
   it('runs the mic test through the engine', async () => {
     const engine = fakeEngine();
     const { s } = service(fakeConn({}), engine);

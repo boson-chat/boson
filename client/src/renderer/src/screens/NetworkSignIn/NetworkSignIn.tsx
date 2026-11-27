@@ -14,6 +14,7 @@ import { getNetworkThemes, useNetworkBranding } from '../../modules/ui/theme';
 import { NetworkBrandHero } from './NetworkBrand';
 import '../LoginScreen/LoginScreen.css';
 import './NetworkSignIn.css';
+import { useHomeNetwork } from '../../modules/netauth/home-network';
 
 // "Sign in to <network>": the sign-in dialog for a network's own auth
 // service (a self-hosted boson network), shown when connecting, when its IRC
@@ -51,6 +52,7 @@ interface DialogProps {
 }
 
 export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogProps) {
+  const home = useHomeNetwork();
   const { link, reason } = prompt;
   const authHost = hostOf(link.authUrl);
   const [cfg, setCfg] = useState<AuthConfig | null>(null);
@@ -71,19 +73,20 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
   const canSignUp = registration !== 'closed';
   const [leaveGuest, setLeaveGuest] = useState(false);
 
-  if (link.main) {
+  if (link.main && !accounts.mainAsNetwork()) {
     // The app's own network while in guest mode: its account is the
-    // boson.chat one, signed in to from the main sign-in screen.
+    // app's main one (boson.chat's, or a self-hosted web client's own
+    // network's), signed in to from the main sign-in screen.
     return (
       <Modal open={open} onClose={() => onDone('cancel')} title={`Sign in to ${name}`}>
         <div class="netauth">
           <NetworkBrandHero brand={brand} name={name} />
           <Realm host={authHost} main />
           {!guestOk && <p class="netauth-required" role="status">{name} requires an account. Guests can't connect.</p>}
-          <p class="netauth-lede">This network uses your boson.chat account. Signing in leaves guest mode on this device.</p>
+          <p class="netauth-lede">This network uses your {home.name} account. Signing in leaves guest mode on this device.</p>
           <div class="netauth-actions">
             <Button variant="primary" fullWidth onClick={() => setLeaveGuest(true)}>
-              Sign in to boson.chat
+              Sign in to {home.name}
             </Button>
             {guestOk && <Button variant="ghost" fullWidth onClick={() => onDone('guest')}>Continue as guest</Button>}
           </div>
@@ -116,13 +119,14 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
 }
 
 // Which server the user is giving their password to: the network's own
-// sign-in service, not boson.chat.
+// sign-in service, not the app's own.
 export function Realm({ host, main = false }: { host: string; main?: boolean }) {
+  const home = useHomeNetwork();
   return (
     <div class="netauth-realm">
       <span class="netauth-realm-prompt" aria-hidden="true">$</span>
       <span class="netauth-realm-text">
-        {main ? 'boson.chat account' : 'account on'} <span class="netauth-realm-host">{host}</span>
+        {main ? `${home.name} account` : 'account on'} <span class="netauth-realm-host">{host}</span>
       </span>
     </div>
   );
@@ -153,6 +157,7 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
   // accounts from other Boson servers (homes: given choices, for shots).
   federated?: { accounts: NetworkAccounts; link: NetworkLink; homes?: HomeAccount[] };
 }) {
+  const home = useHomeNetwork();
   const [view, setView] = useState<View>('form');
   const [mode, setMode] = useState<Mode>('login');
   const [login, setLogin] = useState('');
@@ -416,7 +421,7 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
         ) : reason !== 'expired' && cfg && !guestAccessAllowed(cfg) ? (
           <span class="netauth-foot-text">{name} requires an account: guests can't connect.</span>
         ) : (
-          <span class="netauth-foot-text">An account on {name} is separate from a boson.chat account.</span>
+          <span class="netauth-foot-text">An account on {name} is separate from a {home.name} account.</span>
         )}
       </div>
     </div>

@@ -10,6 +10,7 @@ import { sanitizeIrcNick } from '../../modules/identity/nick';
 import { getNetworkAccounts, type NetworkAccounts } from '../../modules/netauth/network-accounts';
 import { clearLastServer, enterWithServer, loadLastServer, type LastServer } from '../../modules/netauth/other-server';
 import { OtherServer } from './OtherServer';
+import { useHomeNetwork } from '../../modules/netauth/home-network';
 import { MAIN_NETWORK_KEY, useNetworkThemes } from '../../modules/ui/theme';
 import { NetworkLoginLogo, loginBackdrop } from '../NetworkSignIn/NetworkBrand';
 import './LoginScreen.css';
@@ -24,6 +25,9 @@ interface Props {
 
 export function LoginScreen({ directory, identity, accounts = getNetworkAccounts() }: Props) {
   const auth = useAuthService();
+  // The app's own network: boson.chat, or the self-hosted network whose
+  // web client this is (home-network.ts).
+  const home = useHomeNetwork();
   const bloc = useMemo(() => new LoginBloc({ auth, directory, identity }), [auth, directory, identity]);
   const [state, setState] = useState(() => bloc.getState());
   useEffect(() => bloc.subscribe(setState), [bloc]);
@@ -44,7 +48,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   // swap into the directory.
   const [guestPrompt, setGuestPrompt] = useState(false);
   const [guestNick, setGuestNick] = useState('');
-  // boson.chat's own IRC may take no guests (guest_access: false). Guest
+  // The home network's own IRC may take no guests (guest_access: false). Guest
   // mode still reaches other networks, so it stays; it just says so.
   const [mainGuestOk, setMainGuestOk] = useState(true);
   useEffect(() => {
@@ -54,14 +58,14 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
     return () => { live = false; };
   }, [auth]);
 
-  // "Use another server": a self-hosted network instead of boson.chat.
+  // "Use another server": another network instead of the app's own.
   const [other, setOther] = useState(false);
   const [otherAddress, setOtherAddress] = useState<string | null>(null);
   const resume = useLastServer(accounts);
 
   // The network's branding (network themes): under "Use another server",
-  // the network's once it's found (its IRC host); otherwise boson.chat's
-  // own, when its auth service publishes one (/v1/config branding_url).
+  // the network's once it's found (its IRC host); otherwise the home
+  // network's own, when its auth service publishes one (/v1/config branding_url).
   const [otherHost, setOtherHost] = useState<string | null>(null);
   const themes = useNetworkThemes();
   useEffect(() => {
@@ -70,7 +74,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   useEffect(() => { if (otherHost) void themes.refresh(otherHost); }, [otherHost, themes]);
   const brandKey = other ? otherHost : MAIN_NETWORK_KEY;
   const brand = brandKey ? themes.brandingFor(brandKey) : null;
-  const brandName = other ? (otherAddress ?? '') : 'boson.chat';
+  const brandName = other ? (otherAddress ?? '') : home.name;
   const backdrop = loginBackdrop(brand);
   const logo = brand?.applied && (brand.logo || brand.logoWide)
     ? <NetworkLoginLogo brand={brand} name={brandName} />
@@ -276,12 +280,12 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   }
 
   // Which server the form signs in to: a quiet line with a "Change" link
-  // (a self-hosted network instead of boson.chat).
+  // (another network instead of the app's own).
   const serverLine = accounts?.supported ? (
     <div class="login-server">
       <span class="login-server-label">
         <span>{other ? 'Server' : 'Signing in to'}</span>
-        <span class="login-server-host">{other ? (otherAddress ?? '…') : 'boson.chat'}</span>
+        <span class="login-server-host">{other ? (otherAddress ?? '…') : home.domain}</span>
       </span>
       <Button
         variant="ghost"
@@ -290,7 +294,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
         aria-label={other ? undefined : 'Change: use another server'}
         onClick={() => { setOther(!other); setOtherAddress(null); setOtherHost(null); }}
       >
-        {other ? 'Back to boson.chat' : 'Change'}
+        {other ? `Back to ${home.name}` : 'Change'}
       </Button>
     </div>
   ) : null;
@@ -340,7 +344,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
               </Field>
               <p class="login-guest-note">
                 No account: your servers, settings and history stay on this device only.
-                {!mainGuestOk && ' boson.chat itself needs an account; other networks work as a guest.'}
+                {!mainGuestOk && ` ${home.name} itself needs an account; other networks work as a guest.`}
               </p>
               <div class="login-actions">
                 <Button type="submit" variant="primary" fullWidth disabled={!guestNick.trim()}>

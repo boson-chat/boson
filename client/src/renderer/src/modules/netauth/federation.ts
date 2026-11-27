@@ -50,7 +50,8 @@ export interface FederatedIdentity {
 // An account the user is signed in to that can vouch for them elsewhere.
 export interface HomeAccount {
   authUrl: string;
-  // The app's own (boson.chat) account.
+  // The app's own account (boson.chat's, or a self-hosted web client's
+  // network's).
   main: boolean;
   domain: string;
   username: string;

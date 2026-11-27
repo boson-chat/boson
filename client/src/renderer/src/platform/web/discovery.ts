@@ -182,6 +182,23 @@ export class NetworkDiscoverer {
     return p;
   }
 
+  /**
+   * The app's own network's document (a self-hosted web client's home):
+   * at its domain, or (dev / e2e) the BOSON_NETWORK_JSON document whose
+   * auth.url is the app's. Cached like discover().
+   */
+  async home(domain: string, authUrl: string): Promise<NetworkDiscovery> {
+    const auth = cleanBaseUrl(authUrl, true);
+    const o = auth ? [...this.overrides.values()].find((d) => d.auth === auth) : undefined;
+    if (o) return o;
+    const key = `@home:${domain}`;
+    const hit = this.cache.get(key);
+    if (hit && this.now() - hit.at < TTL_MS) return hit.result;
+    const r = await this.lookup(domain, domain);
+    if (r.answered) this.cache.set(key, { at: this.now(), result: r });
+    return r;
+  }
+
   /** The document at one domain (the "Use another server" lookup tries several). */
   async lookup(host: string, domain: string): Promise<NetworkDiscovery> {
     const base: NetworkDiscovery = { host, domain, answered: false };

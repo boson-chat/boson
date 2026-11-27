@@ -6,6 +6,8 @@ import { AuthProvider } from '../../modules/auth';
 import type { AuthService } from '../../modules/auth';
 import type { DirectoryService, Server, User } from '../../modules/directory';
 import { HttpError } from '../../shared/http/http.client';
+import { setHomeNetwork } from '../../modules/netauth/home-network';
+import { loadLocalServers } from '../../modules/directory/local-servers';
 
 function buildFakeAuth(): AuthService {
   return {
@@ -85,6 +87,29 @@ function renderWith(directory: DirectoryService) {
 describe('DirectoryScreen', () => {
   // The recovery-code step's "not confirmed yet" flag lives in localStorage.
   beforeEach(() => { localStorage.clear(); });
+
+  it("a self-hosted web client starts on its own network's IRC server, once", async () => {
+    setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRC Forever', selfHosted: true, irc: { host: 'irc.boson.ircforever.org', port: 6697, tls: true } });
+    try {
+      const user = { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' };
+      const first = renderWith(buildDirectory({ user, servers: [fakeServer('Libera')] }));
+      await waitFor(() => expect(loadLocalServers()).toEqual([expect.objectContaining({ hostname: 'irc.boson.ircforever.org', port: 6697, tls: true, name: 'IRC Forever' })]));
+      first.unmount();
+      // Removed by the user: a reload doesn't add it back.
+      localStorage.removeItem('boson:local-servers:v1');
+      renderWith(buildDirectory({ user, servers: [fakeServer('Libera')] }));
+      expect(await screen.findByText('Libera')).toBeInTheDocument();
+      expect(loadLocalServers()).toEqual([]);
+    } finally {
+      setHomeNetwork(null);
+    }
+  });
+
+  it("boson.chat's own client adds no server by itself", async () => {
+    renderWith(buildDirectory({ user: { id: 'u1', handle: 'alice', is_discoverable: true, encrypted_user_secret: '', created_at: '2026-01-01' }, servers: [fakeServer('Libera')] }));
+    expect(await screen.findByText('Libera')).toBeInTheDocument();
+    expect(loadLocalServers()).toEqual([]);
+  });
 
   it('renders the list of servers', async () => {
     const directory = buildDirectory({

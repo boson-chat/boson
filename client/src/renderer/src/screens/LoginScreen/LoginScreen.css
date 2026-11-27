@@ -212,13 +212,18 @@ button.login-forgot {
 }
 .login-server-label {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2);
+  column-gap: var(--space-2);
   min-width: 0;
 }
+/* "Signing in to" stays whole; a long host (a self-hosted network's
+   domain) goes under it on a narrow screen rather than squeezing it. */
+.login-server-label > span:first-child { white-space: nowrap; }
 .login-server-prompt { color: var(--accent); }
 .login-server-host {
   color: var(--fg);
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

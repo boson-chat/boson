@@ -4,6 +4,7 @@ import { InMemorySecureStorage } from '../../shared/secure-storage';
 import type { ApiRequest, ApiResponse } from '../../shared/http/transport';
 import { NetworkAccounts, mainDomainOf, sessionKeyFor, type NetAuthBridge } from './network-accounts';
 import { resolveIrcLogin } from './irc-login';
+import { setHomeNetwork } from './home-network';
 import {
   FederationError, acceptsFederation, cleanFederation, describeFederationError, homeDomainOf, issuesAssertions, retryable,
   type FederationErrorCode,
@@ -125,6 +126,87 @@ describe('cleanFederation', () => {
 });
 
 describe('federated sign-in', () => {
+  it("a self-hosted web client in guest mode signs in to its own network with alice@boson.chat, and IRC gets that network's token", async () => {
+    const SELF = 'https://auth.boson.ircforever.org';
+    setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRC Forever', selfHosted: true });
+    try {
+      const servers = fakeServers({ handle: 'alice' });
+      const storage = new InMemorySecureStorage();
+      const mainAuth = new AuthService(SELF, { storage, transport: servers.transport });
+      const map: Record<string, Record<string, unknown>> = {
+        'irc.boson.ircforever.org': { authUrl: SELF, main: true, federation: fed('boson.ircforever.org') },
+        'irc.boson.chat': { authUrl: MAIN, federation: fed('boson.chat') },
+      };
+      const discover = vi.fn(async (host: string) => ({ host, main: false, ...(map[host] ?? {}) }));
+      // Came in through "Use another server" → boson.chat: guest mode, with
+      // a boson.chat network session.
+      const accounts = new NetworkAccounts({
+        mainAuthUrl: SELF, mainAuth, storage, transport: servers.transport, bridge: { discover }, local: memLocal(), isGuest: () => true,
+      });
+      expect(accounts.mainAsNetwork()).toBe(true);
+      await accounts.discover('irc.boson.chat');
+      await accounts.service(MAIN).signIn('alice', 'pw');
+
+      // Connecting to the install's own IRC: no install session yet, so it
+      // asks (never a credential-less connect the bridge answers with 464).
+      const home = (await accounts.discover('irc.boson.ircforever.org'))!;
+      expect(home.main).toBe(true);
+      expect(accounts.sessionFor(home)).toBeNull();
+      const login = resolveIrcLogin(accounts, 'irc.boson.ircforever.org', { interactive: true, serverName: 'IRC Forever' });
+      await vi.waitFor(() => expect(accounts.getSnapshot().prompt?.link.host).toBe('irc.boson.ircforever.org'));
+
+      // The prompt offers "Continue as alice@boson.chat".
+      const homes = await accounts.homeAccounts(home);
+      expect(homes.map((h) => h.identity)).toEqual(['alice@boson.chat']);
+      await accounts.signInFederated(home, homes[0]!);
+      accounts.resolvePrompt('signed-in');
+      const r = await login;
+      expect(r).toMatchObject({ link: { host: 'irc.boson.ircforever.org' }, nick: 'alice' });
+      expect((r as { token?: string }).token).toMatch(/^at-auth\.boson\.ircforever\.org-/);
+      // The assertion went to the install's own federation login, and the
+      // app's guest mode (no main session) is left alone.
+      expect(servers.seen.some((x) => x.origin === SELF && x.path === '/v1/federation/login')).toBe(true);
+      expect(mainAuth.getState().session).toBeNull();
+      expect(accounts.sessionFor(home)?.federated?.identity).toBe('alice@boson.chat');
+    } finally {
+      setHomeNetwork(null);
+    }
+  });
+
+  it("boson.chat's own client in guest mode still connects its own network as a guest without asking", async () => {
+    const { accounts } = setup({ guest: true });
+    expect(accounts.mainAsNetwork()).toBe(false);
+    expect(await resolveIrcLogin(accounts, 'irc.boson.chat', { interactive: true, serverName: 'boson' })).toEqual({ link: expect.objectContaining({ main: true }) });
+    expect(accounts.getSnapshot().prompt).toBeNull();
+  });
+
+  it("offers a self-hosted web client's own account as alice@<its domain>", async () => {
+    const SELF = 'https://auth.boson.ircforever.org';
+    setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRC Forever', selfHosted: true });
+    try {
+      const servers = fakeServers();
+      const storage = new InMemorySecureStorage();
+      const mainAuth = new AuthService(SELF, { storage, transport: servers.transport });
+      const map: Record<string, Record<string, unknown>> = {
+        // Its boson.json is at boson.ircforever.org, which discovery finds
+        // for the auth host (a lookup of boson.ircforever.org itself would
+        // go to ircforever.org).
+        'auth.boson.ircforever.org': { authUrl: SELF, main: true, federation: fed('boson.ircforever.org') },
+        'irc.boson.chat': { authUrl: MAIN, federation: fed('boson.chat') },
+      };
+      const discover = vi.fn(async (host: string) => ({ host, main: false, ...(map[host] ?? {}) }));
+      const accounts = new NetworkAccounts({ mainAuthUrl: SELF, mainAuth, storage, transport: servers.transport, bridge: { discover }, local: memLocal() });
+      await mainAuth.signIn('alice', 'pw');
+      const bosonChat = (await accounts.discover('irc.boson.chat'))!;
+      expect(bosonChat.main).toBe(false);
+      const homes = await accounts.homeAccounts(bosonChat);
+      expect(discover).toHaveBeenCalledWith('auth.boson.ircforever.org', false);
+      expect(homes).toEqual([expect.objectContaining({ main: true, identity: 'alice@boson.ircforever.org', name: 'IRC Forever', authUrl: SELF })]);
+    } finally {
+      setHomeNetwork(null);
+    }
+  });
+
   it('offers the boson.chat account on a server that accepts accounts from elsewhere', async () => {
     const { accounts, mainAuth } = setup();
     await mainAuth.signIn('alice', 'pw');

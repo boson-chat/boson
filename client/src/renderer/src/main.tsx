@@ -13,6 +13,7 @@ import { openCall } from './screens/ChatLayout/call-shared';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
 import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
+import { getHomeNetwork, nameFromAuthConfig, updateHomeNetwork } from './modules/netauth/home-network';
 import { windowSecureStorage } from './shared/secure-storage';
 import './styles.css';
 import './shared/modal-portal';
@@ -57,7 +58,7 @@ installDropGuard();
 // blocks: "Blocked host"); client/.env points dev builds at local ones.
 // The web build reads them at runtime (window.bosonWebConfig, from the web
 // container's /boson-config.js), so one build serves any stack.
-const webCfg = (window as { bosonWebConfig?: { authUrl?: string; apiUrl?: string; directoryUrl?: string } }).bosonWebConfig;
+const webCfg = (window as { bosonWebConfig?: { authUrl?: string; apiUrl?: string; directoryUrl?: string; networkName?: string | null } }).bosonWebConfig;
 const authUrl = webCfg?.authUrl || (import.meta.env.VITE_AUTH_URL ?? 'https://auth.boson.chat');
 const bosonUrl = webCfg?.apiUrl || (import.meta.env.VITE_BOSON_API_URL ?? 'https://api.boson.chat');
 
@@ -98,6 +99,11 @@ void (async () => {
     engineToken,
     engineSocket,
   });
+  // A self-hosted web client's own network goes by the name its auth
+  // service gives (unless /boson-config.js names it).
+  if (getHomeNetwork().selfHosted && !webCfg?.networkName?.trim()) {
+    props.auth.config().then((c) => { const name = nameFromAuthConfig(c); if (name) updateHomeNetwork({ name }); }, () => {});
+  }
   // Accounts on self-hosted networks (desktop app only: the shell finds
   // each network's auth service and lets the proxy reach it).
   const netAccounts = netAuthBridge()
@@ -145,14 +151,16 @@ void (async () => {
     const authFor = (a: string) => (netAccounts ? netAccounts.service(a) : props.auth);
     setVoiceController(new VoiceController(bridge, {
       authUrl,
-      // A network's voice takes that network's tokens, never boson.chat's.
-      voiceToken: (rooms, net) => (net && netAccounts ? netAccounts.service(net).voiceToken(rooms) : props.auth.voiceToken(rooms)),
+      // A network's voice takes that network's tokens, never the main
+      // account's. (service(main) is the main account, except a self-hosted
+      // web client's own network in guest mode: its own network session.)
+      voiceToken: (rooms, net) => (netAccounts ? netAccounts.service(net ?? mainAuth).voiceToken(rooms) : props.auth.voiceToken(rooms)),
       knowsAuth: (net) => netAccounts?.getSnapshot().known.some((k) => k.authUrl === net) ?? false,
       // Guests (no account with that network's auth service) join voice
       // under their IRC nick when the service allows it.
-      hasAccount: (a) => (a === mainAuth
+      hasAccount: (a) => (a === mainAuth && !netAccounts?.mainAsNetwork()
         ? loadGuestSession() === null && !!props.auth.getState().session
-        : !!netAccounts?.sessionFor({ host: '', authUrl: a, main: false })),
+        : !!netAccounts?.sessionFor({ host: '', authUrl: a, main: a === mainAuth })),
       guestVoice: async (a) => (await (netAccounts ? netAccounts.config(a) : props.auth.config())).guest_voice === true,
       guestVoiceToken: (a, nick, rooms) => authFor(a).guestVoiceToken(nick, guestVoiceId(a), rooms),
     }));

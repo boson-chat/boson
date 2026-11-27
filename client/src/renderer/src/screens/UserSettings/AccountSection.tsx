@@ -6,6 +6,7 @@ import type { IdentityService } from '../../modules/identity';
 import { describeAuthError, type AuthService, type LinkedIdentities } from '../../modules/auth';
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { SectionFrame, SettingRow, SettingsGroup } from './SettingsFrame';
+import { useHomeNetwork } from '../../modules/netauth/home-network';
 
 // Settings → Account & security: how you sign in (email, recovery code,
 // linked "Sign in with …" identities) and signing out of this device. As a
@@ -44,11 +45,12 @@ export function AccountSection({ mode, authedEmail, onSignOut, onClose, director
 // Guest mode's Account section: "Switch to an account" asks first, since
 // leaving guest mode erases the guest's data on this device.
 function GuestAccountSection({ onClose }: { onClose: () => void }) {
+  const home = useHomeNetwork();
   const [confirm, setConfirm] = useState(false);
   return (
     <SectionFrame
       title="Account"
-      description="You're using Boson without a boson.chat account (accounts on other networks are under Network accounts)."
+      description={`You're using Boson without a ${home.name} account (accounts on other networks are under Network accounts).`}
     >
       <SettingsGroup>
         <SettingRow

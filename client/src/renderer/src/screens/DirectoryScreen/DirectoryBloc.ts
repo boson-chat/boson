@@ -2368,6 +2368,10 @@ export class DirectoryBloc {
     let accountRefusal: 'required' | 'token' | null = null;
     const unsubscribeAuth = session.onEvent((e) => {
       if (e.Kind === '464') passwordRejected = e.Message || 'Password incorrect';
+      // A boson network's IRC asking for a password we didn't send (a
+      // self-hosted network's bouncer bridge takes only its own accounts'
+      // tokens): it wants its account — sign in rather than retry.
+      if (e.Kind === '464' && !viaBouncer && loginLink && !oauthbearer && !serverPass) accountRefusal = 'required';
       if (!viaBouncer && isAccountRequired(e)) accountRefusal = 'required';
       if (!viaBouncer && oauthbearer && isSaslFailure(e)) accountRefusal = 'token';
       if (viaBouncer && networkMissing === null && e.Kind === 'PRIVMSG' && /^\*.*status$/i.test(e.From ?? '')) {

@@ -55,6 +55,7 @@ jobs:
           grep -qi 'content-type: text/html' h.txt
           curl -fsS http://127.0.0.1:8080/boson-config.js | tee c.txt
           grep -q '"https://auth.example.test"' c.txt
+          grep -q 'networkDomain: null' c.txt
           curl -fsS http://127.0.0.1:8080/join?host=irc.example.net | grep -q 'boson-config.js'
           curl -fsS http://127.0.0.1:8080/sso/callback | grep -q 'sso-callback.js'
           # The YouTube wrapper: framable by the app only, with a referrer.

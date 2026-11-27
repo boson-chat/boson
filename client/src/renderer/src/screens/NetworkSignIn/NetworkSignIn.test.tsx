@@ -7,6 +7,7 @@ import { NetworkAccounts, sessionKeyFor } from '../../modules/netauth/network-ac
 import { NetworkSignInHost } from './NetworkSignIn';
 import { NetworkAccountBar } from './NetworkAccountBar';
 import { NetworkAccountsSection } from '../UserSettings/NetworkAccountsSection';
+import { setHomeNetwork } from '../../modules/netauth/home-network';
 
 const NET = 'https://auth.net.org';
 
@@ -128,5 +129,58 @@ describe('NetworkSignIn', () => {
     await screen.findByText(/alice/);
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     await screen.findByRole('button', { name: 'Sign in' });
+  });
+});
+
+// A self-hosted network's web client in guest mode (came in through "Use
+// another server" with a boson.chat account): its own network's sign-in is
+// that network's form, with "Continue as alice@boson.chat".
+describe('NetworkSignIn on a self-hosted web client', () => {
+  afterEach(() => setHomeNetwork(null));
+
+  it("offers the boson.chat account for the install's own network and signs in there", async () => {
+    setHomeNetwork({ domain: 'boson.ircforever.org', name: 'boson.ircforever.org', selfHosted: true });
+    const SELF = 'https://auth.boson.ircforever.org';
+    const BOSON = 'https://auth.boson.chat';
+    const fed = (domain: string) => ({
+      version: 1, issuer: `https://auth.${domain}`, assertion_endpoint: `https://auth.${domain}/v1/federation/assertions`,
+      login_endpoint: `https://auth.${domain}/v1/federation/login`, accepts: 'directory', domain,
+    });
+    const seen: string[] = [];
+    const transport = vi.fn(async (req: ApiRequest): Promise<ApiResponse> => {
+      const u = new URL(req.url);
+      seen.push(`${u.origin}${u.pathname}`);
+      const ok = (v: unknown): ApiResponse => ({ status: 200, ok: true, statusText: 'OK', text: JSON.stringify(v) });
+      const tokens = (extra: Record<string, unknown> = {}) => ok({ access_token: `h.e30.${u.host}`, expires_in: 900, refresh_token: 'rt', session_id: 's', user: { id: 'u', username: 'alice', email: null, email_verified: true, role: 'user' }, ...extra });
+      if (u.pathname === '/v1/config') return ok({ registration: 'open', sso_providers: [], guest_access: true });
+      if (u.pathname === '/v1/login') return tokens();
+      if (u.pathname === '/v1/federation/assertions') return ok({ assertion: 'a', expires_in: 300 });
+      if (u.pathname === '/v1/federation/login') return tokens({ federated: true, identity: 'alice@boson.chat', handle: 'alice' });
+      return { status: 404, ok: false, statusText: 'Not Found', text: '{}' };
+    });
+    const storage = new InMemorySecureStorage();
+    const mainAuth = new AuthService(SELF, { storage, transport });
+    const links: Record<string, Record<string, unknown>> = {
+      'irc.boson.ircforever.org': { authUrl: SELF, main: true, federation: fed('boson.ircforever.org') },
+      'irc.boson.chat': { authUrl: BOSON, federation: fed('boson.chat') },
+    };
+    const accounts = new NetworkAccounts({
+      mainAuthUrl: SELF, mainAuth, storage, transport, isGuest: () => true,
+      bridge: { discover: async (host: string) => ({ host, main: false, ...(links[host] ?? {}) }) },
+      local: (() => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); } }; })(),
+    });
+    await accounts.discover('irc.boson.chat');
+    await accounts.service(BOSON).signIn('alice', 'pw');
+    const link = (await accounts.discover('irc.boson.ircforever.org'))!;
+    const result = accounts.promptSignIn({ link, serverName: 'boson.ircforever.org', reason: 'connect', allowGuest: true });
+    render(<NetworkSignInHost accounts={accounts} />);
+    await screen.findByRole('dialog', { name: 'Sign in to boson.ircforever.org' });
+    // Not the "uses your … account, leave guest mode" step.
+    expect(screen.queryByText(/Signing in leaves guest mode/)).toBeNull();
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as alice@boson.chat' }));
+    expect(await result).toBe('signed-in');
+    expect(seen).toContain(`${SELF}/v1/federation/login`);
+    expect(accounts.sessionFor(link)?.federated?.identity).toBe('alice@boson.chat');
+    expect(mainAuth.getState().session).toBeNull();
   });
 });
