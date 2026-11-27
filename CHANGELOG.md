@@ -1,3 +1,9 @@
+## [0.104.1](https://github.com/boson-chat/boson/compare/v0.104.0...v0.104.1) (2026-11-27)
+
+### Bug Fixes
+
+* **login:** the sign-in screen wears the network's theme and follows its registration ([#172](https://github.com/boson-chat/boson/issues/172)) ([c78f4a3](https://github.com/boson-chat/boson/commit/c78f4a3658d81ef4dae5982fc9c4e9a9c057c2a9))
+
 ## [0.104.0](https://github.com/boson-chat/boson/compare/v0.103.0...v0.104.0) (2026-11-27)
 
 ### Features
