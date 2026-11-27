@@ -542,12 +542,13 @@ describe('LoginBloc — sign in with a provider', () => {
     expect(bloc.getState().ssoProviders).toEqual([]);
   });
 
-  it('opens the browser with PKCE, exchanges the code and asks for the passphrase of an existing key', async () => {
+  it('opens the browser with PKCE, exchanges the code and goes straight in: no passphrase for an existing key', async () => {
     const sso = fakeSSO({ code: 'bsc_1' });
     const exchangeSSOCode = vi.fn(async () => session);
+    const getMe = vi.fn(async () => ({ encrypted_user_secret: 'blob' }));
     const { bloc, identity } = buildBloc({
       auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode, getState: () => ({ session, loading: false, error: null }) } as never,
-      directory: { getMe: vi.fn(async () => ({ encrypted_user_secret: 'blob' })) } as never,
+      directory: { getMe } as never,
       sso,
     });
     await bloc.loadProviders();
@@ -558,18 +559,20 @@ describe('LoginBloc — sign in with a provider', () => {
     expect(url.searchParams.get('return_to')).toBe('http://127.0.0.1:5555/callback?s=xyz');
     expect(url.searchParams.get('code_challenge_method')).toBe('S256');
     const challenge = url.searchParams.get('code_challenge')!;
-    const [code, verifier] = (exchangeSSOCode.mock.calls[0] as unknown as [string, string]);
+    const [code, verifier, providerName] = (exchangeSSOCode.mock.calls[0] as unknown as [string, string, string]);
     expect(code).toBe('bsc_1');
+    // The session is marked as an SSO one (AuthService keeps it).
+    expect(providerName).toBe(provider.display_name);
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
     expect(btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')).toBe(challenge);
-    expect(bloc.getState().identityPrompt).toBe('unlock');
-    expect(bloc.getState().busy).toBe(false);
-
-    bloc.setPassword('hunter2');
-    await bloc.submitIdentityPassphrase();
-    expect(identity.unlock).toHaveBeenCalledWith('hunter2', 'blob');
-    expect(identity.persist).toHaveBeenCalledWith('usr_1');
+    // No "Unlock your identity key" gate: the key is tried from the
+    // keychain, and otherwise asked for later, when something needs it.
+    expect(identity.restoreFromStorage).toHaveBeenCalledWith('usr_1');
     expect(bloc.getState().identityPrompt).toBeNull();
+    expect(bloc.getState().busy).toBe(false);
+    expect(bloc.getState().ssoPending).toBeNull();
+    expect(identity.unlock).not.toHaveBeenCalled();
+    expect(getMe).not.toHaveBeenCalled();
   });
 
   it('skips the passphrase when the keychain has the key', async () => {
@@ -584,22 +587,29 @@ describe('LoginBloc — sign in with a provider', () => {
     expect(bloc.getState().error).toBeNull();
   });
 
-  it('makes a key for a new account with a confirmed passphrase', async () => {
+  it('a new account goes straight in too: no passphrase to pick', async () => {
     const { bloc, identity } = buildBloc({
       auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode: vi.fn(async () => session) } as never,
       sso: fakeSSO({ code: 'bsc_1' }),
     });
     await bloc.loadProviders();
     await bloc.signInWith('dex');
-    expect(bloc.getState().identityPrompt).toBe('create');
-    bloc.setPassword('one');
-    bloc.setConfirmPassword('two');
-    await bloc.submitIdentityPassphrase();
-    expect(bloc.getState().error).toMatch(/match/);
-    bloc.setConfirmPassword('one');
-    await bloc.submitIdentityPassphrase();
-    expect(identity.initializeForNewUser).toHaveBeenCalledWith('one');
     expect(bloc.getState().identityPrompt).toBeNull();
+    expect(bloc.getState().error).toBeNull();
+    expect(identity.initializeForNewUser).not.toHaveBeenCalled();
+  });
+
+  it('a password sign-in to an account made without a key gives it one, stored with the account', async () => {
+    const updateSecretWraps = vi.fn(async () => ({}));
+    const { bloc, identity } = buildBloc({
+      directory: { getMe: vi.fn(async () => ({ handle: 'ada', encrypted_user_secret: '' })), updateSecretWraps } as never,
+    });
+    bloc.setLogin('ada');
+    bloc.setPassword('correct horse battery');
+    await bloc.signIn();
+    expect(identity.initializeForNewUser).toHaveBeenCalledWith('correct horse battery');
+    expect(updateSecretWraps).toHaveBeenCalledWith({ passwordBlob: expect.any(String) });
+    expect(bloc.getState().error).toBeNull();
   });
 
   it("shows the provider's error and nothing for a cancel", async () => {
@@ -623,11 +633,10 @@ describe('LoginBloc — sign in with a provider', () => {
 
   it('backing out of the passphrase signs out', async () => {
     const { bloc, auth } = buildBloc({
-      auth: { config: vi.fn(async () => ({ sso_providers: [provider] })), exchangeSSOCode: vi.fn(async () => session) } as never,
-      sso: fakeSSO({ code: 'bsc_1' }),
+      auth: { getState: () => ({ session, loading: false, error: null }) } as never,
     });
-    await bloc.loadProviders();
-    await bloc.signInWith('dex');
+    await bloc.resumeSignedIn();
+    expect(bloc.getState().identityPrompt).toBe('create');
     await bloc.abandonIdentityPrompt();
     expect(auth.signOut).toHaveBeenCalled();
     expect(bloc.getState().identityPrompt).toBeNull();

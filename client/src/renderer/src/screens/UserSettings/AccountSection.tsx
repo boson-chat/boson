@@ -24,7 +24,11 @@ export function AccountSection({ mode, authedEmail, onSignOut, onClose, director
 }) {
   if (mode === 'guest') return <GuestAccountSection onClose={onClose} />;
   // A federated account (alice@boson.chat): its home server signs it in.
-  const fed = (typeof auth.getState === 'function' ? auth.getState().session?.federated : null) ?? null;
+  const session = typeof auth.getState === 'function' ? auth.getState().session : null;
+  const fed = session?.federated ?? null;
+  // Signed in through an identity provider: no password typed (the
+  // account may have none), so the key is asked for when it's needed.
+  const sso = !fed ? session?.sso ?? null : null;
   return (
     <SectionFrame title="Account & security" description="How you sign in to your Boson account.">
       <SettingsGroup title="Sign-in">
@@ -47,7 +51,7 @@ export function AccountSection({ mode, authedEmail, onSignOut, onClose, director
             description={<span class="user-settings-mono-value">{authedEmail ?? '—'}</span>}
           />
         )}
-        <RecoveryCodeSettings directory={directory} identity={identity} open={open} federated={!!fed} />
+        <RecoveryCodeSettings directory={directory} identity={identity} open={open} federated={!!fed || !!sso} sso={!!sso} />
       </SettingsGroup>
       <LinkedSignIns auth={auth} open={open} />
       <SettingsGroup title="This device">
@@ -157,13 +161,17 @@ function LinkedSignIns({ auth, open }: { auth: AuthService; open: boolean }) {
 // learn whether a recovery wrap already exists (→ "Regenerate" vs "Set up").
 // Enrolling wraps the in-memory user_secret under a fresh code and persists
 // the wrap via PUT /me/secret-wraps; the one-time code is then shown once.
-function RecoveryCodeSettings({ directory, identity, open, federated = false }: {
+function RecoveryCodeSettings({ directory, identity, open, federated = false, sso = false }: {
   directory: DirectoryService;
   identity: IdentityService;
   open: boolean;
-  // A federated session: the key (the home account's) is asked for here
-  // when it isn't unlocked yet (modules/identity/key-request.ts).
+  // A passwordless session (federated: the home account's key; SSO: this
+  // account's own): the key is asked for here when it isn't unlocked yet
+  // (modules/identity/key-request.ts).
   federated?: boolean;
+  // Signed in through an identity provider: the key may be protected by a
+  // passphrase rather than a password.
+  sso?: boolean;
 }) {
   const [hasRecovery, setHasRecovery] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -210,8 +218,9 @@ function RecoveryCodeSettings({ directory, identity, open, federated = false }: 
       <div class="user-settings-recovery">
         <RecoveryCodeReveal
           code={revealCode}
-          intro="This replaces any previous recovery code. It's the only way back into
-            your synced passwords if you forget your login password — save it now."
+          intro={sso
+            ? "This replaces any previous recovery code. It's the only way back into your synced passwords if you forget the password or passphrase that protects your identity key — save it now."
+            : "This replaces any previous recovery code. It's the only way back into your synced passwords if you forget your login password — save it now."}
           continueLabel="Done"
           onContinue={() => setRevealCode(null)}
         />
@@ -229,7 +238,9 @@ function RecoveryCodeSettings({ directory, identity, open, federated = false }: 
           : hasRecovery
             ? <Badge tone="verified">Enabled</Badge>
             : <Badge tone="warn">Not set up</Badge>}
-        description="Your password unlocks your identity key, which signs you in to IRC servers and protects the passwords Boson syncs. After a password reset, this code unlocks it once."
+        description={sso
+          ? 'Your identity key protects the passwords Boson syncs. It unlocks with your Boson password or the passphrase you set for it; if you lose that, this code unlocks it once.'
+          : 'Your password unlocks your identity key, which signs you in to IRC servers and protects the passwords Boson syncs. After a password reset, this code unlocks it once.'}
       >
         <Button
           type="button"

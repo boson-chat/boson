@@ -153,8 +153,12 @@ export class LoginBloc {
     }
   }
 
-  // "Sign in with <provider>": the browser does the provider's login; then
-  // the identity key comes from the keychain, or needs its passphrase.
+  // "Sign in with <provider>": the browser does the provider's login, and
+  // that's all: the app opens. No password was typed (an SSO account may
+  // have none), so the identity key isn't asked for here: it comes back
+  // from this device's keychain when it's kept here, else it's asked for
+  // when something needs it (modules/identity/key-request.ts), as for a
+  // federated sign-in.
   async signInWith(slug: string): Promise<void> {
     const provider = this.state.ssoProviders.find((p) => p.slug === slug);
     if (!provider || !this.sso || this.state.busy) return;
@@ -172,11 +176,13 @@ export class LoginBloc {
       return;
     }
     this.ssoFlow = null;
-    await this.afterExternalSignIn(userId);
+    await this.identity.restoreFromStorage(userId).catch(() => false);
+    this.setState({ ...this.state, busy: false, ssoPending: null });
   }
 
-  // Signed in without a password (a provider, a federated home account):
-  // the identity key comes from the keychain, or needs its passphrase.
+  // Already signed in without the key (an account of this server's own that
+  // just became the app's, home-session.ts): the identity key comes from
+  // the keychain, or needs its passphrase.
   private async afterExternalSignIn(userId: string): Promise<void> {
     try {
       // This device may hold the key already.
@@ -422,7 +428,15 @@ export class LoginBloc {
         return false;
       }
     } else {
-      await this.identity.initializeForNewUser(password);
+      const encrypted = await this.identity.initializeForNewUser(password);
+      // The account is set up but has no key yet (made through an identity
+      // provider, the key never set up): this one is its key from now on,
+      // under the password just typed. A new account (no /me) posts its
+      // wraps from the handle step instead.
+      if (me) {
+        await this.directory.updateSecretWraps({ passwordBlob: encrypted });
+        this.identity.clearPendingEncrypted();
+      }
     }
     // Identity is unlocked. Best-effort persist to the OS keychain so the
     // next launch skips the password prompt. Never blocks the sign-in flow;

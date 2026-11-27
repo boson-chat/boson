@@ -42,6 +42,16 @@ export interface Session {
   // A federated account (signed in with an account of another Boson
   // server, modules/netauth/federation.ts): who it was made from.
   federated?: FederatedIdentity;
+  // Signed in with an identity provider ("Sign in with …"): no password
+  // was typed, and the account may have none. Such a session goes into the
+  // app with the identity key locked; it's asked for when something needs
+  // it (modules/identity/key-request.ts).
+  sso?: { provider: string };
+}
+
+/** Signed in without a password: federated, or through an identity provider. */
+export function isPasswordless(session: Session | null | undefined): boolean {
+  return !!session && (!!session.federated || !!session.sso);
 }
 
 export interface AuthState {
@@ -277,10 +287,11 @@ export class AuthService {
   // Finishes "Sign in with …": trades the one-time code the browser brought
   // back (and the PKCE verifier its start carried the challenge of) for a
   // session, stored like a password sign-in's.
-  async exchangeSSOCode(code: string, codeVerifier: string): Promise<Session> {
+  // provider: its name, kept on the session (Session.sso).
+  async exchangeSSOCode(code: string, codeVerifier: string, provider = 'sso'): Promise<Session> {
     const r = await this.call<TokenResponse>('POST', '/v1/sso/exchange', { code, code_verifier: codeVerifier });
     this.epoch++;
-    const session = this.toSession(r, {});
+    const session: Session = { ...this.toSession(r, {}), sso: { provider } };
     await this.save(session);
     this.setState({ session, loading: false, error: null });
     return session;
@@ -518,6 +529,7 @@ export class AuthService {
         const session: Session = {
           ...this.toSession(r, current.user.user_metadata),
           ...(current.federated ? { federated: current.federated } : {}),
+          ...(current.sso ? { sso: current.sso } : {}),
         };
         await this.save(session);
         this.setState({ ...this.state, session });
@@ -605,6 +617,7 @@ export class AuthService {
         session_id: session.session_id,
         user: session.user,
         ...(session.federated ? { federated: session.federated } : {}),
+        ...(session.sso ? { sso: session.sso } : {}),
       }));
     } catch (err) {
       console.warn('[auth] could not save the session', err);
@@ -626,6 +639,7 @@ export class AuthService {
         session_id: v.session_id ?? '',
         user: { ...v.user, user_metadata: v.user.user_metadata ?? {} },
         ...(validFederated(v.federated) ? { federated: v.federated } : {}),
+        ...(typeof v.sso?.provider === 'string' ? { sso: { provider: v.sso.provider } } : {}),
       };
     } catch (err) {
       console.warn('[auth] could not read the saved session', err);

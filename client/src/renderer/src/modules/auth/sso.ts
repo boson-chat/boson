@@ -92,7 +92,7 @@ export function signInWithProvider(auth: AuthService, bridge: SSOBridge, provide
       const code = r.error || 'invalid_response';
       throw new AuthError(code, describeSSOError(code, name, r.errorDescription), 0);
     }
-    return auth.exchangeSSOCode(r.code, verifier);
+    return auth.exchangeSSOCode(r.code, verifier, name);
   })();
   return {
     done,

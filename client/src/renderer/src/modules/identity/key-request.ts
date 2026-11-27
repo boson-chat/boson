@@ -10,8 +10,15 @@
 // time), and it's kept on this device under the home account's user id,
 // so every server this browser signs in to with that account shares it.
 //
-// Local and SSO accounts unlock the key at sign-in, as before; for them
-// the key is always there by the time anything asks.
+// A session signed in through an identity provider ("Sign in with …") is
+// asked the same way, for its own account's key on this server: no
+// password was typed at sign-in (the account may have none), so nothing
+// could unlock it then. An account that has a password unlocks it with
+// that (or the passphrase set for it); one without sets a passphrase up
+// the first time. Kept on this device under its own user id.
+//
+// Password sign-ins unlock the key at sign-in, as before; for them the key
+// is always there by the time anything asks.
 
 import type { IdentityService } from './identity.service';
 import type { HomeAccountData } from '../netauth/home-account';

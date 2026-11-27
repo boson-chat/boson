@@ -1596,6 +1596,61 @@ async function fedFlowView(): Promise<void> {
   render(<App auth={auth} directory={directory} engine={null} identity={identity} history={{} as never} homeData={directory.homeData} />, app());
 }
 
+// "Continue with IRCForever" (SSO) on a self-hosted web client (the whole
+// app): straight into the app, no identity key step. ?new=1: an account
+// the sign-in just made (its handle step); else an existing one whose key
+// a password wraps, asked for later (window.__askKey).
+async function ssoFlowView(): Promise<void> {
+  const q = new URLSearchParams(location.search);
+  const authUrl = 'https://auth.boson.ircforever.org';
+  setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRCForever', selfHosted: true, irc: { host: 'irc.boson.ircforever.org', port: 6697, tls: true } });
+  const json = (status: number, v: unknown) => ({ status, ok: status < 300, statusText: String(status), text: JSON.stringify(v) });
+  const blob = await new IdentityService((pw, salt) => {
+    const out = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) out[i] = (pw.charCodeAt(i % Math.max(pw.length, 1)) + salt[i]!) & 0xff;
+    return out;
+  }, new InMemorySecureStorage()).initializeForNewUser('admin password');
+  let me: Record<string, unknown> | null = q.get('new') === '1' ? null : { ...USER, id: 'u-admin', handle: 'admin', encrypted_user_secret: blob };
+  const transport = async (req: { method: string; url: string; body?: unknown }) => {
+    const u = new URL(req.url);
+    if (u.host === 'api.boson.ircforever.org') {
+      if (u.pathname === '/me' && req.method === 'POST') {
+        const b = JSON.parse(String(req.body ?? '{}')) as Record<string, unknown>;
+        me = { ...USER, id: 'u-admin', handle: b['handle'], encrypted_user_secret: b['encrypted_user_secret'] ?? '' };
+        return json(201, me);
+      }
+      if (u.pathname === '/me') return me ? json(200, me) : json(404, { status: 'needs_setup' });
+      if (u.pathname === '/me/session') return json(200, { payload: null });
+      if (u.pathname === '/servers') return json(200, { servers: SERVERS, count: SERVERS.length });
+      if (u.pathname === '/servers/me') return json(200, { servers: [], count: 0 });
+      return json(200, {});
+    }
+    if (u.pathname === '/v1/config') {
+      return json(200, { registration: 'closed', network_name: 'IRCForever', sso_providers: [{ slug: 'ircforever', kind: 'oidc', display_name: 'IRCForever', start_url: `${authUrl}/v1/sso/ircforever/start` }] });
+    }
+    if (u.pathname === '/v1/sso/exchange') {
+      return json(200, {
+        access_token: 'h.e30.sso', expires_in: 900, refresh_token: 'rt-sso', session_id: 's',
+        user: { id: 'u-admin', username: 'admin', email: 'admin@ircforever.org', email_verified: true, role: 'user' },
+      });
+    }
+    return json(404, {});
+  };
+  (window as W & { bosonSSO?: unknown }).bosonSSO = {
+    begin: async () => ({ id: 'f1', redirectUri: `${location.origin}/sso/callback?s=f1` }),
+    wait: async () => ({ code: 'bsc_1' }),
+    cancel: async () => {},
+    open: async () => {},
+  };
+  const storage = new InMemorySecureStorage();
+  const auth = new AuthService(authUrl, { storage, transport: transport as never });
+  await auth.init();
+  const directory = new AccountDirectory(new HttpClient('https://api.boson.ircforever.org', { getToken: () => auth.getToken() }, transport as never), auth);
+  const identity = makeIdentity();
+  (window as { __askKey?: (r: string) => Promise<boolean> }).__askKey = (r) => requestIdentityKey(identity, r as never);
+  render(<App auth={auth} directory={directory} engine={null} identity={identity} history={{} as never} homeData={directory.homeData} />, app());
+}
+
 const view = new URLSearchParams(location.search).get('view') ?? 'chat';
 if (view === 'chat') chatView();
 else if (view === 'directory') directoryView();
@@ -1607,4 +1662,5 @@ else if (view === 'inbox') inboxView();
 else if (view === 'netsignin') void netSignInView();
 else if (view === 'signin') void signInView();
 else if (view === 'fedflow') void fedFlowView();
+else if (view === 'ssoflow') void ssoFlowView();
 else app().textContent = `unknown view: ${view}`;

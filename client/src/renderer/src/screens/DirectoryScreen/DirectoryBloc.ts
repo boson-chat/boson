@@ -1,4 +1,4 @@
-import type { AuthService } from '../../modules/auth';
+import { isPasswordless, type AuthService } from '../../modules/auth';
 import { ChatService, type ChatState } from '../../modules/chat';
 import { DEFAULT_WINDOWS } from '../../modules/chat/chat.service';
 import { createOlderStore, type OlderStore } from '../../modules/history/older-store';
@@ -2123,10 +2123,11 @@ export class DirectoryBloc {
     void this.runSearch(this.listToken);
   }
 
-  // A federated session (alice@boson.chat on this server) connects without
-  // the identity key (modules/identity/key-request.ts).
+  // A federated session (alice@boson.chat on this server) or one signed in
+  // through an identity provider connects without the identity key
+  // (modules/identity/key-request.ts).
   private keyNotNeeded(): boolean {
-    return !!this.auth.getState().session?.federated;
+    return isPasswordless(this.auth.getState().session);
   }
 
   private maybeRestoreSession(): void {

@@ -60,8 +60,9 @@ export function downloadRecoveryCode(code: string): void {
     '',
     code,
     '',
-    'Keep this somewhere safe. If you reset your Boson password, you need this',
-    'code once to unlock your synced passwords again. Boson cannot recover it for you.',
+    'Keep this somewhere safe. If you reset your Boson password, or forget the',
+    'passphrase for your identity key, you need this code once to unlock your',
+    'synced passwords again. Boson cannot recover it for you.',
     '',
   ].join('\n');
   try {
