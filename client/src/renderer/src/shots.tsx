@@ -37,6 +37,7 @@ import { InMemorySecureStorage } from './shared/secure-storage';
 import { NetworkAccounts } from './modules/netauth/network-accounts';
 import { NetworkSignInHost } from './screens/NetworkSignIn/NetworkSignIn';
 import { getThemeStore, NetworkThemes, setNetworkThemes, getNetworkThemes } from './modules/ui/theme';
+import { setHomeNetwork } from './modules/netauth/home-network';
 import { FilesController, setFiles } from './modules/files/files.service';
 import type { FilesBridge } from './modules/files/files-bridge';
 import { VoiceController, setVoiceController, setVoiceSettings, type VoiceRoom } from './modules/voice';
@@ -1428,6 +1429,96 @@ async function netSignInView(): Promise<void> {
   render(<NetworkSignInHost accounts={accounts} />, app());
 }
 
+
+// The sign-in screen of a network with its own look and sign-up rules (a
+// self-hosted network's web client, like chat.boson.ircforever.org).
+// ?theme=1: the network has a theme (dark, accent #70d199, a light
+// variant); ?registration=open|invite|closed; ?selfhosted=1: the home
+// network is IRCForever and takes accounts from other Boson servers
+// ("Continue with boson.chat"); &homes=1: a boson.chat account is already
+// signed in here ("Continue as ada@boson.chat"). ?light=1: the app's light
+// mode.
+async function signInView(): Promise<void> {
+  const q = new URLSearchParams(location.search);
+  const registration = q.get('registration') ?? 'open';
+  if (q.get('light') === '1') getThemeStore().setActive('daylight');
+  // Served at the auth service's /v1/branding, as its /v1/config says.
+  const themeDoc = q.get('theme') === '1' ? {
+    version: 1, base: 'dark', font: 'system',
+    colors: {
+      bg: '#0b1410', surface: '#101c17', 'surface-raised': '#16251e', 'surface-hover': '#1c2e26', border: '#2a4237', 'border-soft': '#1f3329',
+      fg: '#e6f2ec', 'fg-2': '#b2c7bd', 'fg-3': '#86a094', accent: '#70d199', 'accent-on': '#06110b',
+    },
+    variants: {
+      light: {
+        colors: {
+          bg: '#f6fbf8', surface: '#ffffff', 'surface-raised': '#ffffff', 'surface-hover': '#eaf4ee', border: '#c9dcd1', 'border-soft': '#dde9e2',
+          fg: '#0d1a13', 'fg-2': '#3a5246', 'fg-3': '#5d7468', accent: '#1f8a52', 'accent-on': '#ffffff',
+        },
+      },
+    },
+  } : null;
+  const mem = new Map<string, string>();
+  const themes = new NetworkThemes({
+    storage: { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => { mem.set(k, v); }, removeItem: (k) => { mem.delete(k); } },
+    bridge: null,
+    fetch: (async (url: string) => (themeDoc && String(url).endsWith('/v1/branding')
+      ? new Response(JSON.stringify(themeDoc), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      : new Response('', { status: 404 }))) as typeof fetch,
+    apply: (overlay) => getThemeStore().setNetworkOverlay(overlay),
+  });
+  setNetworkThemes(themes);
+  const selfHosted = q.get('selfhosted') === '1';
+  const mainUrl = selfHosted ? 'https://auth.boson.ircforever.org' : 'https://auth.boson.chat';
+  const homeDomain = new URL(mainUrl).hostname.replace(/^auth\./, '');
+  if (selfHosted) {
+    setHomeNetwork({ domain: homeDomain, name: 'IRCForever', selfHosted: true, irc: { host: 'irc.boson.ircforever.org', port: 6697, tls: true } });
+  }
+  const cfg = {
+    registration, sso_providers: [], guest_access: true,
+    ...(selfHosted ? { network_name: 'IRCForever' } : {}),
+    ...(themeDoc ? { branding_url: `${mainUrl}/v1/branding` } : {}),
+  };
+  const json = (status: number, v: unknown) => ({ status, ok: status < 300, statusText: String(status), text: JSON.stringify(v) });
+  const transport = async (req: { url: string }) => {
+    const u = new URL(req.url);
+    if (u.pathname === '/v1/config') return json(200, u.host === 'auth.boson.chat' && selfHosted ? { registration: 'open', sso_providers: [], site_name: 'boson.chat' } : cfg);
+    if (u.pathname === '/v1/login') return json(200, {
+      access_token: 'h.e30.s', expires_in: 900, refresh_token: `rt-${u.host}`, session_id: 's',
+      user: { id: `u-${u.host}`, username: 'ada', email: null, email_verified: true, role: 'user' },
+    });
+    return json(404, {});
+  };
+  const storage = new InMemorySecureStorage();
+  const fed = (domain: string) => ({
+    version: 1, issuer: `https://auth.${domain}`, accepts: 'directory', domain,
+    assertion_endpoint: `https://auth.${domain}/v1/federation/assertions`,
+    login_endpoint: `https://auth.${domain}/v1/federation/login`,
+  });
+  const mainAuth = new AuthService(mainUrl, { storage, transport: transport as never });
+  const accounts = selfHosted
+    ? new NetworkAccounts({
+      mainAuthUrl: mainUrl, mainAuth, storage, transport: transport as never, local: null,
+      bridge: {
+        discover: async (host: string) => (host === 'auth.boson.ircforever.org' || host === 'irc.boson.ircforever.org'
+          ? { host, main: true, authUrl: mainUrl, federation: fed(homeDomain) }
+          : { host, main: false, authUrl: 'https://auth.boson.chat', federation: fed('boson.chat') }),
+        resolve: async (address: string) => ({ host: address, domain: 'boson.chat', irc: { host: 'irc.boson.chat', port: 6697, tls: true }, authUrl: 'https://auth.boson.chat', main: false, federation: fed('boson.chat') }),
+      },
+    })
+    : null;
+  if (accounts && q.get('homes') === '1') {
+    await accounts.discover('irc.boson.chat');
+    await accounts.service('https://auth.boson.chat').signIn('ada', 'pw');
+  }
+  render(
+    <AuthProvider service={mainAuth}>
+      <LoginScreen directory={directoryService()} identity={makeIdentity()} accounts={accounts} />
+    </AuthProvider>,
+    app(),
+  );
+}
+
 const view = new URLSearchParams(location.search).get('view') ?? 'chat';
 if (view === 'chat') chatView();
 else if (view === 'directory') directoryView();
@@ -1437,4 +1528,5 @@ else if (view === 'settings') settingsView();
 else if (view === 'services') servicesView();
 else if (view === 'inbox') inboxView();
 else if (view === 'netsignin') void netSignInView();
+else if (view === 'signin') void signInView();
 else app().textContent = `unknown view: ${view}`;

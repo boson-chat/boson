@@ -258,3 +258,6 @@
   color: var(--fg-3);
   font-weight: 400;
 }
+
+/* Closed registration: what's left, above the choices and the form. */
+.netauth-closed { color: var(--fg-2); }

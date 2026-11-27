@@ -323,3 +323,27 @@ button.login-forgot {
   justify-content: center;
   margin: var(--space-4) 0 0;
 }
+
+/* Closed registration: in place of the Login / Signup tabs, what's left
+   ("<network> isn't taking new accounts. Use your boson.chat account, …"). */
+.login-closed {
+  margin: 0 0 var(--space-6);
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  line-height: var(--leading-body);
+  text-wrap: pretty;
+}
+
+/* Federated sign-in to the home network, above its form. */
+.login-container .bds-card > .netauth-fed,
+.login-container .bds-card > .login-error:first-child { margin-bottom: var(--space-4); }
+.login-fed-boson .netauth-fed-title { font-weight: 600; }
+
+/* "Continue with boson.chat": why the user signs in there. */
+.otherserver-lede {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--fg-2);
+  line-height: var(--leading-body);
+}

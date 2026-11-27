@@ -10,7 +10,7 @@ import { friendlyPasswordError, sentence } from './wording';
 export const PASSWORD_MIN = 10;
 export const PASSWORD_MAX = 256;
 
-export type SignupField = 'username' | 'email' | 'password' | 'confirmPassword';
+export type SignupField = 'inviteCode' | 'username' | 'email' | 'password' | 'confirmPassword';
 export type SignupFieldErrors = Partial<Record<SignupField, string>>;
 
 export interface SignupValues {
@@ -18,6 +18,9 @@ export interface SignupValues {
   email: string;
   password: string;
   confirmPassword: string;
+  // Invite-only registration: the code the network's admins handed out.
+  inviteCode?: string;
+  inviteRequired?: boolean;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -25,6 +28,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // null when the field is fine.
 export function signupFieldError(field: SignupField, v: SignupValues): string | null {
   switch (field) {
+    case 'inviteCode':
+      return v.inviteRequired && !v.inviteCode?.trim() ? 'Enter the invite code you were given.' : null;
     case 'username':
       return validateUsername(v.username.trim());
     case 'email': {
@@ -50,7 +55,7 @@ export function signupFieldError(field: SignupField, v: SignupValues): string | 
 
 export function allSignupErrors(v: SignupValues): SignupFieldErrors {
   const out: SignupFieldErrors = {};
-  for (const f of ['username', 'email', 'password', 'confirmPassword'] as const) {
+  for (const f of ['inviteCode', 'username', 'email', 'password', 'confirmPassword'] as const) {
     const e = signupFieldError(f, v);
     if (e) out[f] = e;
   }
@@ -67,6 +72,9 @@ export function serverFieldError(err: unknown): { field: SignupField; message: s
     case 'email_taken': return { field: 'email', message: 'There is already an account with this email. Sign in instead, or reset your password.' };
     case 'invalid_email': return { field: 'email', message: 'Enter an email address like name@example.com.' };
     case 'weak_password': return { field: 'password', message: friendlyPasswordError(err.message) };
+    // A missing, used-up, expired or unknown code (the auth service doesn't
+    // say which).
+    case 'invite_required': return { field: 'inviteCode', message: "That invite code didn't work. Check it, or ask for a new one." };
   }
   return null;
 }

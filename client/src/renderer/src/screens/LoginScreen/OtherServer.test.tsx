@@ -70,13 +70,13 @@ async function lookUp(address: string) {
 }
 
 describe('Use another server', () => {
-  it('shows boson.chat as the server and switches to another', () => {
+  it('shows boson.chat as the server and switches to another', async () => {
     setup();
     expect(document.querySelector('.login-server-host')?.textContent).toBe('boson.chat');
     fireEvent.click(screen.getByRole('button', { name: /use another server/i }));
     expect(screen.getByLabelText('Server address')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Back to boson.chat' }));
-    expect(screen.getByRole('tab', { name: 'Login' })).toBeTruthy();
+    expect(await screen.findByRole('tab', { name: 'Login' })).toBeTruthy();
   });
 
   it('signs up on the network and lands in the app with it joined', async () => {
@@ -166,13 +166,13 @@ describe('Use another server', () => {
 describe('Use another server on a self-hosted web client', () => {
   beforeEach(() => setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRC Forever', selfHosted: true }));
 
-  it('signs in to the install\'s own network, not boson.chat', () => {
+  it('signs in to the install\'s own network, not boson.chat', async () => {
     setup();
     expect(document.querySelector('.login-server-host')?.textContent).toBe('boson.ircforever.org');
     expect(document.body.textContent).not.toMatch(/boson\.chat/);
     fireEvent.click(screen.getByRole('button', { name: /use another server/i }));
     fireEvent.click(screen.getByRole('button', { name: 'Back to IRC Forever' }));
-    expect(screen.getByRole('tab', { name: 'Login' })).toBeTruthy();
+    expect(await screen.findByRole('tab', { name: 'Login' })).toBeTruthy();
   });
 
   it('reaches boson.chat as another server', async () => {

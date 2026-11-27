@@ -476,6 +476,17 @@ export class NetworkAccounts {
     return this.mainFed;
   }
 
+  // The app's own network as a remote for federated sign-in, with its
+  // boson.json federation block: a self-hosted web client's sign-in screen
+  // offers "Continue as alice@boson.chat" for it. null when it has no
+  // federation block (or there's no shell to look it up).
+  async mainNetworkLink(): Promise<NetworkLink | null> {
+    const federation = await this.mainFederation();
+    if (!federation) return null;
+    const host = getHomeNetwork().irc?.host?.toLowerCase() || hostOf(this.main).replace(/:\d+$/, '').toLowerCase();
+    return { host, authUrl: this.main, main: true, federation };
+  }
+
   // The accounts the user is signed in to that can vouch for them on
   // remote (one "Continue as …" each): the main account and network
   // accounts whose server issues assertions. Never remote's own, nor

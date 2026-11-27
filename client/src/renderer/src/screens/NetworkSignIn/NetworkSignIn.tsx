@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Button, Field, Input, Modal, Tabs } from '@boson/shared';
 import {
-  AuthError, SSO_CANCELLED, describeAuthError, guestAccessAllowed, signInWithProvider, ssoBridge, validateUsername,
+  AuthError, SSO_CANCELLED, closedSignupLine, describeAuthError, guestAccessAllowed, signInWithProvider, signupMode, ssoBridge, validateUsername,
   type AuthConfig, type AuthService, type SSOProvider,
 } from '../../modules/auth';
 import { LeaveGuestConfirm } from '../../components/LeaveGuestConfirm';
 import {
   getNetworkAccounts, hostOf, type NetworkAccounts, type NetworkAccountsSnapshot, type NetworkLink, type SignInPrompt,
 } from '../../modules/netauth/network-accounts';
-import type { HomeAccount } from '../../modules/netauth/federation';
+import { acceptsFederation, type HomeAccount } from '../../modules/netauth/federation';
 import { FederatedSignIn } from './FederatedSignIn';
 import { getNetworkThemes, useNetworkBranding } from '../../modules/ui/theme';
 import { NetworkBrandHero } from './NetworkBrand';
@@ -69,7 +69,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
 
   const name = (cfg?.site_name || cfg?.network_name || '').trim() || accounts.nameFor(link.authUrl, prompt.serverName);
   const guestOk = prompt.allowGuest && guestAccessAllowed(cfg);
-  const registration = cfg?.registration ?? 'open';
+  const registration = signupMode(cfg);
   const canSignUp = registration !== 'closed';
   const [leaveGuest, setLeaveGuest] = useState(false);
 
@@ -202,9 +202,10 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
 
   const signUp = (e: Event): void => {
     e.preventDefault();
+    if (inviteOnly && !invite.trim()) { setError(`Enter the invite code ${name}'s admins gave you.`); return; }
     if (usernameProblem) { setError(usernameProblem); return; }
     void run(async () => {
-      const r = await auth.signUp({ username, email, password, ...(inviteOnly ? { invite_code: invite } : {}) });
+      const r = await auth.signUp({ username, email, password, ...(inviteOnly ? { invite_code: invite.trim() } : {}) });
       if (r.verificationRequired) {
         setLogin(username);
         setView('verify');
@@ -315,6 +316,15 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
       <Realm host={authHost} />
       {reasonText && <p class="netauth-required" role="status">{reasonText}</p>}
       {cfgError && <div class="login-error" role="alert">Couldn't reach {name}'s sign-in service: {cfgError}</div>}
+      {!canSignUp && cfg && (
+        <p class="netauth-hint netauth-closed" role="status">
+          {closedSignupLine({
+            name,
+            federated: federated && acceptsFederation(federated.link.federation, federated.link.authUrl) ? 'an account from another Boson server' : null,
+            guests: guestOk,
+          })}
+        </p>
+      )}
 
       {federated && (
         <FederatedSignIn
@@ -349,11 +359,16 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
           </Field>
         ) : (
           <>
+            {inviteOnly && (
+              <Field label="Invite code" hint={`${name} takes new accounts by invite. Ask its admins for a code.`}>
+                <Input aria-label="Invite code" placeholder="invite code" value={invite} onInput={(e) => setInvite((e.target as HTMLInputElement).value)} autoFocus required autoComplete="off" spellcheck={false} />
+              </Field>
+            )}
             <Field label="Username" hint={`Your account name on ${name}, and your nick on its IRC.`} error={usernameProblem ?? undefined}>
               <Input aria-label="Username" placeholder="username"
                 value={username}
                 onInput={(e) => setUsername((e.target as HTMLInputElement).value)}
-                autoFocus
+                autoFocus={!inviteOnly}
                 required
                 autoComplete="username"
                 spellcheck={false}
@@ -362,11 +377,6 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
             <Field label="Email">
               <Input aria-label="Email" placeholder="email" type="email" value={email} onInput={(e) => setEmail((e.target as HTMLInputElement).value)} required autoComplete="email" />
             </Field>
-            {inviteOnly && (
-              <Field label="Invite code" hint={`${name} takes new accounts by invite. Ask its admins for a code.`}>
-                <Input aria-label="Invite code" placeholder="invite code" value={invite} onInput={(e) => setInvite((e.target as HTMLInputElement).value)} required autoComplete="off" spellcheck={false} />
-              </Field>
-            )}
           </>
         )}
         <Field label="Password">
@@ -391,7 +401,6 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
               Forgot password?
             </Button>
           )}
-          {!canSignUp && cfg && <p class="netauth-hint">{name} isn't taking new accounts right now.</p>}
         </div>
       </form>
 

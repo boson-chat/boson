@@ -86,6 +86,10 @@ describe('NetworkSignIn', () => {
     });
     await openPrompt(accounts);
     fireEvent.click(await screen.findByRole('tab', { name: 'Create account' }));
+    // The code comes first, and is required.
+    const first = document.querySelector('.netauth-form input') as HTMLInputElement;
+    expect(first.getAttribute('aria-label')).toBe('Invite code');
+    expect(first.required).toBe(true);
     fireEvent.input(screen.getByLabelText('Username'), { target: { value: 'carol' } });
     fireEvent.input(screen.getByLabelText('Email'), { target: { value: 'carol@example.org' } });
     fireEvent.input(screen.getByLabelText('Invite code'), { target: { value: 'INV-1' } });
@@ -99,7 +103,7 @@ describe('NetworkSignIn', () => {
   it('hides sign-up when registration is closed, and sends a reset link', async () => {
     const { accounts, sent } = setup({ registration: 'closed' });
     await openPrompt(accounts);
-    await screen.findByText(/isn't taking new accounts/);
+    expect((await screen.findByText(/isn't taking new accounts/)).textContent).toMatch(/^Net isn't taking new accounts\. /);
     expect(screen.queryByRole('tab', { name: 'Create account' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Forgot password?' }));
     fireEvent.input(screen.getByLabelText('Email'), { target: { value: 'a@example.org' } });
