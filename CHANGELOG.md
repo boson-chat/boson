@@ -1,3 +1,9 @@
+## [0.102.2](https://github.com/boson-chat/boson/compare/v0.102.1...v0.102.2) (2026-11-27)
+
+### Bug Fixes
+
+* **client:** remember the nick picked per server, and keep a bouncer's ([#169](https://github.com/boson-chat/boson/issues/169)) ([e739676](https://github.com/boson-chat/boson/commit/e7396763203b4a28fae83060097d8a48baf547d1))
+
 ## [0.102.1](https://github.com/boson-chat/boson/compare/v0.102.0...v0.102.1) (2026-11-27)
 
 ### Bug Fixes
