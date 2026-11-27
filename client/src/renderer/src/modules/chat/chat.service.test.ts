@@ -1554,6 +1554,7 @@ describe('ChatService — getting our nick back after a fallback', () => {
     const feedback: string[] = [];
     chat.onFeedback((f) => { if (f.kind === 'error') feedback.push(f.text); });
     // The old session still holds a-b: registered as a-b_.
+    engine.emit(makeEvent({ Kind: '433', From: 'srv', Target: '*', Args: ['*', 'a-b'], Message: 'Nickname is already in use' }));
     engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'a-b_', Message: 'Welcome' }));
     expect(engine.nickCalls).toEqual([]);
     vi.advanceTimersByTime(5_000);
@@ -1571,6 +1572,7 @@ describe('ChatService — getting our nick back after a fallback', () => {
 
   it('asks right away when the holder quits', () => {
     const { engine } = makeChat('a-b');
+    engine.emit(makeEvent({ Kind: '433', From: 'srv', Target: '*', Args: ['*', 'a-b'], Message: 'Nickname is already in use' }));
     engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'a-b_', Message: 'Welcome' }));
     engine.emit(makeEvent({ Kind: 'QUIT', From: 'a-b', Message: 'Ping timeout' }));
     expect(engine.nickCalls).toEqual(['a-b']);
@@ -1583,10 +1585,85 @@ describe('ChatService — getting our nick back after a fallback', () => {
     expect(engine.nickCalls).toEqual([]);
 
     const second = makeChat('c-d');
+    second.engine.emit(makeEvent({ Kind: '433', From: 'srv', Target: '*', Args: ['*', 'c-d'], Message: 'Nickname is already in use' }));
     second.engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'c-d_', Message: 'Welcome' }));
     second.chat.changeNick('other');
     vi.advanceTimersByTime(60_000);
     expect(second.engine.nickCalls).toEqual(['other']);
     void chat;
+  });
+});
+
+describe('ChatService — the nick the server (a bouncer) has, and the one the user picks', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function withChoice(nick: string): { chat: ChatService; engine: FakeServerSession; saved: string[] } {
+    const engine = fakeSession();
+    const saved: string[] = [];
+    const chat = new ChatService(engine as unknown as ServerSession, nick, undefined, { nickChoice: { save: (n) => saved.push(n) } });
+    chat.attach();
+    return { chat, engine, saved };
+  }
+
+  it('takes the nick a bouncer welcomes us under, and never asks for the requested one back', () => {
+    // The app signs in with its handle-derived nick; the bridge keeps the
+    // connection on the nick the user picked before and says so.
+    const { chat, engine, saved } = withChoice('TheLion-windows-');
+    engine.emit(makeEvent({ Kind: '001', From: 'irc.example.org', Target: 'TheLion', Message: 'Welcome' }));
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion-windows-', Message: 'TheLion' }));
+    expect(chat.getState().myNick).toBe('TheLion');
+    vi.advanceTimersByTime(600_000);
+    expect(engine.nickCalls).toEqual([]);
+    // the server's choice isn't remembered as the user's
+    expect(saved).toEqual([]);
+  });
+
+  it('remembers the nick the user changes to once the server takes it', () => {
+    const { chat, engine, saved } = withChoice('me');
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'me', Message: 'Welcome' }));
+    chat.changeNick('TheLion');
+    expect(engine.nickCalls).toEqual(['TheLion']);
+    expect(saved).toEqual([]);
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'me', Message: 'TheLion' }));
+    expect(saved).toEqual(['TheLion']);
+    // a rename nobody asked for (services' Guest…) isn't the user's pick
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'TheLion', Message: 'Guest4242' }));
+    expect(saved).toEqual(['TheLion']);
+  });
+
+  it('a /nick typed in the composer is remembered too', () => {
+    const { chat, engine, saved } = withChoice('me');
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'me', Message: 'Welcome' }));
+    chat.input('/nick Lion');
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'me', Message: 'lion' }));
+    expect(saved).toEqual(['lion']);
+  });
+
+  it("doesn't remember a nick the server refused", () => {
+    const { chat, engine, saved } = withChoice('me');
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'me', Message: 'Welcome' }));
+    chat.changeNick('taken');
+    engine.emit(makeEvent({ Kind: '433', From: 'srv', Target: 'me', Args: ['me', 'taken'], Message: 'Nickname is already in use' }));
+    // our nick changing later (to something else) isn't that pick either
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'me', Message: 'taken' }));
+    expect(saved).toEqual([]);
+  });
+
+  it('a rename following the Boson handle is not remembered', () => {
+    const { chat, engine, saved } = withChoice('old-handle');
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'old-handle', Message: 'Welcome' }));
+    chat.changeNick('new-handle', { remember: false });
+    engine.emit(makeEvent({ Kind: 'NICK', From: 'old-handle', Message: 'new-handle' }));
+    expect(chat.getState().myNick).toBe('new-handle');
+    expect(saved).toEqual([]);
+  });
+
+  it('still gets the nick back after an in-use fallback', () => {
+    const { engine } = withChoice('a-b');
+    engine.emit(makeEvent({ Kind: '433', From: 'srv', Target: '*', Args: ['*', 'a-b'], Message: 'Nickname is already in use' }));
+    engine.emit(makeEvent({ Kind: '001', From: 'srv', Target: 'a-b_', Message: 'Welcome' }));
+    vi.advanceTimersByTime(5_000);
+    expect(engine.nickCalls).toEqual(['a-b']);
   });
 });

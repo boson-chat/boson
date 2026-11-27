@@ -113,6 +113,36 @@ test.describe('connection drops', () => {
     await expect(messages(page).getByText('welcome back')).toBeVisible();
   });
 
+  // The nick the user picks with /nick is the one the app asks for when it
+  // connects again, not the default it started with.
+  test('a nick picked with /nick outlives the reconnect', async ({ launchApp }) => {
+    test.setTimeout(120_000);
+    const p = proxy!;
+    const channel = randomChannel('picked');
+    const peer = await connectPeer();
+    peers.push(peer);
+    const { page, nick } = await connectGuest(launchApp, { port: p.port });
+    await joinViaUi(page, channel, nick);
+    await peer.join(channel);
+    await expect(memberRow(page, peer.nick)).toBeVisible();
+
+    const picked = `pk${nick.slice(-8)}`;
+    let mark = peer.mark();
+    await say(page, `/nick ${picked}`);
+    await waitCmd(peer, 'NICK', nick, (l) => l.params[0] === picked, mark);
+    await expect(page.locator('.chat-nick-chip')).toHaveText(picked);
+
+    mark = peer.mark();
+    p.drop();
+    await waitCmd(peer, 'QUIT', picked, () => true, mark);
+    // registered with the picked nick: back in the channel under it
+    await waitCmd(peer, 'JOIN', picked, (l) => l.params[0] === channel, mark, 60_000);
+    await expect(page.locator('.sidebar-status-dot')).toHaveAttribute('data-state', 'connected', { timeout: 60_000 });
+    await conversation(page, channel).click();
+    await expect(page.locator('.chat-nick-chip')).toHaveText(picked);
+    await expect(memberRow(page, picked)).toBeVisible({ timeout: 30_000 });
+  });
+
   // The connection goes silent under a message (the phone switched from
   // Wi-Fi to cellular): the message shows as sending, the app notices the
   // dead connection within seconds, reconnects and sends it after all.

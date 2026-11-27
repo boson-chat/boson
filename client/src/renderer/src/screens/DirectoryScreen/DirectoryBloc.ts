@@ -6,6 +6,7 @@ import { seenNamespace, seenStoreFor } from '../../modules/seen';
 import { readMarkerStoreFor } from '../../modules/chat/read-markers';
 import { collectPrefs, onLocalPrefsChange, reconcilePrefs } from '../../modules/prefs-sync/prefs-sync';
 import { loadServicesVerdict, servicesVerdicts } from '../../modules/chat/services-verdict';
+import { loadServerNick, saveServerNick, serverNickKey } from '../../modules/identity/server-nick';
 import { registerForSignOut, signOut as signOutEverywhere } from '../../modules/signout/sign-out';
 import { PresenceService } from '../../modules/chat/presence.service';
 import { setAvatar } from '../../modules/chat/avatar-cache';
@@ -828,7 +829,7 @@ export class DirectoryBloc {
       const cur = conn.chat.selfIdentity().nick;
       if (!cur || cur === to) continue;
       if (cur.replace(/_+$/, '').toLowerCase() !== from.replace(/_+$/, '')) continue;
-      conn.chat.changeNick(to);
+      conn.chat.changeNick(to, { remember: false });
     }
   }
 
@@ -2230,6 +2231,11 @@ export class DirectoryBloc {
         if (login.nick) ircNick = login.nick;
       }
     }
+    // The nick the user picked on this server (/nick, Change nick) wins over
+    // the handle-derived default, so it outlives reconnects and restarts.
+    const nickKey = serverNickKey(server.id, userId);
+    const picked = loadServerNick(nickKey);
+    if (picked) ircNick = picked;
     // Re-check after the awaits above: a concurrent connectWith for this
     // server (restore + a click) may have registered it meanwhile, and a
     // second ChatService on the same session would double every event.
@@ -2309,6 +2315,7 @@ export class DirectoryBloc {
       readMarkers: readMarkerStoreFor(seenNamespace(server.id, userId)),
       // The services package, remembered so the next connect needn't probe.
       servicesVerdicts,
+      nickChoice: { save: (nick) => saveServerNick(nickKey, nick) },
     });
     if (opts.carry) chat.seedConversations(opts.carry);
     else {
