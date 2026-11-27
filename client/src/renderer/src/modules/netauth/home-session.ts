@@ -2,8 +2,10 @@
 // guest mode (the network sign-in dialog's "Continue as alice@boson.chat",
 // or its own account), holds the app's account: signed in there is signed
 // in, not a guest. The session moves to the app's main auth service
-// (NetworkAccounts.adoptHomeSession), guest mode ends, and the login screen
-// goes straight to the identity key (its passphrase, or the keychain).
+// (NetworkAccounts.adoptHomeSession) and guest mode ends. A federated
+// session goes straight into the app; one of the network's own accounts
+// goes to the login screen's identity key step (its passphrase, or the
+// keychain).
 //
 // The sign-in screen's own "Continue as …" signs the main account in
 // directly (LoginBloc.continueFederated); this covers sessions made beside
@@ -12,7 +14,7 @@ import { clearGuestSession, emitGuestChange, loadGuestSession } from '../guest/g
 import { resumeIdentityOnLogin } from '../auth/resume-identity';
 import type { NetworkAccounts } from './network-accounts';
 
-export async function promoteHomeSession(accounts: Pick<NetworkAccounts, 'adoptHomeSession'>): Promise<boolean> {
+export async function promoteHomeSession(accounts: Pick<NetworkAccounts, 'adoptHomeSession' | 'mainSession'>): Promise<boolean> {
   if (!loadGuestSession()) return false;
   let moved = false;
   try {
@@ -22,7 +24,11 @@ export async function promoteHomeSession(accounts: Pick<NetworkAccounts, 'adoptH
     return false;
   }
   if (!moved) return false;
-  resumeIdentityOnLogin();
+  // A federated session (alice@boson.chat) goes straight into the app: it
+  // needs no identity key to use this server (modules/identity/
+  // key-request.ts asks when something does). An account of this server's
+  // own unlocks its key as after any sign-in.
+  if (!accounts.mainSession()?.federated) resumeIdentityOnLogin();
   clearGuestSession();
   emitGuestChange();
   return true;

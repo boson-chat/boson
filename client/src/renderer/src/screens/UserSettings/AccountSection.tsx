@@ -7,6 +7,7 @@ import { describeAuthError, type AuthService, type LinkedIdentities } from '../.
 import { RecoveryCodeReveal } from '../../components/RecoveryCodeReveal';
 import { SectionFrame, SettingRow, SettingsGroup } from './SettingsFrame';
 import { useHomeNetwork } from '../../modules/netauth/home-network';
+import { requestIdentityKey } from '../../modules/identity/key-request';
 
 // Settings → Account & security: how you sign in (email, recovery code,
 // linked "Sign in with …" identities) and signing out of this device. As a
@@ -46,7 +47,7 @@ export function AccountSection({ mode, authedEmail, onSignOut, onClose, director
             description={<span class="user-settings-mono-value">{authedEmail ?? '—'}</span>}
           />
         )}
-        <RecoveryCodeSettings directory={directory} identity={identity} open={open} />
+        <RecoveryCodeSettings directory={directory} identity={identity} open={open} federated={!!fed} />
       </SettingsGroup>
       <LinkedSignIns auth={auth} open={open} />
       <SettingsGroup title="This device">
@@ -156,10 +157,13 @@ function LinkedSignIns({ auth, open }: { auth: AuthService; open: boolean }) {
 // learn whether a recovery wrap already exists (→ "Regenerate" vs "Set up").
 // Enrolling wraps the in-memory user_secret under a fresh code and persists
 // the wrap via PUT /me/secret-wraps; the one-time code is then shown once.
-function RecoveryCodeSettings({ directory, identity, open }: {
+function RecoveryCodeSettings({ directory, identity, open, federated = false }: {
   directory: DirectoryService;
   identity: IdentityService;
   open: boolean;
+  // A federated session: the key (the home account's) is asked for here
+  // when it isn't unlocked yet (modules/identity/key-request.ts).
+  federated?: boolean;
 }) {
   const [hasRecovery, setHasRecovery] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
@@ -177,6 +181,13 @@ function RecoveryCodeSettings({ directory, identity, open }: {
 
   const enroll = async (): Promise<void> => {
     setError(null);
+    if (!identity.isUnlocked() && federated) {
+      const had = hasRecovery;
+      if (!(await requestIdentityKey(identity, 'recovery', { force: true }))) return;
+      // Setting the key up just now showed its recovery code already.
+      const me = await directory.getMe().catch(() => null);
+      if (!had && me?.encrypted_user_secret_recovery) { setHasRecovery(true); return; }
+    }
     if (!identity.isUnlocked()) {
       setError('Your identity is locked. Sign in again, then set up a recovery code.');
       return;

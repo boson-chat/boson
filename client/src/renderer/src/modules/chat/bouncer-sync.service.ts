@@ -29,6 +29,10 @@ export class BouncerSyncService {
   // JSON key of the last profile we synced — skips redundant PUTs and stops a
   // just-pulled value from echoing back up. null = nothing synced from here.
   private lastSynced: string | null = null;
+  // A profile saved while the key is locked (a federated session): see
+  // NickservSyncService.onLockedChange. undefined until the store loaded.
+  private lockedChange: (() => void) | null = null;
+  private seenLocked: string | null | undefined = undefined;
 
   constructor(
     private readonly identity: IdentityService,
@@ -48,6 +52,15 @@ export class BouncerSyncService {
     // no-ops while locked, and the lastSynced guard prevents echoing a pulled
     // value, so the initial callback is harmless.
     this.unsubStore = this.store.subscribe(() => this.onLocalChange());
+    void this.store.whenHydrated().then(() => {
+      const p = this.store.get();
+      this.seenLocked = p ? profileKey(p) : null;
+    }, () => {});
+  }
+
+  // Called when the bouncer profile is saved while the key is locked.
+  onLockedChange(fn: (() => void) | null): void {
+    this.lockedChange = fn;
   }
 
   // Sign-out: drop a pending push and what was synced for this account (see
@@ -112,7 +125,15 @@ export class BouncerSyncService {
   // ---- push (write-through) ---------------------------------------------
 
   private onLocalChange(): void {
-    if (!this.identity.isUnlocked()) return;
+    if (!this.identity.isUnlocked()) {
+      if (this.seenLocked === undefined) return;
+      const p = this.store.get();
+      const key = p ? profileKey(p) : null;
+      if (!p || key === this.seenLocked) return;
+      this.seenLocked = key;
+      this.lockedChange?.();
+      return;
+    }
     if (this.pushTimer) clearTimeout(this.pushTimer);
     this.pushTimer = setTimeout(() => {
       this.pushTimer = null;

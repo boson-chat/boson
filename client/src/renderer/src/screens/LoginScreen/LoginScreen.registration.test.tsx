@@ -185,10 +185,14 @@ describe('LoginScreen registration on a self-hosted web client', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     // Back on IRCForever: the app's own account is signed in as
-    // alice@boson.chat (not guest mode beside a network session), and the
-    // identity key comes next, as after any passwordless sign-in.
-    expect(await screen.findByText('Set an identity passphrase.')).toBeTruthy();
-    expect(mainAuth.getState().session?.federated).toMatchObject({ identity: 'alice@boson.chat', homeDomain: 'boson.chat', handle: 'alice-bosonchat' });
+    // alice@boson.chat (not guest mode beside a network session), and
+    // that's it: no identity key step (the app opens; the key is asked for
+    // only when something needs it).
+    await waitFor(() => expect(mainAuth.getState().session?.federated).toMatchObject({ identity: 'alice@boson.chat', homeDomain: 'boson.chat', handle: 'alice-bosonchat' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('Set an identity passphrase.')).toBeNull();
+    expect(screen.queryByText('Unlock your identity key.')).toBeNull();
+    expect(newUserDirectory.getMe).not.toHaveBeenCalled();
     expect(loadGuestSession()).toBeNull();
     expect(accounts.sessionFor({ host: HOME_IRC.host, authUrl: HOME_AUTH, main: true })).toBe(mainAuth.getState().session);
   });
@@ -204,8 +208,10 @@ describe('LoginScreen registration on a self-hosted web client', () => {
       "IRCForever isn't taking new accounts. Use your boson.chat account, or sign in if you have an account here.",
     );
     fireEvent.click(choice);
-    expect(await screen.findByText('Set an identity passphrase.')).toBeTruthy();
-    expect(mainAuth.getState().session?.federated?.identity).toBe('alice@boson.chat');
+    await waitFor(() => expect(mainAuth.getState().session?.federated?.identity).toBe('alice@boson.chat'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryByText('Set an identity passphrase.')).toBeNull();
+    expect(screen.queryByText('Unlock your identity key.')).toBeNull();
     expect(loadGuestSession()).toBeNull();
   });
 

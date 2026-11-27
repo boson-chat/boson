@@ -177,3 +177,31 @@ describe('NickservSyncService — push / write-through', () => {
     svc.dispose();
   });
 });
+
+describe('NickservSyncService — a password saved while the key is locked', () => {
+  // A federated session signs in without the identity key: saving a
+  // password that syncs is when the app asks for it (onLockedChange).
+  it('asks once per new password after the store loaded, then pushes it on unlock', async () => {
+    const identity = new IdentityService(fastArgon, new InMemorySecureStorage());
+    const store = await makeStore();
+    store.set('srv-0', { nickservPassword: 'already-here' });
+    const backend = new FakeBackend();
+    const s = new NickservSyncService(identity, backend, store, new InMemorySecureStorage(), 0);
+    const asked: string[] = [];
+    s.onLockedChange((id) => asked.push(id));
+    s.start();
+    await tick();
+    expect(asked).toEqual([]);
+
+    store.set('srv-1', { nickservPassword: 'pw1' });
+    store.set('srv-1', { nickservPassword: 'pw1' });
+    store.set('srv-2', { status: 'identified' });
+    expect(asked).toEqual(['srv-1']);
+    expect(backend.puts).toEqual([]);
+
+    await identity.initializeForNewUser('home pw');
+    await tick();
+    expect(backend.puts.map((p) => p.serverId).sort()).toEqual(['srv-0', 'srv-1']);
+    s.dispose();
+  });
+});

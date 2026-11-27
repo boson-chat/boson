@@ -61,8 +61,10 @@ export async function resolveIrcLogin(
   const token = await accounts.ircToken(link).catch(() => null);
   if (!token) return { link };
   // A federated account's nick defaults to the handle the network gave it
-  // (alice, or alice-bosonchat when alice was taken).
-  const nick = main ? undefined : sanitizeIrcNick(session.federated?.handle || session.user.username) || undefined;
+  // (alice, or alice-bosonchat when alice was taken), also when it's the
+  // app's own account: the IRC account is this server's, while the
+  // profile (handle, avatar) comes from the home account.
+  const nick = main && !session.federated ? undefined : sanitizeIrcNick(session.federated?.handle || session.user.username) || undefined;
   return { link, token, ...(nick ? { nick } : {}) };
 }
 

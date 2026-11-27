@@ -29,6 +29,7 @@ import { getFriendsController } from '../friends';
 import { getFiles } from '../files';
 import { getNetworkAccounts } from '../netauth/network-accounts';
 import { resetCreationCache } from '../chanserv/creation';
+import { resetKeyRequests } from '../identity/key-request';
 
 export interface AppSignOutDeps {
   engine: EngineClient | null;
@@ -37,9 +38,12 @@ export interface AppSignOutDeps {
   secure: SecureStorage;
   // The credential syncs (NickServ passwords, bouncer profile).
   syncs: ReadonlyArray<{ clearForSignOut(): void }>;
+  // A federated session's identity key is kept under its home account's id
+  // (modules/identity/key-request.ts): that one goes too.
+  homeKeyId?: () => string | null;
 }
 
-export function appSignOutParticipants({ engine, identity, history, secure, syncs }: AppSignOutDeps): SignOutParticipant[] {
+export function appSignOutParticipants({ engine, identity, history, secure, syncs, homeKeyId }: AppSignOutDeps): SignOutParticipant[] {
   // The networks' auth URLs, read before NetworkAccounts forgets them (the
   // storage fallback names their keychain sessions with them).
   let knownAuthUrls: string[] = [];
@@ -55,7 +59,14 @@ export function appSignOutParticipants({ engine, identity, history, secure, sync
     { name: 'engine', phase: 'disconnect', clearForSignOut: () => engine?.clearForSignOut() },
     { name: 'network-accounts', phase: 'disconnect', clearForSignOut: () => getNetworkAccounts()?.clearForSignOut() },
     // ---- wipe ----
-    { name: 'identity', phase: 'wipe', clearForSignOut: async ({ userId }) => { if (userId) await identity.clearStorage(userId); } },
+    {
+      name: 'identity', phase: 'wipe', clearForSignOut: async ({ userId }) => {
+        if (userId) await identity.clearStorage(userId);
+        const home = homeKeyId?.();
+        if (home && home !== userId) await identity.clearStorage(home);
+        resetKeyRequests();
+      },
+    },
     { name: 'history', phase: 'wipe', clearForSignOut: async ({ userId }) => { if (userId && history) await history.wipeAllForUser(userId); } },
     { name: 'history.older', phase: 'wipe', clearForSignOut: () => clearOlderSpill() },
     { name: 'search', phase: 'wipe', clearForSignOut: () => clearSearchSessions() },

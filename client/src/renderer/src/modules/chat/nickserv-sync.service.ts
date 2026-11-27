@@ -37,6 +37,12 @@ export class NickservSyncService {
   // serverId → JSON key of the last password/account we synced, so we skip
   // redundant PUTs and don't echo a just-pulled value back up.
   private readonly lastSynced = new Map<string, string>();
+  // A password saved while the key is locked (a federated session, which
+  // signs in without it): what's asked then (app.tsx asks for the key).
+  // Only edits after the store has loaded, and only a password that
+  // changed, so loading it or a sign-out wipe never asks.
+  private lockedChange: ((serverId: string) => void) | null = null;
+  private seenLocked: Map<string, string> | null = null;
 
   constructor(
     private readonly identity: IdentityService,
@@ -59,6 +65,14 @@ export class NickservSyncService {
     if (this.store.subscribeAll) {
       this.unsubStore = this.store.subscribeAll((serverId) => this.onLocalChange(serverId));
     }
+    void (this.store.whenHydrated?.() ?? Promise.resolve()).then(() => {
+      this.seenLocked = new Map(this.localEntries().map(([id, c]) => [id, credKey(c.nickservPassword, c.accountName)]));
+    }, () => {});
+  }
+
+  // Called when a NickServ password is saved while the key is locked.
+  onLockedChange(fn: ((serverId: string) => void) | null): void {
+    this.lockedChange = fn;
   }
 
   // Sign-out: drop pending pushes and what was synced for this account (the
@@ -137,7 +151,17 @@ export class NickservSyncService {
   // ---- push (write-through) ---------------------------------------------
 
   private onLocalChange(serverId: string): void {
-    if (!this.identity.isUnlocked()) return;
+    if (!this.identity.isUnlocked()) {
+      const creds = this.store.get(serverId);
+      const seen = this.seenLocked;
+      if (!seen || !creds?.nickservPassword) return;
+      const key = credKey(creds.nickservPassword, creds.accountName);
+      if (seen.get(serverId) === key) return;
+      seen.set(serverId, key);
+      // Synced on unlock (hydrateFromBackend pushes local-only entries).
+      this.lockedChange?.(serverId);
+      return;
+    }
     // Debounce: a claim flow fires many store.set()s with intermediate state;
     // coalesce to the terminal value per server.
     const existing = this.pushTimers.get(serverId);
