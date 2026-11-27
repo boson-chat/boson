@@ -1,3 +1,9 @@
+## [0.106.0](https://github.com/boson-chat/boson/compare/v0.105.2...v0.106.0) (2026-11-27)
+
+### Features
+
+* guest-first web entry, network auto-join channels, boson.chat first in the network sign-in ([#180](https://github.com/boson-chat/boson/issues/180)) ([91ecae4](https://github.com/boson-chat/boson/commit/91ecae436be98e3546c63e9d6fd002295c63c5df)), closes [#channel](https://github.com/boson-chat/boson/issues/channel) [auth#40](https://github.com/boson-chat/auth/issues/40)
+
 ## [0.105.2](https://github.com/boson-chat/boson/compare/v0.105.1...v0.105.2) (2026-11-27)
 
 ### Bug Fixes
