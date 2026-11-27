@@ -9,6 +9,8 @@ import type { Server, User } from '../../modules/directory';
 import type { NetworkDirectories } from '../../modules/directory/networks';
 import type { Facets, NetworkSort } from '../../modules/directory/network-api';
 import { subscribeAddServer, subscribeDeepLink } from '../../modules/deep-link/deep-link';
+import { joinHomeOnce, useHomeNetwork } from '../../modules/netauth/home-network';
+import { loadLastServer } from '../../modules/netauth/other-server';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
 import { onHandleChange } from '../../modules/ui/handle-change';
@@ -167,6 +169,15 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
       void bloc.joinFromDeepLink(params);
     });
   }, [bloc]);
+  // A self-hosted network's web client starts on that network's own IRC
+  // server (its boson.json irc.host), once per device — not when the user
+  // came in through "Use another server" for a different network.
+  const home = useHomeNetwork();
+  useEffect(() => {
+    if (guestNick && loadLastServer()) return;
+    joinHomeOnce(home, (params) => { void bloc.joinFromDeepLink(params); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per home network, not per guest flip
+  }, [bloc, home]);
 
   // Inbox click-through: focus the entry's server + open the conversation.
   useEffect(() => {
@@ -477,6 +488,7 @@ interface DirectoryBodyProps {
 // lockstep (no risk of drift between "browsing for the first time" and
 // "browsing to switch servers mid-chat").
 function DirectoryBody({ bloc, state, engine, directory, networks, identity, titled = false }: DirectoryBodyProps) {
+  const home = useHomeNetwork();
   const {
     me, servers, filteredServers, query, language, showNsfw, error, connections, searching,
     tag, sort, facets, hasMore, loadingMore, legacyDirectory, directoryFailures, serverFilters,
@@ -713,7 +725,7 @@ function DirectoryBody({ bloc, state, engine, directory, networks, identity, tit
 
       {legacyDirectory && (
         <p class="directory-source-note" role="status">
-          The network directory didn’t answer, so this is the older boson.chat list. It may be missing new servers.
+          The network directory didn’t answer, so this is the older {home.name} list. It may be missing new servers.
         </p>
       )}
       {!legacyDirectory && directoryFailures.length > 0 && (filteredServers?.length ?? 0) > 0 && (

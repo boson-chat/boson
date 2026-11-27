@@ -7,6 +7,7 @@ import {
 } from '../../modules/netauth/other-server';
 import { NetworkSignInForm } from '../NetworkSignIn/NetworkSignIn';
 import '../NetworkSignIn/NetworkSignIn.css';
+import { useHomeNetwork } from '../../modules/netauth/home-network';
 
 // The login screen's "Use another server" step: the network's address,
 // then its own sign-in (the per-network form), or a guest / plain IRC way
@@ -28,6 +29,7 @@ type Step =
   | { kind: 'nick'; mode: 'guest' | 'plain'; outcome: ResolveOutcome; name: string; irc: IrcTarget | null };
 
 export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, onNetworkHost }: Props) {
+  const home = useHomeNetwork();
   const [address, setAddress] = useState(initialAddress);
   const [step, setStep] = useState<Step>({ kind: 'address' });
   const [busy, setBusy] = useState(false);
@@ -88,14 +90,14 @@ export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, 
         {outcome?.kind === 'error' && <div class="login-error" role="alert">{outcome.message}</div>}
         {outcome?.kind === 'main' && (
           <div class="login-notice" role="status">
-            {outcome.address} is boson.chat's own network: it uses your boson.chat account.
+            {outcome.address} is {home.name}'s own network: it uses your {home.name} account.
           </div>
         )}
         {outcome?.kind === 'no-accounts' && <div class="login-notice" role="status">{outcome.message}</div>}
 
         <div class="login-actions">
           {outcome?.kind === 'main' ? (
-            <Button type="button" variant="primary" fullWidth onClick={onBack}>Sign in to boson.chat</Button>
+            <Button type="button" variant="primary" fullWidth onClick={onBack}>Sign in to {home.name}</Button>
           ) : outcome?.kind === 'no-accounts' && outcome.irc ? (
             <Button
               type="button"

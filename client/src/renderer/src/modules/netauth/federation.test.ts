@@ -4,6 +4,7 @@ import { InMemorySecureStorage } from '../../shared/secure-storage';
 import type { ApiRequest, ApiResponse } from '../../shared/http/transport';
 import { NetworkAccounts, mainDomainOf, sessionKeyFor, type NetAuthBridge } from './network-accounts';
 import { resolveIrcLogin } from './irc-login';
+import { setHomeNetwork } from './home-network';
 import {
   FederationError, acceptsFederation, cleanFederation, describeFederationError, homeDomainOf, issuesAssertions, retryable,
   type FederationErrorCode,
@@ -125,6 +126,33 @@ describe('cleanFederation', () => {
 });
 
 describe('federated sign-in', () => {
+  it("offers a self-hosted web client's own account as alice@<its domain>", async () => {
+    const SELF = 'https://auth.boson.ircforever.org';
+    setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRC Forever', selfHosted: true });
+    try {
+      const servers = fakeServers();
+      const storage = new InMemorySecureStorage();
+      const mainAuth = new AuthService(SELF, { storage, transport: servers.transport });
+      const map: Record<string, Record<string, unknown>> = {
+        // Its boson.json is at boson.ircforever.org, which discovery finds
+        // for the auth host (a lookup of boson.ircforever.org itself would
+        // go to ircforever.org).
+        'auth.boson.ircforever.org': { authUrl: SELF, main: true, federation: fed('boson.ircforever.org') },
+        'irc.boson.chat': { authUrl: MAIN, federation: fed('boson.chat') },
+      };
+      const discover = vi.fn(async (host: string) => ({ host, main: false, ...(map[host] ?? {}) }));
+      const accounts = new NetworkAccounts({ mainAuthUrl: SELF, mainAuth, storage, transport: servers.transport, bridge: { discover }, local: memLocal() });
+      await mainAuth.signIn('alice', 'pw');
+      const bosonChat = (await accounts.discover('irc.boson.chat'))!;
+      expect(bosonChat.main).toBe(false);
+      const homes = await accounts.homeAccounts(bosonChat);
+      expect(discover).toHaveBeenCalledWith('auth.boson.ircforever.org', false);
+      expect(homes).toEqual([expect.objectContaining({ main: true, identity: 'alice@boson.ircforever.org', name: 'IRC Forever', authUrl: SELF })]);
+    } finally {
+      setHomeNetwork(null);
+    }
+  });
+
   it('offers the boson.chat account on a server that accepts accounts from elsewhere', async () => {
     const { accounts, mainAuth } = setup();
     await mainAuth.signIn('alice', 'pw');

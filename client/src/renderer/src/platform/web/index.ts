@@ -6,7 +6,8 @@
 // behaviour (direct fetch, local-storage themes, Web Notifications), or is
 // unavailable on the web (docs/web-client.md).
 import wasmUrl from 'boson-engine-wasm?url';
-import { gatewayUrl, webConfig } from './config';
+import { gatewayUrl, homeNetworkOf, webConfig } from './config';
+import { setHomeNetwork, updateHomeNetwork } from '../../modules/netauth/home-network';
 import { webDeepLinkBridge } from './deep-link';
 import { WebEngine } from './engine';
 import { createWebSecureStore } from './secure-store';
@@ -55,6 +56,24 @@ export async function installWebBridges(): Promise<void> {
   const discoverer = new NetworkDiscoverer({ allowLoopbackHttp: dev, overrides: dev ? e2eEnv?.networkJson ?? [] : [] });
   setNetworkDiscoverer(discoverer);
   const mainAuthUrl = cfg.authUrl || import.meta.env.VITE_AUTH_URL || 'https://auth.boson.chat';
+  // Whose web client this is: boson.chat's, or a self-hosted network's,
+  // which is then the app's own network (its account is the main one, its
+  // IRC server the one the app starts on: its boson.json irc, which on the
+  // stack is the gateway's route to the network's bouncer bridge).
+  const home = homeNetworkOf(cfg, mainAuthUrl);
+  setHomeNetwork(home);
+  if (home.selfHosted) {
+    void discoverer.home(home.domain, mainAuthUrl).then((d) => {
+      // Only the document that names this client's auth service as its own.
+      if (!d.auth || originOf(d.auth) !== originOf(mainAuthUrl)) {
+        console.warn(`home network: ${home.domain}'s boson.json doesn't name ${mainAuthUrl} as its auth service`);
+      } else if (d.irc?.host && !/[/@\s]/.test(d.irc.host)) {
+        updateHomeNetwork({ irc: { host: d.irc.host, port: d.irc.port || 6697, tls: d.irc.tls } });
+      } else {
+        console.warn(`home network: ${home.domain}'s boson.json names no IRC server`);
+      }
+    }).catch((err) => console.warn('home network: discovery failed', err));
+  }
   const apiUrl = cfg.apiUrl || import.meta.env.VITE_BOSON_API_URL || 'https://api.boson.chat';
   const appOrigins = [
     originOf(apiUrl),

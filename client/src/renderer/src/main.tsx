@@ -13,6 +13,7 @@ import { openCall } from './screens/ChatLayout/call-shared';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
 import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
+import { getHomeNetwork, nameFromAuthConfig, updateHomeNetwork } from './modules/netauth/home-network';
 import { windowSecureStorage } from './shared/secure-storage';
 import './styles.css';
 import './shared/modal-portal';
@@ -57,7 +58,7 @@ installDropGuard();
 // blocks: "Blocked host"); client/.env points dev builds at local ones.
 // The web build reads them at runtime (window.bosonWebConfig, from the web
 // container's /boson-config.js), so one build serves any stack.
-const webCfg = (window as { bosonWebConfig?: { authUrl?: string; apiUrl?: string; directoryUrl?: string } }).bosonWebConfig;
+const webCfg = (window as { bosonWebConfig?: { authUrl?: string; apiUrl?: string; directoryUrl?: string; networkName?: string | null } }).bosonWebConfig;
 const authUrl = webCfg?.authUrl || (import.meta.env.VITE_AUTH_URL ?? 'https://auth.boson.chat');
 const bosonUrl = webCfg?.apiUrl || (import.meta.env.VITE_BOSON_API_URL ?? 'https://api.boson.chat');
 
@@ -98,6 +99,11 @@ void (async () => {
     engineToken,
     engineSocket,
   });
+  // A self-hosted web client's own network goes by the name its auth
+  // service gives (unless /boson-config.js names it).
+  if (getHomeNetwork().selfHosted && !webCfg?.networkName?.trim()) {
+    props.auth.config().then((c) => { const name = nameFromAuthConfig(c); if (name) updateHomeNetwork({ name }); }, () => {});
+  }
   // Accounts on self-hosted networks (desktop app only: the shell finds
   // each network's auth service and lets the proxy reach it).
   const netAccounts = netAuthBridge()

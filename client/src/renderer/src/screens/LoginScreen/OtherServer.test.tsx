@@ -9,6 +9,7 @@ import { NetworkAccounts, type ResolvedNetwork } from '../../modules/netauth/net
 import { saveLastServer } from '../../modules/netauth/other-server';
 import { __resetDeepLinkForTests, subscribeAddServer, subscribeDeepLink, type JoinParams } from '../../modules/deep-link/deep-link';
 import { clearGuestSession, loadGuestSession } from '../../modules/guest/guest';
+import { setHomeNetwork } from '../../modules/netauth/home-network';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 
@@ -60,7 +61,7 @@ beforeEach(() => {
   joins.length = 0;
   subscribeDeepLink((p) => joins.push(p));
 });
-afterEach(() => { cleanup(); clearGuestSession(); __resetDeepLinkForTests(); });
+afterEach(() => { cleanup(); clearGuestSession(); __resetDeepLinkForTests(); setHomeNetwork(null); });
 
 async function lookUp(address: string) {
   fireEvent.click(screen.getByRole('button', { name: /use another server/i }));
@@ -157,5 +158,38 @@ describe('Use another server', () => {
     fireEvent.click(btn);
     expect(joins).toEqual([{ ...IRC, name: 'Selfhost' }]);
     expect(loadGuestSession()).toEqual({ nick: 'alice' });
+  });
+});
+
+// A self-hosted network's own web client (home-network.ts): that network is
+// the one the form signs in to, and boson.chat is another server.
+describe('Use another server on a self-hosted web client', () => {
+  beforeEach(() => setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRC Forever', selfHosted: true }));
+
+  it('signs in to the install\'s own network, not boson.chat', () => {
+    setup();
+    expect(document.querySelector('.login-server-host')?.textContent).toBe('boson.ircforever.org');
+    expect(document.body.textContent).not.toMatch(/boson\.chat/);
+    fireEvent.click(screen.getByRole('button', { name: /use another server/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Back to IRC Forever' }));
+    expect(screen.getByRole('tab', { name: 'Login' })).toBeTruthy();
+  });
+
+  it('reaches boson.chat as another server', async () => {
+    const { resolve } = setup({
+      resolve: (a) => ({ host: a, domain: 'boson.chat', irc: { host: 'irc.boson.chat', port: 6697, tls: true }, authUrl: NET, main: false }),
+    });
+    await lookUp('boson.chat');
+    expect(resolve).toHaveBeenCalledWith('boson.chat');
+    expect(await screen.findByRole('heading', { name: 'Selfhost' })).toBeTruthy();
+    expect(screen.queryByText(/own network/)).toBeNull();
+  });
+
+  it('sends its own address back to its own sign-in', async () => {
+    setup({ resolve: (a) => ({ host: a, irc: { host: 'irc.boson.ircforever.org', port: 6697, tls: true }, authUrl: 'https://auth.boson.ircforever.org', main: true }) });
+    await lookUp('boson.ircforever.org');
+    expect((await screen.findByRole('status')).textContent).toBe("boson.ircforever.org is IRC Forever's own network: it uses your IRC Forever account.");
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in to IRC Forever' }));
+    expect(screen.getByRole('tab', { name: 'Login' })).toBeTruthy();
   });
 });

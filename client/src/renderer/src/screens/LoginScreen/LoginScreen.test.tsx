@@ -7,6 +7,7 @@ import type { AuthService } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { HttpError } from '../../shared/http/http.client';
+import { setHomeNetwork } from '../../modules/netauth/home-network';
 
 function buildFakeAuth(overrides: Partial<AuthService> = {}): AuthService {
   const base = {
@@ -104,6 +105,24 @@ describe('LoginScreen', () => {
     expect(screen.getByText(/stay on this device only/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByPlaceholderText('username or email')).toBeInTheDocument();
+  });
+
+  it("says when the app's own network takes no guests: boson.chat", async () => {
+    renderWith(buildFakeAuth({ config: vi.fn(async () => ({ sso_providers: [], guest_access: false })) } as Partial<AuthService>), buildFakeDirectory(), buildFakeIdentity());
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Continue without an account' }));
+    expect(await screen.findByText(/boson\.chat itself needs an account/)).toBeInTheDocument();
+  });
+
+  it("says when the app's own network takes no guests: a self-hosted web client's", async () => {
+    setHomeNetwork({ domain: 'boson.example.org', name: 'Example', selfHosted: true });
+    try {
+      renderWith(buildFakeAuth({ config: vi.fn(async () => ({ sso_providers: [], guest_access: false })) } as Partial<AuthService>), buildFakeDirectory(), buildFakeIdentity());
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Continue without an account' }));
+      expect(await screen.findByText(/Example itself needs an account/)).toBeInTheDocument();
+      expect(screen.queryByText(/boson\.chat/)).toBeNull();
+    } finally {
+      setHomeNetwork(null);
+    }
   });
 
   it('says why when the session ended on its own', () => {

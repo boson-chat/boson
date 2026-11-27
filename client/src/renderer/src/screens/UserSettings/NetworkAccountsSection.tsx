@@ -5,18 +5,20 @@ import {
   getNetworkAccounts, hostOf, type KnownAuth, type NetworkAccounts, type NetworkAccountsSnapshot,
 } from '../../modules/netauth/network-accounts';
 import { SectionFrame, SettingsGroup } from './SettingsFrame';
+import { useHomeNetwork } from '../../modules/netauth/home-network';
 
 // Settings → Network accounts: accounts on self-hosted boson networks, one
 // per network sign-in service, beside the boson.chat account. Each can be
 // signed in or out on its own; the boson.chat-only features say so.
 export function NetworkAccountsSection({ open, accounts = getNetworkAccounts() }: { open: boolean; accounts?: NetworkAccounts | null }) {
+  const home = useHomeNetwork();
   const [snap, setSnap] = useState<NetworkAccountsSnapshot | null>(() => accounts?.getSnapshot() ?? null);
   useEffect(() => (accounts ? accounts.subscribe(setSnap) : undefined), [accounts]);
 
   return (
     <SectionFrame
       title="Network accounts"
-      description="Networks that run their own boson server have their own accounts: signed in, Boson logs you in to that network's IRC and voice with it. Your boson.chat account stays the main one for your profile, encryption key, synced settings and nick claims."
+      description={`Networks that run their own boson server have their own accounts: signed in, Boson logs you in to that network's IRC and voice with it. Your ${home.name} account stays the main one for your profile, encryption key, synced settings and nick claims.`}
     >
       {!accounts || !snap ? (
         <EmptyState>Network accounts need the desktop app.</EmptyState>

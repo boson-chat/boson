@@ -1,5 +1,6 @@
 // "Sign in to <network>": accounts on self-hosted boson networks, next to the
-// app's own (boson.chat) account.
+// app's own account (boson.chat's; on a self-hosted network's web client,
+// that network's: home-network.ts).
 //
 // A network that runs the boson stack names its auth service in
 // https://<domain>/.well-known/boson.json. The desktop shell looks that up
@@ -8,11 +9,12 @@
 // AuthService — its own session, refresh token (in the keychain under its
 // own key) and single-flight refresh — so tokens of one service never meet
 // another's: the network's IRC login (SASL OAUTHBEARER), voice and the like
-// use that network's session, everything boson.chat-only (profile, identity
-// key, sync, nick claims, presence) keeps using the main account. The proxy
+// use that network's session, everything tied to the app's own account
+// (profile, identity key, sync, nick claims, presence) keeps using the main
+// account. The proxy
 // enforces the same split (apiproxy.go: tokenRealmOK).
 //
-// boson.chat-hosted networks (auth == the app's auth) use the main account.
+// The app's own networks (auth == the app's auth) use the main account.
 
 import { AuthService, guestAccessAllowed, type AuthConfig, type Session } from '../auth/auth.service';
 import type { SecureStorage } from '../../shared/secure-storage';
@@ -21,6 +23,7 @@ import {
   acceptsFederation, cleanFederation, federatedSignIn, identityOf, issuesAssertions,
   type FederationInfo, type HomeAccount,
 } from './federation';
+import { getHomeNetwork } from './home-network';
 
 // window.bosonNetAuth (platform/wails.ts → desktop/netauth.go).
 export interface NetAuthBridge {
@@ -131,7 +134,7 @@ export interface NetworkAccountsSnapshot {
 export interface NetworkAccountsOptions {
   mainAuthUrl: string;
   mainAuth: AuthService;
-  // Whether the user is in app-wide guest mode (no boson.chat account).
+  // Whether the user is in app-wide guest mode (no main account).
   isGuest?: () => boolean;
   storage?: SecureStorage;
   transport?: ApiTransport;
@@ -375,7 +378,7 @@ export class NetworkAccounts {
     return p;
   }
 
-  // The network's session (main networks: the boson.chat account, unless in
+  // The network's session (main networks: the main account, unless in
   // guest mode).
   sessionFor(link: NetworkLink): Session | null {
     if (link.main) return this.opts.isGuest?.() ? null : this.opts.mainAuth.getState().session;
@@ -447,7 +450,11 @@ export class NetworkAccounts {
     if (!bridge) return Promise.resolve(null);
     if (!this.mainFed) {
       const domain = mainDomainOf(this.main);
-      this.mainFed = withTimeout(bridge.discover(domain, false), this.opts.discoverTimeoutMs ?? 5000)
+      // Discovery looks a host up at its parent domain (irc.boson.chat →
+      // boson.chat): a deeper domain (boson.example.org, a self-hosted web
+      // client's) is asked for by its auth host (auth.boson.example.org).
+      const query = domain.split('.').length > 2 ? hostOf(this.main).replace(/:\d+$/, '').toLowerCase() : domain;
+      this.mainFed = withTimeout(bridge.discover(query, false), this.opts.discoverTimeoutMs ?? 5000)
         .then((r) => (r?.main || (r?.authUrl && this.isMain(r.authUrl)) ? federationOf(r.federation, domain) ?? null : null))
         .catch(() => null);
       // A failed lookup is tried again next time.
@@ -457,7 +464,7 @@ export class NetworkAccounts {
   }
 
   // The accounts the user is signed in to that can vouch for them on
-  // remote (one "Continue as …" each): the boson.chat account and network
+  // remote (one "Continue as …" each): the main account and network
   // accounts whose server issues assertions. Never remote's own, nor
   // accounts that are themselves federated. [] when remote doesn't take
   // accounts from elsewhere.
@@ -480,7 +487,7 @@ export class NetworkAccounts {
     };
     if (!this.opts.isGuest?.()) {
       const s = this.opts.mainAuth.getState().session;
-      if (s) add(this.main, true, await this.mainFederation(), s, 'boson.chat');
+      if (s) add(this.main, true, await this.mainFederation(), s, getHomeNetwork().name);
     }
     for (const k of this.known) {
       const link = k.hosts.map((h) => this.links[hostKey(h)]).find((l) => l && normalizeAuthBase(l.authUrl) === normalizeAuthBase(k.authUrl));
@@ -681,7 +688,8 @@ export class NetworkAccounts {
   }
 }
 
-// boson.chat for https://auth.boson.chat: where the app's own boson.json is.
+// boson.chat for https://auth.boson.chat (boson.example.org for
+// https://auth.boson.example.org): where the app's own boson.json is.
 export function mainDomainOf(authUrl: string): string {
   const host = hostOf(authUrl).replace(/:\d+$/, '').toLowerCase();
   return host.startsWith('auth.') ? host.slice(5) : host;
