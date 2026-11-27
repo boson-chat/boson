@@ -106,6 +106,15 @@
 .title-bar-actions .bds-btn { -webkit-app-region: no-drag; --wails-draggable: no-drag; }
 .title-bar-user .bds-btn-label { display: inline-flex; align-items: center; gap: var(--space-2); }
 .title-bar-user-name { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A federated account's home: "alice-bosonchat @boson.chat". */
+.title-bar-user-home {
+  margin-left: -2px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  font-weight: 400;
+  color: var(--fg-3);
+  white-space: nowrap;
+}
 
 /* Phones: the bar must fit the screen — a long account name (an email)
    otherwise widens the page, which WebKit then lets scroll sideways. */
@@ -113,6 +122,7 @@
   .title-bar { overflow: hidden; }
   .title-bar-drag { min-width: 0; }
   .title-bar-user-name { max-width: 30vw; }
+  .title-bar-user-home { display: none; }
   .title-bar-update-label { display: none; }
 }
 

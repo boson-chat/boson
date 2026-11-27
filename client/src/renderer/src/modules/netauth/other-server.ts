@@ -10,10 +10,10 @@
 // server list and connected with its account (irc-login.ts: OAUTHBEARER).
 
 import { requestAddServer, requestJoin } from '../deep-link/deep-link';
-import { clearGuestSession, emitGuestChange, loadGuestSession, saveGuestSession } from '../guest/guest';
+import { emitGuestChange, saveGuestSession } from '../guest/guest';
 import { sanitizeIrcNick } from '../identity/nick';
 import type { NetworkAccounts, NetworkLink, ResolvedNetwork } from './network-accounts';
-import { cleanFederation, type HomeAccount } from './federation';
+import { cleanFederation } from './federation';
 
 export interface IrcTarget {
   host: string;
@@ -200,33 +200,3 @@ export function enterToAddServer(nick: string, hostname: string): void {
   emitGuestChange();
 }
 
-// "Continue as alice@boson.chat" on a self-hosted web client's sign-in
-// screen, whose network takes accounts from other Boson servers: the app
-// runs in guest mode (no account of its own here), and its own network is
-// signed in to with the home account like any other network
-// (NetworkAccounts.mainAsNetwork); its IRC is then joined with that
-// session. Throws FederationError, with guest mode undone.
-export async function enterHomeFederated(opts: {
-  accounts: NetworkAccounts;
-  // The app's own network (NetworkAccounts.mainNetworkLink).
-  link: NetworkLink;
-  home: HomeAccount;
-  irc?: IrcTarget | null;
-  name: string;
-}): Promise<void> {
-  const { accounts, link, home, irc } = opts;
-  const before = loadGuestSession();
-  const nickOf = (n: string): string => sanitizeIrcNick(n) || n;
-  // Guest mode first: it's what makes the app's own auth a network one.
-  saveGuestSession({ nick: nickOf(home.username) });
-  let handle: string | undefined;
-  try {
-    handle = (await accounts.signInFederated(link, home)).federated?.handle;
-  } catch (err) {
-    if (before) saveGuestSession(before); else clearGuestSession();
-    throw err;
-  }
-  saveGuestSession({ nick: nickOf(handle || home.username) });
-  if (irc?.host) requestJoin({ host: irc.host, port: irc.port, tls: irc.tls, name: opts.name });
-  emitGuestChange();
-}

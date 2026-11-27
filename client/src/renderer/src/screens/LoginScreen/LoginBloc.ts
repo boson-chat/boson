@@ -172,6 +172,12 @@ export class LoginBloc {
       return;
     }
     this.ssoFlow = null;
+    await this.afterExternalSignIn(userId);
+  }
+
+  // Signed in without a password (a provider, a federated home account):
+  // the identity key comes from the keychain, or needs its passphrase.
+  private async afterExternalSignIn(userId: string): Promise<void> {
     try {
       // This device may hold the key already.
       if (await this.identity.restoreFromStorage(userId)) {
@@ -191,6 +197,34 @@ export class LoginBloc {
     } catch (err) {
       this.setState({ ...this.state, busy: false, ssoPending: null, error: describeAuthError(err) });
     }
+  }
+
+  // "Continue as alice@boson.chat" on a self-hosted web client: `signIn`
+  // signs the app's own account in with the home account (federated, on
+  // this app's auth service: NetworkAccounts.signInFederated while not a
+  // guest), then the identity key as after any external sign-in. A refused
+  // sign-in throws (FederatedSignIn says why).
+  async continueFederated(signIn: () => Promise<{ user: { id: string } }>): Promise<void> {
+    if (this.state.busy) return;
+    this.setState({ ...this.state, error: null, notice: null, unrecoverable: null, recoverable: null, busy: true });
+    let userId: string;
+    try {
+      userId = (await signIn()).user.id;
+    } catch (err) {
+      this.setState({ ...this.state, busy: false });
+      throw err;
+    }
+    await this.afterExternalSignIn(userId);
+  }
+
+  // Already signed in (a federated session after a reload, or a home
+  // network session that just became the app's own) but the identity key
+  // is locked: straight to the key, no sign-in form.
+  async resumeSignedIn(): Promise<void> {
+    const userId = this.auth.getState().session?.user.id;
+    if (!userId || this.state.busy || this.state.identityPrompt) return;
+    this.setState({ ...this.state, busy: true });
+    await this.afterExternalSignIn(userId);
   }
 
   // Stop waiting for the browser.

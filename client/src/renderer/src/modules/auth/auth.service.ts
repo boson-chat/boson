@@ -399,6 +399,28 @@ export class AuthService {
     }
   }
 
+  // Takes over `from`'s session (same auth service, another store): saved
+  // here and dropped there, without a server-side logout — the session goes
+  // on, only its keeper changes. Used when a self-hosted web client's home
+  // network session (signed in beside guest mode) becomes the app's own.
+  // false when `from` has none, or is a different auth service.
+  async adopt(from: AuthService): Promise<boolean> {
+    const session = from.getState().session;
+    if (!session || from === this || originOf(from.baseUrl) !== originOf(this.baseUrl)) return false;
+    await from.forgetLocally();
+    this.epoch++;
+    await this.save(session);
+    this.setState({ session, loading: false, error: null });
+    return true;
+  }
+
+  // Forgets the session on this device only (no /v1/logout).
+  async forgetLocally(): Promise<void> {
+    this.epoch++;
+    await this.clearSaved();
+    this.setState({ session: null, loading: false, error: null });
+  }
+
   // Merge profile fields into the session's user_metadata cache.
   async updateMetadata(data: Record<string, unknown>): Promise<void> {
     const s = this.state.session;

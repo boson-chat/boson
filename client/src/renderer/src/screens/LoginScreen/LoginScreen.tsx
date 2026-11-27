@@ -6,11 +6,12 @@ import type { IdentityService } from '../../modules/identity';
 import { Button, Card, Field, Input, Logo, Tabs } from '@boson/shared';
 import { PASSWORD_MIN } from '../../modules/auth/signup-rules';
 import { LoginBloc, type LoginMode } from './LoginBloc';
+import { takeResumeIdentity } from '../../modules/auth/resume-identity';
 import { emitGuestChange, saveGuestSession } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import { getNetworkAccounts, normalizeAuthBase, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
 import {
-  clearLastServer, enterHomeFederated, enterWithServer, loadLastServer, type LastServer,
+  clearLastServer, enterWithServer, loadLastServer, type LastServer,
 } from '../../modules/netauth/other-server';
 import { acceptsFederation, type HomeAccount } from '../../modules/netauth/federation';
 import { OtherServer } from './OtherServer';
@@ -43,6 +44,14 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   } = state;
   const { session, signedOutReason } = useAuthState();
   useEffect(() => { void bloc.loadProviders(); }, [bloc]);
+  // Signed in already, identity key locked: a federated session (no
+  // password to type) or a home network session that just became the
+  // app's own goes straight to the key.
+  useEffect(() => {
+    const resume = takeResumeIdentity();
+    if (session && (resume || session.federated)) void bloc.resumeSignedIn();
+    // Once, on mount.
+  }, [bloc]);
   useEffect(() => () => bloc.cancelSignInWith(), [bloc]);
   const usernameProblem = bloc.usernameProblem();
   const [recoveryInput, setRecoveryInput] = useState('');
@@ -469,6 +478,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
               link={fed.link}
               homes={fed.homes}
               home={home}
+              signIn={(h) => bloc.continueFederated(() => accounts.signInFederated(fed.link!, h))}
               offerBosonChat={offerBosonChat}
               autoStart={autoStart}
               note={fedNote}
@@ -763,24 +773,19 @@ function sameHomes(a: HomeAccount[], b: HomeAccount[]): boolean {
 // Above the home network's sign-in form: "Continue as alice@boson.chat"
 // (federated sign-in, FederatedSignIn) for each account that can vouch,
 // else "Continue with boson.chat" (sign in there first, then come back).
-function HomeFederation({ accounts, link, homes, home, offerBosonChat, autoStart, note, onBosonChat }: {
+function HomeFederation({ accounts, link, homes, home, signIn, offerBosonChat, autoStart, note, onBosonChat }: {
   accounts: NetworkAccounts;
   link: NetworkLink;
   homes: HomeAccount[];
   home: HomeNetwork;
+  // Signs the app's own account in as that home account.
+  signIn: (h: HomeAccount) => Promise<void>;
   offerBosonChat: boolean;
   autoStart: string | null;
   note: string | null;
   onBosonChat: () => void;
 }) {
   const divider = `or sign in to ${home.name}`;
-  const signIn = (h: HomeAccount): Promise<void> => enterHomeFederated({
-    accounts,
-    link: { ...link, ...(home.irc?.host ? { host: home.irc.host.toLowerCase() } : {}) },
-    home: h,
-    irc: home.irc ?? null,
-    name: home.name,
-  });
   return (
     <>
       {note && <div class="login-error" role="alert">{note}</div>}

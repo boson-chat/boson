@@ -123,6 +123,7 @@ function AppShell({ auth, directory, engine, identity, history, networks }: AppP
         onOpenSettings={() => { setSettingsSection(null); setSettingsOpen(true); }}
         userLabel={userLabel}
         userMode={userMode}
+        userHomeDomain={userMode === 'account' ? session?.federated?.homeDomain ?? null : null}
         avatarUrl={userMode === 'account' ? authedAvatar : null}
         onOpenNotifications={() => setNotesOpen((o) => !o)}
         notificationsCount={unreadCount}

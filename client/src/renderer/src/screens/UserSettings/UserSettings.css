@@ -486,6 +486,7 @@
 .user-settings-setting-desc { font-size: var(--text-sm); line-height: 1.45; color: var(--fg-2); overflow-wrap: anywhere; }
 .user-settings-setting-action { flex: none; display: flex; align-items: center; gap: var(--space-2); }
 .user-settings-mono-value { font-family: var(--font-mono); color: var(--fg); }
+.user-settings-federated-note { color: var(--fg-3); }
 
 /* A choice of a few (Segmented) under its title. */
 .user-settings-choice { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; }

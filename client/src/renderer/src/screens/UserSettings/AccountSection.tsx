@@ -22,14 +22,30 @@ export function AccountSection({ mode, authedEmail, onSignOut, onClose, director
   open: boolean;
 }) {
   if (mode === 'guest') return <GuestAccountSection onClose={onClose} />;
+  // A federated account (alice@boson.chat): its home server signs it in.
+  const fed = (typeof auth.getState === 'function' ? auth.getState().session?.federated : null) ?? null;
   return (
     <SectionFrame title="Account & security" description="How you sign in to your Boson account.">
       <SettingsGroup title="Sign-in">
-        <SettingRow
-          class="user-settings-email"
-          title="Email"
-          description={<span class="user-settings-mono-value">{authedEmail ?? '—'}</span>}
-        />
+        {fed && (
+          <SettingRow
+            class="user-settings-federated"
+            title="Signed in with"
+            description={(
+              <>
+                <span class="user-settings-mono-value">{fed.identity}</span>
+                <span class="user-settings-federated-note"> · {fed.homeDomain} vouches for you; your password stays there.</span>
+              </>
+            )}
+          />
+        )}
+        {(!fed || authedEmail) && (
+          <SettingRow
+            class="user-settings-email"
+            title="Email"
+            description={<span class="user-settings-mono-value">{authedEmail ?? '—'}</span>}
+          />
+        )}
         <RecoveryCodeSettings directory={directory} identity={identity} open={open} />
       </SettingsGroup>
       <LinkedSignIns auth={auth} open={open} />
