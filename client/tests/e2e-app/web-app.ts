@@ -24,7 +24,7 @@ const BROWSERS: Record<BrowserName, BrowserType> = { chromium, firefox, webkit }
 // gets their text (networkJson), and the e2e voice/video servers'
 // self-signed certificate info by host:port (certInfo).
 function pageEnv(env: Record<string, string>): Record<string, unknown> {
-  const keep = ['BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP'];
+  const keep = ['BOSON_E2E_API_DOWN', 'BOSON_E2E_HOST_MAP', 'BOSON_E2E_PUSH_SUBSCRIPTION'];
   const out: Record<string, unknown> = {};
   for (const k of keep) if (env[k] !== undefined) out[k] = env[k]!;
   // As on the desktop: BOSON_NETWORK_JSON is a network's whole boson.json
@@ -76,7 +76,11 @@ export async function launchWebApp(
     ...((device.browserName ?? 'chromium') === 'chromium' ? ['notifications', 'clipboard-read', 'clipboard-write'] : []),
     ...media.permissions,
   ];
+  // Push (push.spec.ts): the headless shell runs no service worker
+  // notifications; Chromium's own (new) headless mode does.
+  const channel = env['BOSON_E2E_PUSH_SUBSCRIPTION'] && (device.browserName ?? 'chromium') === 'chromium' ? { channel: 'chromium' } : {};
   const context: BrowserContext = await browser.launchPersistentContext(join(p.userData, `web-${device.browserName ?? 'chromium'}`), {
+    ...channel,
     viewport: { width: 1280, height: 800 },
     ...dev,
     permissions,

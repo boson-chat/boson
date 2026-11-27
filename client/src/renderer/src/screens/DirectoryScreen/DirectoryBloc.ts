@@ -13,6 +13,7 @@ import { setAvatar } from '../../modules/chat/avatar-cache';
 import { getServiceCredentialsStore } from '../../modules/chat/services-credentials';
 import { getBouncerStore } from '../../modules/chat/bouncer.store';
 import { getNotifier } from '../../modules/ui/notifier';
+import { getPushManager } from '../../modules/push/push.manager';
 import { getWindowBridge } from '../../shared/window-controls';
 import { parseZncNetworks } from '../../modules/chat/znc.parse';
 import { BOUNCER_NETWORKS_CAP, bouncerNetworkNames, parseBouncerNetworkArgs, type BouncerNetwork } from '../../modules/chat/bouncer-networks.parse';
@@ -90,6 +91,8 @@ interface Connection {
   unsubscribeBouncerUpstream: () => void;
   unsubscribeChat: () => void;
   unsubscribePresence: () => void;
+  // Push notifications for this server (modules/push).
+  unsubscribePush?: () => void;
 }
 
 interface AutoReconnectState {
@@ -386,6 +389,9 @@ export class DirectoryBloc {
     // the originating server + channel.
     const notifier = getNotifier();
     notifier.start();
+    // A push notification opened (a click in the browser, a tap on a
+    // phone): the same as a banner's click, once the server is connected.
+    this.unsubscribePushOpen = getPushManager().onOpen((serverId, channel) => this.activateFromNotification(serverId, channel));
     notifier.setOnActivate((serverId, channel, ev) => {
       // A reply's banner: the thread it's in opens once the channel shows.
       if (ev && channel && (ev.messageId || ev.msgid)) requestThread({ serverId, channel, messageId: ev.messageId, msgid: ev.msgid });
@@ -469,6 +475,9 @@ export class DirectoryBloc {
   private readonly listingLookups = new Set<string>();
   private unsubscribeSources: (() => void) | null = null;
   private unsubscribeEngineReconnect: (() => void) | null = null;
+  private unsubscribePushOpen: (() => void) | null = null;
+  // A push notification opened for a server that isn't connected yet.
+  private pendingActivation: { serverId: string; channel: string } | null = null;
   private hiddenAt: number | null = null;
   private resumeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -546,7 +555,12 @@ export class DirectoryBloc {
   private activateFromNotification(serverId: string, channel: string): void {
     void getWindowBridge()?.show?.();
     const conn = this.connections.get(serverId);
-    if (!conn) return;
+    if (!conn) {
+      // Not connected yet (the app was started by the notification): once
+      // it is.
+      this.pendingActivation = { serverId, channel };
+      return;
+    }
     if (this.serverBrowserOpen) { this.serverBrowserOpen = false; this.emit(); }
     this.setActiveServer(serverId);
     if (channel) conn.chat.setActive(channel);
@@ -600,6 +614,7 @@ export class DirectoryBloc {
     this.unsubscribeBouncerProfile?.();
     this.unsubscribeBouncerProfile = null;
     this.unsubscribeEngineReconnect?.();
+    this.unsubscribePushOpen?.();
     this.unsubscribeEngineReconnect = null;
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
     if (typeof window !== 'undefined') {
@@ -1155,6 +1170,9 @@ export class DirectoryBloc {
       clearTimeout(ar.nextAttemptTimer);
     }
     this.autoReconnect.delete(serverId);
+    // Leaving the server: its push subscription goes too (UNREGISTER while
+    // the connection is still up).
+    void getPushManager().forget(serverId);
     this.teardownConnection(conn, { sendDisconnect: true });
     this.connections.delete(serverId);
     if (this.activeServerId === serverId) {
@@ -1189,6 +1207,7 @@ export class DirectoryBloc {
       return;
     }
     this.forgetServer(activeId);
+    void getPushManager().forget(activeId);
     this.pendingJoins.delete(activeId);
     this.restored = true;
     this.restoring = false;
@@ -2341,6 +2360,19 @@ export class DirectoryBloc {
       unsubscribePresence: () => {},
     };
 
+    // Push notifications (docs/push.md §3): offered on Boson networks to
+    // people signed in with that network's account, not to guests or
+    // through a bouncer; registered on every connect.
+    conn.unsubscribePush = getPushManager().attach({
+      serverId: server.id,
+      serverName: (loginLink ? this.netAccounts()?.nameFor(loginLink.authUrl, server.name) : '') || server.name,
+      host: server.hostname,
+      boson: !!loginLink,
+      viaBouncer,
+      signedIn: !!oauthbearer,
+      session,
+    });
+
     // Presence: publish our IRC identity for this connection + resolve other
     // members into profile images (avatar cache). No-ops while signed-out /
     // before the network name is known. Falls back to the server hostname as
@@ -2418,6 +2450,12 @@ export class DirectoryBloc {
         }
         this.scheduleAutojoin(server.id);
         if (this.restoring) this.restoring = false;
+        // A push notification opened before this server was connected.
+        const pa = this.pendingActivation;
+        if (pa?.serverId === server.id) {
+          this.pendingActivation = null;
+          queueMicrotask(() => { if (!this.disposed) this.activateFromNotification(pa.serverId, pa.channel); });
+        }
       }
       if (state === 'disconnected' || state === 'idle') {
         if (this.restoring) this.restoring = false;
@@ -2599,6 +2637,7 @@ export class DirectoryBloc {
     c.unsubscribeBouncerUpstream();
     c.unsubscribeChat();
     c.unsubscribePresence();
+    c.unsubscribePush?.();
     c.chat.detach();
     if (opts.sendDisconnect && !c.session.isDisposed()) {
       c.session.disconnect();

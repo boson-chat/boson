@@ -276,6 +276,10 @@ func New(cfg Config) (*Client, error) {
 			// draft/message-redaction: deleting messages (REDACT). Ergo
 			// offers it only with history.retention.allow-individual-delete.
 			"draft/message-redaction": nil,
+			// draft/webpush: push notifications while no client is
+			// connected. The renderer reads the ACK (with ISUPPORT VAPID=)
+			// to offer push and sends WEBPUSH REGISTER itself (modules/push).
+			"draft/webpush": nil,
 		},
 	})
 	if cfg.BouncerNetworks {
@@ -1131,6 +1135,10 @@ func translate(e girc.Event) Event {
 		if len(e.Params) >= 2 {
 			out.Message = e.Params[1]
 		}
+	case "WEBPUSH":
+		// draft/webpush: WEBPUSH REGISTER <endpoint> [keys] /
+		// WEBPUSH UNREGISTER <endpoint>, the server's answer to ours.
+		out.Args = append([]string(nil), e.Params...)
 	case "CHATHISTORY":
 		// CHATHISTORY TARGETS <target> <timestamp>, inside a
 		// chathistory-targets batch: the conversations with recent

@@ -40,6 +40,7 @@ export const ACCOUNT_KEYS: KeySet = {
     'boson:read-markers:v1:', // how far each conversation was read, per user + server
     'boson:server-nick:v1', // the nick picked on each server, per user + server
     'boson:image-dims:v1', // sizes of images seen in conversations (by URL)
+    'boson:push:v1', // push subscriptions per server (endpoints, turned off)
   ],
   secure: [
     'boson.auth.session', // the access + refresh token
@@ -76,7 +77,7 @@ export const DEVICE_KEYS: KeySet = {
 // Literals that look like keys but aren't storage keys (event names, hosts).
 export const NOT_KEYS: readonly string[] = [
   'boson:embeds:change', 'boson:chat-display:change', 'boson:guest:change', 'boson:notifications:change', 'boson:privacy:change',
-  'boson:network', 'boson.chat', 'boson.json', 'boson.json:',
+  'boson:network', 'boson.chat', 'boson.json', 'boson.json:', 'boson:push-open',
   'boson:', // the boson:// URL scheme
   'boson.', // the secure stores' minimum prefix
 ];

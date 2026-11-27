@@ -19,6 +19,8 @@ import { webNetAuthBridge } from './netauth';
 import { webFilesBridge } from './files';
 import { webBrandingBridge } from './branding';
 import { webUnfurlBridges } from './unfurl';
+import { webPushBridge } from './push';
+import type { PushSubscriptionInfo } from '../../modules/push/push.types';
 
 function originOf(u: string | undefined): string {
   try { return u ? new URL(u).origin : ''; } catch { return ''; }
@@ -93,6 +95,16 @@ export async function installWebBridges(): Promise<void> {
   // passes on the player's errors, so a video YouTube won't play here
   // becomes the card that opens it on YouTube.
   w.bosonYouTube = { wrapperOrigin: location.origin };
+
+  // Push notifications through the browser's push service, one service
+  // worker per server (push.ts, push-sw.ts; docs/push.md §3).
+  // e2e builds: a subscription from the test instead of the browser's push
+  // service (headless browsers get none); the worker is still registered.
+  const e2ePush = (window as unknown as { bosonWebE2EEnv?: { BOSON_E2E_PUSH_SUBSCRIPTION?: string } }).bosonWebE2EEnv?.BOSON_E2E_PUSH_SUBSCRIPTION;
+  w.bosonPush = webPushBridge({
+    base: document.baseURI,
+    ...(cfg.e2e && e2ePush ? { fakeSubscription: JSON.parse(e2ePush) as PushSubscriptionInfo } : {}),
+  });
 
   // Ask the browser to keep this origin's storage (history, the secure
   // store) under storage pressure. Best-effort; no prompt in most browsers.

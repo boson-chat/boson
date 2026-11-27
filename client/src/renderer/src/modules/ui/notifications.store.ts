@@ -241,3 +241,13 @@ export function ownChannelLevels(serverId: string): Array<{ channel: string; lev
     .map(([k, level]) => ({ channel: k.slice(prefix.length), level }))
     .sort((a, b) => Number(isChannelName(b.channel)) - Number(isChannelName(a.channel)) || a.channel.localeCompare(b.channel));
 }
+
+// Every level set (servers' and conversations'), for receivers that apply
+// them away from this page (push: modules/push/filter.ts). Conversation keys
+// are `${serverId}\0${name lower-cased}`.
+export function notificationLevelsSnapshot(): {
+  servers: Record<string, Partial<ServerNotifyLevels>>;
+  levels: Record<string, ChannelLevel>;
+} {
+  return { servers: { ...loadServers() }, levels: { ...loadLevels() } };
+}
