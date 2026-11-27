@@ -200,6 +200,12 @@ static void edgeToEdge(void) {
 }
 @end
 
+// From the Go archive (notify_ios.m, push_ios.m): the notification
+// centre's delegate, set before launch so a tap that starts the app reaches
+// it, and the APNs token callbacks on Wails' app delegate.
+extern void bnInitEarly(void);
+extern void bpInstallHooks(void);
+
 int main(int argc, char * argv[]) {
     @autoreleasepool {
         // Disable buffering so stdout/stderr from Go log.Printf flush immediately
@@ -208,6 +214,8 @@ int main(int argc, char * argv[]) {
 
         // Only the Objective-C runtime: the Go runtime isn't started here.
         edgeToEdge();
+        bnInitEarly();
+        bpInstallHooks();
 
         // Call UIApplicationMain IMMEDIATELY and start NOTHING else here. Do not
         // start the Go runtime yet: starting it concurrently with UIApplicationMain

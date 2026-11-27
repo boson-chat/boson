@@ -364,6 +364,16 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+  # The iOS push extension's decrypt / parsing / filtering (Swift, run on
+  # the Mac; desktop/build/ios/push/tests). No signing needed.
+  ios-push-tests:
+    name: iOS push extension tests
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: desktop/scripts/test-ios-push.sh
+
   # A development-signed iPhone build for over-the-air install on the
   # devices its provisioning profile lists: Boson-ios.ipa plus the
   # itms-services manifest Boson-ios.plist (desktop/scripts/package-ios.sh,

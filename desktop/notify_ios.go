@@ -4,7 +4,7 @@ package main
 
 /*
 #cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework UserNotifications -framework Foundation
+#cgo LDFLAGS: -framework UserNotifications -framework Foundation -framework UIKit
 #include <stdlib.h>
 #include "notify_ios.h"
 */

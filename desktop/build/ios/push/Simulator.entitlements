@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The push extension's entitlements in simulator builds (embedded in its
+     executable, as the app's are): the App Group it reads keys through. -->
+<plist version="1.0">
+<dict>
+    <key>application-identifier</key>
+    <string>FJY7UPX884.chat.boson.app.push</string>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.chat.boson.app</string>
+    </array>
+</dict>
+</plist>

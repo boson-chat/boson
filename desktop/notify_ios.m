@@ -3,6 +3,7 @@
 // Manual retain/release, like the package's other Objective-C.
 #import <Foundation/Foundation.h>
 #import <UserNotifications/UserNotifications.h>
+#import <UIKit/UIKit.h>
 #include "notify_ios.h"
 #include "_cgo_export.h"
 
@@ -15,6 +16,13 @@
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center
        willPresentNotification:(UNNotification *)notification
          withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler {
+    // A push (the extension marks them) while Boson is open: it's connected
+    // and has notified in its own way already.
+    if (notification.request.content.userInfo[@"boson"] != nil &&
+        UIApplication.sharedApplication.applicationState == UIApplicationStateActive) {
+        completionHandler(UNNotificationPresentationOptionNone);
+        return;
+    }
     if (@available(iOS 14.0, *)) {
         completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionList | UNNotificationPresentationOptionSound);
     } else {
@@ -26,14 +34,30 @@
 didReceiveNotificationResponse:(UNNotificationResponse *)response
          withCompletionHandler:(void (^)(void))completionHandler {
     if ([response.actionIdentifier isEqualToString:UNNotificationDefaultActionIdentifier]) {
-        NSString *ident = response.notification.request.identifier ?: @"";
-        bosonNotifyTapped((char *)ident.UTF8String);
+        NSDictionary *push = response.notification.request.content.userInfo[@"boson"];
+        if ([push isKindOfClass:[NSDictionary class]]) {
+            // A push notification (build/ios/push/): its conversation.
+            NSString *server = [push[@"server"] isKindOfClass:[NSString class]] ? push[@"server"] : @"";
+            NSString *conv = [push[@"conversation"] isKindOfClass:[NSString class]] ? push[@"conversation"] : @"";
+            bosonPushTapped((char *)server.UTF8String, (char *)conv.UTF8String);
+        } else {
+            NSString *ident = response.notification.request.identifier ?: @"";
+            bosonNotifyTapped((char *)ident.UTF8String);
+        }
     }
     completionHandler();
 }
 @end
 
 static BNDelegate *bnDelegate = nil;
+
+// From main() (build/ios/main.m), before UIApplicationMain: a tap on a
+// notification that launches the app is only delivered to a delegate set
+// before launching finishes.
+void bnInitEarly(void) {
+    if (bnDelegate == nil) bnDelegate = [[BNDelegate alloc] init];
+    [UNUserNotificationCenter currentNotificationCenter].delegate = bnDelegate;
+}
 
 void bnInit(void) {
     dispatch_async(dispatch_get_main_queue(), ^{
