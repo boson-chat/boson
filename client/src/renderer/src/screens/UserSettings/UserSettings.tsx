@@ -38,7 +38,7 @@ export { resolveSection, type SectionId } from './sections';
 //            its section full screen, with a back arrow to the list
 //
 // Mode-aware: a guest edits their nick in Profile and finds "Switch to an
-// account" under Account; before signing in only Appearance and About show.
+// account" under Account; before signing in only Privacy, Appearance and About show.
 
 interface UserSettingsProps {
   open: boolean;
@@ -60,11 +60,11 @@ interface UserSettingsProps {
   // ('identity', 'content') still work.
   initialSection?: string | null;
   // Neither signed in nor a guest (the login screen): only what applies
-  // before signing in — Appearance and About.
+  // before signing in — Privacy (this device's), Appearance and About.
   signedOut?: boolean;
 }
 
-const SIGNED_OUT_SECTIONS: ReadonlySet<SectionId> = new Set(['appearance', 'about']);
+const SIGNED_OUT_SECTIONS: ReadonlySet<SectionId> = new Set(['privacy', 'appearance', 'about']);
 
 export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth, initialSection, signedOut = false }: UserSettingsProps) {
   const [chosen, setSection] = useState<SectionId>('profile');

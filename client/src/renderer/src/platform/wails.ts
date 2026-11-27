@@ -8,6 +8,7 @@ import type { WebSocketLike } from '../modules/engine/engine.client';
 import type { ApiRequest, ApiResponse } from '../shared/http/transport';
 import { applyPhoneScale } from '../shared/phone-scale';
 import { nativePushBridge } from './native-push';
+import { noteCrash } from '../modules/telemetry/telemetry';
 import type { PushPlatform } from '../modules/push/push.types';
 import type { BosonWindowBridge } from '../shared/window-controls';
 
@@ -40,7 +41,12 @@ class WailsEngineSocket implements WebSocketLike {
         this.onmessage?.call(this, new MessageEvent('message', { data: frame }));
       }),
       Events.On('engine:closed', (ev) => {
-        if (this.session !== 0 && ev.data === this.session) this.fail();
+        if (this.session !== 0 && ev.data === this.session) {
+          // The session ended under an open socket (the page didn't close
+          // it): an engine crash, for the usage & health stats.
+          if (this.readyState === 1) noteCrash();
+          this.fail();
+        }
       }),
     );
     Call.ByName(`${ENGINE}.Open`).then(

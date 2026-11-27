@@ -230,6 +230,18 @@ to the GitHub Release: `Boson-mac-arm64.dmg` and `Boson-mac-x64.dmg`
 `update-manifest.json` and its ed25519 signature `update-manifest.json.sig`, signed with the `UPDATE_SIGNING_KEY` secret
 ([docs/wails-migration.md](docs/wails-migration.md), "Phase 5: updater"). The website's ([boson-chat/website](https://github.com/boson-chat/website)) download links point at those names. When the iOS signing secrets are set, a release also carries a development-signed `Boson-ios.ipa` and its over-the-air manifest `Boson-ios.plist`, installable only on the registered test iPhones via `itms-services://?action=download-manifest&url=https://github.com/boson-chat/boson/releases/download/vX.Y.Z/Boson-ios.plist`. Its embedded provisioning profile makes those devices' UDIDs and the developer's name public: see [docs/ios-release.md](docs/ios-release.md). The backend image is released from [boson-chat/backend](https://github.com/boson-chat/backend).
 
+## Usage & health stats
+
+The apps send one anonymous ping a day to `https://telemetry.boson.chat/v1/app`
+(`client/src/renderer/src/modules/telemetry`): a random device ID, the app
+version, platform, channel, crash count and a bucketed count of connected
+servers; never names, messages or server names. Settings → Privacy → **Usage &
+health stats** turns it off; the web build starts off under Do Not Track /
+Global Privacy Control. Dev servers and e2e builds never send unless
+`VITE_TELEMETRY_URL` points them somewhere (`off` disables it in any build).
+The contract is boson-chat/stack `docs/telemetry.md`; the public explanation
+is https://boson.chat/telemetry.
+
 ## Useful one-shots
 
 ```bash

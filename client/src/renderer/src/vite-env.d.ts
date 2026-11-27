@@ -10,6 +10,9 @@ interface ImportMetaEnv {
   readonly VITE_ENGINE_TOKEN?: string;
   // 'web' for the browser build (chat.boson.chat): platform/web.
   readonly VITE_BOSON_SHELL?: string;
+  // The usage & health stats receiver (modules/telemetry); default
+  // https://telemetry.boson.chat outside dev/e2e builds, "off" for none.
+  readonly VITE_TELEMETRY_URL?: string;
 }
 
 // The web build's engine (scripts/build-web-engine.mjs → platform/web/gen,

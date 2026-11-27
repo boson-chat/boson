@@ -4,6 +4,7 @@
 // platform/wails.ts does over Wails events: each socket is one engine
 // session carrying the same JSON frames, over a MessagePort.
 import type { WebSocketLike } from '../../modules/engine/engine.client';
+import { noteCrash } from '../../modules/telemetry/telemetry';
 
 export type WorkerFactory = () => Worker;
 
@@ -39,10 +40,12 @@ export class WebEngine {
     const worker = this.opts.createWorker();
     this.worker = worker;
     const t0 = performance.now();
+    let started = false;
     this.ready = new Promise<void>((resolve, reject) => {
       const onMessage = (ev: MessageEvent<EngineWorkerReply>): void => {
         if (ev.data?.type === 'ready') {
           console.info(`[engine] ready in ${Math.round(performance.now() - t0)} ms`);
+          started = true;
           resolve();
         }
         else if (ev.data?.type === 'failed') reject(new Error(ev.data.error));
@@ -50,7 +53,11 @@ export class WebEngine {
         worker.removeEventListener('message', onMessage);
       };
       worker.addEventListener('message', onMessage);
-      worker.addEventListener('error', (e) => reject(new Error(e.message || 'engine worker failed')));
+      worker.addEventListener('error', (e) => {
+        // After it started: the engine crashed (usage & health stats).
+        if (started) noteCrash();
+        reject(new Error(e.message || 'engine worker failed'));
+      });
       const req: EngineWorkerRequest = { type: 'start', wasmUrl: this.opts.wasmUrl, gatewayUrl: this.opts.gatewayUrl };
       worker.postMessage(req);
     });
@@ -124,6 +131,8 @@ export class WebEngine {
               if ('frame' in m) {
                 if (this.readyState === 1) this.onmessage?.call(this, new MessageEvent('message', { data: m.frame }));
               } else if ('closed' in m) {
+                // The engine ended the session under an open socket: a crash.
+                if (this.readyState === 1) noteCrash();
                 this.fail();
               }
             };

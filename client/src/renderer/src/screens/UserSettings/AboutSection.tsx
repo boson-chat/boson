@@ -144,7 +144,7 @@ export function AboutSection() {
 // the OS browser instead). The shell's window.open hands them to
 // desktop/links.go — preventDefault here just stops the in-window nav
 // attempt that would precede that handoff.
-function ExternalLink({ href, children }: { href: string; children: ComponentChildren }) {
+export function ExternalLink({ href, children }: { href: string; children: ComponentChildren }) {
   return (
     <a
       class="user-settings-link"
