@@ -79,8 +79,12 @@ export function roleShort(r: VoiceRole | undefined): string {
   return ROLE_SHORT[r ?? 'member'] ?? r ?? 'anyone';
 }
 
-// Why a room can't be joined, for its tooltip.
+// Why a room can't be joined: the voice server's own reason when it sends
+// one (it knows about network roles, guests and lookups that failed), else
+// worked out from the room's locks.
 export function lockReason(r: VoiceRoom): string {
+  const said = r.lockReason?.trim();
+  if (said) return said.charAt(0).toUpperCase() + said.slice(1);
   const where = r.parent ? ` in ${r.parent}` : '';
   if (r.minRole === 'oper') return 'Only network admins can join';
   if (r.minRole && r.minRole !== 'member') {
@@ -143,6 +147,9 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
   const { video, snap: vsnap } = useVideo();
   const [peek, setPeek] = useState(false);
   const [all, setAll] = useState(false);
+  // A locked room, clicked or tapped: its reason shows under it (the
+  // tooltip alone never shows on a phone).
+  const [why, setWhy] = useState(false);
   const narrow = useNarrow(); // a phone: bigger faces, a 44px tap target
   const call = snap.call;
   const callHere = call.host === host && (call.status === 'connected' || call.status === 'connecting');
@@ -167,6 +174,10 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
   // pick mic and camera and then join; the call if you're in it. No
   // one-click joins.
   const open = (expanded = false): void => {
+    if (locked && server.audio) {
+      setWhy(!why);
+      return;
+    }
     if (inThis) {
       if (video && vstate.available) video.setOpen(true);
       setVoiceUi({ view: { host, roomId: room.id, serverName } });
@@ -185,9 +196,13 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
       <div
         class={`channel-item voice-room-row ${inThis ? 'channel-item-active voice-room-incall' : ''}`}
         role="button"
-        tabIndex={joinable ? 0 : -1}
-        aria-disabled={!joinable || undefined}
+        tabIndex={joinable || (locked && server.audio) ? 0 : -1}
+        // A locked room still answers a click (it shows why), so it isn't
+        // disabled; without audio nothing does.
+        aria-disabled={!server.audio || undefined}
         aria-label={inThis ? `${room.name} (connected)` : locked ? `${room.name} (locked)` : `Voice channel ${room.name}${listenOnly ? ', listen only' : ''}`}
+        aria-description={locked ? lockReason(room) : undefined}
+        aria-expanded={locked && server.audio ? why : undefined}
         title={title}
         data-state={inThis ? call.status : undefined}
         data-locked={locked || undefined}
@@ -250,6 +265,11 @@ export function VoiceRoomRow({ snap, host, server, room, serverName, nested, ava
         </button>
       )}
       </div>
+      {locked && why && server.audio && (
+        <div class="voice-note voice-room-why" role="status" data-room-why={room.id}>
+          <span>{lockReason(room)}</span>
+        </div>
+      )}
       {showList && live.length > 0 && (
         <ul class="voice-participants" aria-label={`In ${room.name}`}>
           {listed.map(({ p, screen, camera }) => (

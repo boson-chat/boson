@@ -21,6 +21,7 @@ interface RoomWire {
   can_manage?: boolean;
   can_join?: boolean;
   can_speak?: boolean;
+  lock_reason?: string;
   participants?: Array<{ session_id: number; user_id: string; name: string; muted?: boolean; deafened?: boolean; speaking?: boolean; guest?: boolean }>;
 }
 
@@ -39,6 +40,7 @@ export function roomFromWire(r: RoomWire): VoiceRoom {
     canManage: !!r.can_manage,
     canJoin: r.can_join ?? true,
     canSpeak: r.can_speak ?? true,
+    ...(r.lock_reason ? { lockReason: r.lock_reason } : {}),
     participants: (r.participants ?? []).map((p) => ({
       sessionId: p.session_id, userId: p.user_id, name: p.name,
       muted: !!p.muted, deafened: !!p.deafened, speaking: !!p.speaking,

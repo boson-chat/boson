@@ -205,6 +205,10 @@
 .voice-room-row[data-locked] { cursor: not-allowed; }
 .voice-room-row[data-locked] .channel-name { opacity: 0.55; }
 .voice-room-row[aria-disabled='true'][data-locked] { opacity: 1; }
+/* Why it's locked, under the room once it's clicked or tapped. */
+.voice-room-why { padding-left: calc(var(--space-4) + 34px); }
+.voice-room-nested .voice-room-why { padding-left: calc(var(--space-4) + var(--space-4) + 34px); }
+.voice-room-why > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 
 .voice-room-badge { flex-shrink: 0; display: inline-flex; white-space: nowrap; }
 
