@@ -247,6 +247,21 @@ export class NetworkAccounts {
     return getHomeNetwork().selfHosted && !!this.opts.isGuest?.();
   }
 
+  // A self-hosted web client in guest mode whose own network is signed in
+  // to (federated "Continue as alice@boson.chat", or a local account) holds
+  // the app's own account: that session becomes the main one (mainAuth
+  // adopts it; the caller then leaves guest mode). Signed in to the home
+  // network is signed in, not a guest: profile, identity key, push, voice,
+  // the title bar and Settings all follow the main session. true when it
+  // moved.
+  async adoptHomeSession(): Promise<boolean> {
+    if (!this.mainAsNetwork()) return false;
+    await this.ensureService(this.main);
+    const svc = this.services.get(this.main);
+    if (!svc?.getState().session) return false;
+    return this.opts.mainAuth.adopt(svc);
+  }
+
   // ---- launch ----
 
   // Re-discovers the remembered networks (the shell's allowlist is per run)

@@ -40,24 +40,35 @@ function fakeMainAuth(cfg: Partial<AuthConfig>, extra: Partial<Record<keyof Auth
 const directory = { listServers: vi.fn(async () => []) } as unknown as DirectoryService;
 const identity = { isUnlocked: () => false, getState: () => ({ status: 'locked' }), subscribe: () => () => {} } as unknown as IdentityService;
 
-function renderLogin(auth: AuthService, accounts: NetworkAccounts | null = null) {
+// After a passwordless sign-in: no key in the keychain, no profile yet.
+const newUserDirectory = { listServers: vi.fn(async () => []), getMe: vi.fn(async () => null) } as unknown as DirectoryService;
+const newUserIdentity = {
+  isUnlocked: () => false, getState: () => ({ status: 'locked' }), subscribe: () => () => {}, restoreFromStorage: vi.fn(async () => false),
+} as unknown as IdentityService;
+
+function renderLogin(auth: AuthService, accounts: NetworkAccounts | null = null, deps: { directory?: DirectoryService; identity?: IdentityService } = {}) {
   return render(
     <AuthProvider service={auth}>
-      <LoginScreen directory={directory} identity={identity} accounts={accounts} />
+      <LoginScreen directory={deps.directory ?? directory} identity={deps.identity ?? identity} accounts={accounts} />
     </AuthProvider>,
   );
 }
 
 // A self-hosted web client's NetworkAccounts: its own network (federation
 // accepts `accepts`), boson.chat as a home server that vouches.
-function selfHosted(o: { accepts?: string; fedLoginError?: string } = {}) {
+function selfHosted(o: { accepts?: string; fedLoginError?: string; home?: Record<string, unknown> } = {}) {
   const transport = vi.fn(async (req: ApiRequest): Promise<ApiResponse> => {
     const u = new URL(req.url);
     const tokens = (username: string, extra = {}) => json(200, {
       access_token: `h.e30.${u.host}`, expires_in: 900, refresh_token: `rt-${u.host}`, session_id: 's',
       user: { id: `u-${u.host}`, username, email: null, email_verified: true, role: 'user' }, ...extra,
     });
-    if (u.pathname === '/v1/config') return json(200, { registration: 'open', sso_providers: [], site_name: u.host === 'auth.boson.chat' ? 'boson.chat' : 'IRCForever', guest_access: true });
+    if (u.pathname === '/v1/config') {
+      return json(200, u.host === 'auth.boson.chat'
+        ? { registration: 'open', sso_providers: [], site_name: 'boson.chat', guest_access: true }
+        : { registration: 'open', sso_providers: [], network_name: 'IRCForever', guest_access: true, ...(o.home ?? {}) });
+    }
+    if (u.pathname === '/v1/logout') return json(204, {});
     if (u.pathname === '/v1/login') return tokens('alice');
     if (u.pathname === '/v1/federation/assertions') return json(200, { assertion: 'jwt', expires_in: 300 });
     if (u.pathname === '/v1/federation/login') {
@@ -71,9 +82,10 @@ function selfHosted(o: { accepts?: string; fedLoginError?: string } = {}) {
     host: address, domain: 'boson.chat', irc: { host: 'irc.boson.chat', port: 6697, tls: true }, authUrl: BOSON_AUTH, main: false,
     federation: fed('boson.chat'),
   }));
+  const mainAuth = new RealAuthService(HOME_AUTH, { storage, transport });
   const accounts = new NetworkAccounts({
     mainAuthUrl: HOME_AUTH,
-    mainAuth: new RealAuthService(HOME_AUTH, { storage, transport }),
+    mainAuth,
     storage,
     transport,
     isGuest: () => loadGuestSession() !== null,
@@ -84,7 +96,7 @@ function selfHosted(o: { accepts?: string; fedLoginError?: string } = {}) {
       resolve,
     },
   });
-  return { accounts, transport, resolve };
+  return { accounts, mainAuth, transport, resolve };
 }
 
 const joins: JoinParams[] = [];
@@ -155,8 +167,8 @@ describe('LoginScreen registration on a self-hosted web client', () => {
   beforeEach(() => setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRCForever', selfHosted: true, irc: HOME_IRC }));
 
   it('closed + federation: "Continue with boson.chat" signs in there, then comes back as that account', async () => {
-    const { accounts, resolve } = selfHosted();
-    renderLogin(fakeMainAuth({ registration: 'closed', guest_access: true }), accounts);
+    const { accounts, mainAuth, resolve } = selfHosted({ home: { registration: 'closed' } });
+    renderLogin(mainAuth, accounts, { directory: newUserDirectory, identity: newUserIdentity });
     const cta = await screen.findByRole('button', { name: /Continue with boson\.chat/ });
     expect(screen.getByText(/isn't taking new accounts/).textContent).toBe(
       "IRCForever isn't taking new accounts. Use your boson.chat account, or continue as a guest.",
@@ -172,37 +184,40 @@ describe('LoginScreen registration on a self-hosted web client', () => {
     fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'pw' } });
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    // Back on IRCForever: federated in as alice@boson.chat, in guest mode for
-    // the app, with its IRC joined.
-    await waitFor(() => expect(loadGuestSession()).toEqual({ nick: 'alice-bosonchat' }));
-    expect(joins).toEqual([{ ...HOME_IRC, name: 'IRCForever' }]);
-    expect(accounts.sessionFor({ host: HOME_IRC.host, authUrl: HOME_AUTH, main: true })?.federated?.identity).toBe('alice@boson.chat');
+    // Back on IRCForever: the app's own account is signed in as
+    // alice@boson.chat (not guest mode beside a network session), and the
+    // identity key comes next, as after any passwordless sign-in.
+    expect(await screen.findByText('Set an identity passphrase.')).toBeTruthy();
+    expect(mainAuth.getState().session?.federated).toMatchObject({ identity: 'alice@boson.chat', homeDomain: 'boson.chat', handle: 'alice-bosonchat' });
+    expect(loadGuestSession()).toBeNull();
+    expect(accounts.sessionFor({ host: HOME_IRC.host, authUrl: HOME_AUTH, main: true })).toBe(mainAuth.getState().session);
   });
 
   it('an account already signed in here: "Continue as alice@boson.chat"', async () => {
-    const { accounts } = selfHosted();
+    const { accounts, mainAuth } = selfHosted({ home: { registration: 'closed', guest_access: false } });
     await accounts.discover('irc.boson.chat');
     await accounts.service(BOSON_AUTH).signIn('alice', 'pw');
-    renderLogin(fakeMainAuth({ registration: 'closed', guest_access: false }), accounts);
+    renderLogin(mainAuth, accounts, { directory: newUserDirectory, identity: newUserIdentity });
     const choice = await screen.findByRole('button', { name: 'Continue as alice@boson.chat' });
     expect(screen.queryByRole('button', { name: /Continue with boson\.chat/ })).toBeNull();
     expect(screen.getByText(/isn't taking new accounts/).textContent).toBe(
       "IRCForever isn't taking new accounts. Use your boson.chat account, or sign in if you have an account here.",
     );
     fireEvent.click(choice);
-    await waitFor(() => expect(loadGuestSession()).toEqual({ nick: 'alice-bosonchat' }));
-    expect(joins).toEqual([{ ...HOME_IRC, name: 'IRCForever' }]);
+    expect(await screen.findByText('Set an identity passphrase.')).toBeTruthy();
+    expect(mainAuth.getState().session?.federated?.identity).toBe('alice@boson.chat');
+    expect(loadGuestSession()).toBeNull();
   });
 
   it('a refused federated sign-in says why and leaves guest mode off', async () => {
-    const { accounts } = selfHosted({ fedLoginError: 'domain_not_trusted' });
+    const { accounts, mainAuth } = selfHosted({ fedLoginError: 'domain_not_trusted', home: { registration: 'closed' } });
     await accounts.discover('irc.boson.chat');
     await accounts.service(BOSON_AUTH).signIn('alice', 'pw');
-    renderLogin(fakeMainAuth({ registration: 'closed' }), accounts);
+    renderLogin(mainAuth, accounts);
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as alice@boson.chat' }));
     expect((await screen.findByText(/isn't verified in the directory/)).textContent).toMatch(/boson\.chat/);
     expect(loadGuestSession()).toBeNull();
-    expect(joins).toEqual([]);
+    expect(mainAuth.getState().session).toBeNull();
   });
 
   it('federation off: no boson.chat option', async () => {

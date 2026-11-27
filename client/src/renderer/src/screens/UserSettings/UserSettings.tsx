@@ -161,7 +161,9 @@ export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignO
               menu={menu}
               mode={mode}
               authedHandle={authedHandle}
-              authedEmail={authedEmail}
+              // A federated account has no email here: its identity
+              // (alice@boson.chat) says who it is.
+              authedEmail={authedEmail ?? (typeof auth.getState === 'function' ? auth.getState().session?.federated?.identity : null) ?? null}
               guestNick={guest?.nick ?? ''}
               directory={directory}
               open={open}

@@ -17,6 +17,9 @@ interface TitleBarProps {
   userLabel?: string | null;
   // 'guest' or 'account' — drives the dim "guest" tag next to the name.
   userMode?: 'guest' | 'account' | null;
+  // A federated account's home server (alice@boson.chat → boson.chat):
+  // a dim "@boson.chat" after the name (federation spec §5).
+  userHomeDomain?: string | null;
   // Signed-in user's profile-image URL; shown as a small avatar before the
   // name. Falls back to the nick-colored initial when absent.
   avatarUrl?: string | null;
@@ -43,7 +46,7 @@ interface TitleBarProps {
 // button overrides to `no-drag` so clicks register.
 
 export function TitleBar({
-  onOpenSettings, userLabel, userMode, avatarUrl, onOpenNotifications, notificationsCount = 0, notificationsOpen = false,
+  onOpenSettings, userLabel, userMode, userHomeDomain, avatarUrl, onOpenNotifications, notificationsCount = 0, notificationsOpen = false,
   updateReady, onOpenUpdate,
 }: TitleBarProps = {}) {
   const darwin = isDarwin();
@@ -126,6 +129,7 @@ export function TitleBar({
                     <Avatar nick={userLabel} url={avatarUrl} size={18} class="title-bar-user-avatar" />
                   )}
                   <span class="title-bar-user-name">{userLabel}</span>
+                  {userMode === 'account' && userHomeDomain && <span class="title-bar-user-home netauth-home-hint">@{userHomeDomain}</span>}
                   {userMode === 'guest' && <Badge tone="neutral" class="title-bar-user-tag">guest</Badge>}
                 </>
               ) : (

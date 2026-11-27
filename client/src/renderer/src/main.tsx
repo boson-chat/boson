@@ -10,6 +10,7 @@ import { VoiceController, getVoiceController, guestVoiceId, normalizeAuthUrl, se
 import { VideoController, getVideoController, setVideoController, videoBridge } from './modules/video';
 import { FriendsController, HttpFriendsApi, setFriendsController } from './modules/friends';
 import { openCall } from './screens/ChatLayout/call-shared';
+import { keepHomeSessionSignedIn } from './modules/netauth/home-session';
 import { NetworkAccounts, netAuthBridge, setNetworkAccounts } from './modules/netauth/network-accounts';
 import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
@@ -207,12 +208,15 @@ void (async () => {
   });
   setFriendsController(friends);
   friends.start();
-  void netAccounts?.init();
+  const netReady = netAccounts?.init() ?? Promise.resolve();
   // Fire init async — App renders immediately and shows "Loading…" until ready.
-  props.auth.init().catch((err) => {
+  const authReady = props.auth.init().catch((err) => {
     console.error('auth.init failed', err);
     props.auth.markFatal(err instanceof Error ? err.message : String(err));
   });
+  // A self-hosted web client's own network signed in to beside guest mode
+  // is the app's account (modules/netauth/home-session.ts).
+  if (netAccounts) keepHomeSessionSignedIn(netAccounts, Promise.all([netReady, authReady]));
   if (props.engine) {
     props.engine.open().catch((err) => console.error('engine.open failed', err));
   }

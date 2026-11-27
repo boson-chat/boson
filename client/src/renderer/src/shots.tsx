@@ -1095,7 +1095,8 @@ function ShotFrame({ children }: { children: preact.ComponentChildren }) {
   }, []);
   return (
     <div class="app-frame">
-      <TitleBar userLabel={NICK} userMode="account" onOpenSettings={() => {}}
+      <TitleBar userLabel={q0.get('fed') === '1' ? 'alice-bosonchat' : NICK} userMode="account" onOpenSettings={() => {}}
+        userHomeDomain={q0.get('fed') === '1' ? 'boson.chat' : null}
         onOpenNotifications={() => setOpen((o) => !o)} notificationsCount={unread} notificationsOpen={open} />
       <div class="app-frame-body">{children}</div>
       {open && <NotificationsPanel layout={narrow || q0.get('platform') ? 'phone' : 'desktop'} onClose={() => setOpen(false)} onOpenSettings={() => {}} />}
@@ -1142,8 +1143,17 @@ function installApi(signedIn: boolean): void {
 
 // ---- Minimal fake AuthService (structurally compatible) ----
 function makeAuth(signedIn: boolean) {
+  // ?fed=1: signed in to a self-hosted network with a boson.chat account
+  // (federated: no email here, alice@boson.chat vouched for by boson.chat).
+  const federated = q0.get('fed') === '1';
   const session = signedIn
-    ? { access_token: 'jwt', expires_at: Date.now() + 900_000, refresh_token: 'r', session_id: 'ses_1', user: { id: 'usr_1', username: 'ada', email: 'ada@example.com', email_verified: true, role: 'user', user_metadata: { handle: 'ada' } } }
+    ? federated
+      ? {
+        access_token: 'jwt', expires_at: Date.now() + 900_000, refresh_token: 'r', session_id: 'ses_1',
+        user: { id: 'usr_1', username: 'alice-bosonchat', email: null, email_verified: true, role: 'user', user_metadata: { handle: 'alice-bosonchat' } },
+        federated: { identity: 'alice@boson.chat', handle: 'alice-bosonchat', homeAuthUrl: 'https://auth.boson.chat', homeDomain: 'boson.chat' },
+      }
+      : { access_token: 'jwt', expires_at: Date.now() + 900_000, refresh_token: 'r', session_id: 'ses_1', user: { id: 'usr_1', username: 'ada', email: 'ada@example.com', email_verified: true, role: 'user', user_metadata: { handle: 'ada' } } }
     : null;
   const state = { session, loading: false, error: null };
   return {
@@ -1311,8 +1321,8 @@ function settingsView(): void {
         open
         onClose={() => {}}
         signedOut={mode === 'signedout'}
-        authedHandle={mode ? null : 'ada'}
-        authedEmail={mode ? null : 'ada@example.com'}
+        authedHandle={mode ? null : q.get('fed') === '1' ? 'alice-bosonchat' : 'ada'}
+        authedEmail={mode || q.get('fed') === '1' ? null : 'ada@example.com'}
         onSignOut={() => {}}
         directory={directoryService()}
         identity={makeIdentity()}
