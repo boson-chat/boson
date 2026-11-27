@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { AuthService, AuthError } from './auth.service';
+import { AuthService, AuthError, isPasswordless } from './auth.service';
 import { InMemorySecureStorage } from '../../shared/secure-storage';
 import type { ApiRequest, ApiResponse } from '../../shared/http/transport';
 import { pkcePair, signInWithProvider, ssoStartUrl, type SSOBridge } from './sso';
@@ -56,6 +56,34 @@ describe('SSO', () => {
     const challenge = new URL(opened).searchParams.get('code_challenge');
     const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(ex.body['code_verifier']))));
     expect(btoa(String.fromCharCode(...digest)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')).toBe(challenge);
+  });
+
+  it('marks the session as an SSO one (passwordless), across a restore and a refresh', async () => {
+    const { transport } = api((req) => {
+      const p = new URL(req.url).pathname;
+      if (p === '/v1/sso/exchange') return [200, TOKENS];
+      if (p === '/v1/token/refresh') return [200, { ...TOKENS, access_token: 'at2', refresh_token: 'rt2' }];
+      return [404, {}];
+    });
+    const storage = new InMemorySecureStorage();
+    const auth = new AuthService('https://auth.example', { transport, storage });
+    const bridge: SSOBridge = {
+      begin: async () => ({ id: 'f', redirectUri: 'http://127.0.0.1:1/callback?s=1' }),
+      wait: async () => ({ code: 'bsc_abc' }),
+      cancel: async () => {}, open: async () => {},
+    };
+    const s = await signInWithProvider(auth, bridge, { slug: 'ircforever', kind: 'oidc', display_name: 'IRCForever', start_url: 'https://auth.example/s' }).done;
+    expect(s.sso).toEqual({ provider: 'IRCForever' });
+    expect(isPasswordless(s)).toBe(true);
+    // A reload: the saved session keeps the mark, and so does its refresh.
+    const again = new AuthService('https://auth.example', { transport, storage });
+    await again.init();
+    expect(again.getState().session?.sso).toEqual({ provider: 'IRCForever' });
+    await again.getToken();
+    expect(again.getState().session?.access_token).toBe('at2');
+    expect(again.getState().session?.sso).toEqual({ provider: 'IRCForever' });
+    // A password sign-in isn't marked.
+    expect(isPasswordless({ ...s, sso: undefined })).toBe(false);
   });
 
   it('turns callback errors into AuthErrors', async () => {

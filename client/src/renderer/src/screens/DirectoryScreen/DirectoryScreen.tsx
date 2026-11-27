@@ -1,7 +1,9 @@
 import type { JSX } from 'preact';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Plus, Settings, SlidersHorizontal } from 'lucide-preact';
-import { AuthError, describeAuthError, useAuthService, useAuthState, validateHandle } from '../../modules/auth';
+import { AuthError, describeAuthError, isPasswordless, useAuthService, useAuthState, validateHandle } from '../../modules/auth';
+import { HttpError } from '../../shared/http/http.client';
+import { PASSWORD_MIN } from '../../modules/auth/signup-rules';
 import { describeHandleError } from '../../modules/directory/handle-error';
 import { clearRecoveryPending, isRecoveryPending, markRecoveryPending } from '../../modules/identity/recovery-pending';
 import type { DirectoryService } from '../../modules/directory';
@@ -1622,7 +1624,16 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
   // this step posts it. After a reload it's gone (the key itself comes back
   // from this device's store), so the password is asked for again here and
   // the wraps are made afresh, instead of failing.
-  const [needsPassword, setNeedsPassword] = useState(() => !identity.getPendingEncrypted());
+  //
+  // Signed in through an identity provider (no password typed, and the
+  // account may have none): the handle is all this step asks. The account
+  // is made without an identity key; it's set up when something needs it
+  // (modules/identity/key-request.ts). An API too old to allow that asks
+  // for a passphrase for the key instead (needsPassphrase).
+  const keyless = isPasswordless(session) && !identity.getPendingEncrypted();
+  const [needsPassword, setNeedsPassword] = useState(() => !identity.getPendingEncrypted() && !keyless);
+  const [needsPassphrase, setNeedsPassphrase] = useState(false);
+  const [confirmPassphrase, setConfirmPassphrase] = useState('');
   const [password, setPassword] = useState('');
   const [passwordError, setPasswordError] = useState<string | null>(null);
   // After account creation we hold the created user + the one-time recovery
@@ -1664,7 +1675,32 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
     try {
       let encrypted = identity.getPendingEncrypted();
       let recovery = identity.getPendingRecovery();
-      if (!encrypted) {
+      if (!encrypted && keyless && needsPassphrase) {
+        if (password.length < PASSWORD_MIN) { setPasswordError(`Use at least ${PASSWORD_MIN} characters.`); return; }
+        if (password !== confirmPassphrase) { setPasswordError("Passphrases don't match."); return; }
+        encrypted = await identity.initializeForNewUser(password);
+        recovery = identity.getPendingRecovery();
+      } else if (!encrypted && keyless) {
+        // A key left on this device from before (an interrupted set-up)
+        // isn't this account's: no copy of it is stored anywhere else.
+        if (identity.isUnlocked()) {
+          identity.lock();
+          if (userId) await identity.clearStorage(userId).catch(() => {});
+        }
+        let user: User;
+        try {
+          user = await directory.setupMe(name, '');
+        } catch (err) {
+          if (err instanceof HttpError && err.status === 400 && /encrypted_user_secret/.test(err.message)) {
+            setNeedsPassphrase(true);
+            setPasswordError('Pick a passphrase for your identity key to finish.');
+            return;
+          }
+          throw err;
+        }
+        onDone(user);
+        return;
+      } else if (!encrypted) {
         if (!password) {
           setNeedsPassword(true);
           setPasswordError('Enter your password to finish.');
@@ -1731,6 +1767,28 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
           spellcheck={false}
         />
       </Field>
+      {needsPassphrase && (
+        <>
+          <p class="setup-password-note">Pick a passphrase to protect your identity key, which keeps the passwords Boson syncs private. You enter it once on each new device.</p>
+          <Field label="Passphrase" error={passwordError ?? undefined}>
+            <Input
+              type="password"
+              value={password}
+              onInput={(e) => { setPassword((e.target as HTMLInputElement).value); setPasswordError(null); }}
+              invalid={!!passwordError}
+              autoComplete="new-password"
+            />
+          </Field>
+          <Field label="Confirm passphrase">
+            <Input
+              type="password"
+              value={confirmPassphrase}
+              onInput={(e) => { setConfirmPassphrase((e.target as HTMLInputElement).value); setPasswordError(null); }}
+              autoComplete="new-password"
+            />
+          </Field>
+        </>
+      )}
       {needsPassword && (
         <>
           <p class="setup-password-note">The page reloaded during setup. Enter your password once more to finish.</p>
@@ -1746,7 +1804,7 @@ function SetupPrompt({ directory, identity, onDone }: SetupPromptProps) {
           </Field>
         </>
       )}
-      <Button type="submit" variant="primary" loading={busy} disabled={busy || handle.trim().length < 3 || (needsPassword && !password)}>
+      <Button type="submit" variant="primary" loading={busy} disabled={busy || handle.trim().length < 3 || ((needsPassword || needsPassphrase) && !password)}>
         Save
       </Button>
     </form>

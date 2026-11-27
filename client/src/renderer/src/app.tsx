@@ -1,6 +1,6 @@
 import type preact from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { AuthProvider, AuthService, useAuthState } from './modules/auth';
+import { AuthProvider, AuthService, isPasswordless, useAuthState } from './modules/auth';
 import { configureSignOut, isSigningOut, onSignOutChange, signOut } from './modules/signout/sign-out';
 import { registerAppSignOut } from './modules/signout/participants';
 import type { DirectoryService } from './modules/directory';
@@ -165,8 +165,9 @@ function AppShell({ auth, directory, engine, identity, history, networks, homeDa
       <CallOverlays />
       {/* "Sign in to <network>" (self-hosted networks' own accounts). */}
       <NetworkSignInHost />
-      {/* A federated session's identity key, when something needs it. */}
-      {homeData && session?.federated && !guest && <IdentityKeyPrompt identity={identity} homeData={homeData} />}
+      {/* A passwordless session's identity key (federated: the home
+          account's; SSO: this account's own), when something needs it. */}
+      {homeData && isPasswordless(session) && !guest && <IdentityKeyPrompt identity={identity} homeData={homeData} directory={directory} auth={auth} />}
       {/* In-app notifications, and the bell's list. */}
       <Toasts />
       {notesOpen && (
@@ -205,8 +206,13 @@ function Router({ directory, engine, identity, history, networks, homeData }: {
   // A federated session (signed in with alice@boson.chat) needs no key to
   // use this server: the app opens, and the home account's key is unlocked
   // from this device's keychain when it's kept here, else asked for when
-  // something needs it (modules/identity/key-request.ts).
+  // something needs it (modules/identity/key-request.ts). A session signed
+  // in through an identity provider ("Sign in with …") is the same: no
+  // password was typed, and the account may have none; its own key comes
+  // back from the keychain when kept here (useIdentityRestore), else it's
+  // asked for when needed.
   const federated = !!session?.federated;
+  const passwordless = isPasswordless(session);
   const userId = federated ? null : session?.user?.id ?? null;
   const restored = useIdentityRestore(identity, userId);
   useHomeKeyRestore(identity, federated ? homeData : undefined, session?.user?.id ?? null);
@@ -243,7 +249,7 @@ function Router({ directory, engine, identity, history, networks, homeData }: {
     // fall through to LoginScreen — the user needs to type their password.
     key = 'restoring';
     content = <div class="loading"><AtomLoader size={40} label="Restoring session" /><span>Restoring session…</span></div>;
-  } else if (!session || (!identityUnlocked && !federated)) {
+  } else if (!session || (!identityUnlocked && !passwordless)) {
     key = 'login';
     content = <LoginScreen directory={directory} identity={identity} />;
   } else {
@@ -381,10 +387,10 @@ export function buildApp(opts: BuildAppOptions): AppProps {
   const bouncerSync = new BouncerSyncService(identity, directory);
   bouncerSync.start();
 
-  // A federated session signs in without the identity key; saving a
+  // A federated or SSO session signs in without the identity key; saving a
   // password or bouncer profile that syncs is when it's asked for.
   const askForKey = (reason: 'nickserv' | 'bouncer'): void => {
-    if (!auth.getState().session?.federated || isSigningOut()) return;
+    if (!isPasswordless(auth.getState().session) || isSigningOut()) return;
     void requestIdentityKey(identity, reason);
   };
   nickservSync.onLockedChange(() => askForKey('nickserv'));
