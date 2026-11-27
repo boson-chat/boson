@@ -1,3 +1,9 @@
+## [0.105.1](https://github.com/boson-chat/boson/compare/v0.105.0...v0.105.1) (2026-11-27)
+
+### Bug Fixes
+
+* **client:** reopening the app returns to this device's last server and channel ([#178](https://github.com/boson-chat/boson/issues/178)) ([a9fa043](https://github.com/boson-chat/boson/commit/a9fa0432511f3d71bda7a671abe7215a0ba9b48f))
+
 ## [0.105.0](https://github.com/boson-chat/boson/compare/v0.104.6...v0.105.0) (2026-11-27)
 
 ### Features
