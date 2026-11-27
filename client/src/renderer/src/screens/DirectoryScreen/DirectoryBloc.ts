@@ -39,6 +39,9 @@ import type { Facets, HostingApi, NetworkSort } from '../../modules/directory/ne
 import type { NetworkDirectories } from '../../modules/directory/networks';
 import { findListing } from '../../modules/directory/listing-match';
 import { AUTOJOIN_DELAY_MS, autojoinDone, channelsToAutojoin, markAutojoinDone } from '../../modules/directory/autojoin';
+import {
+  autojoinWho, markNetworkAutojoined, networkAutojoinChannels, networkAutojoined, networkChannelsToJoin,
+} from '../../modules/directory/network-autojoin';
 import { getNetworkAccounts, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
 import { isAccountRequired, isAccountRequiredText, isSaslFailure, resolveIrcLogin } from '../../modules/netauth/irc-login';
 import { requestThread } from '../../modules/chat/thread-nav';
@@ -1117,8 +1120,12 @@ export class DirectoryBloc {
   //
   // `join`: a channel to join once connected (a channel picked in the
   // server's details) — joined right away when already connected.
-  async connect(server: Server, opts: { focus?: boolean; join?: string } = {}): Promise<void> {
+  // join: a channel to open there (focused); alsoJoin: channels joined
+  // too, quietly and before it, without taking the focus (a guest-first
+  // landing: the network's auto-join channels, then where to land).
+  async connect(server: Server, opts: { focus?: boolean; join?: string; alsoJoin?: readonly string[] } = {}): Promise<void> {
     const { join, ...connectOpts } = opts;
+    const alsoJoin = (opts.alsoJoin ?? []).filter((ch) => ch.toLowerCase() !== join?.toLowerCase());
     // Already open under another id — a session saved before the directory
     // moved to /v1 keys it by the legacy uuid, the listing now says `net_…`:
     // that's this server, keep its id (saved channels, bouncer route and
@@ -1135,9 +1142,13 @@ export class DirectoryBloc {
       // close the modal. A disconnected (wedged) connection falls through
       // to the replace-then-reconnect path below.
       if (existing.engineState === 'connecting' || existing.engineState === 'connected') {
-        if (join) {
-          if (existing.engineState === 'connected') existing.chat.join(join, { byUser: true });
-          else this.queueJoin(server.id, join);
+        if (existing.engineState === 'connected') {
+          const have = new Set(existing.chat.getState().channels.map((c) => c.name.toLowerCase()));
+          for (const ch of alsoJoin) if (!have.has(ch.toLowerCase())) existing.chat.join(ch, { focus: false, quiet: true });
+          if (join) existing.chat.join(join, { byUser: true });
+        } else {
+          for (const ch of alsoJoin) this.queueJoin(server.id, ch);
+          if (join) this.queueJoin(server.id, join);
         }
         let changed = false;
         if (this.activeServerId !== server.id) {
@@ -1175,6 +1186,7 @@ export class DirectoryBloc {
       this.connections.delete(server.id);
     }
     if (server.autojoin_channels?.length && !autojoinDone(server)) this.autojoinWanted.set(server.id, server);
+    for (const ch of alsoJoin) this.queueJoin(server.id, ch);
     if (join) this.queueJoin(server.id, join);
     await this.connectWith(server, { ...connectOpts, carry });
     if (this.serverBrowserOpen) {
@@ -1683,6 +1695,9 @@ export class DirectoryBloc {
     port: number;
     tls: boolean;
     name?: string;
+    // Channels to open there (connect's join / alsoJoin).
+    join?: string;
+    alsoJoin?: readonly string[];
   }): Promise<void> {
     // `connectWith` requires `me.handle` to mint an IRC nick — without
     // it the connection is a no-op. The bloc is constructed before
@@ -1699,8 +1714,12 @@ export class DirectoryBloc {
       ...(this.servers ?? []),
       ...mergeWithLocal([], loadLocalServers()),
     ].find((s) => s.hostname.toLowerCase() === hostKey && s.port === input.port);
+    const channels = {
+      ...(input.join ? { join: input.join } : {}),
+      ...(input.alsoJoin?.length ? { alsoJoin: input.alsoJoin } : {}),
+    };
     if (existing) {
-      await this.connect(existing);
+      await this.connect(existing, channels);
       return;
     }
     const created = addLocalServer({
@@ -1714,7 +1733,7 @@ export class DirectoryBloc {
     // it back as a Server and connect.
     const merged = mergeWithLocal(this.servers ?? [], loadLocalServers());
     const target = merged.find((s) => s.id === created.id);
-    if (target) await this.connect(target);
+    if (target) await this.connect(target, channels);
   }
 
   // Replay a deep-link join that arrived before `me` was loaded.
@@ -2516,6 +2535,7 @@ export class DirectoryBloc {
           }
         }
         this.scheduleAutojoin(server.id);
+        this.scheduleNetworkAutojoin(server.id);
         if (this.restoring) this.restoring = false;
         // A push notification opened before this server was connected.
         const pa = this.pendingActivation;
@@ -2700,6 +2720,40 @@ export class DirectoryBloc {
       if (todo.length > 0) console.info(`[directory] joining ${listing.name}'s default channels: ${todo.join(', ')}`);
       for (const ch of todo) conn.chat.join(ch, { focus: false, quiet: true });
     }, AUTOJOIN_DELAY_MS);
+  }
+
+  // The network's own auto-join channels (its auth service's /v1/config),
+  // for networks whose IRC has no RoleServ to join people to them
+  // (modules/directory/network-autojoin.ts): on every registration, a
+  // moment later, the ones not handled before for this account or guest
+  // nick. Quietly; leaving one sticks.
+  private scheduleNetworkAutojoin(serverId: string): void {
+    const accounts = this.netAccounts();
+    const first = this.connections.get(serverId);
+    if (!accounts || !first) return;
+    const server = first.server;
+    void (async () => {
+      const link = await accounts.discover(server.hostname).catch(() => null);
+      if (!link || this.disposed) return;
+      const cfg = await accounts.config(link.authUrl).catch(() => null);
+      const session = accounts.sessionFor(link);
+      const wanted = networkAutojoinChannels(cfg, { guest: !session });
+      if (wanted.length === 0) return;
+      setTimeout(() => {
+        const conn = this.connections.get(serverId);
+        if (this.disposed || !conn || conn.engineState !== 'connected') return;
+        const who = autojoinWho({ userId: session?.user.id, guestNick: this.guestNick ?? conn.chat.selfIdentity().nick });
+        const synced = session ? this.sessionStore.load()?.servers.find((s) => s.server.id === serverId)?.networkAutojoined ?? [] : [];
+        const done = [...networkAutojoined(server, who), ...synced];
+        const have = conn.chat.getState().channels.map((c) => c.name);
+        const todo = networkChannelsToJoin(wanted, done, have);
+        if (todo.length > 0) console.info(`[netauth] joining ${server.name}'s auto-join channels: ${todo.join(', ')}`);
+        for (const ch of todo) conn.chat.join(ch, { focus: false, quiet: true });
+        // Handled, joined now or already in: a later part sticks.
+        markNetworkAutojoined(server, who, wanted);
+        if (session) this.sessionStore.addNetworkAutojoined(serverId, wanted);
+      }, AUTOJOIN_DELAY_MS);
+    })();
   }
 
   private teardownConnection(c: Connection, opts: { sendDisconnect: boolean }): void {

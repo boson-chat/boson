@@ -117,7 +117,7 @@ describe('LoginScreen', () => {
     setHomeNetwork({ domain: 'boson.example.org', name: 'Example', selfHosted: true });
     try {
       renderWith(buildFakeAuth({ config: vi.fn(async () => ({ sso_providers: [], guest_access: false })) } as Partial<AuthService>), buildFakeDirectory(), buildFakeIdentity());
-      await userEvent.setup().click(screen.getByRole('button', { name: 'Continue without an account' }));
+      await userEvent.setup().click(await screen.findByRole('button', { name: 'Continue without an account' }));
       expect(await screen.findByText(/Example itself needs an account/)).toBeInTheDocument();
       expect(screen.queryByText(/boson\.chat/)).toBeNull();
     } finally {

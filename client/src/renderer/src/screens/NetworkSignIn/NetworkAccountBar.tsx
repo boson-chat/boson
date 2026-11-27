@@ -2,6 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { UserRound } from 'lucide-preact';
 import { Button } from '@boson/shared';
 import { getNetworkAccounts, type NetworkAccounts, type NetworkAccountsSnapshot } from '../../modules/netauth/network-accounts';
+import { signupMode } from '../../modules/auth';
 import type { FederatedIdentity } from '../../modules/netauth/federation';
 import './NetworkSignIn.css';
 
@@ -19,8 +20,18 @@ export function NetworkAccountBar({ host, serverName, onSignedIn, accounts = get
   const [snap, setSnap] = useState<NetworkAccountsSnapshot | null>(() => accounts?.getSnapshot() ?? null);
   useEffect(() => (accounts ? accounts.subscribe(setSnap) : undefined), [accounts]);
   useEffect(() => { void accounts?.discover(host); }, [accounts, host]);
+  const link = snap?.links[host.trim().toLowerCase()] ?? null;
+  // A guest on the app's own network (a self-hosted web client): what an
+  // account keeps, and whether one can be made here.
+  const guestHere = !!accounts && !!link?.main && accounts.mainAsNetwork();
+  const [canSignUp, setCanSignUp] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!guestHere || !accounts || !link) return;
+    let live = true;
+    accounts.config(link.authUrl).then((c) => { if (live) setCanSignUp(signupMode(c) !== 'closed'); }, () => {});
+    return () => { live = false; };
+  }, [guestHere, accounts, link?.authUrl]);
   if (!accounts || !snap) return null;
-  const link = snap.links[host.trim().toLowerCase()];
   if (!link || (link.main && !accounts.mainAsNetwork())) return null;
   const name = accounts.nameFor(link.authUrl, serverName);
   const session = accounts.sessionFor(link);
@@ -41,7 +52,12 @@ export function NetworkAccountBar({ host, serverName, onSignedIn, accounts = get
     );
   }
   return (
-    <div class="netauth-bar">
+    <div class={`netauth-bar${guestHere ? ' netauth-bar-guest' : ''}`}>
+      {guestHere && (
+        <span class="netauth-bar-hint" data-testid="guest-keep-hint">
+          {canSignUp ? 'Create an account or sign in' : 'Sign in'} to keep your nick and history.
+        </span>
+      )}
       <Button
         variant="secondary"
         size="sm"

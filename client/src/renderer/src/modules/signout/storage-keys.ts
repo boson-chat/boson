@@ -24,6 +24,7 @@ export const ACCOUNT_KEYS: KeySet = {
     'boson:local-servers:v1', // servers added by hand
     'boson:directories:v1', // directories added in Settings
     'boson:autojoin-done:v1', // networks already auto-joined
+    'boson:net-autojoin:v1', // a network's own auto-join channels already joined, per account / guest nick
     'boson:home-joined:v1', // a self-hosted web client's own IRC server, added once
     'boson:guest:v1', // guest mode nick
     'boson:notifications:channels:v1', // per-channel / DM notification levels
@@ -70,6 +71,7 @@ export const DEVICE_KEYS: KeySet = {
     'boson:chat-display:v1', // how conversations read (guessed replies)
     'boson:voice-servers:v1', // cache of networks' public boson.json (web)
     'boson:services-verdict:v1', // which services package each network runs
+    'boson:guest:last-nick:v1', // the guest-first nick, so a returning visitor keeps it
   ],
   secure: [],
 };

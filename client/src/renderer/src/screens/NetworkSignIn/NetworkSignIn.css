@@ -101,6 +101,9 @@
 }
 .netauth-bar-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .netauth-bar-user { color: var(--fg-2); }
+/* A guest on the network's own web client: why to sign in, over the button. */
+.netauth-bar-guest { flex-direction: column; align-items: stretch; gap: var(--space-2); }
+.netauth-bar-hint { font-family: var(--font-body); font-size: var(--text-sm); color: var(--fg-3); line-height: var(--leading-body); }
 
 /* The network's branding (network themes): its login background, dimmed
    toward the dialog's colour, with its logo over it. */

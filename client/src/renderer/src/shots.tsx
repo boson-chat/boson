@@ -19,7 +19,9 @@ import { HttpClient } from './shared/http/http.client';
 import { DirectoryScreen } from './screens/DirectoryScreen';
 import { LoginScreen } from './screens/LoginScreen';
 import { UserSettings } from './screens/UserSettings/UserSettings';
-import { clearGuestSession, saveGuestSession } from './modules/guest/guest';
+import { clearGuestSession, loadGuestSession, saveGuestSession } from './modules/guest/guest';
+import { EngineClient } from './modules/engine';
+import { keepHomeSessionSignedIn } from './modules/netauth/home-session';
 import { NotificationsPanel, useUnreadNotes } from './screens/Notifications/NotificationsPanel';
 import { setNotificationsOpener } from './modules/ui/open-notifications';
 import { Toasts } from './screens/Notifications/Toasts';
@@ -1651,6 +1653,160 @@ async function ssoFlowView(): Promise<void> {
   render(<App auth={auth} directory={directory} engine={null} identity={identity} history={{} as never} homeData={directory.homeData} />, app());
 }
 
+// Guest-first entry on a self-hosted web client (IRCForever, like
+// chat.boson.ircforever.org replacing ircforever.org/chat/): the whole app
+// over a scripted IRC server (a fake engine socket). ?gf=0: guest_first
+// off; ?taken=Nick,…: nicks the server says are in use (433);
+// ?registration=open; ?homes=1: a boson.chat account signed in here.
+// ?nick=, ?channel=, ?join=1 are the entry's own link parameters.
+async function guestFirstView(): Promise<void> {
+  const q = new URLSearchParams(location.search);
+  const homeAuth = 'https://auth.boson.ircforever.org';
+  const ircHost = 'irc.boson.ircforever.org';
+  setHomeNetwork({ domain: 'boson.ircforever.org', name: 'IRCForever', selfHosted: true, irc: { host: ircHost, port: 6697, tls: true } });
+  const json = (status: number, v: unknown) => ({ status, ok: status < 300, statusText: String(status), text: JSON.stringify(v) });
+  const cfg = {
+    registration: q.get('registration') ?? 'closed', sso_providers: [], network_name: 'IRCForever',
+    guest_access: true, guest_first: q.get('gf') !== '0', guest_first_channel: '#IRCForever',
+    channels: [
+      { name: '#IRCForever', topic: 'Welcome to IRCForever', autojoin: true },
+      { name: '#help', topic: 'Ask anything', autojoin: true },
+      { name: '#opers', autojoin: false, restricted: true },
+    ],
+  };
+  const tokens = (host: string, username: string, extra = {}) => json(200, {
+    access_token: `h.e30.${host}`, expires_in: 900, refresh_token: `rt-${host}`, session_id: 's',
+    user: { id: `u-${host}`, username, email: null, email_verified: true, role: 'user' }, ...extra,
+  });
+  const transport = async (req: { method: string; url: string }) => {
+    const u = new URL(req.url);
+    if (u.host.startsWith('api.')) {
+      if (u.pathname === '/servers') return json(200, { servers: [], count: 0 });
+      if (u.pathname === '/me') return json(200, { ...USER, id: 'u-ada', handle: 'ada', encrypted_user_secret: '' });
+      if (u.pathname === '/me/session') return json(200, { payload: null });
+      return json(404, {});
+    }
+    if (u.pathname === '/v1/config') return json(200, u.host === 'auth.boson.chat' ? { registration: 'open', sso_providers: [], site_name: 'boson.chat', guest_access: true } : cfg);
+    if (u.pathname === '/v1/login') return tokens(u.host, 'ada');
+    if (u.pathname === '/v1/federation/assertions') return json(200, { assertion: 'jwt', expires_in: 300 });
+    if (u.pathname === '/v1/federation/login') return tokens(u.host, 'ada-bosonchat', { federated: true, identity: 'ada@boson.chat', handle: 'ada-bosonchat' });
+    return json(404, {});
+  };
+  const fed = (domain: string) => ({
+    version: 1, issuer: `https://auth.${domain}`, accepts: 'directory', domain,
+    assertion_endpoint: `https://auth.${domain}/v1/federation/assertions`,
+    login_endpoint: `https://auth.${domain}/v1/federation/login`,
+  });
+  const storage = new InMemorySecureStorage();
+  const auth = new AuthService(homeAuth, { storage, transport: transport as never });
+  const accounts = new NetworkAccounts({
+    mainAuthUrl: homeAuth, mainAuth: auth, storage, transport: transport as never,
+    isGuest: () => loadGuestSession() !== null,
+    bridge: {
+      discover: async (host: string) => (host.endsWith('ircforever.org')
+        ? { host, main: true, authUrl: homeAuth, federation: fed('boson.ircforever.org') }
+        : { host, main: false, authUrl: 'https://auth.boson.chat', federation: fed('boson.chat') }),
+      resolve: async (address: string) => ({ host: address, domain: 'boson.chat', irc: { host: 'irc.boson.chat', port: 6697, tls: true }, authUrl: 'https://auth.boson.chat', main: false, federation: fed('boson.chat') }),
+    },
+  });
+  setNetworkAccounts(accounts);
+  setHomeAuthSource(accounts);
+  await auth.init();
+  // As main.tsx: a home-network sign-in beside guest mode becomes the app's own.
+  keepHomeSessionSignedIn(accounts, Promise.resolve());
+  if (q.get('homes') === '1') {
+    await accounts.discover('irc.boson.chat');
+    await accounts.service('https://auth.boson.chat').signIn('ada', 'pw');
+  }
+  const engine = new EngineClient({ url: 'ws://fake.engine/ws', token: 't' }, { wsCtor: fakeIrcSocket(new Set((q.get('taken') ?? '').split(',').filter(Boolean).map((n) => n.toLowerCase()))), reconnect: false });
+  await engine.open();
+  const directory = new AccountDirectory(new HttpClient('https://api.boson.ircforever.org', { getToken: () => auth.getToken() }, transport as never), auth, new HomeAccountData(auth, { transport: transport as never }));
+  render(<App auth={auth} directory={directory} engine={engine} identity={makeIdentity()} history={{} as never} homeData={directory.homeData} />, app());
+}
+
+// A scripted IRC server behind the engine's WebSocket: welcomes (433 for
+// a nick in `taken`, then registers as nick_), answers JOIN with the
+// channel's topic, names and a little conversation, NICK with a rename (or
+// 433), and acknowledges what's sent. window.__ircSent lists the commands.
+function fakeIrcSocket(taken: Set<string>): never {
+  const PEOPLE: Record<string, string[]> = {
+    '#ircforever': ['@thelion', '+lynx', 'ocelot', 'nova', 'kestrel', 'quill'],
+    '#help': ['@thelion', 'orbit', 'sage'],
+  };
+  const LINES: Record<string, Array<[string, string]>> = {
+    '#ircforever': [
+      ['nova', 'morning all'],
+      ['kestrel', 'the new web client is up on chat.boson.ircforever.org'],
+      ['thelion', 'yep, guests land straight in here now. no signup needed'],
+      ['quill', 'nice, works on my phone too'],
+    ],
+    '#help': [['orbit', 'ask away, someone will answer']],
+  };
+  const TOPICS: Record<string, string> = { '#ircforever': 'Welcome to IRCForever', '#help': 'Ask anything' };
+  class FakeIrcSocket {
+    readyState = 0;
+    onopen: ((ev: Event) => void) | null = null;
+    onclose: ((ev: Event) => void) | null = null;
+    onerror: ((ev: Event) => void) | null = null;
+    onmessage: ((ev: MessageEvent) => void) | null = null;
+    private nicks = new Map<string, string>();
+    constructor(public url: string) {
+      setTimeout(() => { this.readyState = 1; this.onopen?.(new Event('open')); }, 0);
+    }
+    close(): void { this.readyState = 3; }
+    private push(m: unknown, delay = 10): void {
+      setTimeout(() => this.onmessage?.(new MessageEvent('message', { data: JSON.stringify(m) })), delay);
+    }
+    private event(serverId: string, e: Record<string, unknown>, delay = 10): void {
+      this.push({ type: 'event', serverId, event: { From: '', Target: '', Message: '', Raw: '', ...e } }, delay);
+    }
+    send(data: string): void {
+      const cmd = JSON.parse(data) as { type: string; params?: Record<string, unknown> };
+      const w = window as unknown as { __ircSent?: unknown[] };
+      (w.__ircSent ??= []).push(cmd);
+      const p = cmd.params ?? {};
+      const sid = String(p['serverId'] ?? '');
+      const me = (): string => this.nicks.get(sid) ?? '';
+      if (cmd.type === 'connect') {
+        let nick = String(p['nick']);
+        if (taken.has(nick.toLowerCase())) {
+          this.event(sid, { Kind: '433', Target: '*', Args: ['*', nick], Message: 'Nickname is already in use' });
+          nick = `${nick}_`;
+        }
+        this.nicks.set(sid, nick);
+        this.push({ type: 'status', serverId: sid, state: 'connected' }, 20);
+        this.event(sid, { Kind: '001', Target: nick, Message: `Welcome to IRCForever, ${nick}` }, 30);
+      } else if (cmd.type === 'join') {
+        const ch = String(p['channel']);
+        const k = ch.toLowerCase();
+        const name = k === '#ircforever' ? '#IRCForever' : ch;
+        this.event(sid, { Kind: 'JOIN', From: me(), Target: name, Host: 'guest.ircforever.org' });
+        if (TOPICS[k]) this.event(sid, { Kind: '332', Target: name, Message: TOPICS[k] }, 15);
+        this.event(sid, { Kind: '353', Target: name, Message: [...(PEOPLE[k] ?? []), me()].join(' ') }, 20);
+        this.event(sid, { Kind: '366', Target: name }, 25);
+        (LINES[k] ?? []).forEach(([from, text], i) => this.event(sid, { Kind: 'PRIVMSG', From: from, Target: name, Message: text }, 40 + i * 5));
+      } else if (cmd.type === 'nick') {
+        const next = String(p['nick']);
+        if (taken.has(next.toLowerCase())) {
+          this.event(sid, { Kind: '433', Target: me(), Args: [me(), next], Message: 'Nickname is already in use' });
+        } else {
+          const prev = me();
+          this.nicks.set(sid, next);
+          this.event(sid, { Kind: 'NICK', From: prev, Message: next });
+        }
+      } else if (cmd.type === 'part' || (cmd.type === 'raw' && /^PART /i.test(String(p['line'] ?? '')))) {
+        const ch = cmd.type === 'part' ? String(p['channel']) : String(p['line']).split(/\s+/)[1] ?? '';
+        if (ch) this.event(sid, { Kind: 'PART', From: me(), Target: ch });
+      } else if (cmd.type === 'disconnect') {
+        this.push({ type: 'status', serverId: sid, state: 'disconnected' }, 5);
+      } else if (cmd.type === 'privmsg' && p['ack']) {
+        this.event(sid, { Kind: 'ACK', Message: String(p['ack']) });
+      }
+    }
+  }
+  return FakeIrcSocket as never;
+}
+
 const view = new URLSearchParams(location.search).get('view') ?? 'chat';
 if (view === 'chat') chatView();
 else if (view === 'directory') directoryView();
@@ -1663,4 +1819,5 @@ else if (view === 'netsignin') void netSignInView();
 else if (view === 'signin') void signInView();
 else if (view === 'fedflow') void fedFlowView();
 else if (view === 'ssoflow') void ssoFlowView();
+else if (view === 'guestfirst') void guestFirstView();
 else app().textContent = `unknown view: ${view}`;

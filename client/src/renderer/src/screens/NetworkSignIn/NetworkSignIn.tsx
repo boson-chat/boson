@@ -9,12 +9,14 @@ import {
   getNetworkAccounts, hostOf, type NetworkAccounts, type NetworkAccountsSnapshot, type NetworkLink, type SignInPrompt,
 } from '../../modules/netauth/network-accounts';
 import { acceptsFederation, type HomeAccount } from '../../modules/netauth/federation';
-import { FederatedSignIn } from './FederatedSignIn';
+import { ContinueWithBosonChat, FederatedSignIn } from './FederatedSignIn';
+import { OtherServer } from '../LoginScreen/OtherServer';
 import { getNetworkThemes, useNetworkBranding } from '../../modules/ui/theme';
 import { NetworkBrandHero } from './NetworkBrand';
 import '../LoginScreen/LoginScreen.css';
 import './NetworkSignIn.css';
-import { useHomeNetwork } from '../../modules/netauth/home-network';
+import { BOSON_CHAT_HOME, useHomeNetwork } from '../../modules/netauth/home-network';
+import { normalizeAuthBase } from '../../modules/netauth/network-accounts';
 
 // "Sign in to <network>": the sign-in dialog for a network's own auth
 // service (a self-hosted boson network), shown when connecting, when its IRC
@@ -41,7 +43,7 @@ export function NetworkSignInHost({ accounts = getNetworkAccounts() }: { account
   );
 }
 
-type View = 'form' | 'forgot' | 'verify' | 'reset-sent';
+type View = 'form' | 'forgot' | 'verify' | 'reset-sent' | 'boson-chat';
 type Mode = 'login' | 'signup';
 
 interface DialogProps {
@@ -176,6 +178,36 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
   const reasonText = REASON_TEXT[reason](name);
   const usernameProblem = mode === 'signup' && username ? validateUsername(username) : null;
 
+  // Accounts from other Boson servers (federation): "Continue as
+  // alice@boson.chat" for each signed in here; on the app's own network
+  // (a guest on a self-hosted web client), "Continue with boson.chat" when
+  // there's none yet: sign in there, come back, continue as it.
+  const fedAccepted = !!federated && acceptsFederation(federated.link.federation, federated.link.authUrl);
+  const [homes, setHomes] = useState<HomeAccount[] | null>(federated?.homes ?? null);
+  const [autoStart, setAutoStart] = useState<string | null>(null);
+  useEffect(() => {
+    if (!federated || federated.homes) return;
+    if (!fedAccepted) { setHomes([]); return; }
+    let live = true;
+    federated.accounts.homeAccounts(federated.link).then((h) => { if (live) setHomes(h); }, () => { if (live) setHomes([]); });
+    return () => { live = false; };
+  }, [federated?.accounts, federated?.link, fedAccepted]);
+  const offerBosonChat = fedAccepted && !!federated?.link.main && homes !== null && homes.length === 0
+    && federated.accounts.canResolve && home.domain !== BOSON_CHAT_HOME.domain;
+  const fedOffered = !fedAccepted ? null
+    : offerBosonChat ? `your ${BOSON_CHAT_HOME.domain} account`
+      : homes?.length === 1 ? `your ${homes[0]!.domain} account`
+        : 'an account from another Boson server';
+  const backFromBosonChat = async (signedIn: NetworkLink): Promise<void> => {
+    if (!federated) return;
+    const list = await federated.accounts.homeAccounts(federated.link).catch(() => [] as HomeAccount[]);
+    const h = list.find((x) => normalizeAuthBase(x.authUrl) === normalizeAuthBase(signedIn.authUrl));
+    setHomes(list);
+    setView('form');
+    if (h) setAutoStart(h.identity);
+    else setError(`You're signed in to ${BOSON_CHAT_HOME.domain}, but it can't sign you in to ${name}.`);
+  };
+
   const done = (): void => onDone('signed-in');
 
   const run = async (fn: () => Promise<void>): Promise<void> => {
@@ -228,6 +260,23 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
       if (!(err instanceof AuthError && err.code === SSO_CANCELLED)) setError(describeAuthError(err));
     });
   };
+
+  if (view === 'boson-chat' && federated) {
+    return (
+      <div class="netauth">
+        <OtherServer
+          accounts={federated.accounts}
+          initialAddress={BOSON_CHAT_HOME.domain}
+          autoLookUp
+          onBack={() => { setView('form'); setError(null); }}
+          comeBack={{
+            lede: `Sign in to ${BOSON_CHAT_HOME.domain}, or create an account there. Then you'll come back to ${name} with it: no password is shared.`,
+            onSignedIn: (l: NetworkLink) => { void backFromBosonChat(l); },
+          }}
+        />
+      </div>
+    );
+  }
 
   if (view === 'verify') {
     return (
@@ -318,22 +367,26 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
       {cfgError && <div class="login-error" role="alert">Couldn't reach {name}'s sign-in service: {cfgError}</div>}
       {!canSignUp && cfg && (
         <p class="netauth-hint netauth-closed" role="status">
-          {closedSignupLine({
-            name,
-            federated: federated && acceptsFederation(federated.link.federation, federated.link.authUrl) ? 'an account from another Boson server' : null,
-            guests: guestOk,
-          })}
+          {closedSignupLine({ name, federated: fedOffered, guests: guestOk })}
         </p>
       )}
 
-      {federated && (
+      {federated && homes && homes.length > 0 && (
         <FederatedSignIn
           accounts={federated.accounts}
           link={federated.link}
           name={name}
-          {...(federated.homes ? { homes: federated.homes } : {})}
+          homes={homes}
+          autoStart={autoStart}
           onSignedIn={done}
           {...(canSignUp ? { onCreateAccount: () => { setMode('signup'); setError(null); } } : {})}
+        />
+      )}
+      {offerBosonChat && (
+        <ContinueWithBosonChat
+          name={name}
+          divider={`or use an account on ${name}`}
+          onClick={() => { setError(null); setView('boson-chat'); }}
         />
       )}
 
@@ -421,18 +474,22 @@ export function NetworkSignInForm({ auth, authHost, name, cfg, cfgError, reason,
         </div>
       )}
 
-      <div class="netauth-foot">
-        {guestOk ? (
-          <>
-            <span class="netauth-foot-text">No account? You can still chat on {name}'s IRC.</span>
-            <Button variant="ghost" size="sm" onClick={() => onDone('guest')}>{guestLabel}</Button>
-          </>
-        ) : reason !== 'expired' && cfg && !guestAccessAllowed(cfg) ? (
-          <span class="netauth-foot-text">{name} requires an account: guests can't connect.</span>
-        ) : (
-          <span class="netauth-foot-text">An account on {name} is separate from a {home.name} account.</span>
-        )}
-      </div>
+      {/* The network's own account is the app's (a guest on its web client):
+          nothing "separate" to say. */}
+      {(guestOk || (reason !== 'expired' && cfg && !guestAccessAllowed(cfg)) || !(federated?.link.main || name === home.name)) && (
+        <div class="netauth-foot">
+          {guestOk ? (
+            <>
+              <span class="netauth-foot-text">No account? You can still chat on {name}'s IRC.</span>
+              <Button variant="ghost" size="sm" onClick={() => onDone('guest')}>{guestLabel}</Button>
+            </>
+          ) : reason !== 'expired' && cfg && !guestAccessAllowed(cfg) ? (
+            <span class="netauth-foot-text">{name} requires an account: guests can't connect.</span>
+          ) : (
+            <span class="netauth-foot-text">An account on {name} is separate from a {home.name} account.</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
