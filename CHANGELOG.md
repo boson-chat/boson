@@ -1,3 +1,9 @@
+## [0.104.3](https://github.com/boson-chat/boson/compare/v0.104.2...v0.104.3) (2026-11-27)
+
+### Bug Fixes
+
+* **ios:** App Attest entitlement is a string, not the profile's printed array ([#174](https://github.com/boson-chat/boson/issues/174)) ([3841b36](https://github.com/boson-chat/boson/commit/3841b3621dfbf21cf6c820be7a8ad1999dc53827))
+
 ## [0.104.2](https://github.com/boson-chat/boson/compare/v0.104.1...v0.104.2) (2026-11-27)
 
 ### Bug Fixes
