@@ -137,12 +137,80 @@ describe('ChatService — restoring the last channel', () => {
       emit({ Kind: 'JOIN', From: 'me', Target: '#boson' });
       vi.advanceTimersByTime(4_000);
       expect(chat.getState().activeChannel).toBe('#ai');
-      // A late join of the saved channel no longer steals the view.
+      // Still waiting for it: the stand-in isn't worth remembering yet.
+      expect(chat.restoringActive()).toBe(true);
+      // Given up on after a minute: a late join no longer steals the view.
+      vi.advanceTimersByTime(60_000);
+      expect(chat.restoringActive()).toBe(false);
       emit({ Kind: 'JOIN', From: 'me', Target: '#gone' });
       expect(chat.getState().activeChannel).toBe('#ai');
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('a saved channel that joins slowly (fakelag, a bouncer coming up) still wins over the stand-in', () => {
+    vi.useFakeTimers();
+    try {
+      const { chat, emit } = makeChat();
+      chat.restoreActiveChannel('#boson');
+      emit({ Kind: 'JOIN', From: 'me', Target: '#ai' });
+      vi.advanceTimersByTime(10_000);
+      expect(chat.getState().activeChannel).toBe('#ai');
+      emit({ Kind: 'JOIN', From: 'me', Target: '#boson' });
+      expect(chat.getState().activeChannel).toBe('#boson');
+      expect(chat.restoringActive()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a pick of the stand-in ends the wait', () => {
+    vi.useFakeTimers();
+    try {
+      const { chat, emit } = makeChat();
+      chat.restoreActiveChannel('#boson');
+      emit({ Kind: 'JOIN', From: 'me', Target: '#ai' });
+      emit({ Kind: 'JOIN', From: 'me', Target: '#ops' });
+      vi.advanceTimersByTime(5_000);
+      chat.setActive('#ops');
+      emit({ Kind: 'JOIN', From: 'me', Target: '#boson' });
+      expect(chat.getState().activeChannel).toBe('#ops');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opening a DM during the restore is a pick too', () => {
+    const { chat, emit } = makeChat();
+    chat.restoreActiveChannel('#boson');
+    chat.openDM('bob');
+    emit({ Kind: 'JOIN', From: 'me', Target: '#boson' });
+    expect(chat.getState().activeChannel).toBe('bob');
+  });
+
+  it('background joins of the saved channels show the restored one, not the last joined', () => {
+    const { chat, emit } = makeChat();
+    chat.restoreActiveChannel('#boson');
+    chat.join('#ai', { focus: false });
+    expect(chat.getState().activeChannel).toBeNull();
+    chat.join('#boson', { focus: false });
+    chat.join('#zzz', { focus: false });
+    expect(chat.getState().activeChannel).toBe('#boson');
+    expect(chat.restoringActive()).toBe(true);
+    emit({ Kind: 'JOIN', From: 'me', Target: '#ai' });
+    emit({ Kind: 'JOIN', From: 'me', Target: '#boson' });
+    expect(chat.getState().activeChannel).toBe('#boson');
+    expect(chat.restoringActive()).toBe(false);
+  });
+
+  it('a channel the user joins is a pick: the restore doesn\'t take it back', () => {
+    const { chat, emit } = makeChat();
+    chat.restoreActiveChannel('#boson');
+    chat.join('#new', { byUser: true });
+    expect(chat.getState().activeChannel).toBe('#new');
+    emit({ Kind: 'JOIN', From: 'me', Target: '#boson' });
+    expect(chat.getState().activeChannel).toBe('#new');
   });
 
   it('a pick before the saved channel joins wins', () => {

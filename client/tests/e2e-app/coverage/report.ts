@@ -53,14 +53,21 @@ function isAppSource(path: string): boolean {
 // Bundle + its sourcemap from disk. The renderer chunk is served from the
 // app's loopback origin on a per-profile port; key it by the built file so every
 // launch's data merges onto the same entry.
+// Read (and parse) once per built file: every launch's entry shares them.
+// A copy per launch (~190 launches × a multi-MB bundle + its sourcemap) ran
+// the teardown out of heap.
+const builds = new Map<string, { source: string; sourceMap?: unknown }>();
 function attachBuild(entry: V8Entry, file: string): V8Entry {
-  const mapFile = `${file}.map`;
-  return {
-    ...entry,
-    url: file,
-    source: readFileSync(file, 'utf8'),
-    ...(existsSync(mapFile) ? { sourceMap: readJson<unknown>(mapFile) } : {}),
-  };
+  let build = builds.get(file);
+  if (!build) {
+    const mapFile = `${file}.map`;
+    build = {
+      source: readFileSync(file, 'utf8'),
+      ...(existsSync(mapFile) ? { sourceMap: readJson<unknown>(mapFile) } : {}),
+    };
+    builds.set(file, build);
+  }
+  return { ...entry, url: file, ...build };
 }
 
 async function v8Layer(opts: {

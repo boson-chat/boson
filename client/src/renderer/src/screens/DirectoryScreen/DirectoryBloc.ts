@@ -22,7 +22,7 @@ import type { BouncerUpstreamState, EngineClient, EngineState, ServerSession } f
 import type { ChatHistoryStore } from '../../modules/history';
 import type { IdentityService } from '../../modules/identity';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
-import { SessionStore, applyChannelOrder, channelKey, mergeChannelOrder, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
+import { SessionStore, withLocalCursor, applyChannelOrder, channelKey, mergeChannelOrder, type SavedServer, type SavedServerBouncer, type SavedSession } from '../../modules/session';
 import {
   addLocalServer,
   loadLocalServers,
@@ -340,6 +340,9 @@ export class DirectoryBloc {
   // its engine reaches connected state. Keyed by serverId for forward-compat
   // with multi-server restore.
   private pendingJoins = new Map<string, string[]>();
+  // The channel the user asked to join on a server's next `connected`
+  // (queueJoin), by serverId: it takes the screen; restored ones don't.
+  private requestedJoins = new Map<string, string>();
   // Listings connected from their card whose default channels
   // (autojoin_channels) still need joining on this first connect — see
   // modules/directory/autojoin.ts. Taken when the connection registers.
@@ -421,6 +424,9 @@ export class DirectoryBloc {
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', this.onVisibility);
     }
+    // Leaving the page (a reload, a phone OS tearing the web view down):
+    // send what the debounce is still holding.
+    if (typeof window !== 'undefined') window.addEventListener('pagehide', this.onPageHide);
     // The network changed (the iOS shell's path monitor; a browser's
     // `online`): connections on the old network are dead though nothing
     // says so yet — check them now rather than at the ping timeout.
@@ -488,10 +494,18 @@ export class DirectoryBloc {
 
   private readonly onVisibility = (): void => {
     if (this.disposed) return;
-    if (document.visibilityState === 'hidden') { this.hiddenAt = Date.now(); return; }
+    if (document.visibilityState === 'hidden') {
+      this.hiddenAt = Date.now();
+      this.flushSessionPush();
+      return;
+    }
     const hiddenFor = this.hiddenAt === null ? 0 : Date.now() - this.hiddenAt;
     this.hiddenAt = null;
     if (hiddenFor >= RESUME_AFTER_HIDDEN_MS) this.resume();
+  };
+
+  private readonly onPageHide = (): void => {
+    if (!this.disposed) this.flushSessionPush();
   };
 
   private readonly onNetworkChange = (): void => {
@@ -622,6 +636,7 @@ export class DirectoryBloc {
     this.unsubscribePushOpen?.();
     this.unsubscribeEngineReconnect = null;
     if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisibility);
+    if (typeof window !== 'undefined') window.removeEventListener('pagehide', this.onPageHide);
     if (typeof window !== 'undefined') {
       window.removeEventListener('boson:network', this.onNetworkChange);
       window.removeEventListener('online', this.onNetworkChange);
@@ -1042,12 +1057,25 @@ export class DirectoryBloc {
     if (this.sessionSyncTimer) clearTimeout(this.sessionSyncTimer);
     this.sessionSyncTimer = setTimeout(() => {
       this.sessionSyncTimer = null;
-      if (this.disposed) return;
-      const payload: unknown = { ...(this.sessionStore.load() ?? {}), prefs: collectPrefs() };
-      void this.directory.putSavedSession(payload).catch(() => {
-        // Best-effort — keep working offline; we'll retry on the next change.
-      });
+      this.pushSessionNow();
     }, DirectoryBloc.SESSION_SYNC_DEBOUNCE_MS);
+  }
+
+  // The app is going to the background (or the page away): a phone may
+  // suspend or kill it before the debounce fires, so send a pending push now.
+  private flushSessionPush(): void {
+    if (!this.sessionSyncTimer) return;
+    clearTimeout(this.sessionSyncTimer);
+    this.sessionSyncTimer = null;
+    this.pushSessionNow();
+  }
+
+  private pushSessionNow(): void {
+    if (this.disposed) return;
+    const payload: unknown = { ...(this.sessionStore.load() ?? {}), prefs: collectPrefs() };
+    void this.directory.putSavedSession(payload).catch(() => {
+      // Best-effort — keep working offline; we'll retry on the next change.
+    });
   }
 
   // Re-open the chat overlay if at least one connection is connected (e.g.
@@ -1157,6 +1185,9 @@ export class DirectoryBloc {
 
   // A channel to join on this server's next `connected`.
   private queueJoin(serverId: string, channel: string): void {
+    // The user asked for this one: it's shown once joined (the rest of the
+    // queue, saved channels, join in the background).
+    this.requestedJoins.set(serverId, channel);
     const q = this.pendingJoins.get(serverId) ?? [];
     if (!q.some((c) => c.toLowerCase() === channel.toLowerCase())) q.push(channel);
     this.pendingJoins.set(serverId, q);
@@ -1972,7 +2003,7 @@ export class DirectoryBloc {
       const { prefs: remotePrefs, ...remoteSession } = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
       if (payload && typeof payload === 'object' && !this.restored && this.connections.size === 0) {
         try {
-          this.sessionStore.saveSilent(remoteSession as unknown as SavedSession);
+          this.sessionStore.saveSilent(withLocalCursor(remoteSession as unknown as SavedSession, this.sessionStore.load()));
         } catch { /* best-effort */ }
       }
       // Preferences: the newer of the synced copy and this device's wins
@@ -2462,16 +2493,24 @@ export class DirectoryBloc {
         this.resetAutoReconnect(server.id);
         // Replay any pending joins for this server now that IRC is ready.
         const queued = this.pendingJoins.get(server.id);
+        const requested = this.requestedJoins.get(server.id);
+        this.requestedJoins.delete(server.id);
+        const isRequested = (ch: string): boolean => !!requested && ch.toLowerCase() === requested.toLowerCase();
         if (queued && queued.length > 0) {
           this.pendingJoins.delete(server.id);
           // Defer to the next microtask so subscribers see the connected
-          // state before joins are issued.
+          // state before joins are issued. The saved channels join in the
+          // background, so the restore lands on the one the user was last
+          // in (ChatService.restoreActiveChannel); a channel the user asked
+          // for is a pick and is shown.
           if (viaBouncer) {
-            this.joinMissingViaBouncer(server.id, conn, queued);
+            const rest = queued.filter((ch) => !isRequested(ch));
+            if (requested) queueMicrotask(() => { if (!this.disposed) conn.chat.join(requested, { byUser: true }); });
+            if (rest.length > 0) this.joinMissingViaBouncer(server.id, conn, rest);
           } else {
             queueMicrotask(() => {
               if (this.disposed) return;
-              queued.forEach((ch) => conn.chat.join(ch));
+              queued.forEach((ch) => conn.chat.join(ch, isRequested(ch) ? { byUser: true } : { focus: false }));
             });
           }
         }
@@ -2581,7 +2620,10 @@ export class DirectoryBloc {
     // remains valid until setActive() updates it.
     let lastSavedActive: string | null = null;
     const unsubActive = chat.subscribe((state: ChatState) => {
-      if (state.activeChannel !== lastSavedActive) {
+      // Not while the restore is still waiting for the channel the user was
+      // last in: what's shown meanwhile (the first channel to join, or
+      // nothing) would overwrite it, and a relaunch would then land there.
+      if (state.activeChannel !== lastSavedActive && !chat.restoringActive()) {
         lastSavedActive = state.activeChannel;
         if (state.activeChannel !== null) {
           this.sessionStore.setActiveChannel(conn.serverId, state.activeChannel);

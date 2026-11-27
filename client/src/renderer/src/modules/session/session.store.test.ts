@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { SessionStore, type SavedSession, type SavedServer } from './session.store';
+import { SessionStore, withLocalCursor, type SavedSession, type SavedServer } from './session.store';
 
 function makeStorage() {
   const map = new Map<string, string>();
@@ -325,5 +325,62 @@ describe('SessionStore channel order', () => {
     const bad = { ...sampleSession, servers: [{ ...sampleSession.servers[0], channelOrder: [1, 2] }] };
     storage.setItem('boson:session:v2', JSON.stringify(bad));
     expect(new SessionStore(storage).load()).toBeNull();
+  });
+});
+
+// The account's synced copy brings the servers and channels; where this
+// device was (server open, channel on each) stays this device's.
+describe('withLocalCursor', () => {
+  const remote: SavedSession = {
+    servers: [
+      { server: srvA, channels: ['#general', '#dev'], activeChannel: '#general' },
+      { server: srvB, channels: ['#chat', '#help'], activeChannel: '#help' },
+    ],
+    activeServerId: 'srv-a',
+  };
+
+  it('keeps this device\'s server and channels', () => {
+    const local: SavedSession = {
+      servers: [
+        { server: srvA, channels: ['#general', '#dev'], activeChannel: '#Dev' },
+        { server: srvB, channels: ['#chat'], activeChannel: '#chat' },
+      ],
+      activeServerId: 'srv-b',
+    };
+    const out = withLocalCursor(remote, local);
+    expect(out.activeServerId).toBe('srv-b');
+    expect(out.servers.map((s) => s.activeChannel)).toEqual(['#Dev', '#chat']);
+    // Everything else is the synced copy's.
+    expect(out.servers[1]!.channels).toEqual(['#chat', '#help']);
+  });
+
+  it('falls back to the synced cursor for what\'s gone from the synced set', () => {
+    const local: SavedSession = {
+      servers: [{ server: srvA, channels: ['#left'], activeChannel: '#left' }],
+      activeServerId: 'srv-gone',
+    };
+    const out = withLocalCursor(remote, local);
+    expect(out.activeServerId).toBe('srv-a');
+    expect(out.servers[0]!.activeChannel).toBe('#general');
+  });
+
+  it('a DM stays; a parked server isn\'t restored as active', () => {
+    const parked: SavedSession = {
+      ...remote,
+      servers: [remote.servers[0]!, { ...remote.servers[1]!, server: { ...srvB, parked: true } }],
+    };
+    const local: SavedSession = {
+      servers: [{ server: srvA, channels: [], activeChannel: 'bob' }],
+      activeServerId: 'srv-b',
+    };
+    const out = withLocalCursor(parked, local);
+    expect(out.servers[0]!.activeChannel).toBe('bob');
+    expect(out.activeServerId).toBe('srv-a');
+  });
+
+  it('nothing local, or a payload that isn\'t a session: the remote as is', () => {
+    expect(withLocalCursor(remote, null)).toBe(remote);
+    const empty = {} as SavedSession;
+    expect(withLocalCursor(empty, remote)).toBe(empty);
   });
 });
