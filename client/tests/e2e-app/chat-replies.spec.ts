@@ -1,7 +1,7 @@
 // Quoted replies (IRCv3 `+draft/reply`, a client-only tag ergo relays to
 // clients with message-tags), against the e2e ergo: Reply on a message sends
 // the next line with the original's msgid and, for clients that don't read
-// the tag, `nick: ` (or `nick: "quote..." `) in front of it, which Boson
+// the tag, `nick: "quote..." ` in front of it, which Boson
 // hides; an incoming reply shows a quote of its original (a click scrolls
 // to it), or says the original isn't available.
 import { test, expect, randomChannel } from './fixtures';
@@ -45,8 +45,8 @@ test.describe('replies', () => {
     mark = peer.mark();
     await say(page, 'a1 6697, with TLS');
     await expect(bar).toHaveCount(0);
-    // The question is the peer's latest line: just its nick in front.
-    const sent = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === `${peer.nick}: a1 6697, with TLS`, mark);
+    // Quoted even though it's the peer's latest line, for classic clients.
+    const sent = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === `${peer.nick}: "q1..." a1 6697, with TLS`, mark);
     expect(sent.tags['+draft/reply']).toBe(questionId);
     // Shown without the `nick: ` its quote stands for.
     await expect(row('a1 6697').locator('.message-row-text-body')).toHaveText('a1 6697, with TLS');
@@ -64,7 +64,7 @@ test.describe('replies', () => {
     await expect(bar).toContainText(`Replying to ${nick}`);
     mark = peer.mark();
     await say(page, 'a2 and 6667 is going away');
-    const ownReply = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === `${nick}: a2 and 6667 is going away`, mark);
+    const ownReply = await waitCmd(peer, 'PRIVMSG', nick, (l) => l.params[1] === `${nick}: "a1..." a2 and 6667 is going away`, mark);
     expect(ownReply.tags['+draft/reply']).toBe(ownId);
     await expect(row('a2 and 6667').locator('.message-row-text-body')).toHaveText('a2 and 6667 is going away');
     await expect(row('a2 and 6667').locator('.message-reply-quote-author')).toHaveText(nick);

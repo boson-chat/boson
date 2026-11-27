@@ -37,16 +37,14 @@ async function send(page: Page, text: string): Promise<void> {
 
 for (const vp of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'phone', width: 390, height: 760 }]) {
   test.describe(`replies (${vp.name})`, () => {
-    test('with message-tags: quotes, a guess, a mention, fetched and missing originals', async ({ page }) => {
+    test('with message-tags: quotes, a plain `nick:` line, a mention, fetched and missing originals', async ({ page }) => {
       await open(page, 'replies=tags&search=1', vp.width, vp.height);
       // A tagged reply: the quote above it, the `mox: "anyone know..." ` gone from its text.
       const k = rowWith(page, 'libssl-dev');
       await expect(k.locator('.message-reply-quote')).toContainText('anyone know why the build fails on arm?');
       await expect(k.locator('.message-row-text-body')).toHaveText("it's libssl-dev, the arm image lacks it");
-      // `mox: here` from a classic client: a guess, fainter, text as written.
-      const p = rowWith(page, 'mox: here');
-      await expect(p.locator('.message-reply-quote-guessed')).toContainText('anyone around?');
-      expect(Number(await p.locator('.message-reply-quote').evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(0.8);
+      // `mox: here` from a classic client: not a reply, just a line (no guessing).
+      await expect(rowWith(page, 'mox: here').locator('.message-reply-quote')).toHaveCount(0);
       // A reply to your line, without your nick: a mention.
       await expect(rowWith(page, 'shipping it tonight').locator('.message-row')).toHaveClass(/message-row-mention/);
       // The original isn't loaded: fetched on its own (CHATHISTORY AROUND).
@@ -99,18 +97,18 @@ for (const vp of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'phone'
       const mine = rowWith(page, 'thanks, installing it');
       await expect(mine.locator('.message-reply-quote')).toContainText('anyone know why');
       await expect(mine.locator('.message-row-text-body')).toHaveText('thanks, installing it');
-      // The latest line: just the nick.
+      // The latest line is quoted too, so classic clients can tell.
       if (vp.name === 'desktop') {
         await replyTo(page, 'anyone around?');
         await send(page, 'yep');
-        expect((await sent(page)).at(-1)!.body).toBe('mox: yep');
+        expect((await sent(page)).at(-1)!.body).toBe('mox: "anyone around..." yep');
       }
       await expect(page.getByRole('menuitem')).toHaveCount(0);
       await page.screenshot({ path: test.info().outputPath('plain-sent.png') });
     });
 
-    test('"Show guessed replies" off: a bare `nick:` is just a line', async ({ page }) => {
-      await page.addInitScript(() => localStorage.setItem('boson:chat-display:v1', '{"guessedReplies":false}'));
+    test('a bare `nick:` is just a line, even with an old "guessed replies" setting saved', async ({ page }) => {
+      await page.addInitScript(() => localStorage.setItem('boson:chat-display:v1', '{"guessedReplies":true}'));
       await open(page, 'replies=plain', vp.width, vp.height);
       await expect(rowWith(page, 'mox: here').locator('.message-reply-quote')).toHaveCount(0);
       await expect(rowWith(page, 'libssl-dev').locator('.message-reply-quote')).toHaveCount(1);

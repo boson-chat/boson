@@ -64,7 +64,7 @@ for (const vp of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'phone'
       // A reply inside the thread keeps showing in the timeline, with its quote.
       await expect(rowWith(page, 'same on my pi').locator('.message-reply-quote')).toBeVisible();
       await expect(rowWith(page, 'same on my pi').locator('.message-thread-line')).toHaveCount(0);
-      // One reply: "1 reply". A guess (`nova: ok`) doesn't count.
+      // One reply: "1 reply". A plain `nova: ok` line isn't a reply.
       await expect(rowWith(page, 'standup moved to 4pm today').locator('.message-thread-line')).toContainText('1 reply');
       // A chain whose original isn't loaded: rooted at its oldest line.
       await scrollTo(page, 'agreed, and the cert renewed fine');
@@ -100,7 +100,8 @@ for (const vp of [{ name: 'desktop', width: 1280, height: 800 }, { name: 'phone'
       if (vp.name === 'phone') await panel(page).getByRole('button', { name: /send/i }).click();
       else await box.press('Enter');
       const out = (await sent(page)).at(-1)!;
-      expect(out).toMatchObject({ body: 'mox: nice, closing the ticket', tags: { '+draft/reply': 't-8' } });
+      expect(out).toMatchObject({ tags: { '+draft/reply': 't-8' } });
+      expect(out.body).toMatch(/^mox: ".+\.\.\." nice, closing the ticket$/);
       await expect(rows).toHaveCount(7);
       await expect(rows.nth(6)).toContainText('nice, closing the ticket');
       await expect(panel(page).locator('.thread-panel-divider')).toHaveText('6 replies');
