@@ -38,6 +38,7 @@ export const ACCOUNT_KEYS: KeySet = {
     'boson.services-creds.', // legacy plain-text NickServ passwords, per server
     'boson:recovery-pending:', // recovery code not yet confirmed at sign-up, per user
     'boson:read-markers:v1:', // how far each conversation was read, per user + server
+    'boson:server-nick:v1', // the nick picked on each server, per user + server
     'boson:image-dims:v1', // sizes of images seen in conversations (by URL)
   ],
   secure: [

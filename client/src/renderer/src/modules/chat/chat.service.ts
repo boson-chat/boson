@@ -312,6 +312,9 @@ export interface ChatPersistence {
 
 // Getting our nick back after connecting under a fallback (see
 // startNickReclaim): asks again after each of these delays.
+// The server not taking a nick: 432 erroneous, 433 in use, 436 collision,
+// 437 held (unavailable).
+const NICK_REFUSALS = new Set(['432', '433', '436', '437']);
 const NICK_RECLAIM_DELAYS_MS = [5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000];
 
 // ChatFeedback is out-of-band UI signaling driven by slash commands.
@@ -720,6 +723,9 @@ export class ChatService {
       // Where the detected services package is remembered per server, so
       // the next connect skips the detection probe (see services-verdict.ts).
       servicesVerdicts?: { save(serverId: string, framework: string): void };
+      // Where the nick the user picks on this server (/nick, Change nick)
+      // is remembered, so the next connect asks for it (server-nick.ts).
+      nickChoice?: { save(nick: string): void };
     },
   ) {
     this.session = trackServiceSends(session, (target) => this.noteServiceAsk(target, 'auto'));
@@ -742,6 +748,8 @@ export class ChatService {
       this.serverInfo = { ...this.serverInfo, bouncer: true, bouncerConfigured: true };
     }
     this.wantedNick = myNick;
+    this.requestedNick = myNick;
+    this.nickChoice = deps?.nickChoice ?? null;
   }
 
   // ----- Getting our nick back -----
@@ -750,8 +758,17 @@ export class ChatService {
   // server registers us under a fallback instead (nick_, because our previous
   // connection still holds the nick, typically for a minute after a reload),
   // we keep asking for it back on a backoff, say so once, and say when it
-  // worked. Not on bouncer connections (the bouncer owns the nick).
+  // worked. Not on bouncer connections (the bouncer owns the nick), nor when
+  // the server welcomed us under another nick without refusing ours (an
+  // invisible bridge on the nick the user picked: adoptServerNick).
   private wantedNick: string;
+  // The nick this connection registered with, whether the server refused
+  // it while registering (in use, erroneous, held: the engine fell back to
+  // nick_), and a nick the user asked for that the server hasn't answered.
+  private readonly requestedNick: string;
+  private regNickRefused = false;
+  private userNickAsk: string | null = null;
+  private readonly nickChoice: { save(nick: string): void } | null;
   private reclaimTimer: ReturnType<typeof setTimeout> | null = null;
   private reclaimAttempt = 0;
   private reclaimNoted = false;
@@ -764,6 +781,35 @@ export class ChatService {
 
   private hasWantedNick(): boolean {
     return !this.wantedNick || this.myNick.toLowerCase() === this.wantedNick.toLowerCase();
+  }
+
+  // On welcome, under another nick than the one registered with though the
+  // server refused none: it's the server's choice (a bouncer attaching us to
+  // its connection, already on the nick the user picked; a server enforcing
+  // nick = account). Take it as the nick to keep, rather than fight it back
+  // to the one we asked for. A collision fallback (nick_ after 433) isn't.
+  private adoptServerNick(): void {
+    const refused = this.regNickRefused;
+    this.regNickRefused = false;
+    if (refused || !this.myNick || this.myNick.toLowerCase() === this.requestedNick.toLowerCase()) return;
+    this.wantedNick = this.myNick;
+  }
+
+  // A nick numeric (432 erroneous, 433 in use, 436 collision, 437 held): while
+  // registering, the server didn't take the nick we asked for; after, a
+  // /nick of the user's failed (not to be remembered).
+  private noteNickRefused(e: IrcEvent): void {
+    if (!this.welcomed) { this.regNickRefused = true; return; }
+    const nick = (e.Args?.[1] ?? e.Target ?? '').toLowerCase();
+    if (this.userNickAsk && (!nick || nick === this.userNickAsk.toLowerCase())) this.userNickAsk = null;
+  }
+
+  // Our nick changed: the answer to the user's /nick is remembered as their
+  // pick for this server.
+  private noteOwnNickChange(newNick: string): void {
+    if (!this.userNickAsk || newNick.toLowerCase() !== this.userNickAsk.toLowerCase()) return;
+    this.userNickAsk = null;
+    this.nickChoice?.save(newNick);
   }
 
   // After registration: start getting the nick back when we didn't get it.
@@ -1237,8 +1283,10 @@ export class ChatService {
   // a settings panel / quick-action button can drive a rename without
   // going through the slash-command parser. The same end-state as
   // typing `/nick <new>` in the chat input.
-  changeNick(nick: string): void {
-    this.cmdNick(nick);
+  // `remember: false` for a rename that isn't the user's pick for this
+  // server (following a new Boson handle).
+  changeNick(nick: string, opts: { remember?: boolean } = {}): void {
+    this.cmdNick(nick, opts.remember !== false);
   }
 
   // Send a NickServ IDENTIFY through the engine's dedicated command
@@ -2561,7 +2609,7 @@ export class ChatService {
     this.setMemberMode(this.activeChannel, nick, mode);
   }
 
-  private cmdNick(args: string): void {
+  private cmdNick(args: string, remember = true): void {
     const next = args.trim().split(/\s+/)[0];
     if (!next) return this.systemHere('Usage: /nick <new-nick>');
     // We don't validate locally — IRC nick rules vary (length, charset,
@@ -2569,7 +2617,10 @@ export class ChatService {
     // authoritative than anything we could re-enforce. On success the
     // NICK echo comes back as a regular event and handleEvent renames
     // the member entries across every joined channel.
+    // The server's NICK answer makes it the nick remembered for this
+    // server (noteOwnNickChange), so a reconnect asks for it again.
     this.wantedNick = next;
+    this.userNickAsk = remember ? next : null;
     this.stopNickReclaim();
     this.session.nick(next);
   }
@@ -3367,6 +3418,7 @@ export class ChatService {
     // server-info badge.
     this.noteZncIfApplicable(e);
     if (WHOIS_REPLIES.has(e.Kind)) this.noteWhoisReply(e);
+    if (NICK_REFUSALS.has(e.Kind)) this.noteNickRefused(e);
     switch (e.Kind) {
       case 'PRIVMSG':
       case 'NOTICE': {
@@ -3895,6 +3947,7 @@ export class ChatService {
         });
         if (e.From === this.myNick) {
           this.myNick = newNick;
+          this.noteOwnNickChange(newNick);
           if (this.reclaimNoted && this.hasWantedNick()) this.noteHere(`You're “${newNick}” again.`);
           if (this.hasWantedNick()) this.stopNickReclaim();
         } else {
@@ -4113,6 +4166,7 @@ export class ChatService {
         for (const svc of ['NickServ', 'ChanServ', 'HostServ']) this.noteServiceAsk(svc, 'auto');
         this.welcomed = true;
         this.attachedAt = Date.now();
+        this.adoptServerNick();
         this.startNickReclaim();
         // A new connection: echoes of lines sent on the last one won't come
         // (what's still pending is resent, and waits again).

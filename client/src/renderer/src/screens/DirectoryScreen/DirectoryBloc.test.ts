@@ -1052,6 +1052,34 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  it('the nick picked on a server is asked for on the next connect; a handle rename is not a pick', async () => {
+    localStorage.removeItem('boson:server-nick:v1');
+    const engine = fakeEngine();
+    const server = fakeServer('s1');
+    const directory = fakeDirectory({ user: fakeUser(), servers: [server] });
+    const bloc = new DirectoryBloc({ auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore: new SessionStore(memoryStorage()) });
+    await flushPromises(4);
+    await bloc.connect(server);
+    const s1 = engine.sessionFor('s1');
+    s1._setState('connected');
+    const handle = bloc.getState().me!.handle;
+    const first = engine.connectCalls[0]!.nick;
+    s1._emitEvent({ Kind: '001', From: 'srv', Target: first, Message: 'Welcome', Raw: '' });
+    // following a new handle: not remembered
+    bloc.setHandle(`${handle}2`);
+    s1._emitEvent({ Kind: 'NICK', From: first, Target: '', Message: s1.nickCalls[0]!, Raw: '' });
+    expect(localStorage.getItem('boson:server-nick:v1')).toBeNull();
+    // the user's /nick, answered: remembered for this server
+    const conn = bloc.getState().connections[0]!;
+    conn.chat.changeNick('TheLion');
+    s1._emitEvent({ Kind: 'NICK', From: s1.nickCalls[0]!, Target: '', Message: 'TheLion', Raw: '' });
+    bloc.disconnect('s1');
+    await bloc.connect(server);
+    expect(engine.connectCalls.at(-1)!.nick).toBe('TheLion');
+    bloc.dispose();
+    localStorage.removeItem('boson:server-nick:v1');
+  });
+
   it('per-server engine state changes are reflected in the connection without ejecting the user to the directory', async () => {
     const engine = fakeEngine();
     const server = fakeServer('s1');
