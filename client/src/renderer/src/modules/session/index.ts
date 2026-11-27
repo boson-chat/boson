@@ -1,4 +1,4 @@
-export { SessionStore } from './session.store';
+export { SessionStore, withLocalCursor } from './session.store';
 export type { SavedSession, SavedServer, SavedServerSession, SavedServerBouncer } from './session.store';
 export {
   applyChannelOrder, channelKey, isCustomOrder, mergeChannelOrder, moveChannel, stepChannel,

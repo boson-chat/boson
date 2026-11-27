@@ -382,6 +382,33 @@ function isLegacySession(v: unknown): v is LegacySession {
   return true;
 }
 
+// The synced session from the account, with this device's own place in it
+// kept: which server is open, and which channel on each. Those say where
+// this device was, not what the account has, and a relaunch should come back
+// to them — not to wherever another device was last (each device's pushes
+// carry its own), nor to a stale cloud copy when this device's last switch
+// never reached it (a phone killed in the background before the push left).
+// The servers and their channels still come from `remote`; a cursor this
+// device has for a server or channel that's gone from it falls back to the
+// remote one.
+export function withLocalCursor(remote: SavedSession, local: SavedSession | null): SavedSession {
+  if (!local || !remote || !Array.isArray(remote.servers)) return remote;
+  const localById = new Map(local.servers.map((s) => [s.server.id, s]));
+  const servers = remote.servers.map((r) => {
+    const mine = r && typeof r === 'object' && r.server ? localById.get(r.server.id) : undefined;
+    if (!mine?.activeChannel || !Array.isArray(r.channels)) return r;
+    const key = channelKey(mine.activeChannel);
+    // A channel must still be in the synced set; a DM is always fine.
+    const isChannel = /^[#&]/.test(mine.activeChannel);
+    if (isChannel && !r.channels.some((c) => typeof c === 'string' && channelKey(c) === key)) return r;
+    return { ...r, activeChannel: mine.activeChannel };
+  });
+  const usable = (id: string | null): boolean => !!id
+    && servers.some((s) => s?.server?.id === id && !s.server.parked);
+  const activeServerId = usable(local.activeServerId) ? local.activeServerId : remote.activeServerId;
+  return { ...remote, servers, activeServerId };
+}
+
 function defaultStorage(): Storage {
   // happy-dom in tests provides window.localStorage; main runtime is the desktop webview.
   if (typeof globalThis !== 'undefined' && (globalThis as { localStorage?: Storage }).localStorage) {

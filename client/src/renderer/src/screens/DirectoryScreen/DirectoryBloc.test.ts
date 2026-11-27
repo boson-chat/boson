@@ -2862,3 +2862,215 @@ describe('DirectoryBloc — a listing\'s default channels', () => {
     info.mockRestore();
   });
 });
+
+// Reopening the app (on a phone: backgrounded, then killed by the OS — no
+// unload) comes back to the server and channel the user last had open.
+describe('DirectoryBloc — a relaunch returns to the last server + channel', () => {
+  const row = (id: string, channels: string[], activeChannel: string | null) => ({
+    server: { id, name: id, hostname: `irc.${id}`, port: 6697, tls: true }, channels, activeChannel,
+  });
+  const profile: BouncerProfile = {
+    enabled: true, host: 'znc.host', port: 7000, tls: true,
+    tlsInsecure: true, username: 'me', password: 'pw',
+  };
+  const join = (nick: string, ch: string): IrcEvent => ({ Kind: 'JOIN', From: nick, Target: ch, Message: '', Raw: '' });
+  const savedActive = (store: SessionStore, id: string) =>
+    store.load()!.servers.find((s) => s.server.id === id)!.activeChannel;
+  const chatOf = (bloc: DirectoryBloc, id: string) =>
+    bloc.getState().connections.find((c) => c.serverId === id)!.chat;
+
+  beforeEach(async () => {
+    vi.useRealTimers();
+    setServiceCredentialsStore(new LocalStorageServiceCredentialsStore(memStorage()));
+    setBouncerStore(await fastBouncerStore());
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  function launch(storage: Storage, engine: FakeEngine, remote: unknown = null) {
+    const directory = fakeDirectory({ user: fakeUser('alice'), servers: [] });
+    (directory.getSavedSession as ReturnType<typeof vi.fn>).mockResolvedValue(remote);
+    const sessionStore = new SessionStore(storage);
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(), directory, identity: fakeIdentity(), engine: engine.client, sessionStore,
+    });
+    return { bloc, directory, sessionStore };
+  }
+
+  // The account's synced copy holds whichever device pushed last (the
+  // desktop, say), or this phone's own state from before its last switch
+  // (the debounced push never left before the app was killed).
+  it('the synced session from the account doesn\'t move this device off its server + channel', async () => {
+    const storage = memoryStorage();
+    new SessionStore(storage).save({
+      servers: [row('a', ['#general'], '#general'), row('b', ['#other', '#x'], '#x')],
+      activeServerId: 'b',
+    });
+    const remote = {
+      servers: [row('a', ['#general'], '#general'), row('b', ['#other', '#x'], '#other')],
+      activeServerId: 'a',
+    };
+    const engine = fakeEngine();
+    const { bloc, sessionStore } = launch(storage, engine, remote);
+    await flushPromises(6);
+    expect(engine.connectCalls.map((c) => c.serverId).sort()).toEqual(['a', 'b']);
+    expect(bloc.getState().activeServerId).toBe('b');
+
+    const b = engine.sessionFor('b');
+    b._setState('connected');
+    await flushPromises(4);
+    expect(b.joinCalls).toEqual(['#other', '#x']);
+    // Shown straight away (its history), not the last channel to be joined.
+    expect(chatOf(bloc, 'b').getState().activeChannel).toBe('#x');
+    b._emitEvent(join(engine.connectCalls.find((c) => c.serverId === 'b')!.nick, '#other'));
+    b._emitEvent(join(engine.connectCalls.find((c) => c.serverId === 'b')!.nick, '#x'));
+    expect(chatOf(bloc, 'b').getState().activeChannel).toBe('#x');
+    expect(savedActive(sessionStore, 'b')).toBe('#x');
+    expect(sessionStore.load()!.activeServerId).toBe('b');
+    bloc.dispose();
+  });
+
+  it('a server or channel this device was on that\'s gone from the synced set falls back to the synced cursor', async () => {
+    const storage = memoryStorage();
+    new SessionStore(storage).save({
+      servers: [row('a', ['#general'], '#general'), row('gone', ['#x'], '#x')],
+      activeServerId: 'gone',
+    });
+    const remote = { servers: [row('a', ['#general', '#new'], '#new')], activeServerId: 'a' };
+    const engine = fakeEngine();
+    const { bloc, sessionStore } = launch(storage, engine, remote);
+    await flushPromises(6);
+    expect(bloc.getState().activeServerId).toBe('a');
+    // #general is still in the set: this device's pick stands.
+    expect(savedActive(sessionStore, 'a')).toBe('#general');
+    bloc.dispose();
+  });
+
+  // Through a bouncer nothing is joined by us: the channels come back as the
+  // bouncer replays them, and the one the user was in may come well after
+  // the first (ZNC rejoining at its flood rate, its network still coming
+  // up). The stand-in shown meanwhile isn't saved over the real choice, so
+  // a kill in that window doesn't lose it either.
+  it('through a bouncer: a channel that comes back late still wins, and a kill meanwhile doesn\'t lose it', async () => {
+    const storage = memoryStorage();
+    const seed = new SessionStore(storage);
+    seed.save({ servers: [row('a', ['#general'], '#general'), row('b', ['#other', '#x'], '#x')], activeServerId: 'b' });
+    seed.setServerBouncer('b', { route: true, network: 'b' });
+    seed.setBouncerSeeded('b');
+    setBouncerStore(await fastBouncerStore(profile));
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+
+    // First run: the bouncer replays #other; #x hasn't come back yet.
+    let engine = fakeEngine();
+    let run = launch(storage, engine);
+    await flushPromises(8);
+    let b = engine.sessionFor('b');
+    let nick = engine.connectCalls.find((c) => c.serverId === 'b')!.nick;
+    b._setState('connected');
+    await flushPromises(4);
+    b._emitBouncerUpstream('connected');
+    b._emitEvent(join(nick, '#other'));
+    vi.advanceTimersByTime(5_000);
+    expect(chatOf(run.bloc, 'b').getState().activeChannel).toBe('#other'); // a stand-in
+    expect(savedActive(run.sessionStore, 'b')).toBe('#x');
+    // Backgrounded, then killed: no unload, nothing more runs.
+    run.bloc.dispose();
+
+    // Relaunch.
+    engine = fakeEngine();
+    run = launch(storage, engine);
+    await flushPromises(8);
+    expect(run.bloc.getState().activeServerId).toBe('b');
+    b = engine.sessionFor('b');
+    nick = engine.connectCalls.find((c) => c.serverId === 'b')!.nick;
+    b._setState('connected');
+    await flushPromises(4);
+    b._emitBouncerUpstream('connected');
+    b._emitEvent(join(nick, '#other'));
+    vi.advanceTimersByTime(10_000);
+    expect(chatOf(run.bloc, 'b').getState().activeChannel).toBe('#other');
+    b._emitEvent(join(nick, '#x'));
+    expect(chatOf(run.bloc, 'b').getState().activeChannel).toBe('#x');
+    expect(savedActive(run.sessionStore, 'b')).toBe('#x');
+    expect(b.joinCalls).toEqual([]); // the bouncer's channels aren't re-sent
+    run.bloc.dispose();
+  });
+
+  it('a notification tap during the restore wins over it', async () => {
+    const storage = memoryStorage();
+    new SessionStore(storage).save({ servers: [row('b', ['#other', '#x', '#y'], '#x')], activeServerId: 'b' });
+    const engine = fakeEngine();
+    const { bloc, sessionStore } = launch(storage, engine);
+    await flushPromises(6);
+    // The app was started by the tap: it's applied once the server connects.
+    (bloc as unknown as { activateFromNotification(s: string, c: string): void }).activateFromNotification('b', '#y');
+    const b = engine.sessionFor('b');
+    const nick = engine.connectCalls[0]!.nick;
+    b._setState('connected');
+    await flushPromises(6);
+    b._emitEvent(join(nick, '#other'));
+    b._emitEvent(join(nick, '#x'));
+    b._emitEvent(join(nick, '#y'));
+    await new Promise((r) => setTimeout(r, 0)); // the chat's emit
+    expect(chatOf(bloc, 'b').getState().activeChannel).toBe('#y');
+    expect(savedActive(sessionStore, 'b')).toBe('#y');
+    bloc.dispose();
+  });
+
+  it('a channel the user asks to join on a saved server is shown, not the restored one', async () => {
+    const storage = memoryStorage();
+    new SessionStore(storage).save({ servers: [row('b', ['#x'], '#x')], activeServerId: 'b' });
+    new SessionStore(storage).upsertServer({ id: 'b', name: 'b', hostname: 'irc.b', port: 6697, tls: true });
+    const engine = fakeEngine();
+    const directory = fakeDirectory({ user: fakeUser('alice'), servers: [fakeServer('b')] });
+    const sessionStore = new SessionStore(storage);
+    // A guest restore isn't wanted here: start without the saved set, then
+    // connect from the directory with a channel to join.
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: false }), engine: engine.client, sessionStore,
+    });
+    await flushPromises(6);
+    expect(engine.connectCalls).toHaveLength(0);
+    await bloc.connect(fakeServer('b'), { join: '#new' });
+    await flushPromises(4);
+    const b = engine.sessionFor('b');
+    const nick = engine.connectCalls[0]!.nick;
+    b._setState('connected');
+    await flushPromises(4);
+    expect(b.joinCalls).toEqual(['#new']);
+    b._emitEvent(join(nick, '#x'));
+    b._emitEvent(join(nick, '#new'));
+    expect(chatOf(bloc, 'b').getState().activeChannel).toBe('#new');
+    bloc.dispose();
+  });
+
+  it('going to the background sends a pending session push at once', async () => {
+    vi.useFakeTimers();
+    const storage = memoryStorage();
+    new SessionStore(storage).save({ servers: [row('a', ['#general', '#x'], '#general')], activeServerId: 'a' });
+    const engine = fakeEngine();
+    const { bloc, directory } = launch(storage, engine);
+    await vi.advanceTimersByTimeAsync(0);
+    const a = engine.sessionFor('a');
+    a._setState('connected');
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(2_000);
+    (directory.putSavedSession as ReturnType<typeof vi.fn>).mockClear();
+    chatOf(bloc, 'a').setActive('#x');
+    await vi.advanceTimersByTimeAsync(0); // the chat's emit: saved, push debounced
+    expect(directory.putSavedSession).not.toHaveBeenCalled();
+    const vis = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    try {
+      document.dispatchEvent(new Event('visibilitychange'));
+    } finally {
+      if (vis) Object.defineProperty(document, 'visibilityState', vis);
+      else delete (document as unknown as Record<string, unknown>).visibilityState;
+    }
+    expect(directory.putSavedSession).toHaveBeenCalledTimes(1);
+    const sent = (directory.putSavedSession as ReturnType<typeof vi.fn>).mock.calls[0]![0] as { servers: Array<{ activeChannel: string }> };
+    expect(sent.servers[0]!.activeChannel).toBe('#x');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(directory.putSavedSession).toHaveBeenCalledTimes(1); // not again
+    bloc.dispose();
+  });
+});

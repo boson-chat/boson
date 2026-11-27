@@ -1326,8 +1326,17 @@ export class ChatService {
       this.channels.set(key, { name: key, messages: signal<ChatMessage[]>([]), joined: false, members: [], typing: [], unread: 0, mentions: 0, topic: '' });
     }
     // Auto-switch to the channel we just asked to join so the user sees it
-    // immediately, even before the server's JOIN echo arrives.
-    if (opts.focus !== false || !this.activeChannel) this.activeChannel = key;
+    // immediately, even before the server's JOIN echo arrives. A focused
+    // join is a pick: it ends any restore (restoreActiveChannel). A
+    // background one doesn't take the screen while a restore is pending,
+    // except for the channel being restored, which shows straight away.
+    if (opts.focus !== false) {
+      this.preferredActive = null;
+      if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
+      this.activeChannel = key;
+    } else if (!this.activeChannel && (!this.preferredActive || this.preferredActive === key)) {
+      this.activeChannel = key;
+    }
     this.emit();
     this.session.join(key);
   }
@@ -2774,6 +2783,9 @@ export class ChatService {
         topic: '',
       });
     }
+    // A pick: it ends any restore (restoreActiveChannel).
+    this.preferredActive = null;
+    if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
     this.activeChannel = key;
     this.emit();
   }
@@ -2839,11 +2851,37 @@ export class ChatService {
     this.preferredActive = this.channelKey(channel);
   }
 
+  /**
+   * Still waiting to put the user back on the channel they were last in
+   * (restoreActiveChannel): what's shown now is a stand-in (or nothing),
+   * not a choice worth remembering for the next launch.
+   */
+  restoringActive(): boolean {
+    return this.preferredActive !== null;
+  }
+
+  // Another channel joined first and the one to restore hasn't yet: after a
+  // few seconds show that one, so the screen isn't empty. Keep waiting for
+  // the restored channel behind it, though — a slow server (fakelag on a
+  // dozen JOINs) or a bouncer coming onto its network can take longer than
+  // that, and it still wins when it lands, unless the user has picked a
+  // channel by then (setActive clears the wait). Given up on after
+  // PREFERRED_ACTIVE_GIVE_UP_MS (we left it, or it won't be joined).
   private awaitPreferredActive(firstJoined: string): void {
     if (this.preferredTimer) return;
     this.preferredTimer = setTimeout(() => {
       this.preferredTimer = null;
-      if (this.preferredActive && !this.activeChannel) this.setActive(firstJoined);
+      const preferred = this.preferredActive;
+      if (!preferred) return;
+      // Not setActive(): that would end the wait.
+      if (!this.activeChannel) this.showChannel(firstJoined);
+      this.preferredTimer = setTimeout(() => {
+        this.preferredTimer = null;
+        if (this.preferredActive !== preferred) return;
+        this.preferredActive = null;
+        // Settled: let the stand-in be remembered now.
+        this.emit();
+      }, PREFERRED_ACTIVE_GIVE_UP_MS);
     }, PREFERRED_ACTIVE_WAIT_MS);
   }
 
@@ -2851,6 +2889,10 @@ export class ChatService {
     // Any pick, the user's or ours, settles what's shown.
     this.preferredActive = null;
     if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
+    this.showChannel(channel);
+  }
+
+  private showChannel(channel: string | null): void {
     const key = channel == null ? null : this.channelKey(channel);
     if (this.activeChannel === key) return;
     this.activeChannel = key;
@@ -3693,8 +3735,14 @@ export class ChatService {
           if (this.announceJoin.delete(key) || (!existed && !this.bouncerConn)) {
             this.appendSystem(e.Target, `You joined ${e.Target}`);
           }
-          if (this.preferredActive === key) this.setActive(e.Target);
-          else if (!this.activeChannel) {
+          if (this.preferredActive === key) {
+            // Back on the channel the user was last in. setActive() is a
+            // no-op when join() already showed it, so settle the wait here.
+            if (this.activeChannel === key) {
+              this.preferredActive = null;
+              if (this.preferredTimer) { clearTimeout(this.preferredTimer); this.preferredTimer = null; }
+            } else this.setActive(e.Target);
+          } else if (!this.activeChannel) {
             if (this.preferredActive) this.awaitPreferredActive(e.Target);
             else this.setActive(e.Target);
           }
@@ -5675,6 +5723,9 @@ const WHOIS_FRESH_MS = 60_000;
 // How long a restored active channel may take to join before the first
 // joined channel is shown instead.
 const PREFERRED_ACTIVE_WAIT_MS = 4_000;
+// How long after that the restored channel may still take over (see
+// awaitPreferredActive).
+const PREFERRED_ACTIVE_GIVE_UP_MS = 60_000;
 const WHOIS_RETRY_MS = 10_000;
 
 // Sigils in priority order — highest-rank first. When a server lists multiple
