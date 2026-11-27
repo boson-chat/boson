@@ -1117,8 +1117,12 @@ export class DirectoryBloc {
   //
   // `join`: a channel to join once connected (a channel picked in the
   // server's details) — joined right away when already connected.
-  async connect(server: Server, opts: { focus?: boolean; join?: string } = {}): Promise<void> {
+  // join: a channel to open there (focused); alsoJoin: channels joined
+  // too, quietly and before it, without taking the focus (a guest-first
+  // landing: the network's auto-join channels, then where to land).
+  async connect(server: Server, opts: { focus?: boolean; join?: string; alsoJoin?: readonly string[] } = {}): Promise<void> {
     const { join, ...connectOpts } = opts;
+    const alsoJoin = (opts.alsoJoin ?? []).filter((ch) => ch.toLowerCase() !== join?.toLowerCase());
     // Already open under another id — a session saved before the directory
     // moved to /v1 keys it by the legacy uuid, the listing now says `net_…`:
     // that's this server, keep its id (saved channels, bouncer route and
@@ -1135,9 +1139,13 @@ export class DirectoryBloc {
       // close the modal. A disconnected (wedged) connection falls through
       // to the replace-then-reconnect path below.
       if (existing.engineState === 'connecting' || existing.engineState === 'connected') {
-        if (join) {
-          if (existing.engineState === 'connected') existing.chat.join(join, { byUser: true });
-          else this.queueJoin(server.id, join);
+        if (existing.engineState === 'connected') {
+          const have = new Set(existing.chat.getState().channels.map((c) => c.name.toLowerCase()));
+          for (const ch of alsoJoin) if (!have.has(ch.toLowerCase())) existing.chat.join(ch, { focus: false, quiet: true });
+          if (join) existing.chat.join(join, { byUser: true });
+        } else {
+          for (const ch of alsoJoin) this.queueJoin(server.id, ch);
+          if (join) this.queueJoin(server.id, join);
         }
         let changed = false;
         if (this.activeServerId !== server.id) {
@@ -1175,6 +1183,7 @@ export class DirectoryBloc {
       this.connections.delete(server.id);
     }
     if (server.autojoin_channels?.length && !autojoinDone(server)) this.autojoinWanted.set(server.id, server);
+    for (const ch of alsoJoin) this.queueJoin(server.id, ch);
     if (join) this.queueJoin(server.id, join);
     await this.connectWith(server, { ...connectOpts, carry });
     if (this.serverBrowserOpen) {
@@ -1683,6 +1692,9 @@ export class DirectoryBloc {
     port: number;
     tls: boolean;
     name?: string;
+    // Channels to open there (connect's join / alsoJoin).
+    join?: string;
+    alsoJoin?: readonly string[];
   }): Promise<void> {
     // `connectWith` requires `me.handle` to mint an IRC nick — without
     // it the connection is a no-op. The bloc is constructed before
@@ -1699,8 +1711,12 @@ export class DirectoryBloc {
       ...(this.servers ?? []),
       ...mergeWithLocal([], loadLocalServers()),
     ].find((s) => s.hostname.toLowerCase() === hostKey && s.port === input.port);
+    const channels = {
+      ...(input.join ? { join: input.join } : {}),
+      ...(input.alsoJoin?.length ? { alsoJoin: input.alsoJoin } : {}),
+    };
     if (existing) {
-      await this.connect(existing);
+      await this.connect(existing, channels);
       return;
     }
     const created = addLocalServer({
@@ -1714,7 +1730,7 @@ export class DirectoryBloc {
     // it back as a Server and connect.
     const merged = mergeWithLocal(this.servers ?? [], loadLocalServers());
     const target = merged.find((s) => s.id === created.id);
-    if (target) await this.connect(target);
+    if (target) await this.connect(target, channels);
   }
 
   // Replay a deep-link join that arrived before `me` was loaded.

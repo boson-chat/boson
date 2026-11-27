@@ -70,6 +70,7 @@ export const DEVICE_KEYS: KeySet = {
     'boson:chat-display:v1', // how conversations read (guessed replies)
     'boson:voice-servers:v1', // cache of networks' public boson.json (web)
     'boson:services-verdict:v1', // which services package each network runs
+    'boson:guest:last-nick:v1', // the guest-first nick, so a returning visitor keeps it
   ],
   secure: [],
 };

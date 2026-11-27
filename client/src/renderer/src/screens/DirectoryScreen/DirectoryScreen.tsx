@@ -12,6 +12,7 @@ import type { NetworkDirectories } from '../../modules/directory/networks';
 import type { Facets, NetworkSort } from '../../modules/directory/network-api';
 import { subscribeAddServer, subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { joinHomeOnce, useHomeNetwork } from '../../modules/netauth/home-network';
+import { useGuestFirstLanding, useGuestNickRetry } from './guest-first-landing';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
 import { onHandleChange } from '../../modules/ui/handle-change';
@@ -174,10 +175,23 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
   // server (its boson.json irc.host), once per device. Also after "Use
   // another server" (say boson.chat): connecting asks for the network's
   // own sign-in, which offers "Continue as alice@boson.chat".
+  // A guest-first visitor (modules/guest/guest-first.ts) lands on the
+  // network's channel after its auto-join ones, also on a later visit (a
+  // ?channel= link).
   const home = useHomeNetwork();
+  const landing = useGuestFirstLanding(home, guestNick ?? null, auth);
   useEffect(() => {
-    joinHomeOnce(home, (params) => { void bloc.joinFromDeepLink(params); });
-  }, [bloc, home]);
+    if (landing === undefined) return;
+    const channels = landing ? { ...(landing.focus ? { join: landing.focus } : {}), alsoJoin: landing.channels } : {};
+    const joinHome = (params: { host: string; port: number; tls: boolean; name?: string }): void => {
+      void bloc.joinFromDeepLink({ ...params, ...channels });
+    };
+    if (!joinHomeOnce(home, joinHome) && landing && home.irc) {
+      joinHome({ host: home.irc.host, port: home.irc.port, tls: home.irc.tls, name: home.name });
+    }
+  }, [bloc, home, landing]);
+  // A nick made for a guest that the network has taken: a fresh one.
+  useGuestNickRetry(bloc, home, guestNick ?? null);
 
   // Inbox click-through: focus the entry's server + open the conversation.
   useEffect(() => {

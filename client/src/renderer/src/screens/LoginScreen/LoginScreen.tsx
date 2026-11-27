@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { ChevronRight } from 'lucide-preact';
 import { closedSignupLine, guestAccessAllowed, signupMode, useAuthService, useAuthState, type AuthConfig } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
@@ -8,6 +7,10 @@ import { PASSWORD_MIN } from '../../modules/auth/signup-rules';
 import { LoginBloc, type LoginMode } from './LoginBloc';
 import { takeResumeIdentity } from '../../modules/auth/resume-identity';
 import { emitGuestChange, saveGuestSession } from '../../modules/guest/guest';
+import {
+  consumeLinkChannel, guestAutojoinChannels, guestFirstLink, guestFirstOn, landingChannel, rememberGuestNick, setGuestLanding,
+} from '../../modules/guest/guest-first';
+import { GuestFirstEntry } from './GuestFirstEntry';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
 import { getNetworkAccounts, normalizeAuthBase, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
 import {
@@ -16,7 +19,7 @@ import {
 import { acceptsFederation, type HomeAccount } from '../../modules/netauth/federation';
 import { OtherServer } from './OtherServer';
 import { BOSON_CHAT_HOME, useHomeNetwork, type HomeNetwork } from '../../modules/netauth/home-network';
-import { FederatedSignIn } from '../NetworkSignIn/FederatedSignIn';
+import { ContinueWithBosonChat, FederatedSignIn } from '../NetworkSignIn/FederatedSignIn';
 import { MAIN_NETWORK_KEY, useNetworkThemes } from '../../modules/ui/theme';
 import { NetworkLoginLogo, loginBackdrop } from '../NetworkSignIn/NetworkBrand';
 import './LoginScreen.css';
@@ -143,6 +146,22 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   const onSubmit = (kind: 'signin' | 'signup', e: Event) => {
     e.preventDefault();
     void (kind === 'signin' ? bloc.signIn() : bloc.signUp());
+  };
+
+  // Guest-first (the home network's guest_first): a ready nick and "Join
+  // chat" first; the full sign-in is a click away (full).
+  const link = guestFirstLink();
+  const [full, setFull] = useState(false);
+  const guestFirst = home.selfHosted && !session && guestFirstOn(mainCfg);
+  const landing = guestFirst ? landingChannel(mainCfg, link.channel) : null;
+  const joinAsGuest = (nick: string, auto: boolean): void => {
+    rememberGuestNick(nick, auto);
+    // They chose to chat as a guest: connecting doesn't ask them to sign in.
+    if (home.irc?.host) accounts?.setGuestChosen(home.irc.host, true);
+    setGuestLanding({ focus: landing, channels: guestAutojoinChannels(mainCfg) });
+    consumeLinkChannel();
+    saveGuestSession({ nick });
+    emitGuestChange();
   };
 
   const submitGuest = (e: Event): void => {
@@ -423,6 +442,29 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
     );
   }
 
+  // A self-hosted network's settings aren't in yet: its guest-first entry
+  // may be on, so don't flash the sign-in form.
+  if (home.selfHosted && !cfgSettled && !session) {
+    return <div {...backdrop}><div class="login-container" aria-busy="true">{logo}</div></div>;
+  }
+
+  if (guestFirst && !full) {
+    return (
+      <GuestFirstEntry
+        name={home.name}
+        channel={landing}
+        logo={brand?.applied && (brand.logo || brand.logoWide) ? <NetworkLoginLogo brand={brand} name={home.name} /> : null}
+        backdrop={backdrop}
+        initialNick={link.nick}
+        autoJoin={link.join}
+        canSignUp={canSignUp}
+        onJoin={joinAsGuest}
+        onSignIn={() => { bloc.setMode('login'); setFull(true); }}
+        onSignUp={() => { bloc.setMode('signup'); setFull(true); }}
+      />
+    );
+  }
+
   const signup = mode === 'signup' && canSignUp;
   // "Continue with boson.chat" (sign in there first): while sign-up is
   // closed, the network takes accounts from elsewhere, no boson.chat
@@ -692,9 +734,9 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
           <Button
             variant="ghost"
             class="login-guest-toggle"
-            onClick={() => setGuestPrompt(true)}
+            onClick={() => (guestFirst ? setFull(false) : setGuestPrompt(true))}
           >
-            Continue without an account
+            {guestFirst ? 'Join as a guest instead' : 'Continue without an account'}
           </Button>
         </div>
       </div>
@@ -801,17 +843,7 @@ function HomeFederation({ accounts, link, homes, home, signIn, offerBosonChat, a
           onSignedIn={() => {}}
         />
       ) : offerBosonChat ? (
-        <section class="netauth-fed login-fed" aria-label={`Sign in to ${home.name} with a ${BOSON_CHAT_HOME.domain} account`}>
-          <button type="button" class="netauth-fed-choice login-fed-boson" onClick={onBosonChat}>
-            <span class="netauth-fed-avatar login-fed-mark" aria-hidden="true">{BOSON_CHAT_HOME.domain[0]!.toUpperCase()}</span>
-            <span class="netauth-fed-body">
-              <span class="netauth-fed-title">Continue with {BOSON_CHAT_HOME.domain}</span>
-              <span class="netauth-fed-sub">Sign in or sign up there, then come back. No password is shared.</span>
-            </span>
-            <ChevronRight size={16} class="netauth-fed-chevron" aria-hidden="true" />
-          </button>
-          <div class="login-sso-divider netauth-fed-divider" aria-hidden="true"><span>{divider}</span></div>
-        </section>
+        <ContinueWithBosonChat name={home.name} divider={divider} onClick={onBosonChat} />
       ) : null}
     </>
   );

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { ChevronRight } from 'lucide-preact';
 import { Button } from '@boson/shared';
 import type { NetworkAccounts, NetworkLink } from '../../modules/netauth/network-accounts';
+import { BOSON_CHAT_HOME } from '../../modules/netauth/home-network';
 import {
   acceptsFederation, describeFederationError, retryable, type HomeAccount,
 } from '../../modules/netauth/federation';
@@ -122,6 +123,26 @@ export function FederatedSignIn({ accounts, link, name, onSignedIn, onCreateAcco
         </div>
       )}
       <div class="login-sso-divider netauth-fed-divider" aria-hidden="true"><span>{divider ?? `or use an account on ${name}`}</span></div>
+    </section>
+  );
+}
+
+// "Continue with boson.chat": no boson.chat account is signed in here yet,
+// so sign in (or up) there first, then come back to name's sign-in, which
+// continues as that account. The sign-in screen's and the network sign-in
+// dialog's.
+export function ContinueWithBosonChat({ name, divider, onClick }: { name: string; divider: string; onClick: () => void }) {
+  return (
+    <section class="netauth-fed login-fed" aria-label={`Sign in to ${name} with a ${BOSON_CHAT_HOME.domain} account`}>
+      <button type="button" class="netauth-fed-choice login-fed-boson" onClick={onClick}>
+        <span class="netauth-fed-avatar login-fed-mark" aria-hidden="true">{BOSON_CHAT_HOME.domain[0]!.toUpperCase()}</span>
+        <span class="netauth-fed-body">
+          <span class="netauth-fed-title">Continue with {BOSON_CHAT_HOME.domain}</span>
+          <span class="netauth-fed-sub">Sign in or sign up there, then come back. No password is shared.</span>
+        </span>
+        <ChevronRight size={16} class="netauth-fed-chevron" aria-hidden="true" />
+      </button>
+      <div class="login-sso-divider netauth-fed-divider" aria-hidden="true"><span>{divider}</span></div>
     </section>
   );
 }

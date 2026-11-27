@@ -936,6 +936,34 @@ describe('DirectoryBloc', () => {
     bloc.dispose();
   });
 
+  // Guest-first landing: the network's auto-join channels, then the one to
+  // land on, which is the one shown.
+  it('joinFromDeepLink joins alsoJoin channels and lands on join', async () => {
+    const engine = fakeEngine();
+    const server = fakeServer('home', { hostname: 'irc.home.test', port: 6697, tls: true });
+    const directory = fakeDirectory({ user: fakeUser('alice'), servers: [server] });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(), directory, identity: fakeIdentity({ unlocked: true }),
+      engine: engine.client, sessionStore: new SessionStore(memoryStorage()),
+    });
+    await flushPromises(4);
+    await bloc.joinFromDeepLink({ host: 'irc.home.test', port: 6697, tls: true, join: '#lobby', alsoJoin: ['#lobby', '#news', '#help'] });
+    await flushPromises(2);
+    const s = engine.sessionFor('home');
+    s._setState('connected');
+    await flushPromises(2);
+    // The landing channel last (and once), so it's the one on screen.
+    expect(s.joinCalls).toEqual(['#news', '#help', '#lobby']);
+    const conn = bloc.getState().connections.find((c) => c.serverId === 'home')!;
+    expect(conn.chat.getState().activeChannel).toBe('#lobby');
+
+    // Connected already: the others quietly, then the landing one.
+    await bloc.joinFromDeepLink({ host: 'irc.home.test', port: 6697, tls: true, join: '#extra', alsoJoin: ['#news', '#more'] });
+    expect(s.joinCalls.slice(3)).toEqual(['#more', '#extra']);
+    expect(conn.chat.getState().activeChannel).toBe('#extra');
+    bloc.dispose();
+  });
+
   it('connect() never sends SASL when identity is locked either', async () => {
     const engine = fakeEngine();
     const server = fakeServer('s1');

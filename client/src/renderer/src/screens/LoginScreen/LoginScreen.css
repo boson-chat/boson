@@ -347,3 +347,81 @@ button.login-forgot {
   color: var(--fg-2);
   line-height: var(--leading-body);
 }
+
+/* ---------- Guest-first entry (GuestFirstEntry) ----------
+   A self-hosted network that opens straight into chat: its name (or logo),
+   a ready nick, one big "Join chat"; sign-in under the card. */
+.guest-first-network {
+  margin: 0 0 var(--space-8);
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 700;
+  letter-spacing: var(--tracking-display);
+  line-height: var(--leading-tight);
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
+.guest-first-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.guest-first-title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.guest-first-lede {
+  margin: calc(var(--space-2) * -1) 0 0;
+  font-size: var(--text-base);
+  color: var(--fg-2);
+  line-height: var(--leading-body);
+  text-wrap: pretty;
+}
+
+.guest-first-where {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.guest-first-nick {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.guest-first-nick > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The dice: square, as tall as the field. */
+.guest-first-nick > .bds-btn {
+  height: auto;
+  min-height: 0;
+  align-self: stretch;
+  min-width: 46px;
+}
+
+.guest-first-account {
+  margin: var(--space-5) 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--fg-3);
+}
+
+@media (max-width: 480px) {
+  .login-container.guest-first { padding: var(--space-4) 0; }
+  .guest-first-network { font-size: var(--text-2xl); margin-bottom: var(--space-6); }
+}

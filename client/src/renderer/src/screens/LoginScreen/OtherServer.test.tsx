@@ -64,7 +64,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); clearGuestSession(); __resetDeepLinkForTests(); setHomeNetwork(null); });
 
 async function lookUp(address: string) {
-  fireEvent.click(screen.getByRole('button', { name: /use another server/i }));
+  fireEvent.click(await screen.findByRole('button', { name: /use another server/i }));
   fireEvent.input(screen.getByLabelText('Server address'), { target: { value: address } });
   fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
 }
@@ -168,6 +168,8 @@ describe('Use another server on a self-hosted web client', () => {
 
   it('signs in to the install\'s own network, not boson.chat', async () => {
     setup();
+    // A self-hosted network's sign-in waits for its settings (guest-first).
+    await screen.findByRole('button', { name: /use another server/i });
     expect(document.querySelector('.login-server-host')?.textContent).toBe('boson.ircforever.org');
     expect(document.body.textContent).not.toMatch(/boson\.chat/);
     fireEvent.click(screen.getByRole('button', { name: /use another server/i }));

@@ -98,6 +98,12 @@ export interface AuthConfig {
   // nick (POST /v1/voice/guest-token). True only when guest_access is on
   // too; absent on older servers: no guest voice.
   guest_voice?: boolean;
+  // Web clients open straight into chat as a guest (a ready nick, "Join
+  // chat"; sign-in and sign-up a click away). True only with guest_access;
+  // absent on older servers: off. modules/guest/guest-first.ts.
+  guest_first?: boolean;
+  // Where guest-first visitors land (null: the client's own default).
+  guest_first_channel?: string | null;
   // The network's name, for "Sign in to <network>" (newer servers).
   site_name?: string;
   network_name?: string;
@@ -126,6 +132,8 @@ export interface NetworkChannel {
   name: string;
   topic?: string;
   autojoin?: boolean;
+  // Only some roles may join (never guests).
+  restricted?: boolean;
 }
 
 // GET /v1/me: the signed-in user's roles and effective permissions
