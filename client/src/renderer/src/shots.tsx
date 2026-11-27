@@ -1682,6 +1682,8 @@ async function guestFirstView(): Promise<void> {
     const u = new URL(req.url);
     if (u.host.startsWith('api.')) {
       if (u.pathname === '/servers') return json(200, { servers: [], count: 0 });
+      if (u.pathname === '/me') return json(200, { ...USER, id: 'u-ada', handle: 'ada', encrypted_user_secret: '' });
+      if (u.pathname === '/me/session') return json(200, { payload: null });
       return json(404, {});
     }
     if (u.pathname === '/v1/config') return json(200, u.host === 'auth.boson.chat' ? { registration: 'open', sso_providers: [], site_name: 'boson.chat', guest_access: true } : cfg);
@@ -1792,6 +1794,9 @@ function fakeIrcSocket(taken: Set<string>): never {
           this.nicks.set(sid, next);
           this.event(sid, { Kind: 'NICK', From: prev, Message: next });
         }
+      } else if (cmd.type === 'part' || (cmd.type === 'raw' && /^PART /i.test(String(p['line'] ?? '')))) {
+        const ch = cmd.type === 'part' ? String(p['channel']) : String(p['line']).split(/\s+/)[1] ?? '';
+        if (ch) this.event(sid, { Kind: 'PART', From: me(), Target: ch });
       } else if (cmd.type === 'disconnect') {
         this.push({ type: 'status', serverId: sid, state: 'disconnected' }, 5);
       } else if (cmd.type === 'privmsg' && p['ack']) {

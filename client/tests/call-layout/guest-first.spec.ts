@@ -136,11 +136,55 @@ test('signing in from the chat upgrades the guest in place: same tab, channels r
   await expect(page.getByRole('dialog')).toHaveCount(0);
   // Out of guest mode, on the same screen, back in both channels.
   await expect.poll(() => guestNick(page)).toBeUndefined();
-  await expect(page.locator('.title-bar-user')).toContainText('ada-bosonchat');
+  await expect(page.locator('.title-bar-user')).toContainText('ada');
   await expect(page.getByText('morning all')).toBeVisible();
   const sent = await page.evaluate(() => (window as unknown as { __ircSent: Array<{ type: string; params: { channel?: string; nick?: string } }> }).__ircSent);
   const reconnect = sent.map((c) => c.type).lastIndexOf('connect');
   expect(sent[reconnect]?.params.nick).toBe('ada-bosonchat');
   expect(sent.slice(reconnect).filter((c) => c.type === 'join').map((c) => c.params.channel?.toLowerCase())).toEqual(['#help', '#ircforever']);
   await shot(page, 'guestfirst-desktop-7-upgraded');
+});
+
+// A network with no RoleServ (ngIRCd behind the evrd bridge, like
+// ircforever): the app joins its auth config's auto-join channels itself.
+test.describe('auto-join channels on a bridged network', () => {
+  const joins = (page: Page) => page.evaluate(() => ((window as unknown as { __ircSent?: Array<{ type: string; params: { channel?: string } }> }).__ircSent ?? [])
+    .filter((c) => c.type === 'join').map((c) => c.params.channel?.toLowerCase()));
+
+  test('a new account (federated, as after SSO) lands in them', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.goto('/shots.html?view=guestfirst&gf=0&homes=1');
+    await page.getByRole('button', { name: 'Continue as ada@boson.chat' }).click();
+    await expect(page.getByText('morning all')).toBeVisible({ timeout: 20_000 });
+    expect(await joins(page)).toEqual(['#ircforever', '#help']);
+    await shot(page, 'autojoin-desktop-account');
+  });
+
+  test('a guest is joined once; a part stays parted after a reload', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 820 });
+    await page.goto('/shots.html?view=guestfirst&gf=0');
+    await page.getByRole('button', { name: 'Continue without an account' }).click();
+    await page.getByRole('textbox', { name: 'Display name' }).fill('Wanderer');
+    await page.getByRole('button', { name: 'Continue', exact: true }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Continue as guest' }).click();
+    await expect(page.getByText('morning all')).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => joins(page), { timeout: 10_000 }).toEqual(['#ircforever', '#help']);
+
+    // Leave #help.
+    const box = page.locator('textarea.chat-textarea');
+    await box.click();
+    await box.fill('/part #help');
+    if (await page.locator('.chat-input-bar [role="listbox"]').count() > 0) await box.press('Escape');
+    await box.press('Enter');
+    await expect.poll(() => page.evaluate(() => ((window as unknown as { __ircSent: Array<{ type: string; params: { line?: string; channel?: string } }> }).__ircSent)
+      .some((c) => c.type === 'part' || /^PART #help/i.test(c.params.line ?? '')))).toBe(true);
+
+    // Back later: #ircforever (saved) only; #help isn't joined again.
+    // (once the part is saved)
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('boson:session:v2') ?? '')).not.toContain('#help');
+    await page.reload();
+    await expect(page.getByText('morning all')).toBeVisible({ timeout: 20_000 });
+    await page.waitForTimeout(4000);
+    expect(await joins(page)).toEqual(['#ircforever']);
+  });
 });

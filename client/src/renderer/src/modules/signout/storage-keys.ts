@@ -24,6 +24,7 @@ export const ACCOUNT_KEYS: KeySet = {
     'boson:local-servers:v1', // servers added by hand
     'boson:directories:v1', // directories added in Settings
     'boson:autojoin-done:v1', // networks already auto-joined
+    'boson:net-autojoin:v1', // a network's own auto-join channels already joined, per account / guest nick
     'boson:home-joined:v1', // a self-hosted web client's own IRC server, added once
     'boson:guest:v1', // guest mode nick
     'boson:notifications:channels:v1', // per-channel / DM notification levels

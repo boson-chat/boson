@@ -3102,3 +3102,137 @@ describe('DirectoryBloc — a relaunch returns to the last server + channel', ()
     bloc.dispose();
   });
 });
+
+// A network's own auto-join channels (its auth service's /v1/config
+// channels): joined by the app where no RoleServ does (a network behind the
+// evrd bridge), once per account and server; leaving one sticks.
+describe('DirectoryBloc — a network\'s own auto-join channels', () => {
+  const KEY = 'boson:net-autojoin:v1';
+  beforeEach(async () => {
+    vi.useRealTimers();
+    localStorage.removeItem(KEY);
+    setServiceCredentialsStore(new LocalStorageServiceCredentialsStore(memStorage()));
+    setBouncerStore(await fastBouncerStore());
+  });
+  afterEach(() => { vi.useRealTimers(); localStorage.removeItem(KEY); });
+
+  function accountsFor(o: { channels: Array<Record<string, unknown>>; signedIn?: boolean; autojoinGuests?: boolean }) {
+    return {
+      discover: vi.fn(async (host: string) => ({ host, authUrl: 'https://auth.forever.test', main: true })),
+      config: vi.fn(async () => ({ sso_providers: [], channels: o.channels, ...(o.autojoinGuests === undefined ? {} : { autojoin_guests: o.autojoinGuests }) })),
+      sessionFor: () => (o.signedIn === false ? null : { user: { id: 'usr_thelion', username: 'thelion' } }),
+      ircToken: vi.fn(async () => (o.signedIn === false ? null : 'tok')),
+      guestAllowed: vi.fn(async () => true),
+      guestChosen: () => true,
+      setGuestChosen: () => {},
+      mainAsNetwork: () => false,
+      nameFor: () => 'IRCForever',
+      promptSignIn: vi.fn(),
+    };
+  }
+
+  const CHANNELS = [
+    { name: '#ircforever', autojoin: true },
+    { name: '#ircnow', autojoin: true },
+    { name: '#opers', autojoin: true, restricted: true },
+    { name: '#quiet', autojoin: false },
+  ];
+
+  async function connected(accounts: unknown, sessionStore = new SessionStore(memoryStorage()), guestNick?: string) {
+    const engine = fakeEngine();
+    const server = fakeServer('forever', { hostname: 'irc.forever.test' });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(),
+      directory: fakeDirectory({ user: fakeUser('thelion'), servers: [server] }),
+      identity: fakeIdentity(),
+      engine: engine.client,
+      sessionStore,
+      netAccounts: accounts as never,
+      ...(guestNick ? { guestNick } : {}),
+    });
+    await flushPromises(4);
+    await bloc.connect(server);
+    vi.useFakeTimers();
+    const session = engine.sessionFor(server.id);
+    session._setState('connected');
+    await vi.advanceTimersByTimeAsync(3500);
+    return { bloc, session, sessionStore };
+  }
+
+  it('joins them once per account and server; a part sticks; a new one is joined once', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const channels = [...CHANNELS];
+    const accounts = accountsFor({ channels });
+    const sessionStore = new SessionStore(memoryStorage());
+    const first = await connected(accounts, sessionStore);
+    // Never the one kept to roles, nor one that isn't auto-join.
+    expect(first.session.joinCalls).toEqual(['#ircforever', '#ircnow']);
+    expect(sessionStore.load()?.servers.find((s) => s.server.id === 'forever')?.networkAutojoined).toEqual(['#ircforever', '#ircnow']);
+    first.bloc.dispose();
+    vi.useRealTimers();
+
+    // Left #ircnow, came back: not joined again. A channel added since: once.
+    channels.push({ name: '#new', autojoin: true });
+    const again = await connected(accounts, sessionStore);
+    expect(again.session.joinCalls).toEqual(['#new']);
+    again.bloc.dispose();
+    vi.useRealTimers();
+
+    // Another device: the synced session says what was handled.
+    localStorage.removeItem(KEY);
+    const other = await connected(accounts, sessionStore);
+    expect(other.session.joinCalls).toEqual([]);
+    other.bloc.dispose();
+    info.mockRestore();
+  });
+
+  it('a new account (just signed up through SSO) is joined to them; another account on the device too', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const { bloc, session } = await connected(accountsFor({ channels: CHANNELS }));
+    expect(session.joinCalls).toEqual(['#ircforever', '#ircnow']);
+    bloc.dispose();
+    vi.useRealTimers();
+    const other = accountsFor({ channels: CHANNELS });
+    other.sessionFor = () => ({ user: { id: 'usr_other', username: 'other' } });
+    const second = await connected(other);
+    expect(second.session.joinCalls).toEqual(['#ircforever', '#ircnow']);
+    second.bloc.dispose();
+    info.mockRestore();
+  });
+
+  it('skips channels the server already joined us to (RoleServ) and remembers them', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const engine = fakeEngine();
+    const server = fakeServer('forever', { hostname: 'irc.forever.test' });
+    const bloc = new DirectoryBloc({
+      auth: fakeAuth(), directory: fakeDirectory({ user: fakeUser('thelion'), servers: [server] }), identity: fakeIdentity(),
+      engine: engine.client, sessionStore: new SessionStore(memoryStorage()), netAccounts: accountsFor({ channels: CHANNELS }) as never,
+    });
+    await flushPromises(4);
+    await bloc.connect(server);
+    vi.useFakeTimers();
+    const session = engine.sessionFor('forever');
+    session._setState('connected');
+    session._emitEvent({ Kind: '001', From: '', Target: 'thelion', Message: '', Raw: '' } as IrcEvent);
+    session._emitEvent({ Kind: 'JOIN', From: 'thelion', Target: '#ircforever', Message: '', Raw: '' } as IrcEvent);
+    await vi.advanceTimersByTimeAsync(3500);
+    expect(session.joinCalls).toEqual(['#ircnow']);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ 'irc.forever.test:6697|user:usr_thelion': ['#ircforever', '#ircnow'] });
+    bloc.dispose();
+    info.mockRestore();
+  });
+
+  it('guests: joined per nick, unless the network joins no guests', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const guest = await connected(accountsFor({ channels: CHANNELS, signedIn: false }), undefined, 'ZestyKiwi');
+    expect(guest.session.joinCalls).toEqual(['#ircforever', '#ircnow']);
+    expect(Object.keys(JSON.parse(localStorage.getItem(KEY)!))).toEqual(['irc.forever.test:6697|guest:zestykiwi']);
+    guest.bloc.dispose();
+    vi.useRealTimers();
+    localStorage.removeItem(KEY);
+    const none = await connected(accountsFor({ channels: CHANNELS, signedIn: false, autojoinGuests: false }), undefined, 'ZestyKiwi');
+    expect(none.session.joinCalls).toEqual([]);
+    none.bloc.dispose();
+    info.mockRestore();
+  });
+});

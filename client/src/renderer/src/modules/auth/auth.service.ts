@@ -117,6 +117,9 @@ export interface AuthConfig {
   // The network channels (fixed channels its services keep), with the ones
   // new people are joined to. Absent on older servers.
   channels?: NetworkChannel[];
+  // Guests are joined to the auto-join channels too (irc.autojoin_guests).
+  // Absent on older servers: true.
+  autojoin_guests?: boolean;
   // Where accounts live and what sign-up does there. signup is false while
   // registration is closed (and on a NickServ backend that can't register);
   // invite-only keeps it true. Absent on older servers.
@@ -134,6 +137,8 @@ export interface NetworkChannel {
   autojoin?: boolean;
   // Only some roles may join (never guests).
   restricted?: boolean;
+  // Which roles, where a config lists them (GET /v1/config doesn't).
+  roles?: string[];
 }
 
 // GET /v1/me: the signed-in user's roles and effective permissions

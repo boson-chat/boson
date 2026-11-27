@@ -27,6 +27,8 @@ for (const [label, size] of [['desktop', { width: 1280, height: 820 }], ['phone'
     await expect(ada).toBeVisible();
     await expect(second).toBeVisible();
 
+    // Measured once the dialog's entrance (a scale) has finished.
+    await dialog.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
     // Above the network's own sign-in.
     const tabs = dialog.getByRole('tab', { name: 'Sign in' });
     const a = (await ada.boundingBox())!;

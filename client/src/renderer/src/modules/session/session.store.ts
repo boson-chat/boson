@@ -57,6 +57,10 @@ export interface SavedServerSession {
   // (another client, the bouncer's web app) and is dropped here rather
   // than joined again.
   bouncerUnseeded?: true;
+  // The network's own auto-join channels already joined once for this
+  // account (lowercased; modules/directory/network-autojoin.ts): leaving one
+  // sticks across devices.
+  networkAutojoined?: string[];
 }
 
 export interface SavedSession {
@@ -229,6 +233,19 @@ export class SessionStore {
     this.save(current);
   }
 
+  // Record network auto-join channels as handled (network-autojoin.ts).
+  addNetworkAutojoined(serverId: string, channels: readonly string[]): void {
+    const current = this.load();
+    if (!current) return;
+    const target = current.servers.find((s) => s.server.id === serverId);
+    if (!target) return;
+    const have = new Set(target.networkAutojoined ?? []);
+    const add = channels.map((c) => c.toLowerCase()).filter((c) => !have.has(c));
+    if (add.length === 0) return;
+    target.networkAutojoined = [...have, ...add];
+    this.save(current);
+  }
+
   // Remove a channel from a server's saved set. Idempotent — if not
   // present, no-op. Called on user PART or self-KICK only; connection
   // drops never trigger this.
@@ -354,6 +371,8 @@ function isSavedServerSession(v: unknown): v is SavedServerSession {
   if (obj.activeChannel !== null && typeof obj.activeChannel !== 'string') return false;
   if (obj.channelOrder !== undefined
     && !(Array.isArray(obj.channelOrder) && obj.channelOrder.every((c) => typeof c === 'string'))) return false;
+  if (obj.networkAutojoined !== undefined
+    && !(Array.isArray(obj.networkAutojoined) && obj.networkAutojoined.every((c) => typeof c === 'string'))) return false;
   return true;
 }
 
