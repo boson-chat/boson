@@ -38,11 +38,14 @@ type VoiceRoom struct {
 	MinRole   string          `json:"minRole"`
 	SpeakRole string          `json:"speakRole"`
 	// Must also be in the parent IRC channel to join.
-	RequireChannelMembership bool                   `json:"requireChannelMembership"`
-	CanManage                bool                   `json:"canManage"`
-	CanJoin                  bool                   `json:"canJoin"`
-	CanSpeak                 bool                   `json:"canSpeak"`
-	Participants             []VoiceRoomParticipant `json:"participants"`
+	RequireChannelMembership bool `json:"requireChannelMembership"`
+	CanManage                bool `json:"canManage"`
+	CanJoin                  bool `json:"canJoin"`
+	CanSpeak                 bool `json:"canSpeak"`
+	// Why the user can't join, in the voice server's words (lock_reason,
+	// quicvoice 1.17+); "" when they can.
+	LockReason   string                 `json:"lockReason,omitempty"`
+	Participants []VoiceRoomParticipant `json:"participants"`
 }
 
 type VoiceRoomOwner struct {
@@ -99,6 +102,7 @@ type roomWire struct {
 	CanManage                bool   `json:"can_manage"`
 	CanJoin                  *bool  `json:"can_join"`
 	CanSpeak                 *bool  `json:"can_speak"`
+	LockReason               string `json:"lock_reason"`
 	Participants             []struct {
 		SessionID int    `json:"session_id"`
 		UserID    string `json:"user_id"`
@@ -125,6 +129,7 @@ func (r roomWire) room() VoiceRoom {
 		ID: r.ID, Name: r.Name, Kind: r.Kind, Position: r.Position, CreatedAt: r.CreatedAt,
 		MinRole: r.MinRole, SpeakRole: r.SpeakRole, RequireChannelMembership: r.RequireChannelMembership,
 		CanManage: r.CanManage, CanJoin: r.CanJoin == nil || *r.CanJoin, CanSpeak: r.CanSpeak == nil || *r.CanSpeak,
+		LockReason:   r.LockReason,
 		Participants: make([]VoiceRoomParticipant, 0, len(r.Participants)),
 	}
 	if room.Name == "" {

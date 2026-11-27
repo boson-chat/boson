@@ -22,6 +22,8 @@ const rooms = (): VoiceRoom[] => [
   { id: 'dev-standup', name: 'Standup', kind: 'dynamic', parent: '#dev', position: 0, canManage: true, canJoin: true, canSpeak: true, minRole: 'member', speakRole: 'member', participants: [] },
   { id: 'dev-town', name: 'Town hall', kind: 'dynamic', parent: '#dev', position: 1, canManage: true, canJoin: true, canSpeak: false, minRole: 'member', speakRole: 'op', participants: [] },
   { id: 'dev-staff', name: 'Staff', kind: 'dynamic', parent: '#dev', position: 2, canManage: false, canJoin: false, canSpeak: false, minRole: 'admin', speakRole: 'admin', participants: [] },
+  { id: 'dev-guests', name: 'Members', kind: 'dynamic', parent: '#dev', position: 3, canJoin: false, canSpeak: false, requireChannelMembership: true,
+    lockReason: 'needs op or higher in #dev (sign in: guests count as members)', participants: [] },
   { id: 'design-crit', name: 'Crit', kind: 'dynamic', parent: '#design', position: 0, canJoin: true, canSpeak: true, participants: [] },
 ];
 
@@ -71,12 +73,33 @@ describe('voice channel management', () => {
   it('locks rooms you cannot join and marks listen-only ones', async () => {
     mount();
     const staff = await screen.findByLabelText('Staff (locked)');
-    expect(staff.getAttribute('aria-disabled')).toBe('true');
+    // Not disabled: a click shows why it's locked (and never joins).
+    expect(staff.getAttribute('aria-disabled')).toBeNull();
     expect(staff.getAttribute('title')).toBe('Needs channel admin (&) or higher in #dev');
     fireEvent.click(staff);
     expect(bridge.calls.some((c) => c.method === 'join')).toBe(false);
     expect(screen.getByLabelText('Voice channel Town hall, listen only')).toBeTruthy();
     expect(screen.getByText('listen only')).toBeTruthy();
+  });
+
+  it("shows why a room is locked: the server's reason when it sends one, on click or tap", async () => {
+    mount();
+    const members = await screen.findByLabelText('Members (locked)');
+    // The server knows better than the room's locks (here: a guest).
+    expect(members.getAttribute('title')).toBe('Needs op or higher in #dev (sign in: guests count as members)');
+    expect(members.getAttribute('aria-description')).toBe('Needs op or higher in #dev (sign in: guests count as members)');
+    expect(members.getAttribute('tabindex')).toBe('0');
+    expect(document.querySelector('[data-room-why="dev-guests"]')).toBeNull();
+    fireEvent.click(members);
+    expect(members.getAttribute('aria-expanded')).toBe('true');
+    expect(document.querySelector('[data-room-why="dev-guests"]')?.textContent).toBe('Needs op or higher in #dev (sign in: guests count as members)');
+    // Keyboard too; again hides it.
+    fireEvent.keyDown(members, { key: 'Enter' });
+    expect(document.querySelector('[data-room-why="dev-guests"]')).toBeNull();
+    expect(bridge.calls.some((c) => c.method === 'join')).toBe(false);
+    // Without a server reason, worked out from the locks.
+    fireEvent.click(screen.getByLabelText('Staff (locked)'));
+    expect(document.querySelector('[data-room-why="dev-staff"]')?.textContent).toBe('Needs channel admin (&) or higher in #dev');
   });
 
   it('creates a voice channel under a text channel with locks', async () => {

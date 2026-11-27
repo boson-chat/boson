@@ -48,6 +48,10 @@ export interface VoiceRoom {
   canManage?: boolean;
   canJoin?: boolean;
   canSpeak?: boolean;
+  // Why you can't join, in the voice server's words (quicvoice's
+  // lock_reason: "join #boson on IRC first"); absent when you can, and on
+  // servers before it.
+  lockReason?: string;
   participants: VoiceRoomParticipant[];
 }
 

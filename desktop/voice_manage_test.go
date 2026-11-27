@@ -17,7 +17,7 @@ func TestFetchVoiceRoomsPermissionsAndLocks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"permissions":{"policy":"founders","can_create":true,"create_scope":"founded_channels","founded_channels":["#boson"]},
 "rooms":[{"id":"general","name":"General","kind":"static","parent":null,"owner":null,"position":0,"min_role":"member","speak_role":"member","require_channel_membership":false,"can_manage":false,"can_join":true,"can_speak":true,"participants":[]},
-{"id":"boson-game-night","name":"Game Night","kind":"dynamic","parent":"#boson","owner":{"user_id":"usr_456","name":"fred"},"position":1,"created_at":"2026-11-13T21:04:05.123Z","min_role":"voice","speak_role":"op","require_channel_membership":true,"can_manage":true,"can_join":false,"can_speak":false,"participants":[]}]}`))
+{"id":"boson-game-night","name":"Game Night","kind":"dynamic","parent":"#boson","owner":{"user_id":"usr_456","name":"fred"},"position":1,"created_at":"2026-11-13T21:04:05.123Z","min_role":"voice","speak_role":"op","require_channel_membership":true,"can_manage":true,"can_join":false,"can_speak":false,"lock_reason":"join #boson on IRC first","participants":[]}]}`))
 	}))
 	defer srv.Close()
 	r := fetchVoiceRooms(context.Background(), srv.Client(), srv.URL, "t")
@@ -32,8 +32,11 @@ func TestFetchVoiceRoomsPermissionsAndLocks(t *testing.T) {
 		t.Errorf("general %+v", g)
 	}
 	if n.Parent != "#boson" || n.Owner == nil || n.Owner.Name != "fred" || n.MinRole != "voice" || n.SpeakRole != "op" ||
-		!n.RequireChannelMembership || !n.CanManage || n.CanJoin || n.CanSpeak || n.Position != 1 {
+		!n.RequireChannelMembership || !n.CanManage || n.CanJoin || n.CanSpeak || n.Position != 1 || n.LockReason != "join #boson on IRC first" {
 		t.Errorf("game night %+v", n)
+	}
+	if g.LockReason != "" {
+		t.Errorf("general has a lock reason: %q", g.LockReason)
 	}
 }
 
