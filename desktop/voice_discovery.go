@@ -74,6 +74,9 @@ type VoiceDiscovery struct {
 	// Files is the network's files host (boson.json files.url); set for dev
 	// overrides only — FilesService reads live documents itself.
 	Files string `json:"-"`
+	// Push is the network's push relay (boson.json push.relay); set for
+	// dev overrides only — PushService reads live documents itself.
+	Push string `json:"-"`
 }
 
 // NetworkIRC is a boson.json's irc block.
@@ -308,7 +311,7 @@ func (d *voiceDiscoverer) loadNetworkOverrides(paths string) {
 			d.overrideNets = map[string]*VoiceDiscovery{}
 		}
 		irc := &NetworkIRC{Host: host, Port: doc.IRC.Port, TLS: doc.IRC.TLS}
-		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Branding: parseWellKnownBranding(body, true), Federation: parseWellKnownFederation(body, true).withDomain(voiceDomain(host)), Files: parseWellKnownFiles(body, true), Definitive: true}
+		d.overrideNets[host] = &VoiceDiscovery{Host: host, Domain: voiceDomain(host), Voice: info, Auth: auth, Directory: dir, IRC: irc, Branding: parseWellKnownBranding(body, true), Federation: parseWellKnownFederation(body, true).withDomain(voiceDomain(host)), Files: parseWellKnownFiles(body, true), Push: parseWellKnownPush(body, true), Definitive: true}
 	}
 }
 

@@ -7,7 +7,7 @@ import (
 )
 
 // voiceServices is the voice service (desktop, iOS and Android), and the
-// network sign-in discovery and files uploads that share its boson.json
+// network sign-in discovery, files uploads and push relays that share its boson.json
 // lookups. files serves /_boson/files/ on the app's origin (assetHandler).
 // The image cache previews uploaded files from the same allowed hosts.
 func voiceServices(dataDir, authBase string, dev bool, api *ApiService, images *ImageCacheService) (services []application.Service, files http.Handler) {
@@ -29,5 +29,7 @@ func voiceServices(dataDir, authBase string, dev bool, api *ApiService, images *
 		application.NewService(video),
 		application.NewService(NewNetAuthService(voice.disc, api)),
 		application.NewService(fs),
+		// Push notifications on the phones (push.go); none on desktop yet.
+		application.NewService(NewPushService(newPushPlatform(dataDir, dev), voice.disc)),
 	}, fs
 }
