@@ -5,13 +5,14 @@
 const STORAGE_KEY = 'boson:chat-display:v1';
 
 export interface ChatDisplaySettings {
-  // A line that only starts with `nick:` is shown as a reply to that
-  // person's latest message (a guess, in a lighter style).
+  // Retired: lines that only start with `nick:` used to be shown as guessed
+  // replies. Always false now (old saved values are ignored), so guesses
+  // still stored in a device's history are not shown either.
   guessedReplies: boolean;
 }
 
 export const DEFAULT_CHAT_DISPLAY: ChatDisplaySettings = {
-  guessedReplies: true,
+  guessedReplies: false,
 };
 
 interface Storage {
@@ -31,7 +32,7 @@ export function getChatDisplaySettings(): ChatDisplaySettings {
     const raw = getStorage()?.getItem(STORAGE_KEY);
     if (raw) {
       const p = JSON.parse(raw) as Partial<ChatDisplaySettings>;
-      next = { guessedReplies: typeof p.guessedReplies === 'boolean' ? p.guessedReplies : next.guessedReplies };
+      void p; // nothing saved here is used any more (see guessedReplies)
     }
   } catch { /* keep defaults */ }
   cached = next;

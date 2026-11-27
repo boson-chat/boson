@@ -904,7 +904,7 @@ function chatView(): void {
 
   // ?threads=1: reply chains (with message-tags) that make threads: one
   // with replies to replies (yours among them), one with a single reply, a
-  // guessed `nick:` reply (no thread), and a chain whose original isn't
+  // plain `nick:` line (not a reply, no thread), and a chain whose original isn't
   // loaded (rooted at its oldest line). window.__emit (below) sends more
   // lines in (a live reply).
   if (threadsMode) {

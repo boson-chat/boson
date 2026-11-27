@@ -120,10 +120,10 @@ describe('ChatService — replies, text form', () => {
     expect(s.sent.map((x) => [x.message, x.tags?.[REPLY_TAG]])).toEqual([
       ['bob: "anyone know..." it\'s libssl-dev', 'b1'],
       ['bob: "also..." 4pm', 'b2'],
-      ['bob: yep', 'b3'],
+      ['bob: "anyone around..." yep', 'b3'],
     ]);
     const echo = msgs(chat, '#general').at(-1)!;
-    expect(echo).toMatchObject({ text: 'bob: yep', replyTo: 'b3', replyToId: idOf(chat, 'anyone around?') });
+    expect(echo).toMatchObject({ text: 'bob: "anyone around..." yep', replyTo: 'b3', replyToId: idOf(chat, 'anyone around?') });
   });
 
   it('without message-tags (ngircd): the text form alone, linked by local id', () => {
@@ -153,21 +153,22 @@ describe('ChatService — replies, text form', () => {
     said(s, 'bob', 'hi', { msgid: 'h1' });
     chat.send('#general', 'still here?', { replyTo: 'h1' });
     s.emit({ Kind: 'JOIN', From: 'me', Target: '#general' });
-    for (const r of s.sent) expect(r.message).toBe('bob: still here?');
+    for (const r of s.sent) expect(r.message).toBe('bob: "hi..." still here?');
   });
 
-  it('reads a quoted text reply back as a reply, and a bare `nick:` as a guess', () => {
+  it('reads a quoted text reply back as a reply; a bare `nick:` is just a mention', () => {
     const s = fakeSession();
     const chat = chatOn(s);
     bobSaid(s);
     said(s, 'carol', 'bob: "anyone know..." libssl-dev');
     said(s, 'carol', 'bob: yes');
-    const [first, , last] = msgs(chat, '#general').slice(0, 3);
+    const [first] = msgs(chat, '#general').slice(0, 1);
     const quoted = msgs(chat, '#general').find((m) => m.text.startsWith('bob: "'))!;
-    const guess = msgs(chat, '#general').find((m) => m.text === 'bob: yes')!;
+    const plain = msgs(chat, '#general').find((m) => m.text === 'bob: yes')!;
     expect(quoted).toMatchObject({ replyToId: first!.id });
     expect(quoted.replyGuess).toBeUndefined();
-    expect(guess).toMatchObject({ replyToId: last!.id, replyGuess: true });
+    expect(plain.replyToId).toBeUndefined();
+    expect(plain.replyGuess).toBeUndefined();
   });
 
   it('links text replies in a chathistory batch too', () => {
@@ -175,10 +176,12 @@ describe('ChatService — replies, text form', () => {
     const chat = chatOn(s, 'batch chathistory server-time');
     s.emit({ Kind: 'BATCH', Args: ['+h1', 'chathistory', '#general'] });
     s.emit({ Kind: 'PRIVMSG', From: 'bob', Target: '#general', Message: 'ship it?', Tags: { batch: 'h1', time: '2026-11-01T10:00:00Z', msgid: 'x1' } });
-    s.emit({ Kind: 'PRIVMSG', From: 'carol', Target: '#general', Message: 'bob: yes', Tags: { batch: 'h1', time: '2026-11-01T10:01:00Z', msgid: 'x2' } });
+    s.emit({ Kind: 'PRIVMSG', From: 'carol', Target: '#general', Message: 'bob: "ship..." yes', Tags: { batch: 'h1', time: '2026-11-01T10:01:00Z', msgid: 'x2' } });
+    s.emit({ Kind: 'PRIVMSG', From: 'dave', Target: '#general', Message: 'bob: nice', Tags: { batch: 'h1', time: '2026-11-01T10:02:00Z', msgid: 'x3' } });
     s.emit({ Kind: 'BATCH', Args: ['-h1'] });
     const list = msgs(chat, '#general');
-    expect(list.find((m) => m.msgid === 'x2')).toMatchObject({ replyToId: list.find((m) => m.msgid === 'x1')!.id, replyGuess: true });
+    expect(list.find((m) => m.msgid === 'x2')).toMatchObject({ replyToId: list.find((m) => m.msgid === 'x1')!.id });
+    expect(list.find((m) => m.msgid === 'x3')!.replyToId).toBeUndefined();
   });
 });
 
