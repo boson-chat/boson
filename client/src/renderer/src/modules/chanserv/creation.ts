@@ -85,7 +85,7 @@ function resolve(
 ): Resolved | null {
   const link = accounts?.linkFor(host) ?? null;
   if (accounts && link) {
-    const service = link.main && mainAuth ? mainAuth : accounts.service(link.authUrl);
+    const service = link.main && mainAuth && !accounts.mainAsNetwork() ? mainAuth : accounts.service(link.authUrl);
     return { key: link.authUrl, config: () => accounts.config(link.authUrl), session: accounts.sessionFor(link), service };
   }
   if (ours && mainAuth && typeof mainAuth.config === 'function') {

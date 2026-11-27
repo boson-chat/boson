@@ -2616,6 +2616,26 @@ describe('DirectoryBloc', () => {
       bloc.dispose();
     });
 
+    it('a "Password required" (464) from a network with accounts asks to sign in instead of retrying', async () => {
+      // A self-hosted network's bouncer bridge takes only its own accounts'
+      // tokens: a guest connect gets 464, not FAIL ACCOUNT_REQUIRED.
+      const { accounts, prompts, signIn } = fakeAccounts();
+      accounts.setGuestChosen('irc.net.org', true);
+      const { bloc, engine, server } = await netBloc(accounts);
+      await bloc.connect(server);
+      const s = engine.sessionFor('net');
+      s._emitEvent({ Kind: '464', Message: 'Password required' } as IrcEvent);
+      s._setState('disconnected', 'Password required');
+      expect(activeConnection(bloc.getState())?.error).toMatch(/Net requires an account/);
+      await vi.waitFor(() => expect(prompts).toHaveLength(1));
+      expect(prompts[0]).toMatchObject({ reason: 'required' });
+      signIn();
+      prompts[0]!.resolve('signed-in');
+      await vi.waitFor(() => expect(engine.connectCalls).toHaveLength(2));
+      expect(engine.connectCalls[1]).toMatchObject({ oauthbearer: { token: 'net-token' } });
+      bloc.dispose();
+    });
+
     it('a refused token offers signing in again or a guest connect', async () => {
       const { accounts, prompts } = fakeAccounts({ signedIn: true });
       const { bloc, engine, server } = await netBloc(accounts);

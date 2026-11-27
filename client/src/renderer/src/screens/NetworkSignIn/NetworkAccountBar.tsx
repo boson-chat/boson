@@ -21,7 +21,7 @@ export function NetworkAccountBar({ host, serverName, onSignedIn, accounts = get
   useEffect(() => { void accounts?.discover(host); }, [accounts, host]);
   if (!accounts || !snap) return null;
   const link = snap.links[host.trim().toLowerCase()];
-  if (!link || link.main) return null;
+  if (!link || (link.main && !accounts.mainAsNetwork())) return null;
   const name = accounts.nameFor(link.authUrl, serverName);
   const session = accounts.sessionFor(link);
   if (session) {
@@ -67,6 +67,6 @@ export function useFederatedIdentity(host: string | undefined, accounts = getNet
   useEffect(() => (accounts ? accounts.subscribe(setSnap) : undefined), [accounts]);
   if (!accounts || !snap || !host) return null;
   const link = snap.links[host.trim().toLowerCase()];
-  if (!link || link.main) return null;
+  if (!link || (link.main && !accounts.mainAsNetwork())) return null;
   return accounts.sessionFor(link)?.federated ?? null;
 }

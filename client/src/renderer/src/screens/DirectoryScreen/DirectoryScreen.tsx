@@ -10,7 +10,6 @@ import type { NetworkDirectories } from '../../modules/directory/networks';
 import type { Facets, NetworkSort } from '../../modules/directory/network-api';
 import { subscribeAddServer, subscribeDeepLink } from '../../modules/deep-link/deep-link';
 import { joinHomeOnce, useHomeNetwork } from '../../modules/netauth/home-network';
-import { loadLastServer } from '../../modules/netauth/other-server';
 import { subscribeOpenConversation, subscribeReadMemo } from '../../modules/inbox-nav/inbox-nav';
 import { subscribeOwnAvatar } from '../../modules/chat/avatar-cache';
 import { onHandleChange } from '../../modules/ui/handle-change';
@@ -170,13 +169,12 @@ export function DirectoryScreen({ directory, networks, engine, identity, history
     });
   }, [bloc]);
   // A self-hosted network's web client starts on that network's own IRC
-  // server (its boson.json irc.host), once per device — not when the user
-  // came in through "Use another server" for a different network.
+  // server (its boson.json irc.host), once per device. Also after "Use
+  // another server" (say boson.chat): connecting asks for the network's
+  // own sign-in, which offers "Continue as alice@boson.chat".
   const home = useHomeNetwork();
   useEffect(() => {
-    if (guestNick && loadLastServer()) return;
     joinHomeOnce(home, (params) => { void bloc.joinFromDeepLink(params); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per home network, not per guest flip
   }, [bloc, home]);
 
   // Inbox click-through: focus the entry's server + open the conversation.

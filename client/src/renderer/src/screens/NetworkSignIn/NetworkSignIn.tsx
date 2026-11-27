@@ -73,7 +73,7 @@ export function NetworkSignInDialog({ open, accounts, prompt, onDone }: DialogPr
   const canSignUp = registration !== 'closed';
   const [leaveGuest, setLeaveGuest] = useState(false);
 
-  if (link.main) {
+  if (link.main && !accounts.mainAsNetwork()) {
     // The app's own network while in guest mode: its account is the
     // app's main one (boson.chat's, or a self-hosted web client's own
     // network's), signed in to from the main sign-in screen.

@@ -193,6 +193,11 @@ export class WebVoiceService implements VoiceBridge {
     return voiceTrusted(info, this.opts.authBase, this.opts.dev) || voiceTrusted(info, info.authUrl, this.opts.dev);
   }
 
+  // Voice of the app's own auth service (this web client's network).
+  private ownVoice(info: VoiceInfo): boolean {
+    return cleanBaseURL(info.authUrl, this.opts.dev) === cleanBaseURL(this.opts.authBase, this.opts.dev);
+  }
+
   private trustedVoice(host: string): VoiceInfo | null {
     const d = this.opts.discoverer.cached(host);
     return d && this.trusted(d.voice) ? d.voice : null;
@@ -216,7 +221,17 @@ export class WebVoiceService implements VoiceBridge {
     const info = this.trustedVoice(host);
     if (!info) return { rooms: null, error: 'This server has no voice channels.', errorKind: 'unavailable' };
     if (!token) return { rooms: null, error: 'Sign in to use voice.', errorKind: 'token' };
-    return fetchRooms(this.fetchFn, info.url, token);
+    const r = await fetchRooms(this.fetchFn, info.url, token);
+    // Another network's voice server (boson.chat's, on a self-hosted
+    // network's web client): a browser can only reach it when it lets this
+    // page's origin in (CORS), which a failed fetch can't tell apart from
+    // a network error. Say so rather than "check your connection".
+    if (r.errorKind === 'unreachable' && !this.ownVoice(info)) {
+      let host = info.url;
+      try { host = new URL(info.url).host; } catch { /* keep the URL */ }
+      return { ...r, error: `Couldn't reach ${host}. That network's voice server may not take calls from this web app; its own app or web client can.` };
+    }
+    return r;
   }
 
   private roomAPI(host: string, token: string): { info?: VoiceInfo; bad?: VoiceRoomChange } {

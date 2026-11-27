@@ -237,6 +237,16 @@ export class NetworkAccounts {
     return normalizeAuthBase(authUrl) === this.main;
   }
 
+  // A self-hosted network's web client in app-wide guest mode (the user
+  // came in through "Use another server", e.g. with a boson.chat account):
+  // the app's own network is then signed in to like any other network —
+  // its own session beside guest mode (federated from boson.chat, say) —
+  // so its IRC gets its token, never a guest connect its bridge refuses.
+  // Elsewhere the main account is the main network's only account.
+  mainAsNetwork(): boolean {
+    return getHomeNetwork().selfHosted && !!this.opts.isGuest?.();
+  }
+
   // ---- launch ----
 
   // Re-discovers the remembered networks (the shell's allowlist is per run)
@@ -262,7 +272,7 @@ export class NetworkAccounts {
       // Known — but its saved session may still be loading (the link is
       // recorded first): wait for it, so a connect sees the session.
       const known = this.links[host] ?? null;
-      return known && !known.main ? this.ensureService(known.authUrl).then(() => known) : Promise.resolve(known);
+      return known && (!known.main || this.mainAsNetwork()) ? this.ensureService(known.authUrl).then(() => known) : Promise.resolve(known);
     }
     const running = this.discovering.get(host);
     if (running) return running;
@@ -323,6 +333,9 @@ export class NetworkAccounts {
       this.remember(link);
       await this.ensureService(link.authUrl);
       this.linkListeners.forEach((fn) => fn(link));
+    } else if (link && this.mainAsNetwork()) {
+      this.remember(link);
+      await this.ensureService(link.authUrl);
     }
     this.emit();
   }
@@ -344,11 +357,12 @@ export class NetworkAccounts {
 
   // ---- per-network auth services ----
 
-  // The AuthService for a network's auth URL (never the main one's: use
-  // mainAuth for that). Created on first use; its saved session restored.
+  // The AuthService for a network's auth URL (the main one's is mainAuth,
+  // except while mainAsNetwork). Created on first use; its saved session
+  // restored.
   service(authUrl: string): AuthService {
     const key = normalizeAuthBase(authUrl);
-    if (key === this.main) return this.opts.mainAuth;
+    if (key === this.main && !this.mainAsNetwork()) return this.opts.mainAuth;
     let svc = this.services.get(key);
     if (!svc) {
       svc = new AuthService(key, {
@@ -369,7 +383,7 @@ export class NetworkAccounts {
 
   private ensureService(authUrl: string): Promise<void> {
     const key = normalizeAuthBase(authUrl);
-    if (key === this.main) return Promise.resolve();
+    if (key === this.main && !this.mainAsNetwork()) return Promise.resolve();
     let p = this.inits.get(key);
     if (!p) {
       p = this.service(key).init().catch(() => {});
@@ -379,9 +393,9 @@ export class NetworkAccounts {
   }
 
   // The network's session (main networks: the main account, unless in
-  // guest mode).
+  // guest mode; then, while mainAsNetwork, its own network session).
   sessionFor(link: NetworkLink): Session | null {
-    if (link.main) return this.opts.isGuest?.() ? null : this.opts.mainAuth.getState().session;
+    if (link.main && !this.mainAsNetwork()) return this.opts.isGuest?.() ? null : this.opts.mainAuth.getState().session;
     return this.sessions[normalizeAuthBase(link.authUrl)] ?? this.service(link.authUrl).getState().session;
   }
 
@@ -389,8 +403,8 @@ export class NetworkAccounts {
   // login, or null when signed out there.
   async ircToken(link: NetworkLink): Promise<string | null> {
     if (!this.sessionFor(link)) return null;
-    const svc = link.main ? this.opts.mainAuth : this.service(link.authUrl);
-    await (link.main ? Promise.resolve() : this.ensureService(link.authUrl));
+    const svc = this.service(link.authUrl);
+    await this.ensureService(link.authUrl);
     return svc.getToken();
   }
 
@@ -400,8 +414,7 @@ export class NetworkAccounts {
     const key = normalizeAuthBase(authUrl);
     const hit = this.configs.get(key);
     if (hit && !fresh && Date.now() - hit.at < CONFIG_TTL_MS) return hit.cfg;
-    const svc = key === this.main ? this.opts.mainAuth : this.service(key);
-    const cfg = svc.config();
+    const cfg = this.service(key).config();
     this.configs.set(key, { at: Date.now(), cfg });
     cfg.then((c) => this.rename(key, c), () => this.configs.delete(key));
     return cfg;
@@ -417,7 +430,7 @@ export class NetworkAccounts {
 
   async signOut(authUrl: string): Promise<void> {
     const key = normalizeAuthBase(authUrl);
-    if (key === this.main) return;
+    if (key === this.main && !this.mainAsNetwork()) return;
     await this.service(key).signOut();
   }
 

@@ -151,14 +151,16 @@ void (async () => {
     const authFor = (a: string) => (netAccounts ? netAccounts.service(a) : props.auth);
     setVoiceController(new VoiceController(bridge, {
       authUrl,
-      // A network's voice takes that network's tokens, never boson.chat's.
-      voiceToken: (rooms, net) => (net && netAccounts ? netAccounts.service(net).voiceToken(rooms) : props.auth.voiceToken(rooms)),
+      // A network's voice takes that network's tokens, never the main
+      // account's. (service(main) is the main account, except a self-hosted
+      // web client's own network in guest mode: its own network session.)
+      voiceToken: (rooms, net) => (netAccounts ? netAccounts.service(net ?? mainAuth).voiceToken(rooms) : props.auth.voiceToken(rooms)),
       knowsAuth: (net) => netAccounts?.getSnapshot().known.some((k) => k.authUrl === net) ?? false,
       // Guests (no account with that network's auth service) join voice
       // under their IRC nick when the service allows it.
-      hasAccount: (a) => (a === mainAuth
+      hasAccount: (a) => (a === mainAuth && !netAccounts?.mainAsNetwork()
         ? loadGuestSession() === null && !!props.auth.getState().session
-        : !!netAccounts?.sessionFor({ host: '', authUrl: a, main: false })),
+        : !!netAccounts?.sessionFor({ host: '', authUrl: a, main: a === mainAuth })),
       guestVoice: async (a) => (await (netAccounts ? netAccounts.config(a) : props.auth.config())).guest_voice === true,
       guestVoiceToken: (a, nick, rooms) => authFor(a).guestVoiceToken(nick, guestVoiceId(a), rooms),
     }));

@@ -11,6 +11,7 @@ import { clearGuestSession, saveGuestSession } from '../../modules/guest/guest';
 import { setNetworkAccounts, type NetworkAccounts } from '../../modules/netauth/network-accounts';
 import { SecureBouncerStore, setBouncerStore } from '../../modules/chat/bouncer.store';
 import { InMemorySecureStorage } from '../../shared/secure-storage';
+import { setHomeNetwork } from '../../modules/netauth/home-network';
 
 // UserSettings covers two distinct behaviours:
 // 1. About panel surfaces the app version from package.json (regression
@@ -597,6 +598,22 @@ describe('UserSettings — the menu', () => {
     expect(screen.getByText(/Sign in to a Boson account to choose who can call you/)).toBeInTheDocument();
     // Remembered hosts are this device's, so they're here for guests too.
     expect(screen.getByRole('checkbox', { name: 'Remember hosts' })).toBeInTheDocument();
+  });
+});
+
+describe('UserSettings — a self-hosted web client', () => {
+  it("as a guest: Account names the install's own account, not boson.chat's", async () => {
+    setHomeNetwork({ domain: 'boson.ircforever.org', name: 'boson.ircforever.org', selfHosted: true });
+    try {
+      saveGuestSession({ nick: 'wren' });
+      renderSettings({ authedHandle: null, authedEmail: null });
+      await userEvent.setup().click(screen.getByRole('tab', { name: 'Account' }));
+      expect(screen.getByText(/You're using Boson without a boson\.ircforever\.org account/)).toBeInTheDocument();
+      expect(screen.queryByText(/boson\.chat account/)).toBeNull();
+      expect(screen.getByRole('button', { name: 'Switch to an account' })).toBeInTheDocument();
+    } finally {
+      setHomeNetwork(null);
+    }
   });
 });
 
