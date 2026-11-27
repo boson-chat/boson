@@ -364,15 +364,21 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
-  # The iOS push extension's decrypt / parsing / filtering (Swift, run on
-  # the Mac; desktop/build/ios/push/tests). No signing needed.
+  # The phone push receivers' decrypt / parsing / filtering, run on the
+  # Mac: the iOS extension (Swift, desktop/build/ios/push/tests) and the
+  # Android service's plain-Java core (PushCoreTest). No signing needed.
   ios-push-tests:
-    name: iOS push extension tests
+    name: push receiver tests (iOS + Android)
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - run: desktop/scripts/test-ios-push.sh
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: desktop/scripts/test-android-push.sh
 
   # A development-signed iPhone build for over-the-air install on the
   # devices its provisioning profile lists: Boson-ios.ipa plus the
