@@ -103,6 +103,10 @@ public class MainActivity extends AppCompatActivity {
         bridge.initialize();
         // Voice calls (desktop/voice_android.go): after the Go library loads.
         BosonVoice.init(this);
+        // Push notifications (desktop/push_android.go): the bridge, and a
+        // tap on one that started the app.
+        BosonPush.init(this);
+        BosonPush.deliverTap(getIntent());
 
         // Set up WebView
         setupWebView();
@@ -267,6 +271,7 @@ public class MainActivity extends AppCompatActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         deliverNotificationTap(intent);
+        BosonPush.deliverTap(intent);
     }
 
     private void deliverNotificationTap(@Nullable Intent intent) {
@@ -808,6 +813,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        BosonPush.foreground = true;
         if (bridge != null) {
             bridge.onResume();
         }
@@ -816,6 +822,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        BosonPush.foreground = false;
         if (bridge != null) {
             bridge.onPause();
         }

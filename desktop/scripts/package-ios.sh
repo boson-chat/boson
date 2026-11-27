@@ -39,6 +39,16 @@
 #                   (scripts/ios_ota.py; device builds only)
 #   OPUS_PREFIX     where the static libopus for voice is built and cached
 #                   (default desktop/build/.opus; scripts/build-opus.sh)
+#   PUSH_EXT_PROFILE  device builds: the provisioning profile for the push
+#                   extension (chat.boson.app.push); default: an Xcode-managed
+#                   one for it (or the team's wildcard). Without one the
+#                   extension is left out and pushes show as "New message".
+#
+# Push notifications (docs/push-ios.md): the app gets aps-environment, the
+# App Group and the App Attest environment only when its provisioning
+# profile grants them (simulator builds always), so a profile made before
+# push was set up still signs and installs; the APNs environment the Go side
+# reports to the relay (main.apnsEnvironment) is the profile's.
 #
 # Usage: desktop/scripts/package-ios.sh
 set -euo pipefail
@@ -70,6 +80,81 @@ out="$desktop/bin/ios-$PLATFORM"
 app="$out/$APP_NAME.app"
 mkdir -p "$out"
 
+# Device builds: the signing identity and the app's provisioning profile,
+# found before the build (the APNs environment and the entitlements come
+# from the profile).
+team="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$desktop/build/ios/Device.entitlements" | cut -d. -f1)"
+profile_plist() { security cms -D -i "$1" 2>/dev/null; }
+# An Xcode-managed profile for $1 (a bundle id) that includes the device;
+# wildcard ones only with $2 = wildcard.
+find_profile() {
+  local want="$1" wild="${2:-}" f plist appid
+  for f in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision; do
+    [[ -f "$f" ]] || continue
+    plist="$(profile_plist "$f")" || continue
+    appid="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<<"$plist" 2>/dev/null || true)"
+    if [[ ( "$appid" == "$team.$want" || ( -n "$wild" && "$appid" == "$team.*" ) ) && "$plist" == *"${DEVICE_ID:-}"* ]]; then
+      echo "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+if [[ "$PLATFORM" == "device" ]]; then
+  profile="${PROVISIONING_PROFILE:-}"
+  identity="${CODESIGN_IDENTITY:-}"
+  keychain=()
+  [[ -n "${CODESIGN_KEYCHAIN:-}" ]] && keychain=(--keychain "$CODESIGN_KEYCHAIN")
+  # The device picks the profile and is where RUN=1 installs; a given
+  # profile needs none.
+  if [[ -z "$profile" || "${RUN:-}" == "1" ]]; then
+    if [[ -z "${DEVICE_ID:-}" ]]; then
+      DEVICE_ID="$(xcrun devicectl list devices --hide-headers 2>/dev/null | awk '/physical|paired/ && !/simulated/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')"
+    fi
+    [[ -n "${DEVICE_ID:-}" ]] || { echo "no iPhone connected (or pass DEVICE_ID=<UDID>)" >&2; exit 1; }
+  fi
+  if [[ -z "$profile" ]]; then
+    # An Xcode-managed profile for our team that includes this device.
+    profile="$(find_profile chat.boson.app || find_profile chat.boson.app wildcard || true)"
+  fi
+  if [[ -n "$profile" && -z "$identity" ]]; then
+    identity="$(security find-identity -v -p codesigning ${CODESIGN_KEYCHAIN:+"$CODESIGN_KEYCHAIN"} | awk '/Apple Development/ { print $2; exit }')"
+  fi
+  # A given profile is never replaced by one ios_provision.py makes (CI must
+  # not create anything): no identity for it is an error.
+  if [[ -n "${PROVISIONING_PROFILE:-}" && -z "$identity" ]]; then
+    echo "no Apple Development identity${CODESIGN_KEYCHAIN:+ in $CODESIGN_KEYCHAIN} for PROVISIONING_PROFILE" >&2
+    exit 1
+  fi
+  if [[ -z "$profile" || -z "$identity" ]]; then
+    identity="$(python3 "$here/ios_provision.py" --udid "$DEVICE_ID" --out "$out/development.mobileprovision")"
+    profile="$out/development.mobileprovision"
+  fi
+fi
+
+# What the app's profile grants for push (simulator: everything, from
+# build/ios/Simulator.entitlements).
+APNS_ENV=development
+push_ents=()
+if [[ "$PLATFORM" == "device" ]]; then
+  prof="$(profile_plist "$profile")"
+  pe() { /usr/libexec/PlistBuddy -c "Print :Entitlements:$1" /dev/stdin <<<"$prof" 2>/dev/null || true; }
+  aps="$(pe aps-environment)"
+  if [[ -n "$aps" ]]; then
+    APNS_ENV="$aps"
+    push_ents+=(-c "Add :aps-environment string $aps")
+  else
+    echo "note: the provisioning profile has no Push Notifications capability: no push in this build (docs/push-ios.md)" >&2
+  fi
+  if [[ "$(pe com.apple.security.application-groups)" == *group.chat.boson.app* ]]; then
+    push_ents+=(-c "Add :com.apple.security.application-groups array" -c "Add :com.apple.security.application-groups:0 string group.chat.boson.app")
+  else
+    echo "note: the provisioning profile lacks the App Group group.chat.boson.app: the push extension can't read keys" >&2
+  fi
+  attest="$(pe com.apple.developer.devicecheck.appattest-environment)"
+  [[ -n "$attest" ]] && push_ents+=(-c "Add :com.apple.developer.devicecheck.appattest-environment string $attest")
+fi
+
 # 1. Renderer.
 if [[ "${SKIP_RENDERER:-}" != "1" ]]; then
   if [[ "${DEV:-}" == "1" ]]; then
@@ -88,7 +173,7 @@ touch "$desktop/frontend/dist/.gitkeep"
 opus="${OPUS_PREFIX:-$desktop/build/.opus}/ios-$PLATFORM"
 "$here/build-opus.sh" "$opus" "ios-$PLATFORM"
 tags=ios,nolibopusfile
-ldflags="-X main.appVersion=$VERSION"
+ldflags="-X main.appVersion=$VERSION -X main.apnsEnvironment=$APNS_ENV"
 if [[ "${DEV:-}" == "1" ]]; then
   ldflags="$ldflags -X main.devBuild=true -X main.apiBase=http://localhost:3000"
 else
@@ -123,7 +208,7 @@ xcrun -sdk "$SDK" clang -target "$TARGET" -isysroot "$SDK_PATH" \
   -framework Foundation -framework UIKit -framework WebKit \
   -framework Security -framework CoreFoundation \
   -framework UniformTypeIdentifiers \
-  -framework LocalAuthentication -framework UserNotifications \
+  -framework LocalAuthentication -framework UserNotifications -framework DeviceCheck \
   -framework AVFoundation -framework SafariServices \
   -framework CoreLocation -framework CoreMotion -framework SystemConfiguration -framework Network \
   -framework AVFAudio -framework AudioToolbox -framework CoreAudio \
@@ -149,50 +234,68 @@ cp "$ac"/*.png "$app/" 2>/dev/null || true
 /usr/libexec/PlistBuddy -c "Merge $ac/partial.plist" "$app/Info.plist" >/dev/null
 plutil -lint "$app/Info.plist" >/dev/null
 
+# 4b. The push Notification Service Extension (build/ios/push/): decrypts
+#     pushes with the keys the app shares through the App Group.
+ext="$app/PlugIns/BosonPush.appex"
+mkdir -p "$ext"
+ext_ents=()
+if [[ "$PLATFORM" != "device" ]]; then
+  ext_ents=(-Xlinker -sectcreate -Xlinker __TEXT -Xlinker __entitlements
+    -Xlinker "$desktop/build/ios/push/Simulator.entitlements")
+fi
+xcrun -sdk "$SDK" swiftc -target "$TARGET" -sdk "$SDK_PATH" -O \
+  -application-extension -parse-as-library -module-name BosonPush \
+  -Xlinker -e -Xlinker _NSExtensionMain \
+  -framework Foundation -framework UserNotifications -framework Security \
+  ${ext_ents[@]+"${ext_ents[@]}"} \
+  -o "$ext/BosonPush" \
+  "$desktop/build/ios/push/PushCrypto.swift" "$desktop/build/ios/push/PushLine.swift" \
+  "$desktop/build/ios/push/NotificationService.swift"
+cp "$desktop/build/ios/push/Info.plist" "$ext/Info.plist"
+sdk_platform=iPhoneOS
+[[ "$PLATFORM" != "device" ]] && sdk_platform=iPhoneSimulator
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" -c "Set :CFBundleVersion $VERSION" \
+  -c "Add :CFBundleSupportedPlatforms array" -c "Add :CFBundleSupportedPlatforms:0 string $sdk_platform" "$ext/Info.plist"
+plutil -lint "$ext/Info.plist" >/dev/null
+
 # 5. Sign. Simulator: ad hoc. Device: the development identity, with the
 #    profile embedded and the matching entitlements.
 if [[ "$PLATFORM" == "device" ]]; then
-  profile="${PROVISIONING_PROFILE:-}"
-  identity="${CODESIGN_IDENTITY:-}"
-  keychain=()
-  [[ -n "${CODESIGN_KEYCHAIN:-}" ]] && keychain=(--keychain "$CODESIGN_KEYCHAIN")
-  # The device picks the profile and is where RUN=1 installs; a given
-  # profile needs none.
-  if [[ -z "$profile" || "${RUN:-}" == "1" ]]; then
-    if [[ -z "${DEVICE_ID:-}" ]]; then
-      DEVICE_ID="$(xcrun devicectl list devices --hide-headers 2>/dev/null | awk '/physical|paired/ && !/simulated/ { for (i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) { print $i; exit } }')"
-    fi
-    [[ -n "${DEVICE_ID:-}" ]] || { echo "no iPhone connected (or pass DEVICE_ID=<UDID>)" >&2; exit 1; }
-  fi
-  if [[ -z "$profile" ]]; then
-    # An Xcode-managed profile for our team that includes this device.
-    team="$(/usr/libexec/PlistBuddy -c 'Print :application-identifier' "$desktop/build/ios/Device.entitlements" | cut -d. -f1)"
-    for f in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision; do
-      [[ -f "$f" ]] || continue
-      plist="$(security cms -D -i "$f" 2>/dev/null)" || continue
-      appid="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' /dev/stdin <<<"$plist" 2>/dev/null || true)"
-      if [[ ( "$appid" == "$team.*" || "$appid" == "$team.chat.boson.app" ) && "$plist" == *"$DEVICE_ID"* ]]; then
-        profile="$f"
-        break
-      fi
-    done
-  fi
-  if [[ -n "$profile" && -z "$identity" ]]; then
-    identity="$(security find-identity -v -p codesigning ${CODESIGN_KEYCHAIN:+"$CODESIGN_KEYCHAIN"} | awk '/Apple Development/ { print $2; exit }')"
-  fi
-  # A given profile is never replaced by one ios_provision.py makes (CI must
-  # not create anything): no identity for it is an error.
-  if [[ -n "${PROVISIONING_PROFILE:-}" && -z "$identity" ]]; then
-    echo "no Apple Development identity${CODESIGN_KEYCHAIN:+ in $CODESIGN_KEYCHAIN} for PROVISIONING_PROFILE" >&2
-    exit 1
-  fi
-  if [[ -z "$profile" || -z "$identity" ]]; then
-    identity="$(python3 "$here/ios_provision.py" --udid "$DEVICE_ID" --out "$out/development.mobileprovision")"
-    profile="$out/development.mobileprovision"
-  fi
   cp "$profile" "$app/embedded.mobileprovision"
-  codesign --force --sign "$identity" ${keychain[@]+"${keychain[@]}"} --entitlements "$desktop/build/ios/Device.entitlements" --timestamp=none "$app"
+  # The extension: its own profile (or the team's wildcard), and the App
+  # Group if that profile has it. Without one it's left out.
+  ext_profile="${PUSH_EXT_PROFILE:-$(find_profile chat.boson.app.push || find_profile chat.boson.app.push wildcard || true)}"
+  if [[ -n "$ext_profile" ]]; then
+    cp "$ext_profile" "$ext/embedded.mobileprovision"
+    ext_prof="$(profile_plist "$ext_profile")"
+    ext_ent="$out/BosonPush.entitlements"
+    cat >"$ext_ent" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>application-identifier</key><string>$team.chat.boson.app.push</string>
+  <key>com.apple.developer.team-identifier</key><string>$team</string>
+  <key>get-task-allow</key><true/>
+</dict></plist>
+PLIST
+    if [[ "$ext_prof" == *group.chat.boson.app* ]]; then
+      /usr/libexec/PlistBuddy -c "Add :com.apple.security.application-groups array" \
+        -c "Add :com.apple.security.application-groups:0 string group.chat.boson.app" "$ext_ent"
+    fi
+    codesign --force --sign "$identity" ${keychain[@]+"${keychain[@]}"} --entitlements "$ext_ent" --timestamp=none "$ext"
+  else
+    echo "note: no provisioning profile for chat.boson.app.push: the push extension is left out (pushes show as \"New message\")" >&2
+    rm -rf "$app/PlugIns"
+  fi
+  # The app: Device.entitlements plus what the profile grants for push.
+  app_ent="$out/Boson.entitlements"
+  cp "$desktop/build/ios/Device.entitlements" "$app_ent"
+  if [[ ${#push_ents[@]} -gt 0 ]]; then
+    /usr/libexec/PlistBuddy "${push_ents[@]}" "$app_ent"
+  fi
+  codesign --force --sign "$identity" ${keychain[@]+"${keychain[@]}"} --entitlements "$app_ent" --timestamp=none "$app"
 else
+  codesign --force --sign - "$ext"
   codesign --force --sign - "$app"
 fi
 codesign --verify --verbose=1 "$app"

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The Notification Service Extension (build/ios/push/*.swift), embedded
+     as Boson.app/PlugIns/BosonPush.appex by scripts/package-ios.sh. Versions
+     and the platform are set at build time to match the app. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>BosonPush</string>
+    <key>CFBundleIdentifier</key>
+    <string>chat.boson.app.push</string>
+    <key>CFBundleName</key>
+    <string>BosonPush</string>
+    <key>CFBundleDisplayName</key>
+    <string>Boson</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.0.0</string>
+    <key>CFBundleVersion</key>
+    <string>0.0.0</string>
+    <key>MinimumOSVersion</key>
+    <string>16.0</string>
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>1</integer>
+        <integer>2</integer>
+    </array>
+    <!-- The App Group the app shares the push keys and settings through
+         (also in the app's Info.plist). -->
+    <key>BosonAppGroup</key>
+    <string>group.chat.boson.app</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.usernotifications.service</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>BosonNotificationService</string>
+    </dict>
+</dict>
+</plist>

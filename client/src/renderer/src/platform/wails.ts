@@ -7,6 +7,8 @@ import { Call, Events, System, Window } from '@wailsio/runtime';
 import type { WebSocketLike } from '../modules/engine/engine.client';
 import type { ApiRequest, ApiResponse } from '../shared/http/transport';
 import { applyPhoneScale } from '../shared/phone-scale';
+import { nativePushBridge } from './native-push';
+import type { PushPlatform } from '../modules/push/push.types';
 import type { BosonWindowBridge } from '../shared/window-controls';
 
 const ENGINE = 'main.EngineService';
@@ -253,6 +255,14 @@ export async function installWailsBridges(): Promise<void> {
       spotifyFetched: () => Call.ByName('main.E2EService.SpotifyFetched'),
       pushUpdaterState: (s: unknown) => Call.ByName('main.E2EService.PushUpdaterState', s),
     };
+  }
+  // Push notifications on the phones (desktop/push.go); none on desktop yet.
+  const push = await Call.ByName('main.PushService.Info').catch(() => null) as { platform?: string } | null;
+  if (push?.platform === 'ios' || push?.platform === 'android') {
+    w.bosonPush = nativePushBridge(push.platform as PushPlatform, {
+      call: (m, ...args) => Call.ByName(m, ...args),
+      on: (ev, fn) => Events.On(ev, (e) => fn(e.data)),
+    });
   }
   w.bosonPlatform = platformName((await System.Environment()).OS);
   applyPhoneScale(String(w.bosonPlatform));

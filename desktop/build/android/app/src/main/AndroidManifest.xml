@@ -66,6 +66,17 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Push notifications (BosonPushService, FCM): in builds with
+             Firebase; otherwise a disabled stand-in (app/build.gradle). -->
+        <service
+            android:name="${bosonPushService}"
+            android:enabled="${bosonPushEnabled}"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".BosonVoiceService"
             android:exported="false"

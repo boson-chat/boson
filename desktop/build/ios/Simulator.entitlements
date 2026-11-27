@@ -13,5 +13,13 @@
     <array>
         <string>FJY7UPX884.chat.boson.app</string>
     </array>
+    <!-- Push (desktop/push_ios.go): APNs, and the App Group the keys and
+         settings are shared with the extension through. -->
+    <key>aps-environment</key>
+    <string>development</string>
+    <key>com.apple.security.application-groups</key>
+    <array>
+        <string>group.chat.boson.app</string>
+    </array>
 </dict>
 </plist>

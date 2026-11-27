@@ -2,6 +2,20 @@ plugins {
     id 'com.android.application'
 }
 
+// Push notifications through FCM (docs/push-android.md): on when
+// app/google-services.json is there (the Firebase project's config), or
+// -PbosonFcm=1 (compiles the FCM sources; without the json Firebase can't
+// start at run time, so that's for checking builds). Off: the APK is built
+// as before and push shows as unavailable.
+def bosonGoogleServices = file('google-services.json').exists()
+def bosonFcm = bosonGoogleServices || project.findProperty('bosonFcm') == '1'
+// Play Integrity's cloud project number (-PbosonCloudProject= or
+// BOSON_CLOUD_PROJECT); 0 = the app's linked project.
+def bosonCloudProject = (project.findProperty('bosonCloudProject') ?: System.getenv('BOSON_CLOUD_PROJECT') ?: '0').toString()
+if (bosonGoogleServices) {
+    apply plugin: 'com.google.gms.google-services'
+}
+
 android {
     namespace 'com.wails.app'
     compileSdk 35
@@ -20,6 +34,13 @@ android {
         // Dev builds (package-android.sh DEV=1): the WebView can be
         // inspected (Chrome DevTools, the Android call test's Playwright).
         buildConfigField "boolean", "WEBVIEW_DEBUG", (project.findProperty('bosonDev') == '1').toString()
+        // Push (BosonPush): whether FcmBackend / BosonPushService are in.
+        buildConfigField "boolean", "BOSON_FCM", bosonFcm.toString()
+        buildConfigField "long", "BOSON_CLOUD_PROJECT", "${bosonCloudProject}L"
+        manifestPlaceholders = [
+            bosonPushService: bosonFcm ? '.BosonPushService' : '.BosonPushStub',
+            bosonPushEnabled: bosonFcm.toString(),
+        ]
 
         // Configure supported ABIs
         ndk {
@@ -65,6 +86,8 @@ android {
         main {
             // JNI libraries are in jniLibs folder
             jniLibs.srcDirs = ['src/main/jniLibs']
+            // FCM receiver + backend (push), only with Firebase.
+            if (bosonFcm) java.srcDirs += 'src/fcm/java'
             // Assets for the WebView
             assets.srcDirs = ['src/main/assets']
         }
@@ -84,4 +107,9 @@ dependencies {
     implementation 'com.google.android.material:material:1.11.0'
     implementation 'androidx.biometric:biometric:1.1.0'
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    if (bosonFcm) {
+        implementation platform('com.google.firebase:firebase-bom:33.7.0')
+        implementation 'com.google.firebase:firebase-messaging'
+        implementation 'com.google.android.play:integrity:1.4.0'
+    }
 }

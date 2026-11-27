@@ -17,6 +17,10 @@
     <string>0.0.0</string>
     <key>CFBundleVersion</key>
     <string>0.0.0</string>
+    <!-- Push: the App Group the push extension (PlugIns/BosonPush.appex)
+         reads keys and settings through (desktop/push_ios.m). -->
+    <key>BosonAppGroup</key>
+    <string>group.chat.boson.app</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>MinimumOSVersion</key>
