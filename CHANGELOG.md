@@ -1,3 +1,9 @@
+## [0.105.0](https://github.com/boson-chat/boson/compare/v0.104.6...v0.105.0) (2026-11-27)
+
+### Features
+
+* **voice:** show why a voice channel is locked (the server's lock_reason, on click or tap) ([#179](https://github.com/boson-chat/boson/issues/179)) ([8f9422e](https://github.com/boson-chat/boson/commit/8f9422e53425f26e036eda960f57429c600dd692)), closes [boson-chat/quicvoice#22](https://github.com/boson-chat/quicvoice/issues/22)
+
 ## [0.104.6](https://github.com/boson-chat/boson/compare/v0.104.5...v0.104.6) (2026-11-27)
 
 ### Bug Fixes
