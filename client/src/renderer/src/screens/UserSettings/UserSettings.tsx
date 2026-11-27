@@ -60,11 +60,11 @@ interface UserSettingsProps {
   // ('identity', 'content') still work.
   initialSection?: string | null;
   // Neither signed in nor a guest (the login screen): only what applies
-  // before signing in — Appearance and About.
+  // before signing in — Privacy (this device's), Appearance and About.
   signedOut?: boolean;
 }
 
-const SIGNED_OUT_SECTIONS: ReadonlySet<SectionId> = new Set(['appearance', 'about']);
+const SIGNED_OUT_SECTIONS: ReadonlySet<SectionId> = new Set(['privacy', 'appearance', 'about']);
 
 export function UserSettings({ open, onClose, authedHandle, authedEmail, onSignOut, directory, identity, auth, initialSection, signedOut = false }: UserSettingsProps) {
   const [chosen, setSection] = useState<SectionId>('profile');

@@ -17,6 +17,8 @@ import { loadGuestSession, onGuestChange } from './modules/guest/guest';
 import { FilesController, filesBridge, setFiles } from './modules/files';
 import { getHomeNetwork, nameFromAuthConfig, updateHomeNetwork } from './modules/netauth/home-network';
 import { windowSecureStorage } from './shared/secure-storage';
+import { countCrashes, startTelemetry } from './modules/telemetry/telemetry';
+import pkg from '../../../package.json';
 import './styles.css';
 import './shared/modal-portal';
 
@@ -26,6 +28,9 @@ import './shared/modal-portal';
 // The web build (chat.boson.chat, VITE_BOSON_SHELL=web) installs its own
 // browser-backed bridges (platform/web); the branch is dropped from the
 // desktop bundle at build time.
+// Usage & health stats (modules/telemetry): count crashes from the start.
+countCrashes();
+
 const shellReady: Promise<void> | null = import.meta.env.VITE_BOSON_SHELL !== 'web' && isWailsPage()
   ? import('./platform/wails').then((m) => m.installWailsBridges())
   : import.meta.env.VITE_BOSON_SHELL === 'web'
@@ -222,6 +227,13 @@ void (async () => {
   // A self-hosted web client's own network signed in to beside guest mode
   // is the app's account (modules/netauth/home-session.ts).
   if (netAccounts) keepHomeSessionSignedIn(netAccounts, Promise.all([netReady, authReady]));
+  // The daily app ping (Settings → Privacy → Usage & health stats): how
+  // many servers are connected, never which.
+  const engine = props.engine;
+  startTelemetry({
+    version: pkg.version,
+    servers: () => engine?.sessions().filter((s) => s.state() === 'connected').length ?? 0,
+  });
   if (props.engine) {
     props.engine.open().catch((err) => console.error('engine.open failed', err));
   }

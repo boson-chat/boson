@@ -3,18 +3,21 @@ import { Button, Segmented, SwitchRow, useTransientFlag } from '@boson/shared';
 import { useFriends, type CallPolicy, type RequestPolicy } from '../../modules/friends';
 import { getPrivacySettings, setPrivacySettings, type PrivacySettings } from '../../modules/ui/privacy.store';
 import { clearAllSeen } from '../../modules/seen';
+import { isTelemetryEnabled, PRIVACY_URL, setTelemetryEnabled } from '../../modules/telemetry/telemetry';
 import { NestedSettings, SectionFrame, SettingRow, SettingsGroup } from './SettingsFrame';
+import { ExternalLink } from './AboutSection';
 
 // Settings → Privacy: who can reach you (calls and friend requests, on the
 // account), and what Boson remembers about other people on this device.
-// How a call rings (banner or full screen) is under Notifications.
+// How a call rings (banner or full screen) is under Notifications. Last,
+// the anonymous usage & health stats this device sends (modules/telemetry).
 export function PrivacySection({ mode }: { mode: 'guest' | 'account' }) {
   const { friends, snap } = useFriends();
   const reachable = !!friends && snap.available;
   return (
     <SectionFrame
       title="Privacy"
-      description="Who can reach you, and what Boson remembers about people on this device."
+      description="Who can reach you, what Boson remembers about people on this device, and the anonymous stats it sends."
     >
       {reachable ? <PrivacyCalls /> : mode === 'guest' && (
         <SettingsGroup title="Calls & friend requests">
@@ -22,6 +25,7 @@ export function PrivacySection({ mode }: { mode: 'guest' | 'account' }) {
         </SettingsGroup>
       )}
       <RememberedHosts />
+      <UsageStats />
     </SectionFrame>
   );
 }
@@ -100,6 +104,27 @@ function RememberedHosts() {
           Clear
         </Button>
       </SettingRow>
+    </SettingsGroup>
+  );
+}
+
+// The daily app ping (modules/telemetry): on by default (off in a browser
+// that sends Do Not Track / Global Privacy Control), for this device.
+export const USAGE_STATS_WHY = 'We collect a small amount of anonymous usage and health data to make Boson better: to see which versions and features people use, and to catch failed updates, crashes and struggling servers so we can fix them, often before anyone has to report them. No names, emails, messages, server names or IP addresses, ever.';
+
+function UsageStats() {
+  const [on, setOn] = useState(() => isTelemetryEnabled());
+  return (
+    <SettingsGroup title="Help improve Boson">
+      <SwitchRow
+        title="Usage & health stats"
+        description={USAGE_STATS_WHY}
+        checked={on}
+        onChange={(v) => { setTelemetryEnabled(v); setOn(v); }}
+      />
+      <p class="user-settings-hint">
+        <ExternalLink href={PRIVACY_URL}>What’s sent, and how long it’s kept</ExternalLink>
+      </p>
     </SettingsGroup>
   );
 }

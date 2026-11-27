@@ -26,7 +26,7 @@ export interface MenuEntry {
 export const MENU: ReadonlyArray<MenuEntry> = [
   { id: 'profile',       label: 'Profile',            group: 'you',         keywords: 'avatar profile image picture handle nick name' },
   { id: 'account',       label: 'Account & security', group: 'you',         keywords: 'email password recovery code linked sign-ins sign out log out guest' },
-  { id: 'privacy',       label: 'Privacy',            group: 'you',         keywords: 'calls who can call do not disturb dnd friend requests remembered hosts whois join part' },
+  { id: 'privacy',       label: 'Privacy',            group: 'you',         keywords: 'calls who can call do not disturb dnd friend requests remembered hosts whois join part usage health stats telemetry analytics crash reports' },
   { id: 'appearance',    label: 'Appearance',         group: 'app',         keywords: 'theme colours colors dark light network themes custom' },
   { id: 'notifications', label: 'Notifications',      group: 'app',         keywords: 'toasts system sound mentions direct messages friends calls incoming banner full screen' },
   { id: 'chat',          label: 'Chat & media',       group: 'app',         keywords: 'link previews embeds images videos youtube spotify website cards load automatically image cache replies guessed replies' },

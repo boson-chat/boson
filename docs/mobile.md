@@ -292,6 +292,12 @@ button is hidden on phones (`VideoState.canShareScreen`).
   the network/channel/nick and message, plus `/ignore` locally).
 - **Privacy:** App Store privacy labels and Google Play Data safety forms
   (what the backend stores: account, encrypted identity, directory data).
+  The apps also send an anonymous daily **usage & health stats** ping
+  (random device ID, app version, platform, channel, crash count, a bucketed
+  server count; on by default, Settings → Privacy → Usage & health stats
+  turns it off): declare it as anonymous analytics / crash data not linked
+  to the user. Spec: boson-chat/stack `docs/telemetry.md`; public page:
+  https://boson.chat/telemetry; code: `client/src/renderer/src/modules/telemetry`.
 - **Accounts:** if sign-up is in the app, **account deletion** must be in the
   app too (Apple 5.1.1(v), Google Play policy). Check the backend has it.
 - **Licence: the App Store and the AGPL.** Boson, quicvoice and quicvideo

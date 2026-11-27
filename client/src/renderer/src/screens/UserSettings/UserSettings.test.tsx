@@ -12,6 +12,7 @@ import { setNetworkAccounts, type NetworkAccounts } from '../../modules/netauth/
 import { SecureBouncerStore, setBouncerStore } from '../../modules/chat/bouncer.store';
 import { InMemorySecureStorage } from '../../shared/secure-storage';
 import { setHomeNetwork } from '../../modules/netauth/home-network';
+import { isTelemetryEnabled } from '../../modules/telemetry/telemetry';
 
 // UserSettings covers two distinct behaviours:
 // 1. About panel surfaces the app version from package.json (regression
@@ -500,12 +501,13 @@ describe('UserSettings — About: in-app updates', () => {
 });
 
 describe('UserSettings — before signing in', () => {
-  it('shows only Appearance and About, not the account sections', () => {
+  it('shows only Privacy, Appearance and About, not the account sections', () => {
     renderSettings({ signedOut: true, authedHandle: null, authedEmail: null });
     const tabs = screen.getAllByRole('tab').map((t) => t.textContent ?? '');
+    expect(tabs.some((t) => t.startsWith('Privacy'))).toBe(true);
     expect(tabs.some((t) => t.startsWith('Appearance'))).toBe(true);
     expect(tabs.some((t) => t.startsWith('About'))).toBe(true);
-    expect(tabs.some((t) => /^(Profile|Account|Privacy|Bouncer)/.test(t))).toBe(false);
+    expect(tabs.some((t) => /^(Profile|Account|Bouncer)/.test(t))).toBe(false);
     expect(screen.queryByText('How you sign in to your Boson account.')).toBeNull();
     // Two entries need no group headings.
     expect(document.querySelector('.settings-menu-heading')).toBeNull();
@@ -672,6 +674,29 @@ describe('UserSettings — Privacy', () => {
     expect(screen.getByRole('checkbox', { name: 'Show hosts in join/part lines' })).toBeDisabled();
     fireEvent.click(screen.getByRole('checkbox', { name: 'Remember hosts' }));
     expect(screen.getByRole('button', { name: 'Clear remembered hosts' })).toBeInTheDocument();
+  });
+});
+
+describe('UserSettings — Privacy: usage & health stats', () => {
+  beforeEach(() => { localStorage.removeItem('boson:telemetry:v1'); });
+
+  it('is on by default, says why, links the details, and the switch turns it off and on', () => {
+    renderSettings({ initialSection: 'privacy' });
+    const sw = screen.getByRole('checkbox', { name: 'Usage & health stats' });
+    expect(sw).toBeChecked();
+    expect(screen.getByText(/We collect a small amount of anonymous usage and health data to make Boson better/)).toBeInTheDocument();
+    expect(screen.getByText(/No names, emails, messages, server names or IP addresses, ever\./)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /What’s sent/ })).toHaveAttribute('href', 'https://boson.chat/telemetry');
+    fireEvent.click(sw);
+    expect(sw).not.toBeChecked();
+    expect(isTelemetryEnabled()).toBe(false);
+    fireEvent.click(sw);
+    expect(isTelemetryEnabled()).toBe(true);
+  });
+
+  it('is there before signing in too', () => {
+    renderSettings({ signedOut: true, authedHandle: null, authedEmail: null, initialSection: 'privacy' });
+    expect(screen.getByRole('checkbox', { name: 'Usage & health stats' })).toBeInTheDocument();
   });
 });
 

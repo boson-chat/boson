@@ -66,6 +66,7 @@ export const DEVICE_KEYS: KeySet = {
     'boson.screenShare', // last screen-share source + mode
     'boson:notifications:v1', // notification preferences (sounds, banners)
     'boson:privacy:v1', // remember hosts / show hosts
+    'boson:telemetry:v1', // usage & health stats: the switch, the random device ID, last ping, crash count
     'boson:embeds:v1', // link preview preferences
     'boson:chat-display:v1', // how conversations read (guessed replies)
     'boson:voice-servers:v1', // cache of networks' public boson.json (web)
