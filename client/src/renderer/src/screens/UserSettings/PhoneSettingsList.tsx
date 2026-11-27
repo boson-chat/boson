@@ -47,10 +47,13 @@ export function PhoneSettingsList({ menu, mode, authedHandle, authedEmail, guest
   const hint = useSectionHints({ mode, authedHandle, authedEmail, guestNick });
   // Signed in: who you are, at the top (it opens Profile).
   const showCard = mode === 'account' && menu.some((m) => m.id === 'profile');
+  // Before signing in (no Profile): a few rows, no group headings, as on
+  // the desktop menu.
+  const headings = menu.some((m) => m.id === 'profile');
   return (
     <SettingsPhoneList
       entries={menu.map((m) => ({ ...m, label: sectionLabel(m, mode) }))}
-      groupTitle={(g) => PHONE_GROUP_TITLE[g]}
+      groupTitle={(g) => (headings ? PHONE_GROUP_TITLE[g] : null)}
       icon={(id) => ICON[id]}
       hint={hint}
       onOpen={onOpen}

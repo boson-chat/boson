@@ -38,7 +38,7 @@ export { resolveSection, type SectionId } from './sections';
 //            its section full screen, with a back arrow to the list
 //
 // Mode-aware: a guest edits their nick in Profile and finds "Switch to an
-// account" under Account; before signing in only Appearance and About show.
+// account" under Account; before signing in only Privacy, Appearance and About show.
 
 interface UserSettingsProps {
   open: boolean;

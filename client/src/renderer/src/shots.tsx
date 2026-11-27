@@ -1315,7 +1315,7 @@ function settingsView(): void {
     setCameraQuality: async () => vstate,
   }));
   // ?mode=guest: a guest (Profile is the nick); ?mode=signedout: the login
-  // screen's settings (Appearance and About only).
+  // screen's settings (Privacy, Appearance and About only).
   const mode = q.get('mode');
   if (mode === 'guest') saveGuestSession({ nick: 'ada_guest' });
   else clearGuestSession();

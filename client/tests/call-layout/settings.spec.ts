@@ -115,20 +115,20 @@ for (const [name, w, h, plat] of [['desktop', 1440, 900, ''], ['iphone', 390, 84
     await expect(dialog.getByRole('checkbox', { name: 'Use TLS', exact: true })).toBeChecked();
   });
 
-  test(`user settings on ${name}: before signing in, Appearance and About only`, async ({ page }) => {
+  test(`user settings on ${name}: before signing in, Privacy, Appearance and About only`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await page.goto(`/shots.html?view=settings&section=about&mode=signedout${plat}`);
     const dialog = page.getByRole('dialog');
     await expect(dialog.locator('.user-settings-row').filter({ hasText: 'Platform' })).not.toContainText(/MacIntel|Win32|x86_64/);
     if (phone) {
       await dialog.getByRole('button', { name: 'Back to settings' }).click();
-      await expect(dialog.locator('.settings-phone-list nav .bds-row-title')).toHaveText(['Appearance', 'About']);
-      // No profile card, no search, no headings for two rows.
+      await expect(dialog.locator('.settings-phone-list nav .bds-row-title')).toHaveText(['Privacy', 'Appearance', 'About']);
+      // No profile card, no search, no headings for so few rows.
       await expect(dialog.locator('.user-settings-phone-profile')).toHaveCount(0);
       await expect(dialog.getByRole('searchbox')).toHaveCount(0);
       await expect(dialog.locator('.settings-phone-heading')).toHaveCount(0);
     } else {
-      await expect(dialog.getByRole('tab')).toHaveText(['Appearance', 'About']);
+      await expect(dialog.getByRole('tab')).toHaveText(['Privacy', 'Appearance', 'About']);
       await expect(dialog.locator('.settings-menu-heading')).toHaveCount(0);
     }
   });
