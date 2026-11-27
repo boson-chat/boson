@@ -34,8 +34,12 @@ accounts:
   authentication-enabled: true
   require-sasl:
     enabled: true
+  # Webpush needs always-on to be possible; opt-in keeps every other spec's
+  # one-connection-per-account behaviour.
   multiclient:
-    enabled: false
+    enabled: true
+    allowed-by-default: false
+    always-on: opt-in
   nick-reservation:
     enabled: false
   default-user-modes: ""
@@ -85,6 +89,18 @@ fakelag:
 
 history:
   enabled: false
+
+# draft/webpush, as the boson stack renders it (docs/push.md §1): the app
+# sees the cap and VAPID= and registers (push.spec.ts). Ergo can't push to a
+# test receiver here (it refuses internal addresses), so the spec checks the
+# client's side: the registration it sends and the worker that shows pushes.
+webpush:
+  enabled: true
+  timeout: 3s
+  delay: 0s
+  subscriber: "https://ergo2.e2e.example/"
+  max-subscriptions: 8
+  expiration: 30d
 
 logging:
   - method: stderr

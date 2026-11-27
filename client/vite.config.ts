@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import preact from '@preact/preset-vite';
+import { build as esbuild } from 'esbuild';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -76,6 +77,9 @@ function injectFreshEngineDiscovery(): Plugin {
 // stack's hosts), so the desktop's meta CSP is dropped; /boson-config.js
 // (runtime settings, rewritten by the container) loads before the app.
 const webBuild = process.env['VITE_BOSON_SHELL'] === 'web';
+// Coverage builds for the real-app e2e suite (E2E_COVERAGE=1) keep source
+// maps and skip minifying, so V8 coverage maps back onto src/ lines.
+const coverageBuild = process.env['E2E_COVERAGE'] === '1';
 const webGen = resolve(__dirname, 'src/renderer/src/platform/web/gen');
 
 function webShell(): Plugin {
@@ -87,7 +91,14 @@ function webShell(): Plugin {
         .replace(/\s*<meta\s+http-equiv="Content-Security-Policy"[\s\S]*?\/>/i, '')
         .replace(/(<script type="module")/, '<script src="./boson-config.js"></script>\n    $1');
     },
-    generateBundle() {
+    async generateBundle() {
+      // The push service worker (platform/web/push-sw.ts): its own bundle at
+      // a fixed name, since its URL is its identity (and sets its scope).
+      const sw = await esbuild({
+        entryPoints: [resolve(__dirname, 'src/renderer/src/platform/web/push-sw.ts')],
+        bundle: true, write: false, format: 'iife', target: 'es2020', minify: !coverageBuild,
+      });
+      this.emitFile({ type: 'asset', fileName: 'push-sw.js', source: sw.outputFiles[0]!.text });
       // Defaults from the build's env; the web container overwrites it.
       const cfg = {
         authUrl: process.env['VITE_AUTH_URL'] || undefined,
@@ -109,9 +120,6 @@ function webShell(): Plugin {
   };
 }
 
-// Coverage builds for the real-app e2e suite (E2E_COVERAGE=1) keep source
-// maps and skip minifying, so V8 coverage maps back onto src/ lines.
-const coverageBuild = process.env['E2E_COVERAGE'] === '1';
 
 export default defineConfig({
   root: resolve(__dirname, 'src/renderer'),

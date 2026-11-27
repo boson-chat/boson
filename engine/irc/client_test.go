@@ -584,3 +584,22 @@ func TestNew_SeedsServicesFramework(t *testing.T) {
 		t.Fatalf("unseeded Services() = %q, want empty", got)
 	}
 }
+
+// draft/webpush: the cap is asked for, and the server's WEBPUSH answers
+// reach the renderer with their parameters (modules/push).
+func TestWebpushCapAndReplies(t *testing.T) {
+	c, err := New(Config{Hostname: "irc", Port: 6697, Nick: "alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.girc.Config.SupportedCaps["draft/webpush"]; !ok {
+		t.Fatal("draft/webpush is not requested")
+	}
+	got := translate(girc.Event{
+		Command: "WEBPUSH",
+		Source:  &girc.Source{Name: "irc.example.org"},
+		Params:  []string{"REGISTER", "https://push.example/1", "p256dh=abc;auth=def"},
+	})
+	assert.Equal(t, "WEBPUSH", got.Kind)
+	assert.Equal(t, []string{"REGISTER", "https://push.example/1", "p256dh=abc;auth=def"}, got.Args)
+}
