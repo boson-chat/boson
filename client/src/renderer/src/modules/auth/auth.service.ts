@@ -101,6 +101,15 @@ export interface AuthConfig {
   // The network channels (fixed channels its services keep), with the ones
   // new people are joined to. Absent on older servers.
   channels?: NetworkChannel[];
+  // Where accounts live and what sign-up does there. signup is false while
+  // registration is closed (and on a NickServ backend that can't register);
+  // invite-only keeps it true. Absent on older servers.
+  accounts?: {
+    backend?: string;
+    signup?: boolean;
+    signup_message?: string | null;
+    password_reset?: boolean;
+  };
 }
 
 export interface NetworkChannel {

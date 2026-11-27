@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { Button, Field, Input } from '@boson/shared';
-import { describeAuthError, guestAccessAllowed, type AuthConfig } from '../../modules/auth';
-import { hostOf, type NetworkAccounts } from '../../modules/netauth/network-accounts';
+import { describeAuthError, guestAccessAllowed, signupMode, type AuthConfig } from '../../modules/auth';
+import { hostOf, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
 import {
   enterToAddServer, enterWithServer, resolveOtherServer, type IrcTarget, type ResolveOutcome,
 } from '../../modules/netauth/other-server';
@@ -20,6 +20,13 @@ interface Props {
   onAddress?: (address: string | null) => void;
   // The found network's IRC host (its branding is looked up by it).
   onNetworkHost?: (host: string | null) => void;
+  // Look initialAddress up at once.
+  autoLookUp?: boolean;
+  // Signing in there to come back (the login screen's "Continue with
+  // boson.chat"): what to do once signed in, in place of entering the app
+  // with that server; and a line saying so above its sign-in. No guest way
+  // in there then.
+  comeBack?: { lede: string; onSignedIn: (link: NetworkLink) => void };
 }
 
 type Step =
@@ -28,7 +35,7 @@ type Step =
   // A nick for a guest connect (guest) or for the manual add (plain).
   | { kind: 'nick'; mode: 'guest' | 'plain'; outcome: ResolveOutcome; name: string; irc: IrcTarget | null };
 
-export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, onNetworkHost }: Props) {
+export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, onNetworkHost, autoLookUp = false, comeBack }: Props) {
   const home = useHomeNetwork();
   const [address, setAddress] = useState(initialAddress);
   const [step, setStep] = useState<Step>({ kind: 'address' });
@@ -36,8 +43,8 @@ export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, 
   const live = useRef(true);
   useEffect(() => () => { live.current = false; }, []);
 
-  const lookUp = (e: Event): void => {
-    e.preventDefault();
+  const lookUp = (e?: Event): void => {
+    e?.preventDefault();
     if (busy) return;
     setBusy(true);
     void resolveOtherServer(accounts, address).then((outcome) => {
@@ -48,6 +55,13 @@ export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, 
       onNetworkHost?.(outcome.kind === 'ok' || outcome.kind === 'no-accounts' ? outcome.irc?.host.toLowerCase() ?? null : null);
     });
   };
+
+  const looked = useRef(false);
+  useEffect(() => {
+    if (!autoLookUp || looked.current || !address.trim()) return;
+    looked.current = true;
+    lookUp();
+  });
 
   const change = (): void => {
     setStep({ kind: 'address' });
@@ -65,6 +79,7 @@ export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, 
         accounts={accounts!}
         outcome={step.outcome}
         onChange={change}
+        {...(comeBack ? { comeBack } : {})}
         onGuest={(name) => setStep({ kind: 'nick', mode: 'guest', outcome: step.outcome, name, irc: (step.outcome as { irc: IrcTarget }).irc })}
       />
     );
@@ -129,11 +144,12 @@ export function OtherServer({ accounts, initialAddress = '', onBack, onAddress, 
 }
 
 // A network with accounts: who it is, what it offers, and its sign-in.
-function NetworkStep({ accounts, outcome, onChange, onGuest }: {
+function NetworkStep({ accounts, outcome, onChange, onGuest, comeBack }: {
   accounts: NetworkAccounts;
   outcome: Extract<ResolveOutcome, { kind: 'ok' }>;
   onChange: () => void;
   onGuest: (name: string) => void;
+  comeBack?: Props['comeBack'];
 }) {
   const { link, domain, irc } = outcome;
   const [cfg, setCfg] = useState<AuthConfig | null>(null);
@@ -145,13 +161,14 @@ function NetworkStep({ accounts, outcome, onChange, onGuest }: {
   }, [accounts, link.authUrl]);
 
   const name = (cfg?.site_name || cfg?.network_name || '').trim() || domain;
-  const registration = cfg?.registration ?? 'open';
+  const registration = signupMode(cfg);
   const guestOk = guestAccessAllowed(cfg);
   const providers = cfg?.sso_providers ?? [];
   const auth = accounts.service(link.authUrl);
 
   const signedIn = (): void => {
     accounts.nameIfUnnamed(link.authUrl, name);
+    if (comeBack) { comeBack.onSignedIn(link); return; }
     const session = auth.getState().session;
     const user = session?.user;
     enterWithServer({
@@ -181,6 +198,7 @@ function NetworkStep({ accounts, outcome, onChange, onGuest }: {
           </dl>
         )}
       </section>
+      {comeBack && <p class="otherserver-lede">{comeBack.lede}</p>}
       {cfgError && !cfg ? (
         <div class="login-error" role="alert">Couldn't reach {name}'s sign-in service: {cfgError}</div>
       ) : (
@@ -191,7 +209,7 @@ function NetworkStep({ accounts, outcome, onChange, onGuest }: {
           cfg={cfg}
           cfgError={null}
           reason="connect"
-          guestOk={guestOk}
+          guestOk={guestOk && !comeBack}
           canSignUp={registration !== 'closed'}
           inviteOnly={registration === 'invite'}
           guestLabel={`Continue as guest on ${name}`}

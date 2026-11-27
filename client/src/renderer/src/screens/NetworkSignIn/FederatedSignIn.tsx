@@ -10,7 +10,7 @@ import {
 // choice per account the user already has on a Boson server that can vouch
 // for them there (modules/netauth/federation.ts). Nothing when the network
 // doesn't take accounts from elsewhere or there's no such account.
-export function FederatedSignIn({ accounts, link, name, onSignedIn, onCreateAccount, homes: given }: {
+export function FederatedSignIn({ accounts, link, name, onSignedIn, onCreateAccount, homes: given, signIn, autoStart, divider }: {
   accounts: NetworkAccounts;
   link: NetworkLink;
   // The network's display name.
@@ -21,6 +21,13 @@ export function FederatedSignIn({ accounts, link, name, onSignedIn, onCreateAcco
   onCreateAccount?: () => void;
   // The choices, when the caller already has them (tests, shots).
   homes?: HomeAccount[];
+  // What a choice does (default: NetworkAccounts.signInFederated on link).
+  signIn?: (home: HomeAccount) => Promise<unknown>;
+  // Start with this identity at once (alice@boson.chat), e.g. right after
+  // signing in there to come back here.
+  autoStart?: string | null;
+  // The divider under the choices (default "or use an account on <name>").
+  divider?: string;
 }) {
   const [homes, setHomes] = useState<HomeAccount[] | null>(given ?? null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -35,13 +42,11 @@ export function FederatedSignIn({ accounts, link, name, onSignedIn, onCreateAcco
     return () => { on = false; };
   }, [accounts, link, given]);
 
-  if (!homes || homes.length === 0) return null;
-
   const go = (home: HomeAccount): void => {
     if (busy) return;
     setBusy(home.identity);
     setFailure(null);
-    accounts.signInFederated(link, home).then(() => {
+    (signIn ? signIn(home) : accounts.signInFederated(link, home)).then(() => {
       if (!live.current) return;
       setBusy(null);
       onSignedIn();
@@ -57,6 +62,17 @@ export function FederatedSignIn({ accounts, link, name, onSignedIn, onCreateAcco
       });
     });
   };
+
+  const started = useRef<string | null>(null);
+  useEffect(() => {
+    if (!autoStart || started.current === autoStart) return;
+    const home = homes?.find((h) => h.identity === autoStart);
+    if (!home) return;
+    started.current = autoStart;
+    go(home);
+  });
+
+  if (!homes || homes.length === 0) return null;
 
   return (
     <section class="netauth-fed" aria-label={`Sign in to ${name} with an account you already have`}>
@@ -105,7 +121,7 @@ export function FederatedSignIn({ accounts, link, name, onSignedIn, onCreateAcco
           </div>
         </div>
       )}
-      <div class="login-sso-divider netauth-fed-divider" aria-hidden="true"><span>or use an account on {name}</span></div>
+      <div class="login-sso-divider netauth-fed-divider" aria-hidden="true"><span>{divider ?? `or use an account on ${name}`}</span></div>
     </section>
   );
 }

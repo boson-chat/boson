@@ -23,6 +23,10 @@ export interface LoginState {
   email: string;
   password: string;
   confirmPassword: string;
+  // Sign-up on an invite-only network (registration: "invite"): the code,
+  // asked for first and required.
+  inviteCode: string;
+  inviteRequired: boolean;
   busy: boolean;
   error: string | null;
   // Non-null means the stored encrypted_user_secret is unrecoverable — the
@@ -107,6 +111,8 @@ export class LoginBloc {
     email: '',
     password: '',
     confirmPassword: '',
+    inviteCode: '',
+    inviteRequired: false,
     busy: false,
     error: null,
     unrecoverable: null,
@@ -292,6 +298,17 @@ export class LoginBloc {
     this.setState(this.revalidated({ ...this.state, confirmPassword }));
   }
 
+  setInviteCode(inviteCode: string): void {
+    if (this.state.inviteCode === inviteCode) return;
+    this.setState(this.revalidated({ ...this.state, inviteCode }));
+  }
+
+  // The network's registration is invite-only (its /v1/config).
+  setInviteRequired(inviteRequired: boolean): void {
+    if (this.state.inviteRequired === inviteRequired) return;
+    this.setState({ ...this.state, inviteRequired });
+  }
+
   async signIn(): Promise<void> {
     const { login, password } = this.state;
     this.setState({ ...this.state, error: null, notice: null, unrecoverable: null, recoverable: null, busy: true });
@@ -378,7 +395,7 @@ export class LoginBloc {
   }
 
   async signUp(): Promise<void> {
-    const { username, email, password } = this.state;
+    const { username, email, password, inviteCode, inviteRequired } = this.state;
     // Every field is checked before we touch the network; problems show
     // next to their fields.
     const fieldErrors = allSignupErrors(this.state);
@@ -388,7 +405,9 @@ export class LoginBloc {
     }
     this.setState({ ...this.state, busy: true, error: null, notice: null, unrecoverable: null, fieldErrors: {} });
     try {
-      const { verificationRequired } = await this.auth.signUp({ username: username.trim(), email, password });
+      const { verificationRequired } = await this.auth.signUp({
+        username: username.trim(), email, password, ...(inviteRequired ? { invite_code: inviteCode.trim() } : {}),
+      });
       if (verificationRequired) {
         // The auth service emailed a verification link. Sign-in works once
         // it's opened; Continue on the panel signs in with these details.

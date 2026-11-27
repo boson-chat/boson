@@ -85,6 +85,8 @@ describe('LoginBloc', () => {
         email: '',
         password: '',
         confirmPassword: '',
+        inviteCode: '',
+        inviteRequired: false,
         busy: false,
         error: null,
         unrecoverable: null,

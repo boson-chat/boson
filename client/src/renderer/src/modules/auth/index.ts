@@ -5,3 +5,4 @@ export {
 export { AuthProvider, useAuthService, useAuthState, useOptionalAuthService } from './auth.context';
 export { validateHandle, validateUsername } from './username';
 export { signInWithProvider, ssoBridge, pkcePair, ssoStartUrl, describeSSOError, SSO_CANCELLED, type SSOBridge } from './sso';
+export { signupMode, closedSignupLine, type SignupMode } from './registration';

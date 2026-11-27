@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { guestAccessAllowed, useAuthService, useAuthState } from '../../modules/auth';
+import { ChevronRight } from 'lucide-preact';
+import { closedSignupLine, guestAccessAllowed, signupMode, useAuthService, useAuthState, type AuthConfig } from '../../modules/auth';
 import type { DirectoryService } from '../../modules/directory';
 import type { IdentityService } from '../../modules/identity';
 import { Button, Card, Field, Input, Logo, Tabs } from '@boson/shared';
@@ -7,10 +8,14 @@ import { PASSWORD_MIN } from '../../modules/auth/signup-rules';
 import { LoginBloc, type LoginMode } from './LoginBloc';
 import { emitGuestChange, saveGuestSession } from '../../modules/guest/guest';
 import { sanitizeIrcNick } from '../../modules/identity/nick';
-import { getNetworkAccounts, type NetworkAccounts } from '../../modules/netauth/network-accounts';
-import { clearLastServer, enterWithServer, loadLastServer, type LastServer } from '../../modules/netauth/other-server';
+import { getNetworkAccounts, normalizeAuthBase, type NetworkAccounts, type NetworkLink } from '../../modules/netauth/network-accounts';
+import {
+  clearLastServer, enterHomeFederated, enterWithServer, loadLastServer, type LastServer,
+} from '../../modules/netauth/other-server';
+import { acceptsFederation, type HomeAccount } from '../../modules/netauth/federation';
 import { OtherServer } from './OtherServer';
-import { useHomeNetwork } from '../../modules/netauth/home-network';
+import { BOSON_CHAT_HOME, useHomeNetwork, type HomeNetwork } from '../../modules/netauth/home-network';
+import { FederatedSignIn } from '../NetworkSignIn/FederatedSignIn';
 import { MAIN_NETWORK_KEY, useNetworkThemes } from '../../modules/ui/theme';
 import { NetworkLoginLogo, loginBackdrop } from '../NetworkSignIn/NetworkBrand';
 import './LoginScreen.css';
@@ -51,12 +56,35 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   // The home network's own IRC may take no guests (guest_access: false). Guest
   // mode still reaches other networks, so it stays; it just says so.
   const [mainGuestOk, setMainGuestOk] = useState(true);
+  // The home network's public settings: its sign-up (open, invite-only or
+  // closed). Until they're in, the Signup tab waits, so a closed network
+  // doesn't flash one.
+  const [mainCfg, setMainCfg] = useState<AuthConfig | null>(null);
+  const [cfgSettled, setCfgSettled] = useState(() => typeof auth.config !== 'function');
   useEffect(() => {
     if (typeof auth.config !== 'function') return;
     let live = true;
-    auth.config().then((c) => { if (live) setMainGuestOk(guestAccessAllowed(c)); }, () => {});
+    auth.config().then((c) => {
+      if (!live) return;
+      setMainGuestOk(guestAccessAllowed(c));
+      setMainCfg(c);
+      setCfgSettled(true);
+    }, () => { if (live) setCfgSettled(true); });
     return () => { live = false; };
   }, [auth]);
+  const signupKind = signupMode(mainCfg);
+  const canSignUp = cfgSettled && signupKind !== 'closed';
+  useEffect(() => { bloc.setInviteRequired(signupKind === 'invite'); }, [bloc, signupKind]);
+  useEffect(() => { if (!canSignUp && cfgSettled && mode === 'signup') bloc.setMode('login'); }, [bloc, canSignUp, cfgSettled, mode]);
+
+  // Federated sign-in to the home network (a self-hosted web client's
+  // network that takes accounts from other Boson servers): "Continue as
+  // alice@boson.chat" for accounts already signed in here, or "Continue
+  // with boson.chat" to sign in there first and come back.
+  const fed = useHomeFederation(accounts, home);
+  const [comeBack, setComeBack] = useState(false);
+  const [autoStart, setAutoStart] = useState<string | null>(null);
+  const [fedNote, setFedNote] = useState<string | null>(null);
 
   // "Use another server": another network instead of the app's own.
   const [other, setOther] = useState(false);
@@ -74,6 +102,12 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
   useEffect(() => { if (otherHost) void themes.refresh(otherHost); }, [otherHost, themes]);
   const brandKey = other ? otherHost : MAIN_NETWORK_KEY;
   const brand = brandKey ? themes.brandingFor(brandKey) : null;
+  // Its colours too, while its sign-in is on screen (as the chat applies
+  // the active server's): the user's own theme, and Boson's defaults, come
+  // back when it goes. The switches (Appearance → "Use network themes",
+  // per network) and the app's dark / light mode apply as in the chat.
+  useEffect(() => { themes.setActive(brandKey); }, [themes, brandKey]);
+  useEffect(() => () => themes.setActive(null), [themes]);
   const brandName = other ? (otherAddress ?? '') : home.name;
   const backdrop = loginBackdrop(brand);
   const logo = brand?.applied && (brand.logo || brand.logoWide)
@@ -84,6 +118,18 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
         <p class="login-pitch">Chat, voice and video with your communities, in one app.</p>
       </div>
     );
+
+  // Signed in at boson.chat to come back: the home network's "Continue
+  // as …" for that account, started at once.
+  const backFromHome = async (signedIn: NetworkLink): Promise<void> => {
+    setOther(false); setOtherAddress(null); setOtherHost(null); setComeBack(false);
+    setFedNote(null);
+    if (!accounts || !fed.link) return;
+    const homes = await accounts.homeAccounts(fed.link).catch(() => [] as HomeAccount[]);
+    const h = homes.find((x) => normalizeAuthBase(x.authUrl) === normalizeAuthBase(signedIn.authUrl));
+    if (h) setAutoStart(h.identity);
+    else setFedNote(`You're signed in to ${BOSON_CHAT_HOME.domain}, but it can't sign you in to ${home.name}.`);
+  };
 
   const onSubmit = (kind: 'signin' | 'signup', e: Event) => {
     e.preventDefault();
@@ -292,7 +338,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
         size="sm"
         class="login-server-switch"
         aria-label={other ? undefined : 'Change: use another server'}
-        onClick={() => { setOther(!other); setOtherAddress(null); setOtherHost(null); }}
+        onClick={() => { setOther(!other); setOtherAddress(null); setOtherHost(null); setComeBack(false); }}
       >
         {other ? `Back to ${home.name}` : 'Change'}
       </Button>
@@ -308,10 +354,17 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
           <Card>
             <OtherServer
               accounts={accounts ?? null}
-              initialAddress={resume.last?.address ?? ''}
-              onBack={() => { setOther(false); setOtherAddress(null); setOtherHost(null); }}
+              initialAddress={comeBack ? BOSON_CHAT_HOME.domain : resume.last?.address ?? ''}
+              autoLookUp={comeBack}
+              onBack={() => { setOther(false); setOtherAddress(null); setOtherHost(null); setComeBack(false); }}
               onAddress={setOtherAddress}
               onNetworkHost={setOtherHost}
+              {...(comeBack ? {
+                comeBack: {
+                  lede: `Sign in to ${BOSON_CHAT_HOME.domain}, or create an account there. Then you'll come back to ${home.name} with it: no password is shared.`,
+                  onSignedIn: (link: NetworkLink) => { void backFromHome(link); },
+                },
+              } : {})}
             />
           </Card>
         </div>
@@ -361,7 +414,16 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
     );
   }
 
-  const signup = mode === 'signup';
+  const signup = mode === 'signup' && canSignUp;
+  // "Continue with boson.chat" (sign in there first): while sign-up is
+  // closed, the network takes accounts from elsewhere, no boson.chat
+  // account is signed in here yet, and this app can look boson.chat up.
+  const offerBosonChat = !!fed.link && !canSignUp && cfgSettled && !!accounts?.canResolve
+    && home.domain !== BOSON_CHAT_HOME.domain && !fed.homes.some((h) => h.domain === BOSON_CHAT_HOME.domain);
+  const fedOffered = !fed.link ? null
+    : offerBosonChat ? `your ${BOSON_CHAT_HOME.domain} account`
+      : fed.homes.length === 1 ? `your ${fed.homes[0]!.domain} account`
+        : fed.homes.length > 1 ? 'an account you already have' : null;
   const usernameError = fieldErrors.username ?? usernameProblem ?? undefined;
 
   return (
@@ -385,16 +447,34 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
           </div>
         )}
 
-        <Tabs
-          tabs={[
-            { id: 'login', label: 'Login' },
-            { id: 'signup', label: 'Signup' },
-          ]}
-          active={mode}
-          onChange={(id) => bloc.setMode(id as LoginMode)}
-        />
+        {canSignUp ? (
+          <Tabs
+            tabs={[
+              { id: 'login', label: 'Login' },
+              { id: 'signup', label: 'Signup' },
+            ]}
+            active={mode}
+            onChange={(id) => bloc.setMode(id as LoginMode)}
+          />
+        ) : cfgSettled && signupKind === 'closed' ? (
+          <p class="login-closed" role="status">
+            {closedSignupLine({ name: home.name, federated: fedOffered, guests: mainGuestOk })}
+          </p>
+        ) : null}
 
         <Card>
+          {!signup && fed.link && accounts && (
+            <HomeFederation
+              accounts={accounts}
+              link={fed.link}
+              homes={fed.homes}
+              home={home}
+              offerBosonChat={offerBosonChat}
+              autoStart={autoStart}
+              note={fedNote}
+              onBosonChat={() => { setFedNote(null); setOther(true); setOtherAddress(null); setOtherHost(null); setComeBack(true); }}
+            />
+          )}
           <form noValidate={signup} onSubmit={(e) => onSubmit(signup ? 'signup' : 'signin', e)}>
             {signedOutReason === 'expired' && !signup && !error && (
               <div class="login-notice" role="status">
@@ -417,6 +497,26 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
               </Field>
             ) : (
               <>
+                {state.inviteRequired && (
+                  <Field
+                    label="Invite code"
+                    hint={`${home.name} takes new accounts by invite. Ask its admins for a code.`}
+                    error={fieldErrors.inviteCode}
+                  >
+                    <Input
+                      type="text"
+                      placeholder="invite code"
+                      value={state.inviteCode}
+                      onInput={(e) => bloc.setInviteCode((e.target as HTMLInputElement).value)}
+                      onBlur={() => bloc.blurField('inviteCode')}
+                      invalid={!!fieldErrors.inviteCode}
+                      autoFocus
+                      required
+                      autoComplete="off"
+                      spellcheck={false}
+                    />
+                  </Field>
+                )}
                 <Field
                   label="Username"
                   hint="Your name on Boson and in chat. Up to 30 letters, digits, - or _, starting with a letter."
@@ -429,7 +529,7 @@ export function LoginScreen({ directory, identity, accounts = getNetworkAccounts
                     onInput={(e) => bloc.setUsername((e.target as HTMLInputElement).value)}
                     onBlur={() => bloc.blurField('username')}
                     invalid={!!usernameError}
-                    autoFocus
+                    autoFocus={!state.inviteRequired}
                     required
                     autoComplete="username"
                     spellcheck={false}
@@ -621,4 +721,93 @@ function useLastServer(accounts: NetworkAccounts | null | undefined): {
     user,
     forget: () => { clearLastServer(); setLast(null); setUser(null); },
   };
+}
+
+// The home network as a remote for federated sign-in: its link (with the
+// boson.json federation block) when it takes accounts from other Boson
+// servers, and the accounts signed in here that can vouch for the user
+// there. Self-hosted web clients only: boson.chat's own app has nowhere
+// else to come from.
+function useHomeFederation(accounts: NetworkAccounts | null | undefined, home: HomeNetwork): {
+  link: NetworkLink | null;
+  homes: HomeAccount[];
+} {
+  const [link, setLink] = useState<NetworkLink | null>(null);
+  const [homes, setHomes] = useState<HomeAccount[]>([]);
+  useEffect(() => {
+    setLink(null);
+    setHomes([]);
+    if (!accounts?.supported || !home.selfHosted) return;
+    let live = true;
+    let off = (): void => {};
+    accounts.mainNetworkLink().then((l) => {
+      if (!live || !l || !acceptsFederation(l.federation, l.authUrl)) return;
+      setLink(l);
+      const load = (): void => {
+        accounts.homeAccounts(l).then((h) => {
+          if (live) setHomes((prev) => (sameHomes(prev, h) ? prev : h));
+        }, () => {});
+      };
+      load();
+      off = accounts.subscribe(load);
+    }, () => {});
+    return () => { live = false; off(); };
+  }, [accounts, home.selfHosted]);
+  return { link, homes };
+}
+
+function sameHomes(a: HomeAccount[], b: HomeAccount[]): boolean {
+  return a.length === b.length && a.every((h, i) => h.identity === b[i]!.identity);
+}
+
+// Above the home network's sign-in form: "Continue as alice@boson.chat"
+// (federated sign-in, FederatedSignIn) for each account that can vouch,
+// else "Continue with boson.chat" (sign in there first, then come back).
+function HomeFederation({ accounts, link, homes, home, offerBosonChat, autoStart, note, onBosonChat }: {
+  accounts: NetworkAccounts;
+  link: NetworkLink;
+  homes: HomeAccount[];
+  home: HomeNetwork;
+  offerBosonChat: boolean;
+  autoStart: string | null;
+  note: string | null;
+  onBosonChat: () => void;
+}) {
+  const divider = `or sign in to ${home.name}`;
+  const signIn = (h: HomeAccount): Promise<void> => enterHomeFederated({
+    accounts,
+    link: { ...link, ...(home.irc?.host ? { host: home.irc.host.toLowerCase() } : {}) },
+    home: h,
+    irc: home.irc ?? null,
+    name: home.name,
+  });
+  return (
+    <>
+      {note && <div class="login-error" role="alert">{note}</div>}
+      {homes.length > 0 ? (
+        <FederatedSignIn
+          accounts={accounts}
+          link={link}
+          name={home.name}
+          homes={homes}
+          signIn={signIn}
+          autoStart={autoStart}
+          divider={divider}
+          onSignedIn={() => {}}
+        />
+      ) : offerBosonChat ? (
+        <section class="netauth-fed login-fed" aria-label={`Sign in to ${home.name} with a ${BOSON_CHAT_HOME.domain} account`}>
+          <button type="button" class="netauth-fed-choice login-fed-boson" onClick={onBosonChat}>
+            <span class="netauth-fed-avatar login-fed-mark" aria-hidden="true">{BOSON_CHAT_HOME.domain[0]!.toUpperCase()}</span>
+            <span class="netauth-fed-body">
+              <span class="netauth-fed-title">Continue with {BOSON_CHAT_HOME.domain}</span>
+              <span class="netauth-fed-sub">Sign in or sign up there, then come back. No password is shared.</span>
+            </span>
+            <ChevronRight size={16} class="netauth-fed-chevron" aria-hidden="true" />
+          </button>
+          <div class="login-sso-divider netauth-fed-divider" aria-hidden="true"><span>{divider}</span></div>
+        </section>
+      ) : null}
+    </>
+  );
 }
