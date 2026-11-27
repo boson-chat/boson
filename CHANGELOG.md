@@ -1,3 +1,9 @@
+## [0.102.1](https://github.com/boson-chat/boson/compare/v0.102.0...v0.102.1) (2026-11-27)
+
+### Bug Fixes
+
+* **web:** a self-hosted web client presents its own network, not boson.chat ([#168](https://github.com/boson-chat/boson/issues/168)) ([c2aada7](https://github.com/boson-chat/boson/commit/c2aada7ee8b246aceb2316346c48034c7dcef770))
+
 ## [0.102.0](https://github.com/boson-chat/boson/compare/v0.101.3...v0.102.0) (2026-11-26)
 
 ### Features
